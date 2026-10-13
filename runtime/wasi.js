@@ -142,11 +142,13 @@ export class Network {
     this.next = 2;
     this.ephemeral = 50000;
   }
+  // A listener's queue, on `port` or (0) a free one: { queue, port }.
   listen(port) {
+    if (port === 0) do port = this.ephemeral++; while (this.listeners.has(port));
     if (this.listeners.has(port)) return null;
     const queue = [];
     this.listeners.set(port, queue);
-    return queue;
+    return { queue, port };
   }
   // A connection to the node's listener on `port` from the page.
   accepted(id, port) {
@@ -372,6 +374,8 @@ export class WASI {
       environ_sizes_get: (c, s) => env.sizes(c, s),
       environ_get: (p, b) => env.get(p, b),
       clock_time_get(id, _precision, ptr) {
+        // The scheduler reads the clock between slices: interrupts land.
+        self.pump();
         const time = id === 0 ? now() : BigInt(Math.round(performance.now() * 1e6));
         self.view().setBigUint64(ptr, time, true);
         return ok;
@@ -450,6 +454,11 @@ export class WASI {
       fd_filestat_get(fd, ptr) {
         const entry = self.fds.get(fd);
         if (!entry) return E.BADF;
+        // A listener's size is its port (wasm_net.rs).
+        if (entry.listener) {
+          self.filestat(ptr, { ino: 0n, size: entry.port, mtime: now() });
+          return ok;
+        }
         self.filestat(ptr, entry.stream ? null : entry.node);
         return ok;
       },
@@ -587,9 +596,9 @@ export class WASI {
           const net = self.network;
           let entry;
           if (op === 'listen') {
-            const queue = net.listen(Number(b));
-            if (!queue) return E.ADDRINUSE;
-            entry = { listener: queue, port: Number(b) };
+            const listening = net.listen(Number(b));
+            if (!listening) return E.ADDRINUSE;
+            entry = { listener: listening.queue, port: listening.port };
           } else if (op === 'conn') {
             const endpoint = net.waiting.get(Number(a));
             if (!endpoint) return E.NOENT;
@@ -671,7 +680,17 @@ export class WASI {
         if (from.node instanceof Dir) from.node.parent = to.parent;
         return ok;
       },
-      path_link: () => E.NOTSUP,
+      // A hard link: the same file under a second name.
+      path_link(fd, _flags, oldPtr, oldLen, fd2, newPtr, newLen) {
+        const from = self.resolve(fd, self.string(oldPtr, oldLen));
+        if (!from.node) return from.error;
+        if (from.node instanceof Dir) return E.PERM;
+        const to = self.resolve(fd2, self.string(newPtr, newLen));
+        if (to.node) return E.EXIST;
+        if (!to.parent) return to.error;
+        to.parent.entries.set(to.name, from.node);
+        return ok;
+      },
       path_readlink: () => E.INVAL,
       sock_accept: () => E.NOSYS,
       sock_shutdown: () => E.NOSYS,

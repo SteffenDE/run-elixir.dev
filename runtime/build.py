@@ -70,7 +70,7 @@ def main():
     out = os.path.join(ROOT, "target", "playground", site)
     shutil.rmtree(out, ignore_errors=True)
     shutil.copytree(os.path.join(ROOT, "playground", site), out)
-    for name in ("wasi.js", "worker.js"):
+    for name in ("wasi.js", "worker.js", "host.js", "terminal.js"):
         shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
     shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
     boot = booted()
