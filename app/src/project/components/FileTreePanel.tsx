@@ -7,6 +7,16 @@ import { WORK, useStore } from '@/project/lib/store';
 
 const decoder = new TextDecoder();
 
+// Elixir's files get a drop (the built-in icon sets have none for them).
+const ICONS = {
+  set: 'complete' as const,
+  spriteSheet: `<svg xmlns="http://www.w3.org/2000/svg" style="display: none"><symbol id="playground-elixir" viewBox="0 0 16 16">
+    <path fill="#6e4a9e" d="M8 1.2C6.1 4 3.4 7.3 3.4 10.3c0 2.6 2 4.5 4.6 4.5s4.6-1.9 4.6-4.5C12.6 7.3 9.9 4 8 1.2Z"/>
+    <path fill="#b79ae0" d="M6.6 6.1c-.9 1.5-1.6 3-1.6 4.3 0 1 .4 1.9 1.1 2.4-.2-1.9.2-4.2.5-6.7Z"/>
+  </symbol></svg>`,
+  byFileExtension: { ex: 'playground-elixir', exs: 'playground-elixir' },
+};
+
 // Tree paths are relative to /work; directories end in a slash.
 const absolute = (path: string) => `${WORK}/${path.replace(/\/$/, '')}`;
 const baseName = (path: string) => path.replace(/\/$/, '').replace(/^.*\//, '');
@@ -43,6 +53,7 @@ export function FileTreePanel() {
   const { model } = useFileTree({
     paths: [],
     density: 'compact',
+    icons: ICONS,
     search: true,
     fileTreeSearchMode: 'hide-non-matches',
     // Room around the search field, which sits flush with the panel's top.
