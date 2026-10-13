@@ -48,6 +48,10 @@ export class Bridge {
   // again when another worker takes over.
   static async register(url = 'sw.js', scope = './', key = 'default') {
     await navigator.serviceWorker.register(url, { scope });
+    // A forced reload (shift-reload) loads the page uncontrolled; the
+    // active worker takes it over when asked.
+    const { active } = await navigator.serviceWorker.ready;
+    if (!navigator.serviceWorker.controller) active.postMessage('claim');
     await Bridge.announce({ kind: 'host', key });
   }
 

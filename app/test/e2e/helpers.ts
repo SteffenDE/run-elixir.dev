@@ -32,9 +32,13 @@ export async function serverRunning(page: Page): Promise<void> {
 
 // A shell's output without colours (the first shell's by default).
 export function output(page: Page, session = 1): Promise<string> {
-  return page
-    .evaluate((id) => window.playground?.sessions.get(id)?.backlog ?? '', session)
-    .then(strip);
+  return (
+    page
+      .evaluate((id) => window.playground?.sessions.get(id)?.backlog ?? '', session)
+      // Navigating: nothing yet.
+      .catch(() => '')
+      .then(strip)
+  );
 }
 
 const prompts = (text: string) => (text.match(/~\S* \$ /g) ?? []).length;

@@ -46,3 +46,18 @@ test('an unknown project is not found', async ({ page }) => {
   await page.goto('/abcdefghij/');
   await expect(page.getByText('There is no such project in this browser.')).toBeVisible();
 });
+
+test('a project starts again after a forced reload', async ({ page, browserName }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  // Firefox's reload here loads the page without its service worker, as a
+  // forced reload does; Chromium's needs asking.
+  if (browserName === 'chromium') {
+    const cdp = await page.context().newCDPSession(page);
+    await Promise.all([
+      page.waitForEvent('framenavigated'),
+      cdp.send('Page.reload', { ignoreCache: true }),
+    ]);
+  } else await page.reload();
+  await prompted(page, 1);
+});

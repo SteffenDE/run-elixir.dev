@@ -72,6 +72,10 @@ function remember(id, key) {
 }
 
 self.addEventListener('message', (event) => {
+  if (event.data === 'claim') {
+    event.waitUntil(self.clients.claim());
+    return;
+  }
   const { kind, key } = event.data ?? {};
   if (kind === 'host') {
     hosts.set(key, event.source.id);
