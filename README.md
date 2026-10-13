@@ -17,7 +17,9 @@ Web Worker.
     programs it may spawn (`git`, `esbuild`, `tailwind`) in place of the
     OS's.
   - `sw.js`, `bridge.js`: the preview iframe's HTTP requests, through a
-    service worker, to the node's listener.
+    service worker, to the node's listener. The service worker answers only
+    the preview's requests; the playground's own go straight to the
+    network.
   - `postgres.js`: Postgrex's connections to PGlite on the page.
 - `elixir/`: IEx in xterm.js (elixir-playground.steffend.me).
 - `phoenix/`: a `phx.new` app with a shell, its preview and PGlite
@@ -58,7 +60,9 @@ it runs the site's first command in the WebAssembly node under Node with
 every file fetched lazily, and records which files it fetches. Those go
 in `fs/boot.tar.gz` (Elixir: about 4 MB; Phoenix: about 18 MB); the rest
 are listed in `fs/manifest.json` and fetched one by one, the first time
-the node opens them.
+the node opens them. They are served in bundles (`fs/bundles/N.tar`,
+a directory's files up to 512 KB each), so a miss brings its neighbours
+too.
 
 Under Node (24; 22's WASI crashes partway through a boot), without a
 browser:

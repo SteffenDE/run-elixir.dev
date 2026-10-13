@@ -44,13 +44,20 @@ export class Node {
     this.connections = new Map();
     this.next = 1;
     this.serve = serve;
-    this.worker = new Worker(new URL('worker.js', new URL(base, location.href)), { type: 'module' });
+    // A blob that imports worker.js: Firefox does not start a worker from
+    // a page its service worker controls (the Phoenix playground's); a
+    // blob worker takes the page's cross-origin isolation in both.
+    const script = new URL('worker.js', new URL(base, location.href)).href;
+    const blob = new Blob([`import ${JSON.stringify(script)};`], { type: 'text/javascript' });
+    this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
     this.worker.onmessage = ({ data }) => {
       if (data.kind === 'out') onoutput(data.payload);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
       else if (data.kind === 'net') this.network(data);
     };
+    // A worker that does not load (or throws outside its own handler).
+    this.worker.onerror = (event) => onstatus(`failed: ${event.message || 'the worker did not start'}`);
   }
 
   // shell: a shell (true), or one command: { args, env }.

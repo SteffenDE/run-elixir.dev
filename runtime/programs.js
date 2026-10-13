@@ -1,6 +1,6 @@
 // Programs a playground node can run (open_port, System.cmd), in place of
 // the OS's. Each gets its Process (write, exit) and { args, cwd, env, root }.
-import { Dir, File } from './wasi.js';
+import { Dir, File, load } from './wasi.js';
 
 function lookup(root, path) {
   let node = root;
@@ -15,11 +15,7 @@ const absolute = (cwd, path) => (path.startsWith('/') ? path : `${cwd}/${path}`)
 const read = (root, path, fetch) => {
   const node = lookup(root, path);
   if (!(node instanceof File)) return null;
-  if (node.source) {
-    node.data = fetch(node.source);
-    node.size = node.data.length;
-    node.source = null;
-  }
+  load(node, fetch);
   return new TextDecoder().decode(node.bytes);
 };
 

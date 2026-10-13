@@ -11,9 +11,10 @@ phoenix, a phx.new app at /work/playground.
   running it in the WebAssembly node under Node (docker run node:24) with
   every file fetched lazily, plus what must be there before (.app, .boot
   and release files, erts's preloaded modules);
-- fs/manifest.json: every other file's path and size, for stat and
-  readdir;
-- fs/files/PATH: those files, fetched by the node when it first opens one.
+- fs/manifest.json: every other file's path, size, mtime and bundle, for
+  stat and readdir;
+- fs/bundles/N.tar: those files, a directory's in bundles of up to 512 KB,
+  fetched whole by the node when it first opens one of them.
 
 The phoenix app is generated once into target/playground-cache with the
 native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
@@ -247,11 +248,7 @@ def main():
     # Everything lazy first, to record what the first command fetches.
     fs = os.path.join(out, "fs")
     os.makedirs(fs)
-    for path, here in files:
-        target = os.path.join(fs, "files", path)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy(here, target)
-    write_manifest(fs, files)
+    write_lazy(fs, files)
     with tarfile.open(os.path.join(fs, "boot.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT):
         pass
     snapshot = os.path.join(CACHE, f"{site}-snapshot")
@@ -265,10 +262,6 @@ def main():
             written["work/" + os.path.relpath(here, snapshot)] = here
     files = [(path, written.get(path, here)) for path, here in files] + sorted(
         (path, here) for path, here in written.items() if path not in {p for p, _ in files})
-    for path, here in written.items():
-        target = os.path.join(fs, "files", path)
-        os.makedirs(os.path.dirname(target), exist_ok=True)
-        shutil.copy2(here, target)
 
     eager = [(path, here) for path, here in files
              if path in fetched or path.endswith((".app", ".boot"))
@@ -278,17 +271,43 @@ def main():
     with tarfile.open(os.path.join(fs, "boot.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT) as tar:
         for path, here in eager:
             tar.add(here, arcname=path, recursive=False)
-            os.remove(os.path.join(fs, "files", path))
-    write_manifest(fs, lazy)
+    bundles = write_lazy(fs, lazy)
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
     print(f"{out}: rotp.wasm {mb(os.path.join(out, 'rotp.wasm'))}; boot {len(eager)} files "
-          f"({len(fetched)} recorded), {mb(os.path.join(fs, 'boot.tar.gz'))}; {len(lazy)} lazy files")
+          f"({len(fetched)} recorded), {mb(os.path.join(fs, 'boot.tar.gz'))}; {len(lazy)} lazy files "
+          f"in {bundles} bundles")
 
 
-def write_manifest(fs, files):
+# A lazily fetched bundle holds files of one directory, up to this many
+# bytes (one file may be bigger): a miss fetches its neighbours too, which
+# a module's are likely to be needed next.
+BUNDLE = 512 * 1024
+
+
+def write_lazy(fs, files):
+    """files in fs/bundles/N.tar (uncompressed: the server compresses, and
+    the node reads them synchronously), and fs/manifest.json listing each
+    with its size, mtime and bundle. The number of bundles."""
+    shutil.rmtree(os.path.join(fs, "bundles"), ignore_errors=True)
+    os.makedirs(os.path.join(fs, "bundles"))
+    groups = []
+    for path, here in sorted(files):
+        size = os.path.getsize(here)
+        group = groups[-1] if groups else None
+        if not group or group["dir"] != os.path.dirname(path) or group["size"] + size > BUNDLE:
+            group = {"dir": os.path.dirname(path), "size": 0, "files": []}
+            groups.append(group)
+        group["size"] += size
+        group["files"].append((path, here))
+    manifest = []
+    for number, group in enumerate(groups):
+        with tarfile.open(os.path.join(fs, "bundles", f"{number}.tar"), "w", format=tarfile.USTAR_FORMAT) as tar:
+            for path, here in group["files"]:
+                tar.add(here, arcname=path, recursive=False)
+                manifest.append([path, os.path.getsize(here), int(os.path.getmtime(here)), number])
     with open(os.path.join(fs, "manifest.json"), "w") as f:
-        json.dump([[path, os.path.getsize(here), int(os.path.getmtime(here))] for path, here in files],
-                  f, separators=(",", ":"))
+        json.dump(manifest, f, separators=(",", ":"))
+    return len(groups)
 
 
 main()

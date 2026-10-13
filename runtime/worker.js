@@ -7,7 +7,7 @@
 // instance over the same filesystem, as a Unix shell runs processes, and
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node.
-import { WASI, Dir, File, Network, untar, mount } from './wasi.js';
+import { WASI, Dir, File, Network, untar, mount, load, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
 
 const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5 };
@@ -166,23 +166,24 @@ onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) 
   try {
     say('status', 'Loading OTP and Elixir…');
     const [image, manifest, module] = await Promise.all([
-      fetch('fs/boot.tar.gz').then((r) => r.arrayBuffer()),
-      fetch('fs/manifest.json').then((r) => r.json()),
-      WebAssembly.compileStreaming(fetch('rotp.wasm')),
+      fetch(new URL('fs/boot.tar.gz', import.meta.url)).then((r) => r.arrayBuffer()),
+      fetch(new URL('fs/manifest.json', import.meta.url)).then((r) => r.json()),
+      WebAssembly.compileStreaming(fetch(new URL('rotp.wasm', import.meta.url))),
     ]);
     const root = new Dir();
     mount(manifest, root);
     await untar(new Uint8Array(image), root);
     prepare(root);
     const channel = new Channel(shared);
-    const fetchFile = (source) => {
+    // Lazily mounted files come in bundles (fs/bundles/N.tar).
+    const fetchFile = bundled((bundle) => {
       const request = new XMLHttpRequest();
-      request.open('GET', `fs/files/${source}`, false);
+      request.open('GET', new URL(`fs/bundles/${bundle}.tar`, import.meta.url), false);
       request.responseType = 'arraybuffer';
       request.send();
-      if (request.status !== 200) throw new Error(`${source}: ${request.status}`);
+      if (request.status !== 200) throw new Error(`bundle ${bundle}: ${request.status}`);
       return new Uint8Array(request.response);
-    };
+    });
 
     // One node, until it halts or is interrupted.
     const run = async (argv, cwd) => {
@@ -293,11 +294,7 @@ onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) 
               const node = lookup(root, join(cwd, path));
               if (!(node instanceof File)) text(`cat: ${path}: not a file\n`);
               else {
-                if (node.source) {
-                  node.data = fetchFile(node.source);
-                  node.size = node.data.length;
-                  node.source = null;
-                }
+                load(node, fetchFile);
                 say('out', node.bytes.slice());
               }
             }

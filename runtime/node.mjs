@@ -4,7 +4,7 @@
 // input is read whole first and then ends.
 import { readFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
-import { WASI, Dir, File, Network, Exit, untar, mount, urandom } from './wasi.js';
+import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
 
 const [dir, ...args] = process.argv.slice(2);
@@ -37,6 +37,15 @@ const t1 = performance.now();
 const module = await WebAssembly.compile(await readFile(`${dir}/rotp.wasm`));
 let input = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 const wait = new Int32Array(new SharedArrayBuffer(4));
+// Mounted host files, or the site's bundles.
+const fromBundles = bundled((bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)));
+function fetchFile(source, bundle) {
+  fetched++;
+  recorded.push(source);
+  if (process.env.SHOW_FETCH) console.error('fetch', source);
+  const host = hostFiles.get(source);
+  return host ? new Uint8Array(readFileSync(host)) : fromBundles(source, bundle);
+}
 // HTTP=PORT/PATH,...: once the node listens on PORT, GET each PATH from it
 // (one after another) and print the response's status line. STOP_AFTER
 // (ms): interrupt the node then (a server never halts by itself).
@@ -97,8 +106,8 @@ const wasi = new WASI({
   sleep: (ms) => Atomics.wait(wait, 0, 0, Math.min(ms, 5)),
   network,
   pump,
-  programs: programs((source) => new Uint8Array(readFileSync(hostFiles.get(source) ?? `${dir}/fs/files/${source}`))),
-  fetch: (source) => (fetched++, process.env.SHOW_FETCH && console.error("fetch", source), recorded.push(source), new Uint8Array(readFileSync(hostFiles.get(source) ?? `${dir}/fs/files/${source}`))),
+  programs: programs(fetchFile),
+  fetch: fetchFile,
 });
 // TRACE_WASI=1: every WASI call and its result, on standard error.
 if (process.env.TRACE_WASI) {

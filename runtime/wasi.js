@@ -50,16 +50,47 @@ export class File {
   }
 }
 
-// Files that are only listed: `size` bytes, fetched from `source` (a path
-// below the site's fs/files/) by WASI's fetch when first opened.
-// mtime: seconds since the epoch (Mix compares sources and manifests).
+// Files that are only listed (a site's fs/manifest.json): `size` bytes,
+// fetched by WASI's fetch(source, bundle) when first opened; `bundle`
+// names the tar in the site's fs/bundles/ that holds the file. mtime:
+// seconds since the epoch (Mix compares sources and manifests).
 export function mount(manifest, root) {
-  for (const [path, size, mtime] of manifest) {
+  for (const [path, size, mtime, bundle] of manifest) {
     const file = root.put(path, new File());
     file.size = size;
     file.source = path;
+    file.bundle = bundle;
     if (mtime) file.mtime = BigInt(mtime) * 1000000000n;
   }
+}
+
+// A mounted file's bytes, fetched once.
+export function load(node, fetch) {
+  if (node.source) {
+    node.data = fetch(node.source, node.bundle);
+    node.size = node.data.length;
+    node.source = null;
+  }
+}
+
+// fetch(source, bundle) over bundles: get(bundle) is the bundle's tar,
+// synchronously. Each bundle is fetched once; its other files wait in
+// memory until they are opened.
+export function bundled(get) {
+  const waiting = new Map();
+  const loaded = new Set();
+  return (source, bundle) => {
+    if (!waiting.has(source) && !loaded.has(bundle)) {
+      loaded.add(bundle);
+      for (const { name, type, body } of entries(get(bundle))) {
+        if (type === '0') waiting.set(name, body);
+      }
+    }
+    const bytes = waiting.get(source);
+    if (!bytes) throw new Error(`${source}: not in bundle ${bundle}`);
+    waiting.delete(source);
+    return bytes;
+  };
 }
 
 export class Dir {
@@ -230,16 +261,14 @@ export class Process {
   }
 }
 
-// A gzipped tar (ustar, as Python's tarfile writes it) into `root`.
-export async function untar(gzipped, root) {
-  const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'));
-  const tar = new Uint8Array(await new Response(stream).arrayBuffer());
+// The entries of a tar (ustar, as Python's tarfile writes it): name,
+// type ('0' file, '5' directory), body and mtime (ns).
+export function* entries(tar) {
   const text = (from, length) => {
     let end = from;
     while (end < from + length && tar[end] !== 0) end++;
     return new TextDecoder().decode(tar.subarray(from, end));
   };
-  let count = 0;
   let longName = null;
   for (let at = 0; at + 512 <= tar.length; ) {
     if (tar[at] === 0) break;
@@ -255,12 +284,22 @@ export async function untar(gzipped, root) {
     const type = String.fromCharCode(tar[at + 156] || 48);
     const body = at + 512;
     if (type === 'L') longName = text(body, size);
-    else if (type === '5') root.mkdirs(name);
+    else yield { name, type, body: tar.slice(body, body + size), mtime };
+    at = body + Math.ceil(size / 512) * 512;
+  }
+}
+
+// A gzipped tar into `root`: the number of files.
+export async function untar(gzipped, root) {
+  const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'));
+  const tar = new Uint8Array(await new Response(stream).arrayBuffer());
+  let count = 0;
+  for (const { name, type, body, mtime } of entries(tar)) {
+    if (type === '5') root.mkdirs(name);
     else if (type === '0') {
-      root.put(name, new File(tar.slice(body, body + size))).mtime = mtime;
+      root.put(name, new File(body)).mtime = mtime;
       count++;
     }
-    at = body + Math.ceil(size / 512) * 512;
   }
   return count;
 }
@@ -269,7 +308,7 @@ export class WASI {
   // { args, env, root: Dir, stdin(), stdout(bytes), stderr(bytes),
   // sleep(ms), tty }: with tty, the standard streams are terminals.
   // network: a Network; pump(): take in what the page sent, before reads.
-  // fetch(source): a mounted file's bytes, synchronously.
+  // fetch(source, bundle): a mounted file's bytes, synchronously.
   // programs: { name: (process, { args, cwd, env, root }) => ... }, the
   // programs the node may spawn, by base name; a program writes to and
   // exits its Process.
@@ -715,14 +754,10 @@ export class WASI {
           found.parent.mtime = now();
         }
         if (oflags & OFLAGS.DIRECTORY && !(node instanceof Dir)) return E.NOTDIR;
-        if (node.source) {
-          try {
-            node.data = self.fetch(node.source);
-          } catch {
-            return E.IO;
-          }
-          node.size = node.data.length;
-          node.source = null;
+        try {
+          load(node, self.fetch);
+        } catch {
+          return E.IO;
         }
         if (node instanceof File && oflags & OFLAGS.TRUNC) {
           node.truncate(0);
