@@ -152,10 +152,14 @@ export function FileTreePanel() {
     }
     const was = new Set(before);
     const now = new Set(paths);
+    // Against the model too: what it did itself (a move, a folder left
+    // empty) may already be there, or gone.
     const operations = [
-      ...paths.filter((path) => !was.has(path)).map((path) => ({ type: 'add' as const, path })),
+      ...paths
+        .filter((path) => !was.has(path) && !model.getItem(path))
+        .map((path) => ({ type: 'add' as const, path })),
       ...before
-        .filter((path) => !now.has(path))
+        .filter((path) => !now.has(path) && model.getItem(path))
         // An empty directory that now has files is no removal.
         .filter((path) => !(path.endsWith('/') && paths.some((p) => p.startsWith(path))))
         .map((path) => ({ type: 'remove' as const, path, recursive: true })),
