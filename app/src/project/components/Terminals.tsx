@@ -2,6 +2,7 @@ import { Tabs } from '@base-ui/react/tabs';
 import { RiAddLine, RiCloseLine, RiServerLine, RiTerminalBoxLine } from '@remixicon/react';
 import { FIRST_SESSION, closeTerminal, openTerminal } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
+import { disposeTerminal } from '@/project/lib/terminal-handle';
 import { TerminalPanel } from './TerminalPanel';
 
 // The shells, in tabs: the first runs what the project starts with (the
@@ -37,6 +38,7 @@ export function Terminals({ firstTab }: { firstTab: string }) {
                   onClick={(event) => {
                     event.stopPropagation();
                     closeTerminal(id);
+                    disposeTerminal(id);
                   }}
                 >
                   <RiCloseLine size={14} />

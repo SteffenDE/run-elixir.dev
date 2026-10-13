@@ -33,6 +33,7 @@ declare module '@runtime/host.js' {
     ready: Promise<void>;
     worker: Worker;
     flush(): Promise<void>;
+    stat(path: string): Promise<'file' | 'dir' | null>;
     list(path: string, skip?: string[]): Promise<Entry[]>;
     read(path: string): Promise<Uint8Array>;
     write(path: string, data: string | Uint8Array): Promise<void>;

@@ -15,6 +15,10 @@ export interface Tab {
   // The editor's latest text, and what was last saved.
   draft: string;
   saved: string;
+  // Where the caret goes (one-based), and a count bumped to send it there
+  // again in an open tab.
+  line: number;
+  jump: number;
 }
 
 interface State {
@@ -39,7 +43,7 @@ interface State {
   setReady(ready: boolean): void;
   setPreviewPort(port: number | null): void;
   setPaths(paths: string[]): void;
-  open(path: string, contents: string): void;
+  open(path: string, contents: string, line?: number): void;
   close(path: string): void;
   activate(path: string): void;
   edit(path: string, draft: string): void;
@@ -73,12 +77,20 @@ export const useStore = create<State>((set) => ({
   setReady: (ready) => set({ ready }),
   setPreviewPort: (previewPort) => set({ previewPort }),
   setPaths: (paths) => set({ paths }),
-  open: (path, contents) =>
+  open: (path, contents, line = 1) =>
     set((state) =>
       state.tabs.some((tab) => tab.path === path)
-        ? { active: path }
+        ? {
+            active: path,
+            tabs: state.tabs.map((tab) =>
+              tab.path === path ? { ...tab, line, jump: tab.jump + 1 } : tab,
+            ),
+          }
         : {
-            tabs: [...state.tabs, { path, contents, version: 0, draft: contents, saved: contents }],
+            tabs: [
+              ...state.tabs,
+              { path, contents, version: 0, draft: contents, saved: contents, line, jump: 0 },
+            ],
             active: path,
           },
     ),

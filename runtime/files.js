@@ -323,6 +323,8 @@ function page({ id, op, path, to, skip = [], data }) {
       if (found.node instanceof Dir) walk(found.node, path === '/' ? '' : path);
       return { id, entries };
     }
+    case 'stat':
+      return { id, type: found.node instanceof Dir ? 'dir' : found.node instanceof File ? 'file' : null };
     case 'read': {
       if (!(found.node instanceof File)) return { id, error: `${path}: not a file` };
       load(found.node, fetchFile);

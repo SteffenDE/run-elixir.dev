@@ -64,6 +64,10 @@ export class Files {
   list(path, skip = []) {
     return this.ask({ op: 'list', path, skip }).then((r) => r.entries);
   }
+  // 'file', 'dir', or null when there is nothing at `path`.
+  stat(path) {
+    return this.ask({ op: 'stat', path }).then((r) => r.type);
+  }
   read(path) {
     return this.ask({ op: 'read', path }).then((r) => r.data);
   }

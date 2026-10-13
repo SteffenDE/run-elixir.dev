@@ -3,7 +3,7 @@ import type { FileContents } from '@pierre/diffs';
 import { Editor as PierreEditor, type EditorFactory } from '@pierre/diffs/edit';
 import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import { RiCloseLine, RiSave3Line } from '@remixicon/react';
-import { useCallback, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { save } from '@/project/lib/playground';
 import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
@@ -11,16 +11,18 @@ import { WORK, useStore, type Tab } from '@/project/lib/store';
 const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =>
   new PierreEditor(type, options, key);
 
-// A file opens at its top, with the caret there (the editor would show
-// its caret wherever it was, the end for a new session).
-const editorOptions = {
-  onAttach: (editor: PierreEditor<'file', undefined, undefined>) => {
-    editor.focus({ lineNumber: 1 });
+type FileEditor = PierreEditor<'file', undefined, undefined>;
+
+// The caret on `line`, in view (the editor would show its caret wherever
+// it was, the end for a new session).
+function goTo(editor: FileEditor, line: number) {
+  editor.focus({ lineNumber: line, offset: 80 });
+  if (line === 1) {
     requestAnimationFrame(() =>
       document.querySelector('.tab-panel:not([hidden]) .editor-scroll')?.scrollTo(0, 0),
     );
-  },
-};
+  }
+}
 
 const fileOptions = {
   theme: { dark: 'pierre-dark', light: 'pierre-light' },
@@ -31,6 +33,24 @@ const fileOptions = {
 
 function TabEditor({ tab }: { tab: Tab }) {
   const edit = useStore((state) => state.edit);
+  const editor = useRef<FileEditor | null>(null);
+  const line = useRef(tab.line);
+  useEffect(() => {
+    line.current = tab.line;
+  }, [tab.line]);
+  const editorOptions = useMemo(
+    () => ({
+      onAttach: (attached: FileEditor) => {
+        editor.current = attached;
+        goTo(attached, line.current);
+      },
+    }),
+    [],
+  );
+  // Asked again for a line (a terminal's link) while open.
+  useEffect(() => {
+    if (tab.jump && editor.current) goTo(editor.current, tab.line);
+  }, [tab.jump, tab.line]);
   // A new object only when the file is (re)loaded: the editor owns the text
   // in between.
   const file = useMemo<FileContents>(

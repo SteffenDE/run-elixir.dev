@@ -101,6 +101,27 @@ export function read(path: string): Promise<Uint8Array> {
   return files.read(path);
 }
 
+export function stat(path: string): Promise<'file' | 'dir' | null> {
+  return files ? files.stat(path) : Promise.resolve(null);
+}
+
+// Open a file in the editor, with the caret on `line`.
+export async function openFile(path: string, line = 1): Promise<void> {
+  const text = decoder.decode(await read(path));
+  useStore.getState().open(path, text, line);
+}
+
+// Where relative paths a shell prints may start: its usual directory,
+// then /work.
+export function searchPath(): string[] {
+  return [...new Set([setup.cwd, WORK])];
+}
+
+// Show `path` (the app's) in the preview.
+export function showInPreview(path: string): void {
+  useStore.getState().navigate(path);
+}
+
 export async function save(path: string, text: string): Promise<void> {
   if (!files) return;
   await files.write(path, encoder.encode(text));
