@@ -6,50 +6,63 @@ last_updated: 2026-10-13
 
 # Testing
 
-There is no gate job for the playgrounds yet. These are the checks used while
-building them.
+There is no gate job for the playground yet. These are the checks used while
+building it.
+
+## In browsers: Playwright (`playground/app/test/e2e`)
+
+`@playwright/test` 1.55, run in the Playwright Docker image against the
+built site:
+
+```sh
+python3 -I playground/runtime/build.py                   # or `build.py app` after page changes
+playground/tests/run.sh                                  # Chromium and Firefox
+playground/tests/run.sh --project=chromium terminal      # one browser, one file
+SLOW=1 playground/tests/run.sh --project=chromium shells # the slow ones too
+```
+
+`run.sh` mounts the repository and runs `npx playwright test` in
+`playground/app` (its `node_modules` must be installed: `npm ci` there, in
+Docker). The config (`playwright.config.ts`) serves the site with
+`runtime/serve.py` on `PORT` (8081) unless something already listens there,
+runs `WORKERS` (3) tests at a time, and leaves tests tagged `@slow` to
+`SLOW=1`. Results, failure screenshots and traces go to
+`target/playground-tests/`.
+
+Each test gets a fresh browser context, so its IndexedDB starts empty.
+`fixtures.ts` fails a test on an uncaught page error; `helpers.ts` drives
+the page through `window.playground` (`node`, `output`, `sessions`,
+`files`, `database`, `openTerminal`).
+
+| Spec | Checks |
+| --- | --- |
+| `projects` | The home page; a temporary IEx answers and is ephemeral; an empty project gets a shell, is listed and deleted; renaming; an unknown id; a project starts after a forced reload. |
+| `persist` | An empty project's files, and a Phoenix project's edited, removed and moved template files, are there after a reload; the server comes back without recompiling dependencies. |
+| `database` | A Phoenix project's PGlite rows survive a reload; deleting the project deletes both of its databases. |
+| `tabs` | Two Phoenix projects in two tabs each show their own app, also after the service worker stops (Chromium); a third tab takes one over. |
+| `terminal` | Terminals fit their panel after resizes; a `path:line` opens the file at that line; an address opens in the preview. |
+| `edit` | A heading typed in the editor and saved shows in the preview, and Tailwind builds its class. |
+| `preview` | The path bar navigates and a reload stays; the preview pops out and docks; it comes back after the service worker stops (Chromium). |
+| `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
+
+Typical times: Chromium 16 tests in about 1.2 minutes; Firefox in about 3.4.
 
 ## Without a browser: `node.mjs`
 
 The Node harness ([build.md](build.md#the-node-harness-runtimenodemjs)) runs
-a site's node with the same shim. It is the quickest way to see what a node
-does: boot errors, a request's status and headers, which files are fetched,
-every WASI call. For example, IEx with input:
+the site's node with the same shim. It is the quickest way to see what a
+node does: boot errors, a request's status and headers, which files are
+fetched, every WASI call. For example, IEx with input:
 
 ```sh
 printf '1 + 1\n' | docker run --rm -i -v $PWD/playground/runtime:/w:ro \
-  -v $PWD/target/playground/elixir:/d:ro node:24 node /w/node.mjs /d \
+  -v $PWD/target/playground/site:/d:ro -e BOOT=boot node:24 node /w/node.mjs /d \
   -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
   -user elixir -extra --no-halt +iex
 ```
 
-It does not cover the page's parts: shared files, page programs (Tailwind),
-the service worker, PGlite.
-
-## In browsers: `playground/tests`
-
-Playwright 1.55 in Docker, against a served site:
-
-```sh
-python3 -I playground/runtime/serve.py phoenix 8081 &
-playground/tests/run.sh edit.mjs http://localhost:8081/
-BROWSER=firefox playground/tests/run.sh edit.mjs http://localhost:8081/
-SCHEME=dark playground/tests/run.sh edit.mjs http://localhost:8081/
-```
-
-Screenshots go to `target/playground-tests/`.
-
-| Test | Site | Checks |
-| --- | --- | --- |
-| `iex.mjs URL [LINES]` | elixir | IEx's prompt, then each line's answer (lazily fetched modules included). |
-| `edit.mjs` | phoenix | Open `home.html.heex` from the tree, type a heading with `text-4xl`, save; the preview shows it, and Tailwind's rebuild makes it 36px. |
-| `navigate.mjs` | phoenix | The path bar goes to `/dev/dashboard` (on to `/dev/dashboard/home`) and a reload stays there. |
-| `popout.mjs` | phoenix | Tab bar and path bar are the same height; the preview pops out and shows the app; the IDE docks it again. |
-| `swrestart.mjs` | phoenix | Stop the service worker (CDP), reload the preview: the app shows again. |
-| `shells.mjs` | phoenix | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Slow (minutes). |
-
-`window.playground` exposes the nodes to tests. It has `node`, `output` (the
-server shell's), `sessions`, `files`, `db` and `openTerminal`.
+It does not cover the page's parts: shared files and their storage, page
+programs (Tailwind), the service worker, PGlite.
 
 ## After changing the runtime
 
@@ -59,7 +72,15 @@ server shell's), `sessions`, `files`, `db` and `openTerminal`.
     -D warnings`
   - `CARGO_TARGET_DIR=target/wasm cargo clippy -q --target wasm32-wasip1 -p
     rotp -- -D warnings`
-- **The IDE:** `npm run lint`, `npm run format:check`, `tsc --noEmit` (part
+- **The app:** `npm run lint`, `npm run format:check`, `tsc --noEmit` (part
   of `npm run build`).
-- **The browsers:** `edit.mjs` in Chromium and Firefox; `iex.mjs` for the
-  Elixir site.
+- **The browsers:** the Playwright suite in Chromium and Firefox.
+
+## Not yet: caching the runtime between tests
+
+A fresh context starts with an empty HTTP cache, so every test fetches and
+compiles `rotp.wasm` and unpacks its boot images again. Fetching from
+`serve.py` is cheap; compiling and unpacking per worker is not. A
+persistent context per Playwright worker (one profile, its IndexedDB and
+storage cleared between tests) would keep the HTTP cache and the compiled
+code; measuring how much of a boot each step takes comes first.

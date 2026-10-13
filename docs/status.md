@@ -8,9 +8,16 @@ last_updated: 2026-10-13
 
 ## Works
 
-- **Elixir playground.** IEx at about 1 s after load (Chromium). Modules
+- **One site with projects** (Chromium and Firefox): a home page; Phoenix,
+  empty and temporary IEx projects at their own paths; files and the
+  database kept in IndexedDB over the template; several projects in
+  several tabs, one tab per project with a handover; deleting a project
+  deletes its storage.
+- **Temporary IEx.** Answers about 1.4 s after load (Chromium). Modules
   load lazily; colours, history, Ctrl+C.
-- **Phoenix playground** (Chromium; Firefox, slower):
+- **Terminals** fit their panels and link source locations to the editor
+  and addresses to the preview.
+- **Phoenix projects** (Chromium; Firefox, slower):
   - The server runs about 7 s after load. Pages serve in about 200–400 ms,
     and static files in milliseconds.
   - Ecto through PGlite.
@@ -20,6 +27,8 @@ last_updated: 2026-10-13
   - Several shells: `mix phx.gen.live`, `mix ecto.migrate` and others run in
     one while the server runs in another.
   - The preview pops out into its own window.
+  - After a reload, the server is back in about 6 s without recompiling
+    dependencies.
 
 ## Known gaps
 
@@ -47,7 +56,11 @@ last_updated: 2026-10-13
   cannot reach, so two shells compiling at once can both proceed.
 - **PGlite is one session,** so Ecto's pool is 1, and two shells using the
   database at once share it.
-- **Nothing persists:** files and the database live as long as the tab.
+- **Changes under a second old** are lost when the tab closes (files are
+  written a second after they change).
+- **A new site build** drops a Phoenix project's kept template build; Mix
+  recompiles its changed sources. An empty project's `_build` is kept as it
+  is, even if a new `rotp.wasm` would compile differently.
 - **Long sessions:** each node's frame ring counts bytes in an Int32, so a
   session that sends it 2 GB would wrap.
 - **No esbuild or Tailwind minification;** Tailwind's candidate scan is a
@@ -57,7 +70,9 @@ last_updated: 2026-10-13
 - **Phoenix's tailwind download** (`mix assets.setup`) through Rust-OTP's
   httpc was killed downloading the 100 MB binary natively; `build.py`
   uses curl.
-- **No gate job** builds or tests the playgrounds yet.
+- **No gate job** builds or tests the playground yet.
+- **The browser tests** fetch and compile the runtime afresh in every test
+  ([testing.md](testing.md#not-yet-caching-the-runtime-between-tests)).
 
 ## Next
 
@@ -65,5 +80,7 @@ last_updated: 2026-10-13
    config.
 2. `mix phx.new` with prebuilt deps and a Hex cache.
 3. The LiveDashboard `:notsup` in Rust-OTP.
-4. Persistence (files and PGlite in IndexedDB), and a gate job for the
-   playground tests.
+4. A gate job for the playground tests; a persistent browser context per
+   test worker.
+5. Zip export and import of a project ([projects.md](projects.md#plans)).
+6. Sharing through git, then collaboration ([projects.md](projects.md#plans)).

@@ -6,20 +6,21 @@ last_updated: 2026-10-13
 
 # The runtime (`playground/runtime`)
 
-What every playground site shares. Plain JavaScript modules, served as they
-are (not bundled), because the workers import them by URL.
+The site's runtime. Plain JavaScript modules, served as they are (not
+bundled), because the workers import them by URL.
 
 | File | Runs in | Role |
 | --- | --- | --- |
 | `wasi.js` | worker, Node | WASI preview 1 for `rotp.wasm`: the in-memory filesystem, lazy files, `/dev/urandom`, TCP (`Network`), programs, and the client for shared files. |
 | `worker.js` | worker | A node: boots `rotp.wasm`, runs one command or the shell, pumps the page's frames. |
-| `files.js` | worker | The shared filesystem (`/work`, `/tmp`). |
+| `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
+| `overlay.js` | worker | A project's kept changes in IndexedDB. |
 | `host.js` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
 | `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
 | `programs.js` | worker, Node | `git` (as far as Mix asks), and stubs for `esbuild` and `tailwind`. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history, pastes, Ctrl+C. |
-| `sw.js` | service worker | Sends the preview's requests to the page. |
+| `sw.js` | service worker | Sends a preview's requests to its project's page. |
 | `bridge.js` | page | Sends them on to the node as HTTP/1.1; keeps cookies; makes LiveView long-poll. |
 | `postgres.js` | page | Postgres wire protocol to PGlite. |
 | `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
@@ -119,14 +120,24 @@ size), `read` and `write` (by handle and offset, or append), `truncate`,
 directory change, is reported to the page as `{ kind: 'changed', paths }`,
 at most every 200 ms.
 
+**Starting.** The page's `start` message names the boot images to unpack
+(`boots`), the directories below `/work` the project starts with
+(`template`, from the manifest and the images), and `store`, the IndexedDB
+database of the project's changes. With a store, `files.js` lays the kept
+records over the template (`overlay.js`), and writes the changed paths
+below `/work` a second after they change, in one transaction
+([projects.md](projects.md#what-is-kept)). A write that fails is reported
+to the page as `{ kind: 'warning', message }`.
+
 ## Page and node (`host.js`, `worker.js`)
 
 `new Node({ base, files, serve, programs, onoutput, onstatus, onexit,
 onlistening })` starts a worker. It is a blob module that imports
 `worker.js`: Firefox does not start a module worker from a page its service
 worker controls, and a blob worker takes the page's cross-origin isolation.
-`node.start({ shell, initial, cwd, args, env })` boots it: the shell with
-`initial` commands typed first, or one command.
+`node.start({ shell, initial, cwd, args, env, boots })` boots it: the shell
+with `initial` commands typed first, or one command, over the boot images
+`boots` (default `['boot']`).
 
 **Page → node: frames** in a SharedArrayBuffer ring of 1 MiB:
 
@@ -162,21 +173,31 @@ handler }` answers the node's connections to those ports (5432: PGlite).
 }` run on the page and may be async. `process.write`, `process.exit` and
 `process.onkill`. `fs` is the shared `Files`.
 
-`new Files({ base, onchange })` starts `files.js` from the site's
-`fs/boot.tar.gz` and manifest (only the shared paths). It offers `list`,
-`read`, `write`, `mkdir`, `remove` and `rename` for the page, and
-`connect()`, which makes a node's channel.
+`new Files({ base, boots, template, store, onchange, onwarning })` starts
+`files.js` from the site's boot images and manifest (only the shared paths
+and the template). It offers `list`, `stat`, `read`, `write`, `mkdir`,
+`remove`, `rename` and `flush` (write the pending changes now) for the page,
+and `connect()`, which makes a node's channel.
 
 ## The preview (`sw.js`, `bridge.js`)
 
-`Bridge.register('sw.js')` installs the service worker and announces the
-page to it. The service worker:
+`Bridge.register(url, scope, key)` installs the service worker and
+announces the page as the host of `key` (a stored project's id, a temporary
+IEx's own). A page that a forced reload left uncontrolled asks the active
+worker to claim it first. `Bridge.announce({ kind: 'preview', key })` is the
+popped-out preview window's. Both announce again when another worker takes
+over. The service worker:
 
 - answers iframe navigations, and requests from clients it first sees to be
   nested frames (it decides once per client);
 - lets everything else go to the network without passing through it;
-- finds the page among its window clients when a restart has lost it, and
-  never takes a popped-out preview (`preview.html`) for it;
+- routes each request by key: a document's own (taken when it was
+  navigated), else that of the client its referrer names (the project page,
+  the popped-out window, or the app's previous document), else the only or
+  the focused host's;
+- keeps which client has which key, and each key's host, in IndexedDB
+  (`playground-sw`), so a restart keeps routing;
+- answers 503 when the key's page is gone;
 - adds `Cross-Origin-Embedder-Policy: credentialless` and
   `Cross-Origin-Resource-Policy: same-origin` to every answer, including
   errors, which the isolated page needs to frame them.
@@ -184,7 +205,8 @@ page to it. The service worker:
 `new Bridge({ connect })` answers the service worker's requests. For each
 one it:
 
-- opens `connect(4000)` and sends HTTP/1.1 with `connection: close`;
+- opens `connect(bridge.port)` (the IDE sets it to the preview's port) and
+  sends HTTP/1.1 with `connection: close`;
 - reads the response to its end, removing chunked encoding;
 - keeps `Set-Cookie`s in its own jar and sends them back as `cookie`;
 - injects `window.WebSocket = undefined` into HTML;
@@ -192,7 +214,8 @@ one it:
 
 ## Postgres (`postgres.js`)
 
-`postgres(db)` is a connection handler for `serve`. It buffers bytes into
+`postgres(database)` is a connection handler for `serve`; `database()`
+gives the PGlite (a promise), asked for on the first message. It buffers bytes into
 whole messages (the untyped startup message first), and answers SSLRequest
 and GSSENCRequest with `N`. Each batch goes to `db.execProtocolRaw`, in
 order, and the bytes come back. Terminate closes the connection.

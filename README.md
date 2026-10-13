@@ -1,20 +1,21 @@
-# Playgrounds
+# Elixir Playground
 
 Elixir in the browser: Rust-OTP (`crates/rotp`) compiled to `wasm32-wasip1`,
-booting OTP and Elixir from an in-memory filesystem in Web Workers.
+booting OTP and Elixir from an in-memory filesystem in Web Workers. One
+site (elixir-playground.steffend.me) with projects kept in the browser:
+Phoenix projects (a `phx.new` app, its server, PGlite, Tailwind on the
+page), empty projects, and a temporary IEx.
 
-- `elixir/`: IEx in a terminal (elixir-playground.steffend.me).
-- `phoenix/`: an IDE around a `phx.new` app, with editor, shells, preview,
-  PGlite and Tailwind on the page (phoenix-playground.steffend.me).
-- `runtime/`: what both share: the WASI shim, workers, service worker,
-  bridges, and the build.
-- `tests/`: Playwright tests in Docker.
+- `app/`: the site's page, a React app (home page, project IDE) built with
+  Vite, and its Playwright tests (`app/test/e2e`).
+- `runtime/`: the WASI shim, workers, shared files and their storage, the
+  service worker, bridges, and the build.
+- `tests/run.sh`: runs the Playwright tests in Docker.
 
 ```sh
-python3 -I playground/runtime/build.py phoenix        # → target/playground/phoenix
-python3 -I playground/runtime/serve.py phoenix 8081   # http://localhost:8081/
+python3 -I playground/runtime/build.py        # → target/playground/site
+python3 -I playground/runtime/serve.py 8081   # http://localhost:8081/
+playground/tests/run.sh --project=chromium    # the browser tests
 ```
 
-Everything else is in [docs/](docs/README.md): architecture, the runtime's
-protocols, Rust-OTP on WebAssembly, the build, the IDE, deploying (Caddy),
-testing, and status.
+Everything else is in [docs/](docs/README.md).

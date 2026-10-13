@@ -4,14 +4,14 @@ status: live
 last_updated: 2026-10-13
 ---
 
-# Deploying a site
+# Deploying the site
 
-A site is static. Build it, then copy `target/playground/SITE/` to the
+The site is static. Build it, then copy `target/playground/site/` to the
 server:
 
 ```sh
-python3 -I playground/runtime/build.py phoenix
-rsync -a --delete target/playground/phoenix/ server:/srv/phoenix-playground/
+python3 -I playground/runtime/build.py
+rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 ```
 
 ## What the server must do
@@ -22,9 +22,11 @@ rsync -a --delete target/playground/phoenix/ server:/srv/phoenix-playground/
   `require-corp`). Without them the page says so and starts nothing.
   The preview's own responses come from the service worker, which adds what
   they need.
-- **The service worker at the site's root.** `sw.js` must be served from
-  the directory of `index.html`, which is the scope it controls. Serve it
-  with `Cache-Control: no-cache`, so that an update reaches browsers.
+- **The page for every route.** `/`, `/phoenix`, `/empty`, `/iex` and each
+  project's `/ID/` are all `index.html`: a path that is no file gets it.
+- **The service worker at the site's root.** `/sw.js` controls the scope
+  `/`. Serve it with `Cache-Control: no-cache`, so that an update reaches
+  browsers.
 - **Compression.** `rotp.wasm`, the JavaScript and the bundles (`.tar`,
   uncompressed on purpose: the node reads them synchronously) should be
   compressed in transit. `fs/boot.tar.gz` is gzipped already. Caddy does not
@@ -36,6 +38,10 @@ rsync -a --delete target/playground/phoenix/ server:/srv/phoenix-playground/
     names across builds, so they should revalidate (ETag or Last-Modified,
     which Caddy's file_server sends). Otherwise a browser may mix an old
     `rotp.wasm` with a new filesystem.
+- **Projects outlive deploys.** They are kept in the browser, over the
+  template of the site that made them; a new build changes `fs/version`,
+  and a project's next start drops its template build records
+  ([projects.md](projects.md#what-is-kept)).
 
 ## Caddy
 
@@ -56,6 +62,7 @@ rsync -a --delete target/playground/phoenix/ server:/srv/phoenix-playground/
 			header Content-Type application/x-tar
 		}
 	}
+	try_files {path} /index.html
 	file_server
 }
 
@@ -64,14 +71,14 @@ elixir-playground.steffend.me {
 	import playground
 }
 
+# The former Phoenix playground: a new Phoenix project.
 phoenix-playground.steffend.me {
-	root * /srv/phoenix-playground
-	import playground
+	redir https://elixir-playground.steffend.me/phoenix
 }
 ```
 
 ## Locally
 
-`python3 -I playground/runtime/serve.py SITE [PORT]` serves
-`target/playground/SITE` with the isolation headers and `no-cache`. It does
-not compress.
+`python3 -I playground/runtime/serve.py [PORT]` serves
+`target/playground/site` with the isolation headers, `no-cache` and the
+`index.html` fallback. It does not compress.

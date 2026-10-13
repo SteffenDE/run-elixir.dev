@@ -6,20 +6,25 @@ last_updated: 2026-10-13
 
 # Architecture
 
-Everything runs in one browser tab. Nothing on the server knows about
-Elixir: a site is static files.
+A project runs in one browser tab. Nothing on the server knows about
+Elixir: the site is static files. The home page (`/`) only lists projects;
+a project's page (`/ID/`, `/iex`) runs it, and several tabs may run
+several projects (one tab per project, [projects.md](projects.md)).
 
 ```
- page (React IDE, or the Elixir page)
+ project page (React IDE, playground/app)
  ├─ host.js Node ──────────────► worker.js  (one per shell / terminal tab)
  │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi.js
  │    messages back                            its own /rotp, /dev, /usr
  ├─ host.js Files ─────────────► files.js   (one; runs no node)
- │    messages                                 /work and /tmp, shared
+ │    messages                                 /work and /tmp, shared;
+ │                                             keeps /work's changes in
+ │                                             IndexedDB (overlay.js)
  │                   worker.js ═══════════════► files.js
  │                   synchronous calls (SharedArrayBuffer + Atomics.wait)
  ├─ bridge.js ◄──── sw.js (service worker) ◄─── preview <iframe> (the app)
- ├─ postgres.js ─── PGlite (Postgres in WebAssembly)
+ │                  routes by project key       or a popped-out window
+ ├─ postgres.js ─── PGlite (Postgres in WebAssembly; IndexedDB)
  └─ page programs: tailwind (programs/tailwind.ts)
 ```
 
@@ -45,14 +50,20 @@ terminal. All of them are the shim's.
 ## Files
 
 - **`/rotp`** is the Rust-OTP installation (OTP, Elixir, Mix, Hex, phx_new).
-  Every worker has its own copy: the boot tarball unpacked, the rest fetched
-  in bundles on first use (see [build.md](build.md)).
+  Every worker has its own copy: its project kind's boot images unpacked
+  (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
+  on first use (see [build.md](build.md)).
 - **`/work` and `/tmp`** live in `runtime/files.js`, a worker that runs no node
   and so is always free to answer. Nodes reach it synchronously: `wasi.js`
   sends each call on those paths through a SharedArrayBuffer channel and
   waits with `Atomics.wait`. The page reaches it with messages (the IDE's
   tree and editor), and hears every change from it. What one shell writes,
   every other shell and the page see.
+- **A project's `/work`** starts as its template (the site's
+  `/work/playground` for Phoenix, nothing otherwise), with the project's
+  kept changes laid over it. `files.js` writes what changes below `/work`
+  to the project's IndexedDB database a second later
+  ([projects.md](projects.md#what-is-kept)).
 
 ## How a preview request reaches Phoenix
 
@@ -60,11 +71,13 @@ terminal. All of them are the shim's.
    answers only the preview's requests: iframe navigations, and requests
    from clients it has seen to be nested frames. Everything else goes to the
    network directly.
-2. The service worker sends the request to the playground page (it finds the
-   page again after a restart).
-3. `runtime/bridge.js` on the page opens a connection to port 4000 of the node
-   that listens there. Nodes report their listening ports, and the IDE
-   routes by them. The request goes in as HTTP/1.1, with the cookies the
+2. The service worker sends the request to the page running the preview's
+   project. Each project page announces itself under its project's key, and
+   each preview document takes the key of what navigated it; the routes
+   outlive a service worker restart ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
+3. `runtime/bridge.js` on the page opens a connection to the preview's port
+   (4000, else the lowest port a node listens on) of the node that listens
+   there. Nodes report their listening ports, and the IDE routes by them. The request goes in as HTTP/1.1, with the cookies the
    bridge keeps (a service worker's responses cannot set cookies).
 4. Bandit answers in the node; the response comes back the same way. HTML
    gets `window.WebSocket` removed, so LiveView falls back to long polling,
@@ -75,8 +88,9 @@ terminal. All of them are the shim's.
 Postgrex connects to `localhost:5432`. That port is served on the page:
 `runtime/postgres.js` hands whole wire-protocol messages to PGlite's
 `execProtocolRaw`, one connection at a time. PGlite is a single session, so
-the app's pool has one connection. The data lives in memory, for the life of
-the tab.
+the app's pool has one connection. It starts on the first connection, and a
+stored project's lives in IndexedDB (`idb://playground-pg-ID`); a temporary
+IEx's lives in memory.
 
 ## Programs
 
