@@ -16,15 +16,15 @@ import { TerminalPanel } from './TerminalPanel';
 // Phoenix server, IEx); more run mix and friends beside it (each a node of
 // its own over the same files). `firstTab`: the first one's name;
 // `maximized`: the terminals have the files' and the editor's room, which
-// `onMaximize` gives or gives back.
+// `onMaximize` gives or gives back (no button without it).
 export function Terminals({
   firstTab,
   maximized,
   onMaximize,
 }: {
   firstTab: string;
-  maximized: boolean;
-  onMaximize(): void;
+  maximized?: boolean;
+  onMaximize?: () => void;
 }) {
   const terminals = useStore((state) => state.terminals);
   const active = useStore((state) => state.activeTerminal);
@@ -73,15 +73,17 @@ export function Terminals({
         >
           <RiAddLine size={16} />
         </button>
-        <button
-          type="button"
-          className="icon-button"
-          title={maximized ? 'Show the files and the editor' : 'Maximize the terminals'}
-          aria-pressed={maximized}
-          onClick={onMaximize}
-        >
-          {maximized ? <RiFullscreenExitLine size={16} /> : <RiFullscreenLine size={16} />}
-        </button>
+        {onMaximize && (
+          <button
+            type="button"
+            className="icon-button"
+            title={maximized ? 'Show the files and the editor' : 'Maximize the terminals'}
+            aria-pressed={maximized}
+            onClick={onMaximize}
+          >
+            {maximized ? <RiFullscreenExitLine size={16} /> : <RiFullscreenLine size={16} />}
+          </button>
+        )}
       </div>
       <div className="terminal-stack">
         {terminals.map((id) => (

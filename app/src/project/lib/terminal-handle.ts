@@ -30,7 +30,8 @@ export class TerminalHandle {
     this.terminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
-      fontSize: 13,
+      // A little smaller on phones, for more columns.
+      fontSize: matchMedia('(max-width: 720px)').matches ? 12 : 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
       theme: { background: '#16141c' },
       scrollback: 5000,

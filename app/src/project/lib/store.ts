@@ -5,6 +5,8 @@ export const WORK = '/work';
 // Directories the file tree leaves out: builds, dependencies, Mix's home.
 export const HIDDEN = ['_build', 'deps', '.mix', '.hex', 'node_modules', '.git', '.elixir_ls'];
 
+export type Pane = 'files' | 'editor' | 'terminal' | 'preview';
+
 export interface Tab {
   // Absolute path in the node.
   path: string;
@@ -40,6 +42,9 @@ interface State {
   elsewhere: boolean;
   // The file tree and the editor show (else the terminals have the room).
   filesShown: boolean;
+  // On a narrow screen, the one pane that shows.
+  pane: Pane;
+  setPane(pane: Pane): void;
   setFilesShown(shown: boolean): void;
   setElsewhere(elsewhere: boolean): void;
   setStatus(status: string): void;
@@ -80,6 +85,8 @@ export const useStore = create<State>((set) => ({
   previewPopped: false,
   elsewhere: false,
   filesShown: true,
+  pane: 'terminal',
+  setPane: (pane) => set({ pane }),
   setFilesShown: (filesShown) => set({ filesShown }),
   setElsewhere: (elsewhere) => set({ elsewhere }),
   setStatus: (status) => set({ status }),
@@ -90,6 +97,7 @@ export const useStore = create<State>((set) => ({
     set((state) =>
       state.tabs.some((tab) => tab.path === path)
         ? {
+            pane: 'editor',
             active: path,
             tabs: state.tabs.map((tab) =>
               tab.path === path ? { ...tab, line, jump: tab.jump + 1 } : tab,
@@ -100,6 +108,7 @@ export const useStore = create<State>((set) => ({
               ...state.tabs,
               { path, contents, version: 0, draft: contents, saved: contents, line, jump: 0 },
             ],
+            pane: 'editor',
             active: path,
           },
     ),
@@ -149,7 +158,11 @@ export const useStore = create<State>((set) => ({
       ),
     })),
   navigate: (previewPath) =>
-    set((state) => ({ previewPath, previewNavigation: state.previewNavigation + 1 })),
+    set((state) => ({
+      previewPath,
+      previewNavigation: state.previewNavigation + 1,
+      pane: 'preview',
+    })),
   reloadPreview: () => set((state) => ({ previewKey: state.previewKey + 1 })),
   popOut: (previewPopped) => set({ previewPopped }),
   terminals: [],

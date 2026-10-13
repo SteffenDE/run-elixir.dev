@@ -1,4 +1,4 @@
-import { RiLoader4Line, RiRestartLine, RiSideBarLine } from '@remixicon/react';
+import { RiHome5Line, RiLoader4Line, RiRestartLine, RiSideBarLine } from '@remixicon/react';
 import { useEffect, useLayoutEffect, useRef } from 'react';
 import {
   Group,
@@ -18,6 +18,8 @@ import { setup } from '@/project/lib/kinds';
 import { restartServer, start } from '@/project/lib/playground';
 import { closePopup } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
+import { NarrowWorkspace } from '@/project/components/NarrowWorkspace';
+import { useNarrow } from '@/shared/lib/narrow';
 import type { Project } from '@/shared/lib/projects';
 
 let started = false;
@@ -62,9 +64,14 @@ export function ProjectPage({ project }: { project: Project | null }) {
     [editorPanel.current, 62],
   ];
 
+  const narrow = useNarrow();
   // The kind's default, before the first paint; then as asked (a terminal's
-  // link to a file shows them).
-  useLayoutEffect(() => setFilesShown(showFiles), [showFiles, setFilesShown]);
+  // link to a file shows them). On a phone: Phoenix's preview first, else
+  // the terminal.
+  useLayoutEffect(() => {
+    setFilesShown(showFiles);
+    useStore.getState().setPane(kind === 'phoenix' ? 'preview' : 'terminal');
+  }, [showFiles, setFilesShown, kind]);
   useEffect(() => {
     showPanels(
       [
@@ -108,13 +115,16 @@ export function ProjectPage({ project }: { project: Project | null }) {
   return (
     <div className="app">
       <header className="top-bar">
-        <a className="brand" href="/">
-          Elixir <span>Playground</span>
+        <a className="brand" href="/" title="All projects">
+          <RiHome5Line size={18} className="brand-icon" />
+          <span className="brand-name">
+            Elixir <span>Playground</span>
+          </span>
         </a>
         <ProjectTitle project={project} />
         <div className="status">
           {!ready && <RiLoader4Line size={14} className="spin" />}
-          {status}
+          <span className="status-text">{status}</span>
         </div>
         {popped && (
           <button
@@ -128,62 +138,78 @@ export function ProjectPage({ project }: { project: Project | null }) {
           </button>
         )}
         {kind === 'phoenix' && (
-          <button type="button" className="button" onClick={restartServer} disabled={!ready}>
+          <button
+            type="button"
+            className="button"
+            onClick={restartServer}
+            disabled={!ready}
+            title={previewPort !== null ? 'Restart server' : 'Start server'}
+          >
             <RiRestartLine size={16} />
-            {previewPort !== null ? 'Restart server' : 'Start server'}
+            <span className="button-label">
+              {previewPort !== null ? 'Restart server' : 'Start server'}
+            </span>
           </button>
         )}
       </header>
-      <Group
-        orientation="horizontal"
-        className="workspace"
-        groupRef={workspace}
-        onLayoutChanged={(layout) => {
-          if (layout.preview !== undefined && layout.tree !== undefined)
-            treeSize.current = layout.tree;
-        }}
-      >
-        <Panel
-          id="tree"
-          panelRef={treePanel}
-          defaultSize={showFiles ? '18' : '0'}
-          minSize={160}
-          collapsible
-          className="panel"
+      {narrow ? (
+        <NarrowWorkspace
+          phoenix={kind === 'phoenix'}
+          firstTab={setup(kind).firstTab}
+          preview={setup(kind).alwaysPreview || previewPort !== null}
+        />
+      ) : (
+        <Group
+          orientation="horizontal"
+          className="workspace"
+          groupRef={workspace}
+          onLayoutChanged={(layout) => {
+            if (layout.preview !== undefined && layout.tree !== undefined)
+              treeSize.current = layout.tree;
+          }}
         >
-          <FileTreePanel />
-        </Panel>
-        <Separator className="separator" />
-        <Panel id="work" defaultSize="44" minSize={240} className="panel">
-          <Group orientation="vertical">
-            <Panel
-              panelRef={editorPanel}
-              defaultSize={showFiles ? '62' : '0'}
-              minSize={120}
-              collapsible
-              className="panel"
-            >
-              <EditorArea phoenix={kind === 'phoenix'} />
-            </Panel>
-            <Separator className="separator horizontal" />
-            <Panel defaultSize={showFiles ? '38' : '100'} minSize={100} className="panel">
-              <Terminals
-                firstTab={setup(kind).firstTab}
-                maximized={!filesShown}
-                onMaximize={toggleFiles}
-              />
-            </Panel>
-          </Group>
-        </Panel>
-        {docked && (
-          <>
-            <Separator className="separator" />
-            <Panel id="preview" defaultSize="38" minSize={240} className="panel">
-              <Preview />
-            </Panel>
-          </>
-        )}
-      </Group>
+          <Panel
+            id="tree"
+            panelRef={treePanel}
+            defaultSize={showFiles ? '18' : '0'}
+            minSize={160}
+            collapsible
+            className="panel"
+          >
+            <FileTreePanel />
+          </Panel>
+          <Separator className="separator" />
+          <Panel id="work" defaultSize="44" minSize={240} className="panel">
+            <Group orientation="vertical">
+              <Panel
+                panelRef={editorPanel}
+                defaultSize={showFiles ? '62' : '0'}
+                minSize={120}
+                collapsible
+                className="panel"
+              >
+                <EditorArea phoenix={kind === 'phoenix'} />
+              </Panel>
+              <Separator className="separator horizontal" />
+              <Panel defaultSize={showFiles ? '38' : '100'} minSize={100} className="panel">
+                <Terminals
+                  firstTab={setup(kind).firstTab}
+                  maximized={!filesShown}
+                  onMaximize={toggleFiles}
+                />
+              </Panel>
+            </Group>
+          </Panel>
+          {docked && (
+            <>
+              <Separator className="separator" />
+              <Panel id="preview" defaultSize="38" minSize={240} className="panel">
+                <Preview />
+              </Panel>
+            </>
+          )}
+        </Group>
+      )}
     </div>
   );
 }
