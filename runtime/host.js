@@ -119,13 +119,16 @@ export class Node {
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
   // ports the node may connect to on the page; files: a Files the node
   // shares /work and /tmp with; onlistening(port, on): the node started or
-  // stopped listening on a port.
+  // stopped listening on a port. `listening` holds every port it listens
+  // on; `serving` only those it named (a server's, not an ephemeral port
+  // it asked for with 0, as Mix's lock does).
   // programs: { name: (process, { args, cwd, env, fs }) => ... }, programs
   // the node may spawn that run on the page (they may be async):
   // process.write(text | bytes), process.exit(code), process.onkill.
   constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, programs = {}, files = null, onlistening = () => {} }) {
     this.files = files;
     this.listening = new Set();
+    this.serving = new Set();
     this.programs = programs;
     this.running = new Map();
     this.shared = new SharedArrayBuffer(8 + RING);
@@ -144,6 +147,8 @@ export class Node {
       else if (data.kind === 'listening') {
         if (data.on) this.listening.add(data.port);
         else this.listening.delete(data.port);
+        if (data.on && !data.ephemeral) this.serving.add(data.port);
+        else this.serving.delete(data.port);
         onlistening(data.port, data.on);
       }
       else if (data.kind === 'spawn') this.spawn(data);

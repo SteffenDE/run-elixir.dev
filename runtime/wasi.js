@@ -178,12 +178,15 @@ export class Network {
     this.ephemeral = 50000;
   }
   // A listener's queue, on `port` or (0) a free one: { queue, port }.
+  // listening(port, true, ephemeral): ephemeral when the port was given,
+  // not asked for (Mix's lock listens so; a web server names its port).
   listen(port) {
-    if (port === 0) do port = this.ephemeral++; while (this.listeners.has(port));
+    const ephemeral = port === 0;
+    if (ephemeral) do port = this.ephemeral++; while (this.listeners.has(port));
     if (this.listeners.has(port)) return null;
     const queue = [];
     this.listeners.set(port, queue);
-    this.remote.listening?.(port, true);
+    this.remote.listening?.(port, true, ephemeral);
     return { queue, port };
   }
   // A connection to the node's listener on `port` from the page.

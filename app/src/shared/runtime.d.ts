@@ -66,6 +66,7 @@ declare module '@runtime/host.js' {
     worker: Worker;
     readonly fs: FileSystem;
     readonly listening: Set<number>;
+    readonly serving: Set<number>;
     start(options: {
       shell?: boolean;
       args?: string[];

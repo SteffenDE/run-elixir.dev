@@ -213,7 +213,7 @@ onmessage = async ({ data: { shared, files, shell, args, env, ports, initial = [
         send: (id, payload) => postMessage({ kind: 'net', op: 'data', id, payload }),
         end: (id) => postMessage({ kind: 'net', op: 'end', id }),
         close: (id) => postMessage({ kind: 'net', op: 'close', id }),
-        listening: (port, on) => postMessage({ kind: 'listening', port, on }),
+        listening: (port, on, ephemeral = false) => postMessage({ kind: 'listening', port, on, ephemeral }),
       });
       channel.network = network;
       channel.interrupted = false;

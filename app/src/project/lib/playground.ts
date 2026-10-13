@@ -109,6 +109,7 @@ export function stat(path: string): Promise<'file' | 'dir' | null> {
 export async function openFile(path: string, line = 1): Promise<void> {
   const text = decoder.decode(await read(path));
   useStore.getState().open(path, text, line);
+  useStore.getState().setFilesShown(true);
 }
 
 // Where relative paths a shell prints may start: its usual directory,
@@ -160,11 +161,11 @@ function nodeOn(port: number): Node | null {
 
 let bridge: Bridge | null = null;
 
-// The ports the nodes listen on, and the one the preview shows.
+// The ports the nodes serve on, and the one the preview shows. Ephemeral
+// listeners (Mix's compile lock) are no server.
 function updateListening(): void {
   const ports = new Set<number>();
-  for (const session of sessions.values())
-    for (const port of session.node.listening) ports.add(port);
+  for (const session of sessions.values()) for (const port of session.node.serving) ports.add(port);
   const sorted = [...ports].sort((a, b) => a - b);
   const port = ports.has(PREVIEW_PORT) ? PREVIEW_PORT : (sorted[0] ?? null);
   if (bridge && port !== null) bridge.port = port;
