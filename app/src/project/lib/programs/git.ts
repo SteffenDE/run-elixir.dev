@@ -138,10 +138,12 @@ async function run(args: string[], cwd: string, files: Files, out: (text: string
     } catch {
       throw new Failure(`fatal: ambiguous argument '${rev}': unknown revision`);
     }
+    // Without the objects (a dependency's .git that keeps only config and
+    // HEAD, as the template's do), the hash is all there is.
     for (;;) {
-      const { type, object } = await g.readObject({ ...base, oid, format: 'parsed' });
-      if (type !== 'tag') return oid;
-      oid = (object as { object: string }).object;
+      const read = await g.readObject({ ...base, oid, format: 'parsed' }).catch(() => null);
+      if (read?.type !== 'tag') return oid;
+      oid = (read.object as { object: string }).object;
     }
   };
 
