@@ -6,8 +6,13 @@ export type PreviewMessage =
   | { type: 'opened' }
   | { type: 'closed' };
 
-// One channel per IDE page: the popped-out window gets its key in its URL.
-export const previewKey = new URLSearchParams(location.search).get('key') ?? crypto.randomUUID();
+// One channel per project (the service worker routes its preview by the
+// same key): a stored project's id, a temporary IEx's own. The popped-out
+// window gets the key in its URL.
+export const previewKey =
+  new URLSearchParams(location.search).get('key') ??
+  location.pathname.match(/^\/([a-z0-9]{10})\//)?.[1] ??
+  `iex-${crypto.randomUUID()}`;
 export const previewChannel = new BroadcastChannel(`playground-preview:${previewKey}`);
 
 export function send(message: PreviewMessage): void {

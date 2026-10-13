@@ -8,7 +8,12 @@ import { Files, Node } from '@runtime/host.js';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
 import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
-import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
+import {
+  previewChannel,
+  previewKey,
+  send,
+  type PreviewMessage,
+} from '@/project/lib/previewChannel';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
@@ -200,6 +205,18 @@ previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessag
   else if (data.type === 'opened') useStore.getState().popOut(true);
 });
 
+// Keep what changed and stop every node: the project runs elsewhere now.
+export async function shutdown(): Promise<void> {
+  await files?.flush().catch(() => {});
+  for (const session of sessions.values()) session.node.stop();
+  sessions.clear();
+  files?.worker.terminate();
+  files = null;
+  const pglite = await db?.catch(() => null);
+  await pglite?.close().catch(() => {});
+  db = null;
+}
+
 // Start a project of `kind`: its files, the service worker, and the first
 // shell. `id`: the stored project's, whose changes are kept (none for a
 // temporary IEx).
@@ -221,7 +238,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     onchange: (paths: string[]) => void changed(paths),
     onwarning: (message: string) => useStore.getState().setStatus(message),
   });
-  await Promise.all([files.ready, Bridge.register('/sw.js', '/')]);
+  await Promise.all([files.ready, Bridge.register('/sw.js', '/', previewKey)]);
   void refreshTree();
   // The preview's requests go to whichever node listens on the port.
   bridge = new Bridge({ connect: (port: number) => nodeOn(port)!.connect(port) });

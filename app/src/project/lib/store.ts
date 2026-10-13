@@ -32,6 +32,9 @@ interface State {
   previewKey: number;
   // The preview is in its own window (preview.html).
   previewPopped: boolean;
+  // Another page took the project over; this one stopped.
+  elsewhere: boolean;
+  setElsewhere(elsewhere: boolean): void;
   setStatus(status: string): void;
   setReady(ready: boolean): void;
   setPreviewPort(port: number | null): void;
@@ -64,6 +67,8 @@ export const useStore = create<State>((set) => ({
   previewNavigation: 0,
   previewKey: 0,
   previewPopped: false,
+  elsewhere: false,
+  setElsewhere: (elsewhere) => set({ elsewhere }),
   setStatus: (status) => set({ status }),
   setReady: (ready) => set({ ready }),
   setPreviewPort: (previewPort) => set({ previewPort }),

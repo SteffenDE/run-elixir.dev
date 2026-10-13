@@ -1,26 +1,17 @@
-// The playground's service worker: what the preview iframe asks for goes to
-// the Phoenix app in the node, through the page that runs it (bridge.js);
-// everything else (the playground itself) comes from the network. The app
-// sees its own paths, so its absolute links work in the iframe.
+// The playground's service worker: what a preview iframe asks for goes to
+// the app in a node, through the page that runs it (bridge.js); everything
+// else (the playground itself) comes from the network. The app sees its
+// own paths, so its absolute links work in the iframe.
+//
+// Several pages may run projects at once, so every request is routed by a
+// key: the page running a project announces itself as the host of its key
+// ({ kind: 'host', key }), and a popped-out preview window as showing it
+// ({ kind: 'preview', key }). A preview's document gets the key of the
+// client that navigated it (its referrer), or of the only (or focused)
+// host. Which client has which key is kept in IndexedDB too, since a
+// service worker is stopped when idle and starts again without its memory.
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
-
-// The page running the node, as it announced itself. A service worker is
-// stopped when idle and starts again without it; then the playground is
-// the top-level window among this worker's clients.
-let host = null;
-
-async function playground() {
-  const known = host && (await self.clients.get(host));
-  if (known) return known;
-  const windows = await self.clients.matchAll({ type: 'window' });
-  // Not a popped-out preview (preview.html), which hosts nothing.
-  const page = windows
-    .reverse()
-    .find((client) => client.frameType === 'top-level' && !new URL(client.url).pathname.endsWith('/preview.html'));
-  host = page?.id ?? null;
-  return page ?? null;
-}
 
 // What every answer to the preview carries: it is in a cross-origin
 // isolated page, which loads no frame without them.
@@ -28,24 +19,96 @@ const ISOLATION = {
   'Cross-Origin-Embedder-Policy': 'credentialless',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
-self.addEventListener('message', (event) => {
-  if (event.data === 'host') host = event.source.id;
-});
-
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
-// Whether each client (the preview iframe and its pages, the playground,
-// its worker) is the app's, as first seen. Only the app's requests are
-// answered here; everything else goes straight to the network, without
-// passing through this worker.
-const clients = new Map();
+// client id → key (hosts, preview windows, the app's documents), and
+// key → the host's client id.
+const keys = new Map();
+const hosts = new Map();
+let loading = null;
+
+function database() {
+  return new Promise((resolve, reject) => {
+    const opening = indexedDB.open('playground-sw', 1);
+    opening.onupgradeneeded = () => opening.result.createObjectStore('clients');
+    opening.onsuccess = () => resolve(opening.result);
+    opening.onerror = () => reject(opening.error);
+  });
+}
+
+function load() {
+  loading ??= database()
+    .then((db) => new Promise((resolve) => {
+      const request = db.transaction('clients').objectStore('clients').get('routes');
+      request.onsuccess = () => {
+        for (const [id, key] of request.result?.keys ?? []) if (!keys.has(id)) keys.set(id, key);
+        for (const [key, id] of request.result?.hosts ?? []) if (!hosts.has(key)) hosts.set(key, id);
+        resolve();
+      };
+      request.onerror = () => resolve();
+    }))
+    .catch(() => {});
+  return loading;
+}
+
+let saving = null;
+// Keep the maps, without what is gone (a few hundred clients at most).
+function save() {
+  saving ??= new Promise((resolve) => setTimeout(resolve, 200))
+    .then(async () => {
+      saving = null;
+      const live = new Set((await self.clients.matchAll({ includeUncontrolled: true })).map((c) => c.id));
+      for (const id of keys.keys()) if (!live.has(id)) keys.delete(id);
+      const db = await database();
+      db.transaction('clients', 'readwrite').objectStore('clients').put({ keys: [...keys], hosts: [...hosts] }, 'routes');
+    })
+    .catch(() => {});
+}
+
+function remember(id, key) {
+  if (!id || !key) return;
+  keys.set(id, key);
+  save();
+}
+
+self.addEventListener('message', (event) => {
+  const { kind, key } = event.data ?? {};
+  if (kind === 'host') {
+    hosts.set(key, event.source.id);
+    remember(event.source.id, key);
+  } else if (kind === 'preview') remember(event.source.id, key);
+});
+
+// The key a request belongs to.
+async function keyOf(event) {
+  await load();
+  const known = event.clientId && keys.get(event.clientId);
+  if (known) return known;
+  const all = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+  // The document that navigated the preview.
+  const { referrer } = event.request;
+  if (referrer) {
+    const from = all.find((client) => client.url === referrer && keys.has(client.id));
+    if (from) return keys.get(from.id);
+  }
+  // The only host there is, else the focused one, else the last.
+  const live = [...hosts].filter(([, id]) => all.some((client) => client.id === id));
+  if (live.length <= 1) return live[0]?.[0] ?? null;
+  const focused = live.find(([, id]) => all.find((client) => client.id === id)?.focused);
+  return (focused ?? live[live.length - 1])[0];
+}
+
+// Whether each client is a preview's document (a nested frame), as first
+// seen. Only those requests are answered here; everything else goes
+// straight to the network, without passing through this worker.
+const nested = new Map();
 
 async function isApp(id) {
-  if (!clients.has(id)) {
+  if (!nested.has(id)) {
     const client = await self.clients.get(id);
-    clients.set(id, client?.frameType === 'nested');
+    nested.set(id, client?.frameType === 'nested');
   }
-  return clients.get(id);
+  return nested.get(id);
 }
 
 self.addEventListener('fetch', (event) => {
@@ -53,20 +116,28 @@ self.addEventListener('fetch', (event) => {
   if (new URL(request.url).origin !== self.location.origin) return;
   if (request.mode === 'navigate') {
     if (request.destination !== 'iframe') return;
-    clients.set(event.resultingClientId, true);
-    event.respondWith(app(event));
-  } else if (event.clientId && clients.get(event.clientId) !== false) {
+    nested.set(event.resultingClientId, true);
+    event.respondWith(app(event, true));
+  } else if (event.clientId && nested.get(event.clientId) !== false) {
     // A client seen for the first time: decided once, here.
-    event.respondWith(isApp(event.clientId).then((yes) => (yes ? app(event) : fetch(request))));
+    event.respondWith(isApp(event.clientId).then((yes) => (yes ? app(event, false) : fetch(request))));
   }
 });
 
-// The app's answer to a request, through the page (bridge.js).
-async function app(event) {
+// The page running the key's project.
+async function host(key) {
+  const id = key && hosts.get(key);
+  return id ? self.clients.get(id) : null;
+}
+
+// The app's answer to a request, through its page (bridge.js).
+async function app(event, navigation) {
   const { request } = event;
-  const page = await playground();
+  const key = await keyOf(event);
+  if (navigation) remember(event.resultingClientId, key);
+  const page = await host(key);
   if (!page) {
-    return new Response('The playground is not running.', {
+    return new Response('The project is not running.', {
       status: 503,
       headers: { 'Content-Type': 'text/plain', ...ISOLATION },
     });

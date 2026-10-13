@@ -617,3 +617,9 @@ button {
   color: var(--accent);
   font-size: 12px;
 }
+
+.elsewhere-actions {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}

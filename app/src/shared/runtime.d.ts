@@ -31,6 +31,7 @@ declare module '@runtime/host.js' {
       onwarning?: (message: string) => void;
     });
     ready: Promise<void>;
+    worker: Worker;
     flush(): Promise<void>;
     list(path: string, skip?: string[]): Promise<Entry[]>;
     read(path: string): Promise<Uint8Array>;
@@ -83,7 +84,8 @@ declare module '@runtime/bridge.js' {
   export class Bridge {
     constructor(node: Pick<Node, 'connect'>, port?: number);
     port: number;
-    static register(url?: string, scope?: string): Promise<void>;
+    static register(url?: string, scope?: string, key?: string): Promise<void>;
+    static announce(message: { kind: 'host' | 'preview'; key: string }): Promise<void>;
   }
 }
 declare module '@runtime/postgres.js' {

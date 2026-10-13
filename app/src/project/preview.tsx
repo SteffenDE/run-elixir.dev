@@ -4,7 +4,13 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PreviewFrame } from '@/project/components/PreviewFrame';
-import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
+import { Bridge } from '@runtime/bridge.js';
+import {
+  previewChannel,
+  previewKey,
+  send,
+  type PreviewMessage,
+} from '@/project/lib/previewChannel';
 import '@/styles.css';
 
 function PreviewWindow() {
@@ -46,8 +52,11 @@ function PreviewWindow() {
   );
 }
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <PreviewWindow />
-  </StrictMode>,
+// The service worker routes this window's preview to the project's page.
+void Bridge.announce({ kind: 'preview', key: previewKey }).then(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <PreviewWindow />
+    </StrictMode>,
+  ),
 );

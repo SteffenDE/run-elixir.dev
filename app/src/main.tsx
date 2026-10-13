@@ -2,12 +2,16 @@ import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HomePage } from '@/home/components/HomePage';
 import { NotFound } from '@/home/components/NotFound';
+import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
+import { shutdown } from '@/project/lib/playground';
+import { useStore } from '@/project/lib/store';
+import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
 import { createProject, getProject, isId, openedProject, type Kind } from '@/shared/lib/projects';
 import '@/styles.css';
 
 // Pages are whole page loads: a project's page owns its workers, and
-// leaving it ends them.
+// leaving it ends them. One page runs a project at a time (lock.ts).
 //
 //   /           the projects, and new ones
 //   /ID/        a project
@@ -31,8 +35,24 @@ async function page(path: string): Promise<ReactNode> {
   if (!project) return <NotFound />;
   if (path !== `/${project.id}/`) history.replaceState(null, '', `/${project.id}/`);
   document.title = `${project.name} · Elixir Playground`;
-  void openedProject(project.id);
-  return <ProjectPage project={project} />;
+  // Asked to let go: stop here first. Taken (after not answering): stop.
+  onProjectRelease(shutdown, () => {
+    void shutdown();
+    useStore.getState().setElsewhere(true);
+  });
+  const run = () => {
+    void openedProject(project.id);
+    return <ProjectPage project={project} />;
+  };
+  if (await claimProject(project.id)) return run();
+  return (
+    <OpenElsewhere
+      project={project}
+      onOpenHere={() =>
+        takeOverProject(project.id).then(() => root.render(<StrictMode>{run()}</StrictMode>))
+      }
+    />
+  );
 }
 
 const root = createRoot(document.getElementById('root')!);

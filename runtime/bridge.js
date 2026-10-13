@@ -43,13 +43,21 @@ export class Bridge {
     });
   }
 
-  // Announce this page to the service worker, once it controls the page.
-  static async register(url = 'sw.js', scope = './') {
+  // Announce this page to the service worker as the host of `key` (sw.js
+  // routes a preview's requests by it), once it controls the page, and
+  // again when another worker takes over.
+  static async register(url = 'sw.js', scope = './', key = 'default') {
     await navigator.serviceWorker.register(url, { scope });
+    await Bridge.announce({ kind: 'host', key });
+  }
+
+  // Tell the service worker who this page is: { kind: 'host' | 'preview', key }.
+  static async announce(message) {
     if (!navigator.serviceWorker.controller) {
       await new Promise((resolve) => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
     }
-    navigator.serviceWorker.controller.postMessage('host');
+    navigator.serviceWorker.controller.postMessage(message);
+    navigator.serviceWorker.addEventListener('controllerchange', () => navigator.serviceWorker.controller?.postMessage(message));
   }
 
   request({ method, path, headers, body }) {

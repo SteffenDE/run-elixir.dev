@@ -3,6 +3,7 @@ import { useEffect, useRef } from 'react';
 import { Group, Panel, Separator, useGroupRef } from 'react-resizable-panels';
 import { EditorArea } from '@/project/components/Editor';
 import { FileTreePanel } from '@/project/components/FileTreePanel';
+import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { Terminals } from '@/project/components/Terminals';
@@ -22,6 +23,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
   const ready = useStore((state) => state.ready);
   const previewPort = useStore((state) => state.previewPort);
   const popped = useStore((state) => state.previewPopped);
+  const elsewhere = useStore((state) => state.elsewhere);
   const docked = !popped && (setup(kind).alwaysPreview || previewPort !== null);
   const workspace = useGroupRef();
   // The tree's width while the preview is docked: undocking redistributes
@@ -49,6 +51,8 @@ export function ProjectPage({ project }: { project: Project | null }) {
       useStore.getState().setStatus(`failed: ${error.message}`),
     );
   }, [kind, project]);
+
+  if (elsewhere && project) return <OpenElsewhere project={project} moved />;
 
   return (
     <div className="app">
