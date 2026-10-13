@@ -11,6 +11,17 @@ import { WORK, useStore, type Tab } from '../store';
 const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =>
   new PierreEditor(type, options, key);
 
+// A file opens at its top, with the caret there (the editor would show
+// its caret wherever it was, the end for a new session).
+const editorOptions = {
+  onAttach: (editor: PierreEditor<'file', undefined, undefined>) => {
+    editor.focus({ lineNumber: 1 });
+    requestAnimationFrame(() =>
+      document.querySelector('.tab-panel:not([hidden]) .editor-scroll')?.scrollTo(0, 0),
+    );
+  },
+};
+
 const fileOptions = {
   theme: { dark: 'pierre-dark', light: 'pierre-light' },
   disableFileHeader: true,
@@ -36,6 +47,7 @@ function TabEditor({ tab }: { tab: Tab }) {
         file={file}
         options={fileOptions}
         edit
+        editorOptions={editorOptions}
         editStateKey={`${tab.path}@${tab.version}`}
         onEditChange={(event) => edit(tab.path, event.file.contents)}
         onEditComplete={() => 'accept'}
@@ -84,7 +96,7 @@ export function EditorArea() {
       value={active}
       onValueChange={(value) => activate(value as string)}
     >
-      <div className="tab-bar">
+      <div className="bar tab-bar">
         <Tabs.List className="tab-list">
           {tabs.map((tab) => {
             const name = tab.path.slice(tab.path.lastIndexOf('/') + 1);

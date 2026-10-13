@@ -14,7 +14,10 @@ async function playground() {
   const known = host && (await self.clients.get(host));
   if (known) return known;
   const windows = await self.clients.matchAll({ type: 'window' });
-  const page = windows.reverse().find((client) => client.frameType === 'top-level');
+  // Not a popped-out preview (preview.html), which hosts nothing.
+  const page = windows
+    .reverse()
+    .find((client) => client.frameType === 'top-level' && !new URL(client.url).pathname.endsWith('/preview.html'));
   host = page?.id ?? null;
   return page ?? null;
 }

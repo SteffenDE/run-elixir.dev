@@ -30,6 +30,8 @@ interface State {
   // Bumped to go to previewPath, and to reload where the preview is.
   previewNavigation: number;
   previewKey: number;
+  // The preview is in its own window (preview.html).
+  previewPopped: boolean;
   setStatus(status: string): void;
   setReady(ready: boolean): void;
   setServerRunning(running: boolean): void;
@@ -42,6 +44,7 @@ interface State {
   replace(path: string, contents: string): void;
   navigate(path: string): void;
   reloadPreview(): void;
+  popOut(popped: boolean): void;
 }
 
 export const useStore = create<State>((set) => ({
@@ -54,6 +57,7 @@ export const useStore = create<State>((set) => ({
   previewPath: '/',
   previewNavigation: 0,
   previewKey: 0,
+  previewPopped: false,
   setStatus: (status) => set({ status }),
   setReady: (ready) => set({ ready }),
   setServerRunning: (serverRunning) => set({ serverRunning }),
@@ -98,4 +102,5 @@ export const useStore = create<State>((set) => ({
   navigate: (previewPath) =>
     set((state) => ({ previewPath, previewNavigation: state.previewNavigation + 1 })),
   reloadPreview: () => set((state) => ({ previewKey: state.previewKey + 1 })),
+  popOut: (previewPopped) => set({ previewPopped }),
 }));

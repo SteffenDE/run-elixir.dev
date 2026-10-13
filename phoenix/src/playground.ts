@@ -5,7 +5,8 @@ import { PGlite } from '@electric-sql/pglite';
 import { Node } from '../../runtime/host.js';
 import { Bridge } from '../../runtime/bridge.js';
 import { postgres } from '../../runtime/postgres.js';
-import { filesChanged, tailwind } from './programs/tailwind';
+import { built, filesChanged, tailwind } from './programs/tailwind';
+import { previewChannel, send, type PreviewMessage } from './previewChannel';
 import { HIDDEN, PROJECT, WORK, useStore } from './store';
 
 type Output = (text: string) => void;
@@ -104,6 +105,17 @@ export function restartServer(): void {
   if (useStore.getState().serverRunning) node.interrupt();
   setTimeout(() => node?.input(`cd ${PROJECT}\n${SERVER}\n`), 300);
 }
+
+// A popped-out preview hears what the docked one would: reloads and new
+// CSS. Its closing brings the panel back.
+useStore.subscribe((state, before) => {
+  if (state.previewKey !== before.previewKey) send({ type: 'reload' });
+});
+built.add(() => send({ type: 'css' }));
+previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessage>) => {
+  if (data.type === 'closed') useStore.getState().popOut(false);
+  else if (data.type === 'opened') useStore.getState().popOut(true);
+});
 
 export async function start(): Promise<void> {
   const store = useStore.getState();

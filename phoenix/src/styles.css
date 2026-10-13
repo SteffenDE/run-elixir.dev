@@ -220,6 +220,12 @@ button {
   flex-direction: column;
 }
 
+.bar {
+  /* The editor's tabs and the preview's path bar line up. */
+  height: 36px;
+  flex: none;
+}
+
 .tab-bar {
   display: flex;
   align-items: center;
@@ -232,6 +238,7 @@ button {
 .tab-list {
   flex: 1;
   min-width: 0;
+  height: 100%;
   display: flex;
   overflow-x: auto;
   scrollbar-width: thin;
@@ -241,7 +248,8 @@ button {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 8px 6px 12px;
+  height: 100%;
+  padding: 0 8px 0 12px;
   border: 0;
   border-right: 1px solid var(--line);
   background: transparent;
@@ -387,4 +395,8 @@ button {
     order: 3;
     flex-basis: 100%;
   }
+}
+
+.preview-window {
+  background: var(--panel);
 }

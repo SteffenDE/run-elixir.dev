@@ -1,60 +1,22 @@
-import { RiExternalLinkLine, RiRefreshLine } from '@remixicon/react';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { built } from '../programs/tailwind';
+import { openPopup, send } from '../previewChannel';
 import { useStore } from '../store';
+import { PreviewFrame } from './PreviewFrame';
 
-// The app in the node, through the service worker (runtime/sw.js).
+// The preview docked in the IDE.
 export function Preview() {
   const path = useStore((state) => state.previewPath);
-  const key = useStore((state) => state.previewKey);
   const navigation = useStore((state) => state.previewNavigation);
+  const reload = useStore((state) => state.previewKey);
   const running = useStore((state) => state.serverRunning);
   const navigate = useStore((state) => state.navigate);
-  const reload = useStore((state) => state.reloadPreview);
-  const [typed, setTyped] = useState(path);
-  const frame = useRef<HTMLIFrameElement>(null);
+  const reloadPreview = useStore((state) => state.reloadPreview);
+  const popOut = useStore((state) => state.popOut);
+  const [css, setCss] = useState(0);
 
-  // Going somewhere: the path asked for.
   useEffect(() => {
-    if (!frame.current || !running) return;
-    frame.current.src = path;
-    setTyped(path);
-  }, [navigation, path, running]);
-
-  // Reloading: where the preview is now (its own navigation kept).
-  // oxlint-disable-next-line react/exhaustive-deps -- `key` is the reload signal.
-  useEffect(() => {
-    const iframe = frame.current;
-    if (!iframe || !running || key === 0) return;
-    try {
-      const location = iframe.contentWindow?.location;
-      if (location && location.href !== 'about:blank') {
-        iframe.src = location.pathname + location.search;
-        return;
-      }
-    } catch {
-      // Not loaded yet.
-    }
-    iframe.src = path;
-    // oxlint-disable-next-line react/exhaustive-deps -- `path` is only the fallback.
-  }, [key, running]);
-
-  // New CSS from the tailwind watcher: the page's stylesheets reload in
-  // place, as Phoenix's live reload does.
-  useEffect(() => {
-    const refresh = () => {
-      try {
-        const document = frame.current?.contentDocument;
-        for (const link of document?.querySelectorAll<HTMLLinkElement>('link[rel=stylesheet]') ??
-          []) {
-          const url = new URL(link.href);
-          url.searchParams.set('vsn', String(Date.now()));
-          link.href = url.href;
-        }
-      } catch {
-        // Not loaded.
-      }
-    };
+    const refresh = () => setCss((n) => n + 1);
     built.add(refresh);
     return () => {
       built.delete(refresh);
@@ -62,49 +24,27 @@ export function Preview() {
   }, []);
 
   return (
-    <div className="preview">
-      <form
-        className="preview-bar"
-        onSubmit={(event) => {
-          event.preventDefault();
-          navigate(typed.startsWith('/') ? typed : `/${typed}`);
-        }}
-      >
-        <button type="button" className="icon-button" onClick={reload} title="Reload">
-          <RiRefreshLine size={16} />
-        </button>
-        <input
-          value={typed}
-          onChange={(event) => setTyped(event.target.value)}
-          aria-label="Path"
-          spellCheck={false}
-        />
-        <button
-          type="button"
-          className="icon-button"
-          title="Open in a new tab (while this one runs)"
-          onClick={() => window.open(typed, '_blank')}
-        >
-          <RiExternalLinkLine size={16} />
-        </button>
-      </form>
-      {running ? (
-        // oxlint-disable-next-line react/iframe-missing-sandbox -- the app is same-origin by design: the service worker serves it.
-        <iframe
-          ref={frame}
-          title="Your Phoenix app"
-          onLoad={() => {
-            try {
-              const location = frame.current?.contentWindow?.location;
-              if (location) setTyped(location.pathname + location.search);
-            } catch {
-              // Cross-origin: leave it.
-            }
-          }}
-        />
-      ) : (
-        <div className="preview-waiting">Waiting for the Phoenix server…</div>
-      )}
-    </div>
+    <PreviewFrame
+      running={running}
+      path={path}
+      navigation={navigation}
+      reload={reload}
+      css={css}
+      onNavigate={navigate}
+      onReload={reloadPreview}
+      onPopOut={() => {
+        const at = document.querySelector<HTMLIFrameElement>('.preview iframe');
+        let current = path;
+        try {
+          current = at?.contentWindow?.location.pathname ?? path;
+        } catch {
+          // Keep the path asked for.
+        }
+        const url = new URL('preview.html', location.href);
+        url.searchParams.set('path', current);
+        if (openPopup(url.href)) popOut(true);
+        send({ type: 'navigate', path: current });
+      }}
+    />
   );
 }

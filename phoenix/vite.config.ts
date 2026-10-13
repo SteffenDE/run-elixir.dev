@@ -6,7 +6,12 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   plugins: [react()],
   base: './',
-  build: { assetsDir: '_playground', target: 'es2022' },
+  build: {
+    assetsDir: '_playground',
+    target: 'es2022',
+    // The IDE, and the preview popped out into its own window.
+    rollupOptions: { input: { main: 'index.html', preview: 'preview.html' } },
+  },
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
   worker: { format: 'es' },
 });
