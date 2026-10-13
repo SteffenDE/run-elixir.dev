@@ -20,7 +20,8 @@ function worker(name, base) {
 // The shared filesystem (files.js): /work and /tmp, which every node and
 // the page see. onchange(paths): what changed in it.
 export class Files {
-  constructor({ base = './', onchange = () => {} } = {}) {
+  // boots, template: what files.js starts with (its 'start').
+  constructor({ base = './', boots = ['boot'], template = [], onchange = () => {} } = {}) {
     this.doorbell = new SharedArrayBuffer(4);
     this.requests = new Map();
     this.next = 0;
@@ -38,7 +39,7 @@ export class Files {
         }
       };
     });
-    this.worker.postMessage({ kind: 'start', base: new URL(base, location.href).href, doorbell: this.doorbell });
+    this.worker.postMessage({ kind: 'start', base: new URL(base, location.href).href, doorbell: this.doorbell, boots, template });
   }
 
   // A node's channel (wasi.js sharedClient).
@@ -148,9 +149,10 @@ export class Node {
   // shell: a shell (true), or one command: { args, env }.
   // initial: command lines the shell runs first, as if typed.
   // cwd: where the shell starts.
-  start({ shell = false, args, env = {}, initial = [], cwd } = {}) {
+  // boots: the boot images to unpack (worker.js).
+  start({ shell = false, args, env = {}, initial = [], cwd, boots } = {}) {
     this.channel = this.files?.connect() ?? null;
-    this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, env, initial, cwd,
+    this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, env, initial, cwd, boots,
       ports: Object.keys(this.serve).map(Number), pagePrograms: Object.keys(this.programs) });
   }
 

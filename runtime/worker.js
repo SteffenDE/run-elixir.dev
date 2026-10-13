@@ -176,11 +176,13 @@ function onPage(channel, name) {
   };
 }
 
-onmessage = async ({ data: { shared, files, shell, args, env, ports, initial = [], pagePrograms = [], cwd: start = '/work' } }) => {
+// boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
+// commands' files (build.py).
+onmessage = async ({ data: { shared, files, shell, args, env, ports, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
   try {
     say('status', 'Loading OTP and Elixir…');
-    const [image, manifest, module] = await Promise.all([
-      fetch(new URL('fs/boot.tar.gz', import.meta.url)).then((r) => r.arrayBuffer()),
+    const [images, manifest, module] = await Promise.all([
+      Promise.all(boots.map((boot) => fetch(new URL(`fs/${boot}.tar.gz`, import.meta.url)).then((r) => r.arrayBuffer()))),
       fetch(new URL('fs/manifest.json', import.meta.url)).then((r) => r.json()),
       WebAssembly.compileStreaming(fetch(new URL('rotp.wasm', import.meta.url))),
     ]);
@@ -188,7 +190,7 @@ onmessage = async ({ data: { shared, files, shell, args, env, ports, initial = [
     const local = (path) => !files || !SHARED.some((prefix) => `/${path}`.startsWith(`${prefix}/`));
     const root = new Dir();
     mount(manifest.filter(([path]) => local(path)), root);
-    await untar(new Uint8Array(image), root, local);
+    for (const image of images) await untar(new Uint8Array(image), root, local);
     prepare(root);
     const sharedFs = files ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) } : null;
     const channel = new Channel(shared);

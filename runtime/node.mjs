@@ -30,7 +30,12 @@ for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
   };
   walk(host, '');
 }
-const files = await untar(await readFile(`${dir}/fs/boot.tar.gz`), root);
+// BOOT=NAME,...: the boot images (fs/NAME.tar.gz) to unpack, by default
+// every one the site has.
+const boots = process.env.BOOT ? process.env.BOOT.split(',')
+  : readdirSync(`${dir}/fs`).filter((name) => /^boot.*\.tar\.gz$/.test(name)).map((name) => name.slice(0, -7));
+let files = 0;
+for (const boot of boots) files += await untar(await readFile(`${dir}/fs/${boot}.tar.gz`), root);
 let fetched = 0;
 const recorded = [];
 prepare(root);

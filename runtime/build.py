@@ -1,22 +1,24 @@
-"""Build a playground site into target/playground/SITE, ready to rsync:
+"""Build the playground site into target/playground/site, ready to rsync:
 
-    python3 -I playground/runtime/build.py elixir|phoenix
+    python3 -I playground/runtime/build.py
 
-A site is its own files (playground/SITE, or, with a package.json, its
-Vite build, made in Docker), the runtime's JavaScript, rotp.wasm, and a
-filesystem under fs/: the installation (target/rotp) at /rotp and, for
-phoenix, a phx.new app at /work/playground.
+The site is the app's Vite build (playground/app, made in Docker), the
+runtime's JavaScript, rotp.wasm, and a filesystem under fs/: the
+installation (target/rotp) at /rotp and the Phoenix template, a phx.new
+app, at /work/playground.
 
-- fs/boot.tar.gz: what the site's first command reads, recorded by
-  running it in the WebAssembly node under Node (docker run node:24) with
-  every file fetched lazily, plus what must be there before (.app, .boot
-  and release files, erts's preloaded modules);
+- fs/boot.tar.gz: what IEx reads first, recorded by running it in the
+  WebAssembly node under Node (docker run node:24) with every file fetched
+  lazily, plus what must be there before (.app, .boot and release files,
+  erts's preloaded modules);
+- fs/boot-phoenix.tar.gz: what `iex -S mix phx.server` in the template
+  reads beyond that, recorded the same way, and the template's .app files;
 - fs/manifest.json: every other file's path, size, mtime and bundle, for
   stat and readdir;
 - fs/bundles/N.tar: those files, a directory's in bundles of up to 512 KB,
   fetched whole by the node when it first opens one of them.
 
-The phoenix app is generated once into target/playground-cache with the
+The template is generated once into target/playground-cache with the
 native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
 deps fetched and compiled, assets built.
 """
@@ -45,12 +47,12 @@ NODE_IMAGE = "node:24"
 
 ELIXIR = ["-noshell", "-elixir_root", "/rotp/lib", "-pa", "/rotp/lib/elixir/ebin"]
 IEX = ELIXIR + ["-user", "elixir", "-extra", "--no-halt", "+iex"]
-# What each site records its boot set with: erl arguments, the working
-# directory, the node harness's environment, and standard input.
+# What each boot image records: erl arguments, the working directory, the
+# node harness's environment, and standard input.
 RECORD = {
-    "elixir": (IEX, "/work", {}, "1 + 1\n"),
-    "phoenix": (IEX + ["/rotp/bin/mix", "phx.server"], "/work/playground",
-                {"HTTP": "4000/", "STOP_AFTER": "60000", "NO_EOF": "1"}, ""),
+    "boot": (IEX, "/work", {}, "1 + 1\n"),
+    "boot-phoenix": (IEX + ["/rotp/bin/mix", "phx.server"], "/work/playground",
+                     {"HTTP": "4000/", "STOP_AFTER": "60000", "NO_EOF": "1"}, ""),
 }
 
 
@@ -214,11 +216,11 @@ def vite_build(source):
                              NODE_IMAGE, "sh", "-c", script], check=True)
 
 
-def record(out, site, snapshot):
-    """The files the site's first command fetches, run under Node; what it
+def record(out, boot, snapshot):
+    """The files a boot image's command fetches, run under Node; what it
     writes below /work goes to `snapshot` (Mix's builds name their absolute
     paths, so the app is compiled once more there, at /work/playground)."""
-    args, cwd, env, stdin = RECORD[site]
+    args, cwd, env, stdin = RECORD[boot]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "target")) as scratch:
         listing = os.path.join(scratch, "fetched")
         open(listing, "w").close()
@@ -240,18 +242,13 @@ def record(out, site, snapshot):
 
 
 def main():
-    site = sys.argv[1] if len(sys.argv) > 1 else "elixir"
-    out = os.path.join(ROOT, "target", "playground", site)
+    out = os.path.join(ROOT, "target", "playground", "site")
     shutil.rmtree(out, ignore_errors=True)
-    source = os.path.join(ROOT, "playground", site)
-    if os.path.exists(os.path.join(source, "package.json")):
-        vite_build(source)
-    dist = os.path.join(source, "dist")
-    shutil.copytree(dist if os.path.isdir(dist) else source, out,
-                    ignore=shutil.ignore_patterns("node_modules", "dist", "src", "*.json", "*.ts", "*.tsx"))
+    source = os.path.join(ROOT, "playground", "app")
+    vite_build(source)
+    shutil.copytree(os.path.join(source, "dist"), out)
     for name in RUNTIME:
-        if os.path.exists(os.path.join(HERE, name)):
-            shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
+        shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
     shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
 
     files = []  # (path in the node, path here)
@@ -261,40 +258,52 @@ def main():
             relative = os.path.relpath(os.path.join(directory, name), INSTALL)
             if installed(relative):
                 files.append(("rotp/" + relative, os.path.join(INSTALL, relative)))
-    if site == "phoenix":
-        files += app_files(phoenix_app())
+    files += app_files(phoenix_app())
 
-    # Everything lazy first, to record what the first command fetches.
+    # Everything lazy first, to record what each boot image's command
+    # fetches; only the Phoenix run's writes (the template, built at
+    # /work/playground) are kept.
     fs = os.path.join(out, "fs")
     os.makedirs(fs)
     write_lazy(fs, files)
-    with tarfile.open(os.path.join(fs, "boot.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT):
-        pass
-    snapshot = os.path.join(CACHE, f"{site}-snapshot")
-    shutil.rmtree(snapshot, ignore_errors=True)
-    fetched = record(out, site, snapshot)
-    # What the first command wrote replaces what was there.
+    for boot in RECORD:
+        with tarfile.open(os.path.join(fs, f"{boot}.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT):
+            pass
+    fetched = {}
+    for boot in RECORD:
+        snapshot = os.path.join(CACHE, f"{boot}-snapshot")
+        shutil.rmtree(snapshot, ignore_errors=True)
+        fetched[boot] = record(out, boot, snapshot)
+    # What the Phoenix run wrote replaces what was there.
     written = {}
-    for directory, _, names in os.walk(snapshot):
+    for directory, _, names in os.walk(os.path.join(CACHE, "boot-phoenix-snapshot")):
         for name in names:
             here = os.path.join(directory, name)
-            written["work/" + os.path.relpath(here, snapshot)] = here
+            written["work/" + os.path.relpath(here, os.path.join(CACHE, "boot-phoenix-snapshot"))] = here
     files = [(path, written.get(path, here)) for path, here in files] + sorted(
         (path, here) for path, here in written.items() if path not in {p for p, _ in files})
 
-    eager = [(path, here) for path, here in files
-             if path in fetched or path.endswith((".app", ".boot"))
-             or path.startswith(("rotp/releases/", "rotp/lib/erts-"))]
-    eager_paths = {path for path, _ in eager}
-    lazy = [(path, here) for path, here in files if path not in eager_paths]
-    with tarfile.open(os.path.join(fs, "boot.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT) as tar:
-        for path, here in eager:
-            tar.add(here, arcname=path, recursive=False)
+    # The template's files go only in the Phoenix image; an empty project
+    # has none of them.
+    needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(("rotp/releases/", "rotp/lib/erts-"))
+    images = {
+        "boot": [(path, here) for path, here in files
+                 if not path.startswith("work/") and (path in fetched["boot"] or needed(path))],
+    }
+    taken = {path for path, _ in images["boot"]}
+    images["boot-phoenix"] = [(path, here) for path, here in files if path not in taken
+                              and (path in fetched["boot-phoenix"] or needed(path))]
+    taken |= {path for path, _ in images["boot-phoenix"]}
+    for boot, eager in images.items():
+        with tarfile.open(os.path.join(fs, f"{boot}.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT) as tar:
+            for path, here in eager:
+                tar.add(here, arcname=path, recursive=False)
+    lazy = [(path, here) for path, here in files if path not in taken]
     bundles = write_lazy(fs, lazy)
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
-    print(f"{out}: rotp.wasm {mb(os.path.join(out, 'rotp.wasm'))}; boot {len(eager)} files "
-          f"({len(fetched)} recorded), {mb(os.path.join(fs, 'boot.tar.gz'))}; {len(lazy)} lazy files "
-          f"in {bundles} bundles")
+    print(f"{out}: rotp.wasm {mb(os.path.join(out, 'rotp.wasm'))}; " + "; ".join(
+        f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"
+        for boot in RECORD) + f"; {len(lazy)} lazy files in {bundles} bundles")
 
 
 # A lazily fetched bundle holds files of one directory, up to this many

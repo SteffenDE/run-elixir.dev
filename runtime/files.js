@@ -288,15 +288,19 @@ let loop = null;
 onmessage = async ({ data }) => {
   if (data.kind === 'start') {
     try {
-      const base = data.base;
-      const [image, manifest] = await Promise.all([
-        fetch(new URL('fs/boot.tar.gz', base)).then((r) => r.arrayBuffer()),
+      // boots: the boot images to unpack (worker.js); template: the
+      // directories below /work the project starts with, from the site's
+      // files (/work/playground for a Phoenix project).
+      const { base, boots = ['boot'], template = [] } = data;
+      const [images, manifest] = await Promise.all([
+        Promise.all(boots.map((boot) => fetch(new URL(`fs/${boot}.tar.gz`, base)).then((r) => r.arrayBuffer()))),
         fetch(new URL('fs/manifest.json', base)).then((r) => r.json()),
       ]);
       root = new Dir();
-      const shared = (path) => SHARED.some((prefix) => `/${path}`.startsWith(`${prefix}/`));
+      const shared = (path) =>
+        `/${path}`.startsWith('/tmp/') || template.some((prefix) => `/${path}/`.startsWith(`${prefix}/`));
       mount(manifest.filter(([path]) => shared(path)), root);
-      await untar(new Uint8Array(image), root, shared);
+      for (const image of images) await untar(new Uint8Array(image), root, shared);
       for (const prefix of SHARED) root.mkdirs(prefix);
       fetchFile = bundled((bundle) => {
         const request = new XMLHttpRequest();
