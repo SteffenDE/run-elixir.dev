@@ -8,6 +8,7 @@
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node.
 import { WASI, Dir, File, Network, untar, mount, urandom } from './wasi.js';
+import { git } from './programs.js';
 
 const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5 };
 const RING = 1 << 20;
@@ -175,6 +176,7 @@ onmessage = async ({ data: { shared, shell, args, env, ports } }) => {
     root.mkdirs('work');
     root.mkdirs('tmp');
     root.put('dev/urandom', urandom());
+    root.put('usr/bin/git', new File());
     root.put('rotp/bin/mix', new File(new TextEncoder().encode('Mix.CLI.main()\n')));
     const channel = new Channel(shared);
     const fetchFile = (source) => {
@@ -204,12 +206,13 @@ onmessage = async ({ data: { shared, shell, args, env, ports } }) => {
       const wasi = new WASI({
         args: ['erl', ...argv],
         env: { ROOTDIR: '/rotp', HOME: '/work', LANG: 'C.UTF-8', TERM: 'xterm-256color',
-          MIX_HOME: '/work/.mix', MIX_ARCHIVES: '/rotp/mix/archives', ...env, PWD: cwd },
+          MIX_HOME: '/work/.mix', PATH: '/usr/bin:/rotp/bin', MIX_ARCHIVES: '/rotp/mix/archives', ...env, PWD: cwd },
         root,
         tty: true,
         network,
         pump,
         fetch: fetchFile,
+        programs: { git: git(fetchFile) },
         stdin(max) {
           pump();
           return channel.input.length ? channel.take(max) : null;

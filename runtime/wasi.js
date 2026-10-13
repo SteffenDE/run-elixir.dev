@@ -207,6 +207,26 @@ export class Network {
   }
 }
 
+// A program the host runs for the node (crates/rotp/src/host/wasm_proc.rs):
+// what it wrote, whether its output has ended, its exit status, and its
+// input.
+export class Process {
+  constructor() {
+    this.output = [];
+    this.ended = false;
+    this.status = null;
+    this.input = [];
+    this.closed = false;
+  }
+  write(bytes) {
+    this.output.push(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes);
+  }
+  exit(status) {
+    this.ended = true;
+    this.status = status;
+  }
+}
+
 // A gzipped tar (ustar, as Python's tarfile writes it) into `root`.
 export async function untar(gzipped, root) {
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'));
@@ -246,8 +266,12 @@ export class WASI {
   // sleep(ms), tty }: with tty, the standard streams are terminals.
   // network: a Network; pump(): take in what the page sent, before reads.
   // fetch(source): a mounted file's bytes, synchronously.
-  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch }) {
+  // programs: { name: (process, { args, cwd, env, root }) => ... }, the
+  // programs the node may spawn, by base name; a program writes to and
+  // exits its Process.
+  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch, programs = {} }) {
     this.fetch = fetch;
+    this.programs = programs;
     this.tty = tty;
     this.network = network;
     this.pump = pump;
@@ -341,6 +365,30 @@ export class WASI {
       list.push([v.getUint32(iovs + 8 * i, true), v.getUint32(iovs + 8 * i + 4, true)]);
     }
     return list;
+  }
+
+  // A spawn request (wasm_proc.rs): run the program it names.
+  spawn(entry, bytes) {
+    const fields = new TextDecoder().decode(bytes).split('\0');
+    const [program, cwd] = fields;
+    const argc = Number(fields[2]);
+    const args = fields.slice(3, 3 + argc);
+    const envc = Number(fields[3 + argc]);
+    const env = Object.fromEntries(fields.slice(4 + argc, 4 + argc + envc).map((v) => {
+      const at = v.indexOf('=');
+      return [v.slice(0, at), v.slice(at + 1)];
+    }));
+    const run = this.programs[program.split('/').pop()];
+    if (!run) return E.NOENT;
+    const process = new Process();
+    entry.process = process;
+    try {
+      run(process, { args, cwd: cwd || env.PWD || '/', env, root: this.root });
+    } catch (error) {
+      process.write(`${program}: ${error.message}\n`);
+      process.exit(1);
+    }
+    return null;
   }
 
   functions() {
@@ -454,6 +502,12 @@ export class WASI {
       fd_filestat_get(fd, ptr) {
         const entry = self.fds.get(fd);
         if (!entry) return E.BADF;
+        // A process's size is its exit status + 1 once it has exited.
+        if (entry.spawn) {
+          const status = entry.process?.status;
+          self.filestat(ptr, { ino: 0n, size: status === null || status === undefined ? 0 : status + 1, mtime: now() });
+          return ok;
+        }
         // A listener's size is its port (wasm_net.rs).
         if (entry.listener) {
           self.filestat(ptr, { ino: 0n, size: entry.port, mtime: now() });
@@ -468,6 +522,10 @@ export class WASI {
           entry.endpoint.peer.end();
           return ok;
         }
+        if (entry?.process) {
+          entry.process.closed = true;
+          return ok;
+        }
         if (!entry || !(entry.node instanceof File)) return E.BADF;
         entry.node.truncate(Number(size));
         return ok;
@@ -479,7 +537,21 @@ export class WASI {
         self.pump();
         let total = 0;
         const net = entry.endpoint || entry.listener;
-        if (net) {
+        if (entry.spawn) {
+          const process = entry.process;
+          if (!process) return E.BADF;
+          const [ptr, len] = self.iovecs(iovs, count)[0] || [0, 0];
+          if (!process.output.length) {
+            if (!process.ended) return E.AGAIN;
+          } else {
+            const chunk = process.output[0];
+            const part = chunk.subarray(0, len);
+            self.bytes(ptr, part.length).set(part);
+            if (part.length === chunk.length) process.output.shift();
+            else process.output[0] = chunk.subarray(part.length);
+            total = part.length;
+          }
+        } else if (net) {
           const [ptr, len] = self.iovecs(iovs, count)[0] || [0, 0];
           let bytes;
           if (entry.listener) {
@@ -530,7 +602,12 @@ export class WASI {
         let total = 0;
         for (const [ptr, len] of self.iovecs(iovs, count)) {
           const bytes = self.bytes(ptr, len);
-          if (entry.endpoint) {
+          if (entry.spawn && !entry.process) {
+            const error = self.spawn(entry, bytes);
+            if (error) return error;
+          } else if (entry.spawn) {
+            entry.process.input.push(bytes.slice());
+          } else if (entry.endpoint) {
             entry.endpoint.peer.send(bytes.slice());
           } else if (entry.stream) {
             const sink = self.out[fd];
@@ -591,6 +668,12 @@ export class WASI {
       },
       path_open(fd, _dirflags, pathPtr, pathLen, oflags, _base, _inheriting, fdflags, fdPtr) {
         const path = self.string(pathPtr, pathLen).replace(/^\/+/, '');
+        if (path === '.proc/spawn') {
+          const opened = self.next++;
+          self.fds.set(opened, { spawn: true, process: null });
+          self.view().setUint32(fdPtr, opened, true);
+          return ok;
+        }
         if (path.startsWith('.net/')) {
           const [, op, a, b] = path.split('/');
           const net = self.network;
