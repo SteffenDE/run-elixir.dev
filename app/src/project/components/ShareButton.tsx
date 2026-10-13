@@ -9,6 +9,17 @@ interface Link {
   removed: number;
 }
 
+// Where a link of this length stops working (measured: Chromium opens
+// 2 MB links, Firefox 1 MB; the rest are the services' message limits).
+function sizeNote(length: number): string | null {
+  if (length > 2_000_000) return 'Too long for any browser to open (over 2 MB).';
+  if (length > 1_000_000) return 'Too long for Firefox to open (over 1 MB); Chrome opens it.';
+  if (length > 40_000)
+    return 'Longer than a Slack message; send it some other way, such as by email.';
+  if (length > 2_000) return 'Longer than a Discord message.';
+  return null;
+}
+
 const size = (bytes: number) =>
   bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(bytes < 10240 ? 1 : 0)} KB`;
 
@@ -103,6 +114,9 @@ export function ShareButton({ name }: { name: string }) {
                   {copied ? 'Copied' : 'Copy'}
                 </button>
               </div>
+              {sizeNote(link!.url.length) && (
+                <p className="share-warning">{sizeNote(link!.url.length)}</p>
+              )}
               <p className="muted share-note">
                 The link holds what this project changed: its files, not its builds, dependencies or
                 database. Opening it makes a new project.
