@@ -1,7 +1,7 @@
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import { useEffect, useRef } from 'react';
-import { read } from '../playground';
-import { WORK, useStore } from '../store';
+import { read } from '@/project/lib/playground';
+import { WORK, useStore } from '@/project/lib/store';
 
 const decoder = new TextDecoder();
 

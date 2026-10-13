@@ -3,12 +3,12 @@
 // The first runs the Phoenix server; the others are for mix and friends
 // while it runs. Everything the UI does to the nodes goes through here.
 import { PGlite } from '@electric-sql/pglite';
-import { Files, Node } from '../../runtime/host.js';
-import { Bridge } from '../../runtime/bridge.js';
-import { postgres } from '../../runtime/postgres.js';
-import { built, filesChanged, tailwind } from './programs/tailwind';
-import { previewChannel, send, type PreviewMessage } from './previewChannel';
-import { HIDDEN, PROJECT, WORK, useStore } from './store';
+import { Files, Node } from '@runtime/host.js';
+import { Bridge } from '@runtime/bridge.js';
+import { postgres } from '@runtime/postgres.js';
+import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
+import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
+import { HIDDEN, PROJECT, WORK, useStore } from '@/project/lib/store';
 
 type Output = (text: string) => void;
 
@@ -25,6 +25,9 @@ let db: PGlite | null = null;
 let nextSession = 1;
 export const SERVER_SESSION = 1;
 const SERVER_PORT = 4000;
+// The site's boot images: IEx's, and what the Phoenix template's server
+// reads beyond it (runtime/build.py).
+const BOOTS = ['boot', 'boot-phoenix'];
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -154,7 +157,7 @@ export function openTerminal(initial: string[] = []): number {
     onlistening: updateServer,
   });
   sessions.set(id, session);
-  session.node.start({ shell: true, initial, cwd: PROJECT });
+  session.node.start({ shell: true, initial, cwd: PROJECT, boots: BOOTS });
   useStore.getState().addTerminal(id);
   return id;
 }
@@ -185,7 +188,12 @@ export async function start(): Promise<void> {
     return;
   }
   store.setStatus('Starting the database and the files…');
-  files = new Files({ base: './', onchange: (paths: string[]) => void changed(paths) });
+  files = new Files({
+    base: './',
+    boots: BOOTS,
+    template: [PROJECT],
+    onchange: (paths: string[]) => void changed(paths),
+  });
   [db] = await Promise.all([PGlite.create(), files.ready, Bridge.register('sw.js')]);
   void refreshTree();
   // The preview's requests go to whichever node listens on the port.

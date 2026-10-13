@@ -1,5 +1,5 @@
 // The playground runtime's modules (playground/runtime), plain JavaScript.
-declare module '*/runtime/host.js' {
+declare module '@runtime/host.js' {
   export interface Connection {
     ondata: (bytes: Uint8Array) => void;
     onend: () => void;
@@ -22,7 +22,12 @@ declare module '*/runtime/host.js' {
     rename(path: string, to: string): Promise<void>;
   }
   export class Files implements FileSystem {
-    constructor(options?: { base?: string; onchange?: (paths: string[]) => void });
+    constructor(options?: {
+      base?: string;
+      boots?: string[];
+      template?: string[];
+      onchange?: (paths: string[]) => void;
+    });
     ready: Promise<void>;
     list(path: string, skip?: string[]): Promise<Entry[]>;
     read(path: string): Promise<Uint8Array>;
@@ -62,6 +67,7 @@ declare module '*/runtime/host.js' {
       env?: Record<string, string>;
       initial?: string[];
       cwd?: string;
+      boots?: string[];
     }): void;
     stop(): void;
     input(text: string): void;
@@ -69,18 +75,18 @@ declare module '*/runtime/host.js' {
     connect(port: number): Connection;
   }
 }
-declare module '*/runtime/bridge.js' {
+declare module '@runtime/bridge.js' {
   import type { Node } from '*/runtime/host.js';
   export class Bridge {
     constructor(node: Pick<Node, 'connect'>, port?: number);
     static register(url?: string): Promise<void>;
   }
 }
-declare module '*/runtime/postgres.js' {
+declare module '@runtime/postgres.js' {
   import type { Connection } from '*/runtime/host.js';
   export function postgres(db: unknown): (connection: Connection) => void;
 }
-declare module '*/runtime/terminal.js' {
+declare module '@runtime/terminal.js' {
   export function cooked(
     term: { write(data: string): void; onData(listener: (data: string) => void): unknown },
     node: { input(text: string): void; interrupt(): void },

@@ -3,9 +3,9 @@
 // when to reload; closing it brings the panel back.
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { PreviewFrame } from './components/PreviewFrame';
-import { previewChannel, send, type PreviewMessage } from './previewChannel';
-import './styles.css';
+import { PreviewFrame } from '@/project/components/PreviewFrame';
+import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
+import '@/styles.css';
 
 function PreviewWindow() {
   const [path, setPath] = useState(() => new URLSearchParams(location.search).get('path') ?? '/');

@@ -5,6 +5,12 @@ import react from '@vitejs/plugin-react';
 // the preview owns /assets/.
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      '@': new URL('./src', import.meta.url).pathname,
+      '@runtime': new URL('../runtime', import.meta.url).pathname,
+    },
+  },
   base: './',
   build: {
     assetsDir: '_playground',

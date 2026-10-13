@@ -1,7 +1,7 @@
 import { Tabs } from '@base-ui/react/tabs';
 import { RiAddLine, RiCloseLine, RiServerLine, RiTerminalBoxLine } from '@remixicon/react';
-import { SERVER_SESSION, closeTerminal, openTerminal } from '../playground';
-import { useStore } from '../store';
+import { SERVER_SESSION, closeTerminal, openTerminal } from '@/project/lib/playground';
+import { useStore } from '@/project/lib/store';
 import { TerminalPanel } from './TerminalPanel';
 
 // The shells, in tabs: the first runs the Phoenix server; more run mix

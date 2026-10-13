@@ -1,13 +1,13 @@
 import { RiLoader4Line, RiRestartLine, RiSideBarLine } from '@remixicon/react';
 import { useEffect, useRef } from 'react';
 import { Group, Panel, Separator, useGroupRef } from 'react-resizable-panels';
-import { EditorArea } from './components/Editor';
-import { FileTreePanel } from './components/FileTreePanel';
-import { Preview } from './components/Preview';
-import { Terminals } from './components/Terminals';
-import { restartServer, start } from './playground';
-import { closePopup } from './previewChannel';
-import { useStore } from './store';
+import { EditorArea } from '@/project/components/Editor';
+import { FileTreePanel } from '@/project/components/FileTreePanel';
+import { Preview } from '@/project/components/Preview';
+import { Terminals } from '@/project/components/Terminals';
+import { restartServer, start } from '@/project/lib/playground';
+import { closePopup } from '@/project/lib/previewChannel';
+import { useStore } from '@/project/lib/store';
 
 let started = false;
 

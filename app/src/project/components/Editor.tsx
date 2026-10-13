@@ -4,9 +4,9 @@ import { Editor as PierreEditor, type EditorFactory } from '@pierre/diffs/edit';
 import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import { RiCloseLine, RiSave3Line } from '@remixicon/react';
 import { useCallback, useEffect, useMemo } from 'react';
-import { save } from '../playground';
-import '../languages';
-import { WORK, useStore, type Tab } from '../store';
+import { save } from '@/project/lib/playground';
+import '@/project/lib/languages';
+import { WORK, useStore, type Tab } from '@/project/lib/store';
 
 const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =>
   new PierreEditor(type, options, key);

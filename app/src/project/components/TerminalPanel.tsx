@@ -2,8 +2,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { useEffect, useRef } from 'react';
-import { cooked } from '../../../runtime/terminal.js';
-import { interrupt, onOutput, type } from '../playground';
+import { cooked } from '@runtime/terminal.js';
+import { interrupt, onOutput, type } from '@/project/lib/playground';
 
 // One shell's terminal (playground.ts session `id`).
 export function TerminalPanel({ id, visible }: { id: number; visible: boolean }) {

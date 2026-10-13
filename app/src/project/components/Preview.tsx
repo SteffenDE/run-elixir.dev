@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { built } from '../programs/tailwind';
-import { openPopup, send } from '../previewChannel';
-import { useStore } from '../store';
+import { built } from '@/project/lib/programs/tailwind';
+import { openPopup, send } from '@/project/lib/previewChannel';
+import { useStore } from '@/project/lib/store';
 import { PreviewFrame } from './PreviewFrame';
 
 // The preview docked in the IDE.
