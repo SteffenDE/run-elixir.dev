@@ -5,8 +5,26 @@
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
-// The page running the node, as it announced itself.
+// The page running the node, as it announced itself. A service worker is
+// stopped when idle and starts again without it; then the playground is
+// the top-level window among this worker's clients.
 let host = null;
+
+async function playground() {
+  const known = host && (await self.clients.get(host));
+  if (known) return known;
+  const windows = await self.clients.matchAll({ type: 'window' });
+  const page = windows.reverse().find((client) => client.frameType === 'top-level');
+  host = page?.id ?? null;
+  return page ?? null;
+}
+
+// What every answer to the preview carries: it is in a cross-origin
+// isolated page, which loads no frame without them.
+const ISOLATION = {
+  'Cross-Origin-Embedder-Policy': 'credentialless',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+};
 self.addEventListener('message', (event) => {
   if (event.data === 'host') host = event.source.id;
 });
@@ -43,8 +61,13 @@ self.addEventListener('fetch', (event) => {
 // The app's answer to a request, through the page (bridge.js).
 async function app(event) {
   const { request } = event;
-  const page = host && (await self.clients.get(host));
-  if (!page) return new Response('The playground is not running.', { status: 503 });
+  const page = await playground();
+  if (!page) {
+    return new Response('The playground is not running.', {
+      status: 503,
+      headers: { 'Content-Type': 'text/plain', ...ISOLATION },
+    });
+  }
   const url = new URL(request.url);
   const body = ['GET', 'HEAD'].includes(request.method) ? null : await request.arrayBuffer();
   const channel = new MessageChannel();
@@ -57,9 +80,7 @@ async function app(event) {
     return Response.redirect(new URL(location[1], url).href, response.status);
   }
   const headers = new Headers(response.headers.filter(([name]) => !HOP.includes(name)));
-  // The iframe is in a cross-origin isolated page.
-  headers.set('Cross-Origin-Embedder-Policy', 'credentialless');
-  headers.set('Cross-Origin-Resource-Policy', 'same-origin');
+  for (const [name, value] of Object.entries(ISOLATION)) headers.set(name, value);
   const empty = request.method === 'HEAD' || [101, 204, 205, 304].includes(response.status);
   return new Response(empty ? null : response.body, { status: response.status, statusText: response.reason, headers });
 }

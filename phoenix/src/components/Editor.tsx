@@ -5,6 +5,7 @@ import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import { RiCloseLine, RiSave3Line } from '@remixicon/react';
 import { useCallback, useEffect, useMemo } from 'react';
 import { save } from '../playground';
+import '../languages';
 import { WORK, useStore, type Tab } from '../store';
 
 const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =>
@@ -13,14 +14,9 @@ const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =
 const fileOptions = {
   theme: { dark: 'pierre-dark', light: 'pierre-light' },
   disableFileHeader: true,
+  // The editor's background is the IDE's panel, in both schemes.
+  unsafeCSS: ':host { --diffs-bg: light-dark(#ffffff, #18171d); }',
 } as const;
-
-// HEEx has no grammar of its own in Shiki; it is HTML with Elixir inside.
-function language(path: string): FileContents['lang'] {
-  if (path.endsWith('.heex') || path.endsWith('.eex')) return 'html';
-  if (path.endsWith('.exs')) return 'elixir';
-  return undefined;
-}
 
 function TabEditor({ tab }: { tab: Tab }) {
   const edit = useStore((state) => state.edit);
@@ -30,7 +26,6 @@ function TabEditor({ tab }: { tab: Tab }) {
     () => ({
       name: tab.path.slice(tab.path.lastIndexOf('/') + 1),
       contents: tab.contents,
-      lang: language(tab.path),
       cacheKey: `${tab.path}@${tab.version}`,
     }),
     [tab.path, tab.contents, tab.version],
