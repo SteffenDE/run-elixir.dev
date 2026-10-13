@@ -75,8 +75,12 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 			header_up Host repo.hex.pm
 		}
 	}
-	try_files {path} /index.html
-	file_server
+	# Everything else: files, and the page for every route. (In a handle of
+	# its own: try_files, a rewrite, would otherwise run before @hex.)
+	handle {
+		try_files {path} /index.html
+		file_server
+	}
 }
 
 elixir-playground.steffend.me {
