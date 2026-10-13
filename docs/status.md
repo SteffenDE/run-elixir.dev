@@ -20,6 +20,9 @@ last_updated: 2026-10-13
 - **git dependencies.** Through the page and the site's proxy: heroicons
   as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
   again from the lock.
+- **Sharing:** a link carries a project's changes over its template; opening
+  it makes a new project with them (Phoenix included).
+- **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
 - **Phoenix projects** (Chromium; Firefox, slower):
@@ -90,4 +93,5 @@ last_updated: 2026-10-13
 4. A gate job for the playground tests; a persistent browser context per
    test worker.
 5. Zip export and import of a project ([projects.md](projects.md#plans)).
-6. Sharing through git, then collaboration ([projects.md](projects.md#plans)).
+6. Collaboration ([projects.md](projects.md#plans)).
+7. Several schedulers (wasm32-wasip1-threads).

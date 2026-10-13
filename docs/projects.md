@@ -18,6 +18,7 @@ Nothing is stored on the server.
 | `/empty` | Make an empty project and go to it. |
 | `/iex` | A temporary IEx: an empty project whose first shell runs `iex`, kept nowhere, marked *ephemeral*. Each visit is a new one. |
 | `/ID/` | A project. `ID` is ten random letters and digits; an unknown one says so. |
+| `/import#DATA` | A shared project's link: what it holds, and a new project made from it. |
 
 Every path is the same page (`index.html`; the server falls back to it, see
 [deploy.md](deploy.md)). Moving between pages is a whole page load, so a
@@ -88,6 +89,31 @@ stops when it notices).
 Different projects run in different tabs at once. The service worker
 routes each preview to its project's page ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
 
+## Sharing
+
+*Share* in the top bar makes a link to the project's changes over its
+template and copies it (`src/shared/lib/share.ts`):
+
+- **What:** the files below `/work` it added, renamed or wrote, whole, and
+  the template's files it removed (`files.js`'s `changes`, against the
+  template's files as the project started), but nothing in `_build`,
+  `deps`, `.mix`, `.hex`, `node_modules`, `.git` or `.elixir_ls`, and not
+  the database. Plus its kind, its name and the site version.
+- **How:** JSON (text as text, other bytes as base64), compressed
+  (deflate-raw), base64url, in the link's fragment: `/import#DATA`. The
+  fragment never reaches a server.
+- **Opening it** shows the name, kind and files, and *Open as a new
+  project* makes one, keeping the link's changes as its seed (Dexie table
+  `seeds`). The project lays them over its template before its first
+  shell starts, so a Phoenix server boots with them; the seed is then
+  gone. Dependencies a shared `mix.exs` adds come with `mix deps.get`.
+
+Whole files, rather than line diffs, apply exactly over any version of
+the template, and compression takes most of the difference in size: a
+Phoenix project with one edited template file and one removed makes a
+link of a few KB. A link holds what a URL can; very large projects will
+want a server to keep them (with the collaboration server).
+
 ## Deleting
 
 Deleting from the home page takes the project's lock (so not while a tab
@@ -101,13 +127,8 @@ Not built yet; the design leaves room for them.
 - **Export and import.** A project as a zip: its kind, name, and its
   changed files (the overlay without `_build`), imported over the same
   template.
-- **Sharing through git.** A git in the playground (a page or worker
-  program behind the shell's `git`), with the template committed as a
-  project's baseline when it is made. A share is then the template's
-  version plus a compressed diff of the tracked files, applied over the
-  template in the other browser. Git is for sharing, not for keeping: the
-  overlay also keeps the untracked `_build` and `deps`, which a diff would
-  lose, and costs no hashing per save.
+- **Shares on a server,** for projects too large for a link, and git
+  history in a project (the shell's `git` beyond what Mix asks).
 - **Collaboration.** Two browsers on one project, tunnelling TCP (the
   preview's and the database's connections) and file access over WebRTC
   (with a small rendezvous service) or a Phoenix channel. The page reaches

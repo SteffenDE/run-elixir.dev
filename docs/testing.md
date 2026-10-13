@@ -46,6 +46,8 @@ the page through `window.playground` (`node`, `output`, `sessions`,
 | `hex` | In an empty project, a Mix app depending on Jason: `mix deps.get` fetches it through the page and `mix run` uses it. |
 | `git` | heroicons as phx.new adds it (tag, sparse, depth 1): fetched and checked out sparsely, the lock checked, and fetched again from the lock. |
 | `tree` | Files and folders made, renamed, moved (Chromium) and deleted from the tree, kept across a reload. |
+| `share` | An empty project (text and bytes) and a Phoenix project (an edited and a removed template file) shared as links and opened in a fresh browser context; a damaged link. |
+| `phone` | At 390×844: the home page and projects fit, one pane at a time, a Phoenix project opens on its preview. |
 | `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
 
 Typical times: Chromium 16 tests in about 1.2 minutes; Firefox in about 3.4.
