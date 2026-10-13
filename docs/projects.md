@@ -31,7 +31,8 @@ A project's kind (`src/project/lib/kinds.ts`) decides how it starts:
 | `/work` starts with | the template, `/work/playground` | nothing |
 | Shells start in | `/work/playground` | `/work` |
 | First shell runs | `iex -S mix phx.server` ("Server" tab) | nothing ("Shell"), `iex` ("IEx") |
-| Preview | from the start | once a node listens (4000, else its lowest port) |
+| Preview | from the start | once a node serves (4000, else its lowest port) |
+| Files and editor | shown | shown; a temporary IEx starts with the terminals maximized |
 
 PGlite starts for any kind on the first connection to 5432. A new project
 gets a random name (`brave-otter`), renamed by clicking it in the top bar.

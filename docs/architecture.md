@@ -76,8 +76,9 @@ terminal. All of them are the shim's.
    each preview document takes the key of what navigated it; the routes
    outlive a service worker restart ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
 3. `runtime/bridge.js` on the page opens a connection to the preview's port
-   (4000, else the lowest port a node listens on) of the node that listens
-   there. Nodes report their listening ports, and the IDE routes by them. The request goes in as HTTP/1.1, with the cookies the
+   (4000, else the lowest port a node serves on; ports a node asked for
+   with 0, such as Mix's compile lock's, are no server) of the node that
+   listens there. Nodes report their listening ports, and the IDE routes by them. The request goes in as HTTP/1.1, with the cookies the
    bridge keeps (a service worker's responses cannot set cookies).
 4. Bandit answers in the node; the response comes back the same way. HTML
    gets `window.WebSocket` removed, so LiveView falls back to long polling,

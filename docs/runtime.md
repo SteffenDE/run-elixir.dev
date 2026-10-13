@@ -69,8 +69,8 @@ A connection's reads return what the peer sent: EAGAIN while it has sent
 nothing, 0 once it has ended. Writes go to the peer, truncating the file
 ends this side's output, and closing it closes the connection. `Network`
 keeps listeners and connections. Connections from the page have odd ids and
-the node's own even ones. `remote.listening(port, on)` reports listeners to
-the page.
+the node's own even ones. `remote.listening(port, on, ephemeral)` reports listeners to
+the page; a listener is ephemeral when it asked for port 0.
 
 ### Child processes: `/.proc/spawn`
 
@@ -162,7 +162,7 @@ with `initial` commands typed first, or one command, over the boot images
 | `status` | Loading progress, then `running`. |
 | `exit` | The command's exit status (one-command mode). |
 | `net` | Connection traffic: `open`, `data`, `end`, `close` and `refused`, by id. |
-| `listening` | The node started or stopped listening on a port. |
+| `listening` | The node started or stopped listening on a port (`ephemeral`: one it asked for with 0). `Node.listening` holds every port, `Node.serving` the named ones. |
 | `spawn`, `kill` | Start a page program, or tell it its port closed. |
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
