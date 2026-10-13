@@ -25,6 +25,7 @@ export default defineConfig({
     command: `python3 -I ../runtime/serve.py ${port}`,
     url: `http://localhost:${port}/`,
     reuseExistingServer: true,
+    stderr: 'ignore',
   },
   projects: [
     { name: 'chromium', use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 850 } } },

@@ -14,7 +14,7 @@ set -e
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$(dirname "$here")")
 mkdir -p "$root/target/playground-tests"
-exec ${DOCKER:-sudo -n docker} run --rm --network host --ipc host --user "$(id -u):$(id -g)" -e HOME=/tmp \
+exec ${DOCKER:-sudo -n docker} run --rm --init --network host --ipc host --user "$(id -u):$(id -g)" -e HOME=/tmp \
   -e SLOW -e WORKERS -e PORT -e OUTPUT_DIR=/repo/target/playground-tests \
   -v "$root:/repo" -w /repo/playground/app mcr.microsoft.com/playwright:v1.55.0-noble \
   npx playwright test "$@"
