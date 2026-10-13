@@ -2,6 +2,7 @@ import { RiCheckLine, RiFileCopyLine, RiShareLine } from '@remixicon/react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { shareable } from '@/project/lib/playground';
 import { encodeShared } from '@/shared/lib/share';
+import type { Template } from '@/shared/lib/templates';
 
 interface Link {
   url: string;
@@ -26,7 +27,7 @@ const size = (bytes: number) =>
 // A link to this project's changes over its template (its sources: no
 // builds, dependencies or database), copied, in a popover under the
 // button.
-export function ShareButton({ name }: { name: string }) {
+export function ShareButton({ name, template }: { name: string; template?: Template }) {
   const [link, setLink] = useState<Link | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -37,7 +38,7 @@ export function ShareButton({ name }: { name: string }) {
   const share = async () => {
     setCopied(false);
     try {
-      const shared = await shareable(name);
+      const shared = await shareable(name, template);
       const url = `${location.origin}/import#${await encodeShared(shared)}`;
       setLink({ url, files: Object.keys(shared.files).length, removed: shared.removed.length });
       setError(null);

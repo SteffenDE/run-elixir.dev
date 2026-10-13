@@ -14,6 +14,7 @@ import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
 import { setup } from '@/project/lib/kinds';
 import { restartServer, start } from '@/project/lib/playground';
@@ -138,7 +139,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
             Dock preview
           </button>
         )}
-        <ShareButton name={project?.name ?? 'iex'} />
+        <ShareButton name={project?.name ?? 'iex'} template={project?.template} />
         {kind === 'phoenix' && (
           <button
             type="button"
@@ -154,6 +155,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
           </button>
         )}
       </header>
+      <TemplateNotice project={project} />
       {narrow ? (
         <NarrowWorkspace
           phoenix={kind === 'phoenix'}

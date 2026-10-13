@@ -4,13 +4,16 @@
 // fragment (/import#DATA), which never reaches a server: JSON, compressed
 // (deflate-raw), base64url.
 import type { Kind } from './projects';
+import type { Template } from './templates';
 
 export interface Shared {
   v: 1;
   kind: Kind;
   name: string;
-  // The site version (fs/version) the changes were made over.
+  // The site version (fs/version) the changes were made over, and the
+  // template (since templates have versions).
   site: string;
+  template?: Template;
   // Path below /work → text, or { base64 } for bytes that are no UTF-8.
   files: Record<string, string | { base64: string }>;
   removed: string[];

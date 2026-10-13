@@ -19,6 +19,7 @@ import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
 import { seedTaken, takeSeed } from '@/shared/lib/projects';
 import { fileBytes, fileEntry, type Shared } from '@/shared/lib/share';
+import type { Template } from '@/shared/lib/templates';
 import { HEX_PORT, hex, hexEnv } from './hex';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
@@ -289,7 +290,7 @@ async function applyShared(shared: Shared): Promise<void> {
 
 // What this project changed over its template, to share: its sources, not
 // its builds, dependencies or database.
-export async function shareable(name: string): Promise<Shared> {
+export async function shareable(name: string, template?: Template): Promise<Shared> {
   const [{ changed: written, removed }, site] = await Promise.all([
     running().changes(HIDDEN),
     fetch('/fs/version').then((response) => response.text()),
@@ -300,6 +301,7 @@ export async function shareable(name: string): Promise<Shared> {
     kind: kind === 'phoenix' ? 'phoenix' : 'empty',
     name,
     site: site.trim(),
+    ...(template ? { template } : {}),
     files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
     removed: removed.map(relative),
   };

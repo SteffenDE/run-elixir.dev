@@ -19,6 +19,8 @@ app, at /work/playground.
   size, mtime and bundle, for stat and readdir;
 - fs/bundles/N.tar: those files, a directory's in bundles of up to 512 KB,
   fetched whole by the node when it first opens one of them;
+- fs/templates.json: each template's id (a digest of its files, without
+  its build) and label; a project notes the template it was made from;
 - fs/version: a digest of the above; a project's kept changes note the
   version they were made over.
 
@@ -315,6 +317,16 @@ def main():
     # fetchable for projects that do not unpack them.
     lazy = [(path, here) for path, here in files if path not in taken]
     bundles = write_lazy(fs, lazy)
+    # Which template a project was made from: its files (not its build,
+    # which changes with the runtime), and what it is.
+    template = hashlib.sha256()
+    for path, here in sorted(files):
+        if path.startswith("work/playground/") and not path.startswith("work/playground/_build/"):
+            template.update(path.encode() + b"\0")
+            with open(here, "rb") as f:
+                template.update(f.read())
+    with open(os.path.join(fs, "templates.json"), "w") as f:
+        json.dump({"phoenix": {"id": template.hexdigest()[:12], "label": f"phx.new {PHX_NEW}"}}, f)
     # What a project's kept changes were made over (files.js).
     digest = hashlib.sha256()
     for name in sorted(os.listdir(fs)):

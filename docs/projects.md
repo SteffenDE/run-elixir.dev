@@ -76,6 +76,24 @@ template's `_build` records are dropped: the new template's build is used
 and the project's sources recompile over it. A project without a template
 keeps its `_build` as it is.
 
+## Template versions
+
+The build names each template (`fs/templates.json`): an id, a digest of
+its files without its build (which changes with the runtime, not with
+the template), and a label (`phx.new 1.8.15`). A Phoenix project records
+the template it was made from, and so does a shared link; a project made
+before templates had versions takes the current one when first opened.
+
+A project whose template is not the site's says so in a notice under its
+top bar: its changes now sit over the current template, which may not fit
+them (a changed config, a newer lock). Dismissing it takes the current
+template as the project's. The import page says the same of a link made
+from another template.
+
+Older templates are not kept: a template's build is compiled by the
+runtime it shipped with, so keeping one means keeping that whole site
+(runtime, boot images, bundles) beside the new one, at a path of its own.
+
 ## One tab per project
 
 A page runs a project while it holds the project's Web Lock

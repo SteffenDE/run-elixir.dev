@@ -4,6 +4,7 @@
 import Dexie, { type Table } from 'dexie';
 import { randomName } from './names';
 import type { Shared } from './share';
+import { siteTemplate, type Template } from './templates';
 
 // phoenix: the phx.new template, its server and PGlite; empty: an empty
 // /work. A temporary IEx is an empty project that is not stored.
@@ -16,6 +17,9 @@ export interface Project {
   kind: Kind;
   createdAt: number;
   openedAt: number;
+  // The template it was made from (Phoenix; none for older projects until
+  // they are opened).
+  template?: Template;
 }
 
 // What a project made from a link starts with, until its first start
@@ -52,17 +56,29 @@ export function isId(text: string): boolean {
   return ID.test(text);
 }
 
-export async function createProject(kind: Kind, name = randomName()): Promise<Project> {
+export async function createProject(
+  kind: Kind,
+  name = randomName(),
+  template?: Template,
+): Promise<Project> {
   const now = Date.now();
-  const project = { id: newId(), name, kind, createdAt: now, openedAt: now };
+  const made = template ?? (await siteTemplate(kind)) ?? undefined;
+  const project: Project = { id: newId(), name, kind, createdAt: now, openedAt: now };
+  if (made) project.template = made;
   await database.projects.add(project);
   return project;
 }
 
+// The template a project now takes its changes over, as the user saw.
+export async function templateSeen(id: string, template: Template): Promise<void> {
+  await database.projects.update(id, { template });
+}
+
 // A new project from a link: its files come with its first start.
 export async function importProject(shared: Shared): Promise<Project> {
+  const template = shared.template ?? (await siteTemplate(shared.kind)) ?? undefined;
   return database.transaction('rw', database.projects, database.seeds, async () => {
-    const project = await createProject(shared.kind, shared.name);
+    const project = await createProject(shared.kind, shared.name, template);
     await database.seeds.put({ id: project.id, shared });
     return project;
   });

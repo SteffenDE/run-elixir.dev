@@ -901,3 +901,24 @@ button {
   color: var(--accent);
   font-size: 12px;
 }
+
+.template-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 6px 10px 6px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--accent-soft);
+  font-size: 12px;
+}
+
+.template-notice svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--accent);
+}
+
+.template-notice p {
+  flex: 1;
+  margin: 2px 0;
+}

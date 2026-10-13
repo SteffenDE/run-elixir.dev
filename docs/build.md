@@ -37,6 +37,7 @@ target/playground/site/
   fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it (14.5 MB)
   fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
   fs/bundles/N.tar           those files, uncompressed tars of ≤ 512 KB
+  fs/templates.json          each template's id (its files, without its build) and label
   fs/version                 a digest of fs/, which kept project changes note
 ```
 

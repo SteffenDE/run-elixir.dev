@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { KindChip } from '@/shared/components/KindChip';
 import { importProject } from '@/shared/lib/projects';
 import { decodeShared, type Shared } from '@/shared/lib/share';
+import { siteTemplate, type Template } from '@/shared/lib/templates';
 
 // A shared project's link (/import#DATA): what it holds, and a new project
 // made from it.
@@ -10,19 +11,23 @@ export function ImportPage() {
   const [error, setError] = useState<string | null>(() =>
     location.hash.length > 1 ? null : 'This link holds no project.',
   );
-  const [version, setVersion] = useState<string | null>(null);
+  const [current, setCurrent] = useState<Template | null>(null);
   const [opening, setOpening] = useState(false);
 
   useEffect(() => {
     document.title = 'Shared project · Elixir Playground';
     const data = location.hash.slice(1);
     if (!data) return;
-    decodeShared(data).then(setShared, (failure: Error) =>
-      setError(failure.message.startsWith('This link') ? failure.message : 'This link is damaged.'),
+    decodeShared(data).then(
+      (decoded) => {
+        setShared(decoded);
+        void siteTemplate(decoded.kind).then(setCurrent);
+      },
+      (failure: Error) =>
+        setError(
+          failure.message.startsWith('This link') ? failure.message : 'This link is damaged.',
+        ),
     );
-    void fetch('/fs/version')
-      .then((response) => response.text())
-      .then((text) => setVersion(text.trim()));
   }, []);
 
   const paths = shared ? Object.keys(shared.files).sort() : [];
@@ -43,8 +48,8 @@ export function ImportPage() {
               {paths.length} {paths.length === 1 ? 'file' : 'files'}
               {shared.removed.length ? `, ${shared.removed.length} removed` : ''}
               {shared.kind === 'phoenix' ? ' over the Phoenix template' : ''}.
-              {version && version !== shared.site
-                ? ' It was shared from another version of this site; its files apply all the same.'
+              {current && shared.template && shared.template.id !== current.id
+                ? ` It was made from another Phoenix template (${shared.template.label}; this site's is ${current.label}); its files go over this one.`
                 : ''}
             </p>
             <ul className="import-files">
