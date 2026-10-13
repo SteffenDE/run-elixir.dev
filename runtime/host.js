@@ -5,7 +5,7 @@
 // (the worker sleeps on its write count, so a frame wakes it):
 // [kind u8][id u32][length u32][payload]. The worker answers with
 // messages.
-export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5 };
+export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, FILES: 6 };
 export const RING = 1 << 20;
 const CHUNK = 1 << 16;
 
@@ -34,9 +34,11 @@ class Connection {
 
 export class Node {
   // base: where the site's runtime files are; onoutput(bytes),
-  // onstatus(text), onexit(code); serve: { port: (connection) => ... }
-  // for ports the node may connect to on the page.
-  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {} }) {
+  // onstatus(text), onexit(code), onchange(paths): what the node created,
+  // wrote, renamed or removed; serve: { port: (connection) => ... } for
+  // ports the node may connect to on the page.
+  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, onchange = () => {}, serve = {} }) {
+    this.requests = new Map();
     this.shared = new SharedArrayBuffer(8 + RING);
     this.control = new Int32Array(this.shared, 0, 2);
     this.ring = new Uint8Array(this.shared, 8, RING);
@@ -55,6 +57,13 @@ export class Node {
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
       else if (data.kind === 'net') this.network(data);
+      else if (data.kind === 'changed') onchange(data.payload);
+      else if (data.kind === 'files') {
+        const request = this.requests.get(data.id);
+        this.requests.delete(data.id);
+        if (data.error) request?.reject(new Error(data.error));
+        else request?.resolve(data);
+      }
     };
     // A worker that does not load (or throws outside its own handler).
     this.worker.onerror = (event) => onstatus(`failed: ${event.message || 'the worker did not start'}`);
@@ -64,6 +73,29 @@ export class Node {
   // initial: command lines the shell runs first, as if typed.
   start({ shell = false, args, env = {}, initial = [] }) {
     this.worker.postMessage({ shared: this.shared, shell, args, env, initial, ports: Object.keys(this.serve).map(Number) });
+  }
+
+  // The node's filesystem, answered by the worker whatever the node is
+  // doing: paths are absolute.
+  get fs() {
+    const ask = (request, data = new Uint8Array(0)) => new Promise((resolve, reject) => {
+      const id = (this.next += 2);
+      this.requests.set(id, { resolve, reject });
+      const json = new TextEncoder().encode(JSON.stringify(request));
+      const payload = new Uint8Array(4 + json.length + data.length);
+      new DataView(payload.buffer).setUint32(0, json.length, true);
+      payload.set(json, 4);
+      payload.set(data, 4 + json.length);
+      this.frame(FRAME.FILES, id, payload);
+    });
+    return {
+      list: (path, skip = []) => ask({ op: 'list', path, skip }).then((r) => r.entries),
+      read: (path) => ask({ op: 'read', path }).then((r) => r.data),
+      write: (path, data) => ask({ op: 'write', path }, typeof data === 'string' ? new TextEncoder().encode(data) : data).then(() => {}),
+      mkdir: (path) => ask({ op: 'mkdir', path }).then(() => {}),
+      remove: (path) => ask({ op: 'remove', path }).then(() => {}),
+      rename: (path, to) => ask({ op: 'rename', path, to }).then(() => {}),
+    };
   }
 
   input(text) {

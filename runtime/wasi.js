@@ -312,7 +312,10 @@ export class WASI {
   // programs: { name: (process, { args, cwd, env, root }) => ... }, the
   // programs the node may spawn, by base name; a program writes to and
   // exits its Process.
-  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch, programs = {} }) {
+  // onchange(path): the node created, wrote (reported when the file is
+  // closed), renamed or removed what is at the absolute `path`.
+  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch, programs = {}, onchange = () => {} }) {
+    this.onchange = onchange;
     this.fetch = fetch;
     this.programs = programs;
     this.tty = tty;
@@ -329,7 +332,7 @@ export class WASI {
       [0, { stream: true }],
       [1, { stream: true }],
       [2, { stream: true }],
-      [3, { node: root, preopen: '/' }],
+      [3, { node: root, preopen: '/', path: '' }],
     ]);
     this.next = 4;
     this.memory = null;
@@ -355,6 +358,17 @@ export class WASI {
   }
   string(ptr, len) {
     return new TextDecoder().decode(this.bytes(ptr, len));
+  }
+
+  // The absolute path of `path` below directory fd `fd`.
+  absolute(fd, path) {
+    const base = path.startsWith('/') ? '' : (this.fds.get(fd)?.path ?? '');
+    const out = [];
+    for (const part of `${base}/${path}`.split('/')) {
+      if (part === '..') out.pop();
+      else if (part && part !== '.') out.push(part);
+    }
+    return '/' + out.join('/');
   }
 
   // The node at `path` below directory fd `fd`: { node } or { error },
@@ -540,6 +554,7 @@ export class WASI {
         const entry = self.fds.get(fd);
         if (entry.endpoint) entry.endpoint.peer.close();
         if (entry.listener) self.network.listeners.delete(entry.port);
+        if (entry.changed) self.onchange(entry.path);
         self.fds.delete(fd);
         return ok;
       },
@@ -573,6 +588,7 @@ export class WASI {
         }
         if (!entry || !(entry.node instanceof File)) return E.BADF;
         entry.node.truncate(Number(size));
+        entry.changed = true;
         return ok;
       },
       fd_filestat_set_times: () => ok,
@@ -667,6 +683,7 @@ export class WASI {
             if (end > file.size) file.size = end;
             file.mtime = now();
             file.written = true;
+            entry.changed = true;
             entry.position = end;
           }
           total += len;
@@ -745,11 +762,13 @@ export class WASI {
         }
         const found = self.resolve(fd, self.string(pathPtr, pathLen));
         let node = found.node;
+        let changed = false;
         if (node && oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return E.EXIST;
         if (!node) {
           if (!(oflags & OFLAGS.CREAT) || !found.parent) return found.error;
           node = new File();
           node.written = true;
+          changed = true;
           found.parent.entries.set(found.name, node);
           found.parent.mtime = now();
         }
@@ -762,9 +781,11 @@ export class WASI {
         if (node instanceof File && oflags & OFLAGS.TRUNC) {
           node.truncate(0);
           node.written = true;
+          changed = true;
         }
         const opened = self.next++;
-        self.fds.set(opened, { node, position: 0, append: !!(fdflags & FDFLAGS.APPEND) });
+        self.fds.set(opened, { node, position: 0, append: !!(fdflags & FDFLAGS.APPEND),
+          path: self.absolute(fd, self.string(pathPtr, pathLen)), changed });
         self.view().setUint32(fdPtr, opened, true);
         return ok;
       },
@@ -781,6 +802,7 @@ export class WASI {
         const dir = new Dir();
         dir.parent = found.parent;
         found.parent.entries.set(found.name, dir);
+        self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;
       },
       path_remove_directory(fd, pathPtr, pathLen) {
@@ -789,6 +811,7 @@ export class WASI {
         if (!(found.node instanceof Dir)) return E.NOTDIR;
         if (found.node.entries.size) return E.NOTEMPTY;
         found.parent.entries.delete(found.name);
+        self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;
       },
       path_unlink_file(fd, pathPtr, pathLen) {
@@ -796,6 +819,7 @@ export class WASI {
         if (!found.node) return found.error;
         if (found.node instanceof Dir) return E.ISDIR;
         found.parent.entries.delete(found.name);
+        self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;
       },
       path_rename(fd, oldPtr, oldLen, fd2, newPtr, newLen) {
@@ -807,6 +831,8 @@ export class WASI {
         from.parent.entries.delete(from.name);
         to.parent.entries.set(to.name, from.node);
         if (from.node instanceof Dir) from.node.parent = to.parent;
+        self.onchange(self.absolute(fd, self.string(oldPtr, oldLen)));
+        self.onchange(self.absolute(fd2, self.string(newPtr, newLen)));
         return ok;
       },
       // A hard link: the same file under a second name.
@@ -818,6 +844,7 @@ export class WASI {
         if (to.node) return E.EXIST;
         if (!to.parent) return to.error;
         to.parent.entries.set(to.name, from.node);
+        self.onchange(self.absolute(fd2, self.string(newPtr, newLen)));
         return ok;
       },
       path_readlink: () => E.INVAL,

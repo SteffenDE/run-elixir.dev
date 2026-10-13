@@ -10,7 +10,7 @@
 import { WASI, Dir, File, Network, untar, mount, load, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
 
-const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5 };
+const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, FILES: 6 };
 const RING = 1 << 20;
 const say = (kind, payload) => postMessage({ kind, payload });
 const text = (string) => say('out', new TextEncoder().encode(string));
@@ -19,7 +19,12 @@ class Interrupted extends Error {}
 
 // The page's frames: input, connections, interrupts.
 class Channel {
-  constructor(shared) {
+  // files(request, data): the page's file requests (host.js fs), answered
+  // in the pump, whatever the node is doing.
+  constructor(shared, files) {
+    this.files = files;
+    this.changed = new Set();
+    this.reported = 0;
     this.control = new Int32Array(shared, 0, 2);
     this.ring = new Uint8Array(shared, 8, RING);
     this.input = [];
@@ -48,10 +53,26 @@ class Channel {
         if (!net || !net.accepted(id, (payload[0] << 8) | payload[1])) {
           postMessage({ kind: 'net', op: 'refused', id });
         }
+      } else if (kind === FRAME.FILES) {
+        const length = new DataView(payload.buffer).getUint32(0, true);
+        const request = JSON.parse(new TextDecoder().decode(payload.subarray(4, 4 + length)));
+        let reply;
+        try {
+          reply = { id, ...this.files(request, payload.subarray(4 + length)) };
+        } catch (error) {
+          reply = { id, error: error.message };
+        }
+        postMessage({ kind: 'files', ...reply }, reply.data ? [reply.data.buffer] : []);
       } else if (kind === FRAME.DATA) net?.data(id, payload);
       else if (kind === FRAME.END || kind === FRAME.CLOSE) net?.ended(id);
     }
     Atomics.store(this.control, 1, read);
+    // What the node changed, at most every 200 ms.
+    if (this.changed.size && performance.now() - this.reported > 200) {
+      postMessage({ kind: 'changed', payload: [...this.changed] });
+      this.changed.clear();
+      this.reported = performance.now();
+    }
   }
   // Until a frame comes or `ms` pass.
   sleep(ms) {
@@ -157,6 +178,76 @@ function command(name, args) {
   return null;
 }
 
+// The page's file requests, on the node's filesystem: list (every file and
+// directory below `path`, skipping `skip` names), read, write, mkdir,
+// remove (recursively) and rename.
+function files(root, fetchFile) {
+  const at = (path) => lookup(root, path);
+  const parentOf = (path) => {
+    const parent = at(path.slice(0, path.lastIndexOf('/')) || '/');
+    if (!(parent instanceof Dir)) throw new Error(`${path}: no such directory`);
+    return parent;
+  };
+  const name = (path) => path.slice(path.lastIndexOf('/') + 1);
+  return ({ op, path, to, skip = [] }, data) => {
+    switch (op) {
+      case 'list': {
+        const entries = [];
+        const walk = (dir, prefix) => {
+          for (const [entry, node] of dir.entries) {
+            if (skip.includes(entry)) continue;
+            const full = `${prefix}/${entry}`;
+            if (node instanceof Dir) {
+              entries.push({ path: full, dir: true });
+              walk(node, full);
+            } else entries.push({ path: full, dir: false });
+          }
+        };
+        const dir = at(path);
+        if (dir instanceof Dir) walk(dir, path === '/' ? '' : path);
+        return { entries };
+      }
+      case 'read': {
+        const node = at(path);
+        if (!(node instanceof File)) throw new Error(`${path}: not a file`);
+        load(node, fetchFile);
+        return { data: node.bytes.slice() };
+      }
+      case 'write': {
+        const node = at(path);
+        if (node instanceof Dir) throw new Error(`${path}: is a directory`);
+        if (node instanceof File) {
+          load(node, fetchFile);
+          node.truncate(data.length);
+          node.data.set(data);
+          node.written = true;
+        } else {
+          const file = new File(data.slice());
+          file.written = true;
+          parentOf(path).entries.set(name(path), file);
+        }
+        return {};
+      }
+      case 'mkdir':
+        root.mkdirs(path);
+        return {};
+      case 'remove':
+        parentOf(path).entries.delete(name(path));
+        return {};
+      case 'rename': {
+        const node = at(path);
+        if (!node) throw new Error(`${path}: no such file`);
+        const target = parentOf(to);
+        parentOf(path).entries.delete(name(path));
+        target.entries.set(name(to), node);
+        if (node instanceof Dir) node.parent = target;
+        return {};
+      }
+    }
+    throw new Error(`${op}: no such request`);
+  };
+}
+
 const HELP = `Commands: iex, elixir, mix, erl (each runs Rust-OTP), and
 cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
@@ -174,9 +265,10 @@ onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) 
     mount(manifest, root);
     await untar(new Uint8Array(image), root);
     prepare(root);
-    const channel = new Channel(shared);
+    let fetchFile;
+    const channel = new Channel(shared, (request, data) => files(root, fetchFile)(request, data));
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
-    const fetchFile = bundled((bundle) => {
+    fetchFile = bundled((bundle) => {
       const request = new XMLHttpRequest();
       request.open('GET', new URL(`fs/bundles/${bundle}.tar`, import.meta.url), false);
       request.responseType = 'arraybuffer';
@@ -209,6 +301,7 @@ onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) 
         pump,
         fetch: fetchFile,
         programs: programs(fetchFile),
+        onchange: (path) => channel.changed.add(path),
         stdin(max) {
           pump();
           return channel.input.length ? channel.take(max) : null;
