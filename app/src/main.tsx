@@ -1,6 +1,7 @@
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HomePage } from '@/home/components/HomePage';
+import { ImportPage } from '@/home/components/ImportPage';
 import { NotFound } from '@/home/components/NotFound';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
@@ -17,11 +18,13 @@ import '@/styles.css';
 //   /ID/        a project
 //   /phoenix    a new Phoenix project; /empty, a new empty one
 //   /iex        a temporary IEx, kept nowhere
+//   /import#…   a shared project's link
 const SHORTCUTS: Record<string, Kind> = { phoenix: 'phoenix', empty: 'empty' };
 
 async function page(path: string): Promise<ReactNode> {
   const name = path.split('/').filter(Boolean)[0] ?? '';
   if (!name) return <HomePage />;
+  if (name === 'import') return <ImportPage />;
   if (name === 'iex') {
     document.title = 'IEx · Elixir Playground';
     return <ProjectPage project={null} />;

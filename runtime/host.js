@@ -98,6 +98,11 @@ export class Files {
   rename(path, to) {
     return this.ask({ op: 'rename', path, to }).then(() => {});
   }
+  // What the project changed below /work over its template, but in
+  // directories named in `skip`: { changed: [{ path, data }], removed }.
+  changes(skip = []) {
+    return this.ask({ op: 'changes', skip }).then(({ changed, removed }) => ({ changed, removed }));
+  }
   // Keep everything changed so far (a store's).
   flush() {
     return this.ask({ op: 'flush' }).then(() => {});

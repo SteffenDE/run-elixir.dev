@@ -17,6 +17,8 @@ import {
 } from '@/project/lib/previewChannel';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
+import { seedTaken, takeSeed } from '@/shared/lib/projects';
+import { fileBytes, fileEntry, type Shared } from '@/shared/lib/share';
 import { HEX_PORT, hex, hexEnv } from './hex';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
@@ -273,6 +275,36 @@ export async function shutdown(): Promise<void> {
   db = null;
 }
 
+// A shared project's changes, over this project's template.
+async function applyShared(shared: Shared): Promise<void> {
+  const target = running();
+  for (const path of shared.removed) await target.remove(`${WORK}/${path}`).catch(() => {});
+  for (const [path, entry] of Object.entries(shared.files)) {
+    const file = `${WORK}/${path}`;
+    await target.mkdir(file.slice(0, file.lastIndexOf('/')));
+    await target.write(file, fileBytes(entry));
+  }
+  await target.flush();
+}
+
+// What this project changed over its template, to share: its sources, not
+// its builds, dependencies or database.
+export async function shareable(name: string): Promise<Shared> {
+  const [{ changed: written, removed }, site] = await Promise.all([
+    running().changes(HIDDEN),
+    fetch('/fs/version').then((response) => response.text()),
+  ]);
+  const relative = (path: string) => path.slice(WORK.length + 1);
+  return {
+    v: 1,
+    kind: kind === 'phoenix' ? 'phoenix' : 'empty',
+    name,
+    site: site.trim(),
+    files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
+    removed: removed.map(relative),
+  };
+}
+
 // Start a project of `kind`: its files, the service worker, and the first
 // shell. `id`: the stored project's, whose changes are kept (none for a
 // temporary IEx).
@@ -295,6 +327,13 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     onwarning: (message: string) => useStore.getState().setStatus(message),
   });
   await Promise.all([files.ready, Bridge.register('/sw.js', '/', previewKey)]);
+  // A project from a link: its changes, before anything runs.
+  const seed = id ? await takeSeed(id) : null;
+  if (seed && id) {
+    store.setStatus('Adding the shared files…');
+    await applyShared(seed);
+    await seedTaken(id);
+  }
   void refreshTree();
   // The preview's requests go to whichever node listens on the port.
   bridge = new Bridge({ connect: (port: number) => nodeOn(port)!.connect(port) });
@@ -313,6 +352,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
         return sessions.get(FIRST_SESSION)?.backlog ?? '';
       },
       openTerminal,
+      shareable,
     },
   });
 }

@@ -36,6 +36,9 @@ let doorbell = null;
 // changed since they were last written (true: with everything in them).
 let overlay = null;
 const dirty = new Map();
+// The template's files, as the project started (what 'changes' compares
+// with).
+const templateFiles = new Set();
 let saving = null;
 let saved = 0;
 
@@ -306,6 +309,15 @@ function answer() {
   if (overlay && dirty.size && performance.now() - saved > 1000) persist();
 }
 
+// Every file below `dir` (at `path`), but in directories named in `skip`.
+function walkFiles(dir, path, visit, skip = []) {
+  for (const [name, node] of dir.entries) {
+    if (skip.includes(name)) continue;
+    if (node instanceof Dir) walkFiles(node, `${path}/${name}`, visit, skip);
+    else if (node instanceof File) visit(`${path}/${name}`, node);
+  }
+}
+
 // The page's requests (host.js Files): the same filesystem, by message.
 function page({ id, op, path, to, skip = [], data }) {
   const found = path ? resolve(path) : null;
@@ -322,6 +334,23 @@ function page({ id, op, path, to, skip = [], data }) {
       };
       if (found.node instanceof Dir) walk(found.node, path === '/' ? '' : path);
       return { id, entries };
+    }
+    // What the project changed below /work over its template, but in
+    // directories named in `skip` (builds, dependencies): the files it
+    // added or wrote, with their bytes, and the template's it removed.
+    case 'changes': {
+      const changed = [];
+      const present = new Set();
+      walkFiles(resolve('/work').node, '/work', (file, node) => {
+        present.add(file);
+        if (templateFiles.has(file) && !node.written) return;
+        load(node, fetchFile);
+        changed.push({ path: file, data: node.bytes.slice() });
+      }, skip);
+      const removed = [...templateFiles].filter(
+        (file) => !present.has(file) && !file.split('/').some((part) => skip.includes(part)),
+      );
+      return { id, changed, removed };
     }
     case 'stat':
       return { id, type: found.node instanceof Dir ? 'dir' : found.node instanceof File ? 'file' : null };
@@ -406,6 +435,10 @@ onmessage = async ({ data }) => {
         `/${path}`.startsWith('/tmp/') || template.some((prefix) => `/${path}/`.startsWith(`${prefix}/`));
       mount(manifest.filter(([path]) => shared(path)), root);
       for (const image of images) await untar(new Uint8Array(image), root, shared);
+      for (const prefix of template) {
+        const found = resolve(prefix);
+        if (found.node instanceof Dir) walkFiles(found.node, prefix, (path) => templateFiles.add(path));
+      }
       for (const prefix of SHARED) root.mkdirs(prefix);
       if (store) {
         const db = await overlays.open(store);
@@ -453,7 +486,8 @@ onmessage = async ({ data }) => {
     } catch (error) {
       reply = { id: data.id, error: error.message };
     }
-    postMessage({ kind: 'reply', ...reply }, reply.data ? [reply.data.buffer] : []);
+    const transfer = reply.data ? [reply.data.buffer] : (reply.changed ?? []).map((file) => file.data.buffer);
+    postMessage({ kind: 'reply', ...reply }, transfer);
   }
 };
 

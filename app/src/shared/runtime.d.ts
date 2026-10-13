@@ -40,6 +40,10 @@ declare module '@runtime/host.js' {
     ready: Promise<void>;
     worker: Worker;
     flush(): Promise<void>;
+    changes(skip?: string[]): Promise<{
+      changed: { path: string; data: Uint8Array }[];
+      removed: string[];
+    }>;
     stat(path: string): Promise<'file' | 'dir' | null>;
     lstat(
       path: string,

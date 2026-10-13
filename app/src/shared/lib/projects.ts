@@ -3,6 +3,7 @@
 // (storage.ts), so deleting a project deletes them whole.
 import Dexie, { type Table } from 'dexie';
 import { randomName } from './names';
+import type { Shared } from './share';
 
 // phoenix: the phx.new template, its server and PGlite; empty: an empty
 // /work. A temporary IEx is an empty project that is not stored.
@@ -17,12 +18,21 @@ export interface Project {
   openedAt: number;
 }
 
+// What a project made from a link starts with, until its first start
+// lays it over the template.
+interface Seed {
+  id: string;
+  shared: Shared;
+}
+
 class Database extends Dexie {
   projects!: Table<Project, string>;
+  seeds!: Table<Seed, string>;
 
   constructor() {
     super('playground');
     this.version(1).stores({ projects: 'id, openedAt' });
+    this.version(2).stores({ seeds: 'id' });
   }
 }
 
@@ -42,11 +52,30 @@ export function isId(text: string): boolean {
   return ID.test(text);
 }
 
-export async function createProject(kind: Kind): Promise<Project> {
+export async function createProject(kind: Kind, name = randomName()): Promise<Project> {
   const now = Date.now();
-  const project = { id: newId(), name: randomName(), kind, createdAt: now, openedAt: now };
+  const project = { id: newId(), name, kind, createdAt: now, openedAt: now };
   await database.projects.add(project);
   return project;
+}
+
+// A new project from a link: its files come with its first start.
+export async function importProject(shared: Shared): Promise<Project> {
+  return database.transaction('rw', database.projects, database.seeds, async () => {
+    const project = await createProject(shared.kind, shared.name);
+    await database.seeds.put({ id: project.id, shared });
+    return project;
+  });
+}
+
+// The link's changes a project has yet to take (once).
+export async function takeSeed(id: string): Promise<Shared | null> {
+  const seed = await database.seeds.get(id);
+  return seed?.shared ?? null;
+}
+
+export async function seedTaken(id: string): Promise<void> {
+  await database.seeds.delete(id);
 }
 
 export function listProjects(): Promise<Project[]> {
@@ -66,5 +95,8 @@ export async function renameProject(id: string, name: string): Promise<void> {
 }
 
 export async function removeProject(id: string): Promise<void> {
-  await database.projects.delete(id);
+  await database.transaction('rw', database.projects, database.seeds, async () => {
+    await database.projects.delete(id);
+    await database.seeds.delete(id);
+  });
 }

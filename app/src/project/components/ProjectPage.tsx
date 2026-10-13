@@ -13,6 +13,7 @@ import { FileTreePanel } from '@/project/components/FileTreePanel';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
+import { ShareButton } from '@/project/components/ShareButton';
 import { Terminals } from '@/project/components/Terminals';
 import { setup } from '@/project/lib/kinds';
 import { restartServer, start } from '@/project/lib/playground';
@@ -137,6 +138,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
             Dock preview
           </button>
         )}
+        <ShareButton name={project?.name ?? 'iex'} />
         {kind === 'phoenix' && (
           <button
             type="button"

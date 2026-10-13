@@ -827,3 +827,71 @@ button {
     display: none;
   }
 }
+
+/* Sharing */
+
+.share-panel {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: min(420px, calc(100vw - 16px));
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: inherit;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.18);
+}
+
+.share-summary {
+  margin: 0 0 8px;
+  font-weight: 600;
+}
+
+.share-row {
+  display: flex;
+  gap: 6px;
+}
+
+.share-url {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: inherit;
+  font:
+    12px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+
+.share-note {
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+
+.import-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 16px;
+}
+
+.import-files {
+  margin: 12px 0 20px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  list-style: none;
+  font:
+    12px/1.7 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  max-height: 40vh;
+  overflow: auto;
+}
