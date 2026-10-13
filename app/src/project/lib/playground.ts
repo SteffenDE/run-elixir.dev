@@ -1,14 +1,16 @@
-// The playground's nodes: PGlite, the preview's service worker, the shared
+// A project's nodes: PGlite, the preview's service worker, the shared
 // filesystem, and a shell per terminal tab, each a node in its own worker.
-// The first runs the Phoenix server; the others are for mix and friends
-// while it runs. Everything the UI does to the nodes goes through here.
+// The first runs what the project's kind starts with (the Phoenix server,
+// IEx, or nothing); the others are for mix and friends beside it.
+// Everything the UI does to the nodes goes through here.
 import { PGlite } from '@electric-sql/pglite';
 import { Files, Node } from '@runtime/host.js';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
 import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
 import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
-import { HIDDEN, PROJECT, WORK, useStore } from '@/project/lib/store';
+import { HIDDEN, WORK, useStore } from '@/project/lib/store';
+import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
 
@@ -21,13 +23,14 @@ interface Session {
 
 const sessions = new Map<number, Session>();
 let files: Files | null = null;
-let db: PGlite | null = null;
+let setup: Setup = setupOf('empty');
+let kind: WorkspaceKind = 'empty';
+// Started on the first connection to 5432.
+let db: Promise<PGlite> | null = null;
 let nextSession = 1;
-export const SERVER_SESSION = 1;
-const SERVER_PORT = 4000;
-// The site's boot images: IEx's, and what the Phoenix template's server
-// reads beyond it (runtime/build.py).
-const BOOTS = ['boot', 'boot-phoenix'];
+export const FIRST_SESSION = 1;
+// The port the preview shows: Phoenix's, else the first one listened on.
+const PREVIEW_PORT = 4000;
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -94,8 +97,8 @@ export async function save(path: string, text: string): Promise<void> {
   await files.write(path, encoder.encode(text));
   useStore.getState().saved(path, text);
   filesChanged([path]);
-  // The code reloader compiles on the next request.
-  if (path.startsWith(PROJECT)) {
+  // Phoenix's code reloader compiles on the next request.
+  if (useStore.getState().previewPort !== null) {
     if (reloading) clearTimeout(reloading);
     reloading = setTimeout(() => useStore.getState().reloadPreview(), 200);
   }
@@ -109,37 +112,49 @@ export function interrupt(id: number): void {
   sessions.get(id)?.node.interrupt();
 }
 
-const SERVER = 'iex -S mix phx.server';
-
-// Stop whatever runs in the first shell, then start the server again.
+// Stop whatever runs in the first shell, then start the Phoenix server
+// again.
 export function restartServer(): void {
-  const node = sessions.get(SERVER_SESSION)?.node;
-  if (!node) return;
+  const node = sessions.get(FIRST_SESSION)?.node;
+  if (!node || kind !== 'phoenix') return;
   node.interrupt();
-  setTimeout(() => node.input(`cd ${PROJECT}\n${SERVER}\n`), 300);
+  setTimeout(() => node.input(serverCommand(setup.cwd)), 300);
 }
 
 // Which node answers a port: the one listening on it.
 function nodeOn(port: number): Node | null {
   for (const session of sessions.values())
     if (session.node.listening.has(port)) return session.node;
-  return sessions.get(SERVER_SESSION)?.node ?? null;
+  return sessions.get(FIRST_SESSION)?.node ?? null;
 }
 
-function updateServer(): void {
-  const running = [...sessions.values()].some((s) => s.node.listening.has(SERVER_PORT));
-  if (running !== useStore.getState().serverRunning) useStore.getState().setServerRunning(running);
+let bridge: Bridge | null = null;
+
+// The ports the nodes listen on, and the one the preview shows.
+function updateListening(): void {
+  const ports = new Set<number>();
+  for (const session of sessions.values())
+    for (const port of session.node.listening) ports.add(port);
+  const sorted = [...ports].sort((a, b) => a - b);
+  const port = ports.has(PREVIEW_PORT) ? PREVIEW_PORT : (sorted[0] ?? null);
+  if (bridge && port !== null) bridge.port = port;
+  if (port !== useStore.getState().previewPort) useStore.getState().setPreviewPort(port);
+}
+
+function database(): Promise<PGlite> {
+  db ??= PGlite.create();
+  return db;
 }
 
 // A shell in a new terminal tab (the first runs `initial`).
 export function openTerminal(initial: string[] = []): number {
-  if (!files || !db) return 0;
+  if (!files) return 0;
   const id = nextSession++;
   const session: Session = { id, node: null as unknown as Node, backlog: '', listeners: new Set() };
   session.node = new Node({
-    base: './',
+    base: '/',
     files,
-    serve: { 5432: postgres(db) },
+    serve: { 5432: postgres(database) },
     // The Hex tailwind package's binary is this page's.
     programs: { tailwind },
     onoutput(bytes) {
@@ -148,26 +163,26 @@ export function openTerminal(initial: string[] = []): number {
       for (const listener of session.listeners) listener(text);
     },
     onstatus(text) {
-      if (id !== SERVER_SESSION) return;
+      if (id !== FIRST_SESSION) return;
       if (text === 'running') {
-        useStore.getState().setStatus('Phoenix 1.8 on Rust-OTP (WebAssembly), with PGlite');
+        useStore.getState().setStatus(setup.running);
         useStore.getState().setReady(true);
       } else useStore.getState().setStatus(text);
     },
-    onlistening: updateServer,
+    onlistening: updateListening,
   });
   sessions.set(id, session);
-  session.node.start({ shell: true, initial, cwd: PROJECT, boots: BOOTS });
+  session.node.start({ shell: true, initial, cwd: setup.cwd, boots: setup.boots });
   useStore.getState().addTerminal(id);
   return id;
 }
 
 export function closeTerminal(id: number): void {
-  if (id === SERVER_SESSION) return;
+  if (id === FIRST_SESSION) return;
   sessions.get(id)?.node.stop();
   sessions.delete(id);
   useStore.getState().removeTerminal(id);
-  updateServer();
+  updateListening();
 }
 
 // A popped-out preview hears what the docked one would: reloads and new
@@ -181,36 +196,40 @@ previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessag
   else if (data.type === 'opened') useStore.getState().popOut(true);
 });
 
-export async function start(): Promise<void> {
+// Start a project of `kind`: its files, the service worker, and the first
+// shell.
+export async function start(workspaceKind: WorkspaceKind): Promise<void> {
+  kind = workspaceKind;
+  setup = setupOf(kind);
   const store = useStore.getState();
   if (!crossOriginIsolated) {
     store.setStatus('This page needs cross-origin isolation (see playground/README.md).');
     return;
   }
-  store.setStatus('Starting the database and the files…');
+  store.setStatus('Starting the files…');
   files = new Files({
-    base: './',
-    boots: BOOTS,
-    template: [PROJECT],
+    base: '/',
+    boots: setup.boots,
+    template: setup.template,
     onchange: (paths: string[]) => void changed(paths),
   });
-  [db] = await Promise.all([PGlite.create(), files.ready, Bridge.register('sw.js')]);
+  await Promise.all([files.ready, Bridge.register('/sw.js', '/')]);
   void refreshTree();
   // The preview's requests go to whichever node listens on the port.
-  const bridge = new Bridge({ connect: (port: number) => nodeOn(port)!.connect(port) });
-  openTerminal([`cd ${PROJECT}`, SERVER]);
+  bridge = new Bridge({ connect: (port: number) => nodeOn(port)!.connect(port) });
+  openTerminal(setup.first);
   // For tests and the curious.
   Object.assign(window, {
     playground: {
-      db,
+      database,
       bridge,
       files,
       sessions,
       get node() {
-        return sessions.get(SERVER_SESSION)?.node;
+        return sessions.get(FIRST_SESSION)?.node;
       },
       get output() {
-        return sessions.get(SERVER_SESSION)?.backlog ?? '';
+        return sessions.get(FIRST_SESSION)?.backlog ?? '';
       },
       openTerminal,
     },

@@ -84,7 +84,8 @@ export function EditorArea() {
       <div className="editor-empty">
         <p>Open a file from the tree to edit it.</p>
         <p className="muted">
-          Saving (⌘S / Ctrl+S) reloads the preview; Phoenix recompiles what changed.
+          Saving (⌘S / Ctrl+S) reloads the preview while a server runs; Phoenix recompiles what
+          changed.
         </p>
       </div>
     );

@@ -44,8 +44,8 @@ export class Bridge {
   }
 
   // Announce this page to the service worker, once it controls the page.
-  static async register(url = 'sw.js') {
-    await navigator.serviceWorker.register(url, { scope: './' });
+  static async register(url = 'sw.js', scope = './') {
+    await navigator.serviceWorker.register(url, { scope });
     if (!navigator.serviceWorker.controller) {
       await new Promise((resolve) => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
     }

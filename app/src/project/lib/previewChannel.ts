@@ -6,7 +6,9 @@ export type PreviewMessage =
   | { type: 'opened' }
   | { type: 'closed' };
 
-export const previewChannel = new BroadcastChannel('playground-preview');
+// One channel per IDE page: the popped-out window gets its key in its URL.
+export const previewKey = new URLSearchParams(location.search).get('key') ?? crypto.randomUUID();
+export const previewChannel = new BroadcastChannel(`playground-preview:${previewKey}`);
 
 export function send(message: PreviewMessage): void {
   previewChannel.postMessage(message);

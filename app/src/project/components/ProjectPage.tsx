@@ -4,49 +4,57 @@ import { Group, Panel, Separator, useGroupRef } from 'react-resizable-panels';
 import { EditorArea } from '@/project/components/Editor';
 import { FileTreePanel } from '@/project/components/FileTreePanel';
 import { Preview } from '@/project/components/Preview';
+import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { Terminals } from '@/project/components/Terminals';
+import { setup } from '@/project/lib/kinds';
 import { restartServer, start } from '@/project/lib/playground';
 import { closePopup } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
+import type { Project } from '@/shared/lib/projects';
 
 let started = false;
 
-export function App() {
+// A project in the IDE: tree, editor over terminals, and the preview while
+// there is something to show. `project` is null for a temporary IEx.
+export function ProjectPage({ project }: { project: Project | null }) {
+  const kind = project?.kind ?? 'iex';
   const status = useStore((state) => state.status);
   const ready = useStore((state) => state.ready);
-  const running = useStore((state) => state.serverRunning);
+  const previewPort = useStore((state) => state.previewPort);
   const popped = useStore((state) => state.previewPopped);
+  const docked = !popped && (setup(kind).alwaysPreview || previewPort !== null);
   const workspace = useGroupRef();
-  // The tree's width while the preview is docked: popping out redistributes
+  // The tree's width while the preview is docked: undocking redistributes
   // before the layout below runs.
   const treeSize = useRef(18);
 
-  // The preview's width goes to the editor while it is popped out, and
+  // The preview's width goes to the editor while it is not docked, and
   // comes back from it; the tree keeps its size.
   useEffect(() => {
     const frame = requestAnimationFrame(() => {
       const tree = treeSize.current;
       workspace.current?.setLayout(
-        popped
-          ? { tree, work: 100 - tree }
-          : { tree, work: Math.max(30, 62 - tree), preview: Math.min(100 - tree - 30, 38) },
+        docked
+          ? { tree, work: Math.max(30, 62 - tree), preview: Math.min(100 - tree - 30, 38) }
+          : { tree, work: 100 - tree },
       );
     });
     return () => cancelAnimationFrame(frame);
-  }, [popped, workspace]);
+  }, [docked, workspace]);
 
   useEffect(() => {
     if (started) return;
     started = true;
-    start().catch((error: Error) => useStore.getState().setStatus(`failed: ${error.message}`));
-  }, []);
+    start(kind).catch((error: Error) => useStore.getState().setStatus(`failed: ${error.message}`));
+  }, [kind]);
 
   return (
     <div className="app">
       <header className="top-bar">
-        <h1>
-          Phoenix <span>Playground</span>
-        </h1>
+        <a className="brand" href="/">
+          Elixir <span>Playground</span>
+        </a>
+        <ProjectTitle project={project} />
         <div className="status">
           {!ready && <RiLoader4Line size={14} className="spin" />}
           {status}
@@ -62,10 +70,12 @@ export function App() {
             Dock preview
           </button>
         )}
-        <button type="button" className="button" onClick={restartServer} disabled={!ready}>
-          <RiRestartLine size={16} />
-          {running ? 'Restart server' : 'Start server'}
-        </button>
+        {kind === 'phoenix' && (
+          <button type="button" className="button" onClick={restartServer} disabled={!ready}>
+            <RiRestartLine size={16} />
+            {previewPort !== null ? 'Restart server' : 'Start server'}
+          </button>
+        )}
       </header>
       <Group
         orientation="horizontal"
@@ -87,11 +97,11 @@ export function App() {
             </Panel>
             <Separator className="separator horizontal" />
             <Panel defaultSize="38" minSize={100} className="panel">
-              <Terminals />
+              <Terminals firstTab={setup(kind).firstTab} />
             </Panel>
           </Group>
         </Panel>
-        {!popped && (
+        {docked && (
           <>
             <Separator className="separator" />
             <Panel id="preview" defaultSize="38" minSize={240} className="panel">

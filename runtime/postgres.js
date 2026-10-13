@@ -2,7 +2,8 @@
 // serve) carries the wire protocol to PGlite. Messages go to
 // execProtocolRaw whole and in order, one connection at a time (PGlite is
 // one session, which is why the app's pool has one connection).
-export function postgres(db) {
+// database(): the PGlite, a promise; asked for on the first message.
+export function postgres(database) {
   let queue = Promise.resolve();
   return (connection) => {
     let buffer = new Uint8Array(0);
@@ -50,7 +51,7 @@ export function postgres(db) {
         at += m.length;
       }
       queue = queue
-        .then(() => (terminate && batch.length === 5 ? new Uint8Array(0) : db.execProtocolRaw(batch)))
+        .then(async () => (terminate && batch.length === 5 ? new Uint8Array(0) : (await database()).execProtocolRaw(batch)))
         .then((out) => {
           if (out.length) connection.write(out);
           if (terminate) connection.close();

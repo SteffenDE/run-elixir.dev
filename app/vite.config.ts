@@ -11,7 +11,8 @@ export default defineConfig({
       '@runtime': new URL('../runtime', import.meta.url).pathname,
     },
   },
-  base: './',
+  // Absolute: the page is served at every project's path (/ID/).
+  base: '/',
   build: {
     assetsDir: '_playground',
     target: 'es2022',

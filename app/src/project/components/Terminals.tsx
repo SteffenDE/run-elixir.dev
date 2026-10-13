@@ -1,12 +1,13 @@
 import { Tabs } from '@base-ui/react/tabs';
 import { RiAddLine, RiCloseLine, RiServerLine, RiTerminalBoxLine } from '@remixicon/react';
-import { SERVER_SESSION, closeTerminal, openTerminal } from '@/project/lib/playground';
+import { FIRST_SESSION, closeTerminal, openTerminal } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { TerminalPanel } from './TerminalPanel';
 
-// The shells, in tabs: the first runs the Phoenix server; more run mix
-// and friends beside it (each a node of its own over the same files).
-export function Terminals() {
+// The shells, in tabs: the first runs what the project starts with (the
+// Phoenix server, IEx); more run mix and friends beside it (each a node of
+// its own over the same files). `firstTab`: the first one's name.
+export function Terminals({ firstTab }: { firstTab: string }) {
   const terminals = useStore((state) => state.terminals);
   const active = useStore((state) => state.activeTerminal);
   const activate = useStore((state) => state.activateTerminal);
@@ -22,11 +23,13 @@ export function Terminals() {
         <Tabs.List className="tab-list">
           {terminals.map((id, index) => (
             <Tabs.Tab key={id} value={id} className="tab">
-              {id === SERVER_SESSION ? <RiServerLine size={14} /> : <RiTerminalBoxLine size={14} />}
-              <span className="tab-name">
-                {id === SERVER_SESSION ? 'Server' : `Shell ${index}`}
-              </span>
-              {id !== SERVER_SESSION && (
+              {id === FIRST_SESSION && firstTab === 'Server' ? (
+                <RiServerLine size={14} />
+              ) : (
+                <RiTerminalBoxLine size={14} />
+              )}
+              <span className="tab-name">{id === FIRST_SESSION ? firstTab : `Shell ${index}`}</span>
+              {id !== FIRST_SESSION && (
                 <span
                   className="tab-close"
                   role="button"
@@ -45,7 +48,7 @@ export function Terminals() {
         <button
           type="button"
           className="icon-button"
-          title="New shell (beside the server)"
+          title="New shell"
           disabled={!ready}
           onClick={() => openTerminal()}
         >

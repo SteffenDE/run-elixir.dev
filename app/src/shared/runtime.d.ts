@@ -76,15 +76,20 @@ declare module '@runtime/host.js' {
   }
 }
 declare module '@runtime/bridge.js' {
-  import type { Node } from '*/runtime/host.js';
+  import type { Node } from '@runtime/host.js';
   export class Bridge {
     constructor(node: Pick<Node, 'connect'>, port?: number);
-    static register(url?: string): Promise<void>;
+    port: number;
+    static register(url?: string, scope?: string): Promise<void>;
   }
 }
 declare module '@runtime/postgres.js' {
-  import type { Connection } from '*/runtime/host.js';
-  export function postgres(db: unknown): (connection: Connection) => void;
+  import type { Connection } from '@runtime/host.js';
+  export function postgres(
+    database: () => Promise<{
+      execProtocolRaw(message: Uint8Array): Promise<Uint8Array>;
+    }>,
+  ): (connection: Connection) => void;
 }
 declare module '@runtime/terminal.js' {
   export function cooked(

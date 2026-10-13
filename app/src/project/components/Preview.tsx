@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { built } from '@/project/lib/programs/tailwind';
-import { openPopup, send } from '@/project/lib/previewChannel';
+import { openPopup, previewKey, send } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { PreviewFrame } from './PreviewFrame';
 
@@ -9,7 +9,7 @@ export function Preview() {
   const path = useStore((state) => state.previewPath);
   const navigation = useStore((state) => state.previewNavigation);
   const reload = useStore((state) => state.previewKey);
-  const running = useStore((state) => state.serverRunning);
+  const running = useStore((state) => state.previewPort !== null);
   const navigate = useStore((state) => state.navigate);
   const reloadPreview = useStore((state) => state.reloadPreview);
   const popOut = useStore((state) => state.popOut);
@@ -40,8 +40,9 @@ export function Preview() {
         } catch {
           // Keep the path asked for.
         }
-        const url = new URL('preview.html', location.href);
+        const url = new URL('/preview.html', location.href);
         url.searchParams.set('path', current);
+        url.searchParams.set('key', previewKey);
         if (openPopup(url.href)) popOut(true);
         send({ type: 'navigate', path: current });
       }}

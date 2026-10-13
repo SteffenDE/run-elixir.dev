@@ -1,8 +1,7 @@
 import { create } from 'zustand';
 
-// The project the playground opens, in the node's filesystem.
+// The project's files, in the node's filesystem.
 export const WORK = '/work';
-export const PROJECT = '/work/playground';
 // Directories the file tree leaves out: builds, dependencies, Mix's home.
 export const HIDDEN = ['_build', 'deps', '.mix', '.hex', 'node_modules', '.git', '.elixir_ls'];
 
@@ -21,7 +20,8 @@ export interface Tab {
 interface State {
   status: string;
   ready: boolean;
-  serverRunning: boolean;
+  // The port the preview shows (a node listens on it), if any.
+  previewPort: number | null;
   // Paths below WORK, relative ("playground/mix.exs"; directories end in /).
   paths: string[];
   tabs: Tab[];
@@ -34,7 +34,7 @@ interface State {
   previewPopped: boolean;
   setStatus(status: string): void;
   setReady(ready: boolean): void;
-  setServerRunning(running: boolean): void;
+  setPreviewPort(port: number | null): void;
   setPaths(paths: string[]): void;
   open(path: string, contents: string): void;
   close(path: string): void;
@@ -56,7 +56,7 @@ interface State {
 export const useStore = create<State>((set) => ({
   status: 'Starting…',
   ready: false,
-  serverRunning: false,
+  previewPort: null,
   paths: [],
   tabs: [],
   active: null,
@@ -66,7 +66,7 @@ export const useStore = create<State>((set) => ({
   previewPopped: false,
   setStatus: (status) => set({ status }),
   setReady: (ready) => set({ ready }),
-  setServerRunning: (serverRunning) => set({ serverRunning }),
+  setPreviewPort: (previewPort) => set({ previewPort }),
   setPaths: (paths) => set({ paths }),
   open: (path, contents) =>
     set((state) =>

@@ -106,7 +106,7 @@ export function PreviewFrame({
         // oxlint-disable-next-line react/iframe-missing-sandbox -- the app is same-origin by design: the service worker serves it.
         <iframe
           ref={frame}
-          title="Your Phoenix app"
+          title="Your app"
           onLoad={() => {
             try {
               const location = frame.current?.contentWindow?.location;
@@ -117,7 +117,7 @@ export function PreviewFrame({
           }}
         />
       ) : (
-        <div className="preview-waiting">Waiting for the Phoenix server…</div>
+        <div className="preview-waiting">Waiting for the server…</div>
       )}
     </div>
   );

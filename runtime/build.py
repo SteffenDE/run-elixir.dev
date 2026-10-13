@@ -1,6 +1,7 @@
 """Build the playground site into target/playground/site, ready to rsync:
 
     python3 -I playground/runtime/build.py
+    python3 -I playground/runtime/build.py app   # just the page and the runtime's JavaScript
 
 The site is the app's Vite build (playground/app, made in Docker), the
 runtime's JavaScript, rotp.wasm, and a filesystem under fs/: the
@@ -13,8 +14,9 @@ app, at /work/playground.
   erts's preloaded modules);
 - fs/boot-phoenix.tar.gz: what `iex -S mix phx.server` in the template
   reads beyond that, recorded the same way, and the template's .app files;
-- fs/manifest.json: every other file's path, size, mtime and bundle, for
-  stat and readdir;
+- fs/manifest.json: every file not in boot.tar.gz (so also those of
+  boot-phoenix.tar.gz, for projects that do not unpack it): its path,
+  size, mtime and bundle, for stat and readdir;
 - fs/bundles/N.tar: those files, a directory's in bundles of up to 512 KB,
   fetched whole by the node when it first opens one of them.
 
@@ -241,14 +243,23 @@ def record(out, boot, snapshot):
             return {line for line in f.read().split("\n") if line}
 
 
-def main():
-    out = os.path.join(ROOT, "target", "playground", "site")
-    shutil.rmtree(out, ignore_errors=True)
+def page(out):
+    """The app's Vite build and the runtime's JavaScript into `out`."""
     source = os.path.join(ROOT, "playground", "app")
     vite_build(source)
-    shutil.copytree(os.path.join(source, "dist"), out)
+    shutil.rmtree(os.path.join(out, "_playground"), ignore_errors=True)
+    shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
     for name in RUNTIME:
         shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
+
+
+def main():
+    out = os.path.join(ROOT, "target", "playground", "site")
+    if sys.argv[1:] == ["app"]:
+        page(out)
+        return
+    shutil.rmtree(out, ignore_errors=True)
+    page(out)
     shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
 
     files = []  # (path in the node, path here)
@@ -293,11 +304,12 @@ def main():
     taken = {path for path, _ in images["boot"]}
     images["boot-phoenix"] = [(path, here) for path, here in files if path not in taken
                               and (path in fetched["boot-phoenix"] or needed(path))]
-    taken |= {path for path, _ in images["boot-phoenix"]}
     for boot, eager in images.items():
         with tarfile.open(os.path.join(fs, f"{boot}.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT) as tar:
             for path, here in eager:
                 tar.add(here, arcname=path, recursive=False)
+    # Every project unpacks the first image; what the others hold stays
+    # fetchable for projects that do not unpack them.
     lazy = [(path, here) for path, here in files if path not in taken]
     bundles = write_lazy(fs, lazy)
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
