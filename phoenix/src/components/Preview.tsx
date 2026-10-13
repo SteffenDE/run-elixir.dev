@@ -7,28 +7,37 @@ import { useStore } from '../store';
 export function Preview() {
   const path = useStore((state) => state.previewPath);
   const key = useStore((state) => state.previewKey);
+  const navigation = useStore((state) => state.previewNavigation);
   const running = useStore((state) => state.serverRunning);
   const navigate = useStore((state) => state.navigate);
   const reload = useStore((state) => state.reloadPreview);
   const [typed, setTyped] = useState(path);
   const frame = useRef<HTMLIFrameElement>(null);
 
-  // The preview reloads where it is (its own navigation kept) whenever
-  // `key` changes.
+  // Going somewhere: the path asked for.
+  useEffect(() => {
+    if (!frame.current || !running) return;
+    frame.current.src = path;
+    setTyped(path);
+  }, [navigation, path, running]);
+
+  // Reloading: where the preview is now (its own navigation kept).
   // oxlint-disable-next-line react/exhaustive-deps -- `key` is the reload signal.
   useEffect(() => {
     const iframe = frame.current;
-    if (!iframe || !running) return;
-    let at = path;
+    if (!iframe || !running || key === 0) return;
     try {
       const location = iframe.contentWindow?.location;
-      if (location && location.href !== 'about:blank') at = location.pathname + location.search;
+      if (location && location.href !== 'about:blank') {
+        iframe.src = location.pathname + location.search;
+        return;
+      }
     } catch {
       // Not loaded yet.
     }
-    iframe.src = at;
-    setTyped(at);
-  }, [key, path, running]);
+    iframe.src = path;
+    // oxlint-disable-next-line react/exhaustive-deps -- `path` is only the fallback.
+  }, [key, running]);
 
   // New CSS from the tailwind watcher: the page's stylesheets reload in
   // place, as Phoenix's live reload does.

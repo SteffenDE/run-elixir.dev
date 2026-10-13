@@ -128,8 +128,8 @@ export async function start(): Promise<void> {
       const prompt = /\$ $/.test(output);
       if (running && !useStore.getState().serverRunning) {
         output = '';
+        // The preview mounts and loads its path.
         useStore.getState().setServerRunning(true);
-        useStore.getState().reloadPreview();
       } else if (prompt && useStore.getState().serverRunning) {
         useStore.getState().setServerRunning(false);
       }

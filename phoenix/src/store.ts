@@ -27,6 +27,8 @@ interface State {
   tabs: Tab[];
   active: string | null;
   previewPath: string;
+  // Bumped to go to previewPath, and to reload where the preview is.
+  previewNavigation: number;
   previewKey: number;
   setStatus(status: string): void;
   setReady(ready: boolean): void;
@@ -50,6 +52,7 @@ export const useStore = create<State>((set) => ({
   tabs: [],
   active: null,
   previewPath: '/',
+  previewNavigation: 0,
   previewKey: 0,
   setStatus: (status) => set({ status }),
   setReady: (ready) => set({ ready }),
@@ -92,6 +95,7 @@ export const useStore = create<State>((set) => ({
           : tab,
       ),
     })),
-  navigate: (previewPath) => set((state) => ({ previewPath, previewKey: state.previewKey + 1 })),
+  navigate: (previewPath) =>
+    set((state) => ({ previewPath, previewNavigation: state.previewNavigation + 1 })),
   reloadPreview: () => set((state) => ({ previewKey: state.previewKey + 1 })),
 }));
