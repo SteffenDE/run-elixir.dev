@@ -8,6 +8,7 @@ import { Files, Node } from '@runtime/host.js';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
 import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
+import { gitProgram } from '@/project/lib/programs/git';
 import {
   previewChannel,
   previewKey,
@@ -220,7 +221,7 @@ export function openTerminal(initial: string[] = []): number {
     files,
     serve: { 5432: postgres(database), [HEX_PORT]: hex },
     // The Hex tailwind package's binary is this page's.
-    programs: { tailwind },
+    programs: { tailwind, git: gitProgram },
     onoutput(bytes) {
       const text = decoder.decode(bytes, { stream: true });
       session.backlog = (session.backlog + text).slice(-200_000);

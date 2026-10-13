@@ -36,7 +36,7 @@ export class Files {
         else if (data.kind === 'reply') {
           const request = this.requests.get(data.id);
           this.requests.delete(data.id);
-          if (data.error) request?.reject(new Error(data.error));
+          if (data.error) request?.reject(Object.assign(new Error(data.error), { code: data.code }));
           else request?.resolve(data);
         }
       };
@@ -67,6 +67,21 @@ export class Files {
   // 'file', 'dir', or null when there is nothing at `path`.
   stat(path) {
     return this.ask({ op: 'stat', path }).then((r) => r.type);
+  }
+  // In POSIX's shape, failing with its codes (ENOENT, ENOTDIR, ENOTEMPTY):
+  // { type, size, mtime (ms), ino }; the names in a directory; removing a
+  // file, an empty directory.
+  lstat(path) {
+    return this.ask({ op: 'lstat', path });
+  }
+  readdir(path) {
+    return this.ask({ op: 'readdir', path }).then((r) => r.names);
+  }
+  unlink(path) {
+    return this.ask({ op: 'unlink', path }).then(() => {});
+  }
+  rmdir(path) {
+    return this.ask({ op: 'rmdir', path }).then(() => {});
   }
   read(path) {
     return this.ask({ op: 'read', path }).then((r) => r.data);

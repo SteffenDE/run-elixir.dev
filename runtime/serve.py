@@ -1,7 +1,8 @@
 """Serve the playground site (build.py's output) on http://localhost:8080
 with the cross-origin isolation SharedArrayBuffer needs, index.html for
-paths that are no file (a project's /ID/), and Hex's repository at /hex/
-(repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts), as Caddy
+paths that are no file (a project's /ID/), Hex's repository at /hex/
+(repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
+clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
 does in production.
 
     python3 -I playground/runtime/serve.py [PORT]
@@ -45,8 +46,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             shutil.copyfileobj(upstream, self.wfile)
         return True
 
+    # git's smart HTTP, for cloning and fetching only.
+    GIT = re.compile(r"^/git/(github\.com|gitlab\.com|codeberg\.org)(/[\w.-]+/[\w.-]+)/(info/refs|git-upload-pack)$")
+
+    def proxy_git(self, method):
+        path, _, query = self.path.partition("?")
+        match = self.GIT.match(path)
+        if not match:
+            return False
+        host, repo, endpoint = match.groups()
+        if (method, endpoint, query) not in (("GET", "info/refs", "service=git-upload-pack"),
+                                             ("POST", "git-upload-pack", "")):
+            self.send_error(403)
+            return True
+        body = self.rfile.read(int(self.headers.get("Content-Length", 0))) if method == "POST" else None
+        headers = {"User-Agent": "git/2.47.0 (playground)"}
+        for name in ("Content-Type", "Accept", "Git-Protocol"):
+            if self.headers.get(name):
+                headers[name] = self.headers[name]
+        url = f"https://{host}{repo}/{endpoint}" + (f"?{query}" if query else "")
+        try:
+            upstream = urllib.request.urlopen(urllib.request.Request(url, data=body, method=method, headers=headers),
+                                              timeout=120)
+        except urllib.error.HTTPError as error:
+            upstream = error
+        data = upstream.read()
+        self.send_response(upstream.status)
+        self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/octet-stream"))
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+        return True
+
+    def do_POST(self):
+        if not self.proxy_git("POST"):
+            self.send_error(405)
+
     def do_GET(self):
-        if not self.proxy_hex(False):
+        if not self.proxy_hex(False) and not self.proxy_git("GET"):
             super().do_GET()
 
     def do_HEAD(self):

@@ -325,8 +325,32 @@ function page({ id, op, path, to, skip = [], data }) {
     }
     case 'stat':
       return { id, type: found.node instanceof Dir ? 'dir' : found.node instanceof File ? 'file' : null };
+    // POSIX's shape, with its error codes (isomorphic-git's fs).
+    case 'lstat': {
+      if (!found.node) return { id, error: `${path}: no such file`, code: 'ENOENT' };
+      const node = found.node;
+      return { id, type: node instanceof Dir ? 'dir' : 'file', size: node instanceof File ? node.size : 0,
+        mtime: Number(node.mtime / 1000000n), ino: Number(node.ino) };
+    }
+    case 'readdir':
+      if (!found.node) return { id, error: `${path}: no such directory`, code: 'ENOENT' };
+      if (!(found.node instanceof Dir)) return { id, error: `${path}: not a directory`, code: 'ENOTDIR' };
+      return { id, names: [...found.node.entries.keys()] };
+    case 'unlink':
+      if (!found.node) return { id, error: `${path}: no such file`, code: 'ENOENT' };
+      if (found.node instanceof Dir) return { id, error: `${path}: is a directory`, code: 'EISDIR' };
+      found.parent.entries.delete(found.name);
+      report(path);
+      return { id };
+    case 'rmdir':
+      if (!found.node) return { id, error: `${path}: no such directory`, code: 'ENOENT' };
+      if (!(found.node instanceof Dir)) return { id, error: `${path}: not a directory`, code: 'ENOTDIR' };
+      if (found.node.entries.size) return { id, error: `${path}: not empty`, code: 'ENOTEMPTY' };
+      found.parent.entries.delete(found.name);
+      report(path);
+      return { id };
     case 'read': {
-      if (!(found.node instanceof File)) return { id, error: `${path}: not a file` };
+      if (!(found.node instanceof File)) return { id, error: `${path}: not a file`, code: found.node ? 'EISDIR' : 'ENOENT' };
       load(found.node, fetchFile);
       return { id, data: found.node.bytes.slice() };
     }

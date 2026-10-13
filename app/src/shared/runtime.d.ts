@@ -20,6 +20,13 @@ declare module '@runtime/host.js' {
     mkdir(path: string): Promise<void>;
     remove(path: string): Promise<void>;
     rename(path: string, to: string): Promise<void>;
+    stat(path: string): Promise<'file' | 'dir' | null>;
+    lstat(
+      path: string,
+    ): Promise<{ type: 'file' | 'dir'; size: number; mtime: number; ino: number }>;
+    readdir(path: string): Promise<string[]>;
+    unlink(path: string): Promise<void>;
+    rmdir(path: string): Promise<void>;
   }
   export class Files implements FileSystem {
     constructor(options?: {
@@ -34,6 +41,12 @@ declare module '@runtime/host.js' {
     worker: Worker;
     flush(): Promise<void>;
     stat(path: string): Promise<'file' | 'dir' | null>;
+    lstat(
+      path: string,
+    ): Promise<{ type: 'file' | 'dir'; size: number; mtime: number; ino: number }>;
+    readdir(path: string): Promise<string[]>;
+    unlink(path: string): Promise<void>;
+    rmdir(path: string): Promise<void>;
     list(path: string, skip?: string[]): Promise<Entry[]>;
     read(path: string): Promise<Uint8Array>;
     write(path: string, data: string | Uint8Array): Promise<void>;
