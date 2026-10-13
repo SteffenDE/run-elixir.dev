@@ -4,6 +4,14 @@
 // IEx, or nothing); the others are for mix and friends beside it.
 // Everything the UI does to the nodes goes through here.
 import { PGlite } from '@electric-sql/pglite';
+import { citext } from '@electric-sql/pglite/contrib/citext';
+import { fuzzystrmatch } from '@electric-sql/pglite/contrib/fuzzystrmatch';
+import { hstore } from '@electric-sql/pglite/contrib/hstore';
+import { ltree } from '@electric-sql/pglite/contrib/ltree';
+import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
+import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
+import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
+import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files, Node } from '@runtime/host.js';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
@@ -210,7 +218,19 @@ function updateListening(): void {
 }
 
 function database(): Promise<PGlite> {
-  db ??= PGlite.create(projectId ? pgliteDataDir(projectId) : undefined);
+  // The extensions Phoenix apps ask for (phx.gen.auth: citext), a few KB
+  // each, for CREATE EXTENSION.
+  const extensions = {
+    citext,
+    fuzzystrmatch,
+    hstore,
+    ltree,
+    pg_trgm,
+    pgcrypto,
+    unaccent,
+    uuid_ossp,
+  };
+  db ??= PGlite.create(projectId ? pgliteDataDir(projectId) : undefined, { extensions });
   return db;
 }
 
