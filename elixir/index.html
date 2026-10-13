@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Elixir Playground</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<style>
+  :root { --bg: #fbfaf7; --fg: #24212b; --muted: #6b6578; --accent: #6e4a9e; --term: #1d1b22; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #16151a; --fg: #e9e6ef; --muted: #9a94a8; --accent: #b79ae0; --term: #0f0e12; }
+  }
+  :root[data-theme="dark"] { --bg: #16151a; --fg: #e9e6ef; --muted: #9a94a8; --accent: #b79ae0; --term: #0f0e12; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1000px; margin: 0 auto; padding: 24px 16px; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  h1 span { color: var(--accent); }
+  p { margin: 0 0 16px; color: var(--muted); }
+  #status { font-size: 13px; color: var(--muted); margin-bottom: 8px; min-height: 1.5em; }
+  #terminal { background: var(--term); border-radius: 8px; padding: 10px; height: min(70vh, 640px); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Elixir <span>in your browser</span></h1>
+  <p>IEx on Rust-OTP compiled to WebAssembly: OTP and Elixir run entirely in this tab.</p>
+  <div id="status">Starting…</div>
+  <div id="terminal"></div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script type="module">
+const status = document.getElementById('status');
+const term = new Terminal({
+  convertEol: true, cursorBlink: true, fontSize: 14,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  theme: { background: getComputedStyle(document.documentElement).getPropertyValue('--term').trim() },
+});
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open(document.getElementById('terminal'));
+fit.fit();
+addEventListener('resize', () => fit.fit());
+
+// Standard input: a ring the worker reads (worker.js).
+const RING = 1 << 16;
+const shared = new SharedArrayBuffer(8 + RING);
+const control = new Int32Array(shared, 0, 2);
+const ring = new Uint8Array(shared, 8, RING);
+function send(text) {
+  const bytes = new TextEncoder().encode(text);
+  let written = Atomics.load(control, 0);
+  for (const byte of bytes) ring[written++ % RING] = byte;
+  Atomics.store(control, 0, written);
+  Atomics.notify(control, 0);
+}
+
+// The terminal is cooked here, as a tty driver would: echo, editing and
+// history; IEx gets whole lines.
+let line = '';
+let cursor = 0;
+const history = [];
+let recalled = 0;
+function redraw(next, at = next.length) {
+  term.write('\b'.repeat(cursor) + next + ' '.repeat(Math.max(0, line.length - next.length)));
+  term.write('\b'.repeat(Math.max(line.length, next.length) - at));
+  line = next;
+  cursor = at;
+}
+term.onData((data) => {
+  if (data === '\r') {
+    term.write('\r\n');
+    if (line.trim()) history.push(line);
+    recalled = history.length;
+    send(line + '\n');
+    line = '';
+    cursor = 0;
+  } else if (data === '\x7f') {
+    if (cursor > 0) redraw(line.slice(0, cursor - 1) + line.slice(cursor), cursor - 1);
+  } else if (data === '\x1b[A' || data === '\x1b[B') {
+    recalled = Math.max(0, Math.min(history.length, recalled + (data === '\x1b[A' ? -1 : 1)));
+    redraw(history[recalled] ?? '');
+  } else if (data === '\x1b[D') {
+    if (cursor > 0) { term.write('\b'); cursor--; }
+  } else if (data === '\x1b[C') {
+    if (cursor < line.length) { term.write(line[cursor]); cursor++; }
+  } else if (data === '\x03') {
+    term.write('^C\r\n');
+    line = '';
+    cursor = 0;
+  } else if (!data.startsWith('\x1b')) {
+    const text = data.replace(/[\x00-\x1f]/g, (c) => (c === '\r' ? '\n' : ''));
+    if (text.includes('\n')) {
+      // A paste with lines: each goes in as typed.
+      const lines = (line.slice(0, cursor) + text + line.slice(cursor)).split('\n');
+      const last = lines.pop();
+      term.write(text.replace(/\n/g, '\r\n'));
+      for (const each of lines) send(each + '\n');
+      line = last;
+      cursor = last.length;
+    } else {
+      redraw(line.slice(0, cursor) + text + line.slice(cursor), cursor + text.length);
+    }
+  }
+});
+
+// What a test reads: everything written, as text.
+window.playground = { output: '', send, status: '' };
+const decoder = new TextDecoder();
+const worker = new Worker('worker.js', { type: 'module' });
+worker.onmessage = ({ data: { kind, payload } }) => {
+  if (kind === 'out') {
+    const text = decoder.decode(payload, { stream: true });
+    window.playground.output += text;
+    term.write(text);
+  } else if (kind === 'status') {
+    window.playground.status = payload;
+    status.textContent = payload === 'running' ? 'Running: Erlang/OTP 29 and Elixir 1.20 on Rust-OTP (WebAssembly)' : payload;
+  } else if (kind === 'exit') {
+    status.textContent = `The node stopped (status ${payload}). Reload to start again.`;
+  }
+};
+if (!crossOriginIsolated) {
+  status.textContent = 'This page needs cross-origin isolation (serve it with serve.py).';
+} else {
+  worker.postMessage({
+    shared,
+    args: ['erl', '-noshell', '-elixir_root', '/rotp/lib', '-pa', '/rotp/lib/elixir/ebin',
+      '-user', 'elixir', '-extra', '--no-halt', '+iex'],
+    env: { ROOTDIR: '/rotp', HOME: '/work', PWD: '/work', LANG: 'C.UTF-8', TERM: 'xterm-256color' },
+  });
+  term.focus();
+}
+</script>
+</body>
+</html>
