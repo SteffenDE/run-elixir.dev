@@ -10,7 +10,7 @@
 import { WASI, Dir, File, Network, untar, mount, load, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
 
-const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, FILES: 6 };
+const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, FILES: 6, OUTPUT: 7, EXIT: 8 };
 const RING = 1 << 20;
 const say = (kind, payload) => postMessage({ kind, payload });
 const text = (string) => say('out', new TextEncoder().encode(string));
@@ -24,6 +24,8 @@ class Channel {
   constructor(shared, files) {
     this.files = files;
     this.changed = new Set();
+    // Programs the page runs (host.js programs), by id.
+    this.processes = new Map();
     this.reported = 0;
     this.control = new Int32Array(shared, 0, 2);
     this.ring = new Uint8Array(shared, 8, RING);
@@ -63,6 +65,10 @@ class Channel {
           reply = { id, error: error.message };
         }
         postMessage({ kind: 'files', ...reply }, reply.data ? [reply.data.buffer] : []);
+      } else if (kind === FRAME.OUTPUT) this.processes.get(id)?.write(payload);
+      else if (kind === FRAME.EXIT) {
+        this.processes.get(id)?.exit(payload[0]);
+        this.processes.delete(id);
       } else if (kind === FRAME.DATA) net?.data(id, payload);
       else if (kind === FRAME.END || kind === FRAME.CLOSE) net?.ended(id);
     }
@@ -253,7 +259,22 @@ cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
 `;
 
-onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) => {
+// A program the page runs (host.js programs): its output and exit come back
+// as frames; it is told when the node closes its port.
+let processes = 0;
+function onPage(channel, name) {
+  return (process, { args, cwd, env }) => {
+    const id = (processes += 1);
+    channel.processes.set(id, process);
+    process.onclose = () => {
+      channel.processes.delete(id);
+      postMessage({ kind: 'kill', id });
+    };
+    postMessage({ kind: 'spawn', id, name, args, cwd, env });
+  };
+}
+
+onmessage = async ({ data: { shared, shell, args, env, ports, initial = [], pagePrograms = [] } }) => {
   try {
     say('status', 'Loading OTP and Elixir…');
     const [image, manifest, module] = await Promise.all([
@@ -300,7 +321,10 @@ onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) 
         network,
         pump,
         fetch: fetchFile,
-        programs: programs(fetchFile),
+        programs: {
+          ...programs(fetchFile),
+          ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
+        },
         onchange: (path) => channel.changed.add(path),
         stdin(max) {
           pump();

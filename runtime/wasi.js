@@ -437,7 +437,7 @@ export class WASI {
     }));
     // By base name, or its first part: _build/esbuild-linux-x64 is esbuild.
     const base = program.split('/').pop();
-    const run = this.programs[base] ?? this.programs[base.split('-')[0]];
+    const run = this.programs[base] ?? this.programs[base.split('-')[0]] ?? this.programs['*']?.(base);
     if (!run) return E.NOENT;
     const process = new Process();
     entry.process = process;
@@ -555,6 +555,11 @@ export class WASI {
         if (entry.endpoint) entry.endpoint.peer.close();
         if (entry.listener) self.network.listeners.delete(entry.port);
         if (entry.changed) self.onchange(entry.path);
+        // The port closed: a program still running is told (onclose).
+        if (entry.process) {
+          entry.process.closed = true;
+          entry.process.onclose?.();
+        }
         self.fds.delete(fd);
         return ok;
       },

@@ -82,8 +82,8 @@ def rotp_env():
 
 # The playground's settings for a phx.new app's config/dev.exs: one
 # connection to PGlite (one session), and no warning for the symlinks WASI
-# has none of. configure also takes out the watchers (esbuild and tailwind
-# run on the page) and live reload from runtime.exs (its socket needs a
+# has none of. configure also sets the watchers (WATCHERS) and takes live
+# reload out of runtime.exs (its socket needs a
 # WebSocket, which the preview cannot open; the page reloads the preview).
 DEV_EXS = """
 # Playground: PGlite in the browser is one session; WebAssembly has no
@@ -91,6 +91,11 @@ DEV_EXS = """
 config :playground, Playground.Repo, database: "postgres", pool_size: 1
 config :phoenix_live_view, :colocated_assets, disable_symlink_warning: true
 """
+# Tailwind's watcher runs on the page (programs/tailwind.ts); esbuild's
+# does not yet, and the app's JavaScript is prebuilt.
+WATCHERS = """  watchers: [
+    tailwind: {Tailwind, :install_and_run, [:playground, ~w(--watch)]}
+  ]"""
 RUNTIME_EXS = """# Playground: no live reload; the page reloads the preview.
 """
 
@@ -109,8 +114,8 @@ def configure(app):
         return after != before
 
     def dev(text):
-        # Keyword lists merge in config, so watchers: [] would keep them.
-        text = re.sub(r"  watchers: \[\n.*?\n  \]", "  watchers: []", text, flags=re.S)
+        # Keyword lists merge in config, so the watchers are set in place.
+        text = re.sub(r"  watchers: \[(?:\]|\n.*?\n  \])", WATCHERS, text, count=1, flags=re.S)
         if DEV_EXS not in text:
             text = text.split("\n# Playground:")[0].rstrip("\n") + "\n" + DEV_EXS
         return text
@@ -166,8 +171,11 @@ def app_files(app):
     """(path in the node, path here) for the app at /work/playground: _build
     is _build_rotp; deps keep only the .git files Mix asks git about."""
     out = []
-    for directory, dirs, names in os.walk(app):
-        dirs.sort()
+    # The build links each dependency's priv (and some src) to deps/; WASI has
+    # no links, so their files are copied in place.
+    for directory, dirs, names in os.walk(app, followlinks=True):
+        dirs[:] = sorted(d for d in dirs if d != "node_modules"
+                         and (not os.path.islink(os.path.join(directory, d)) or "_build_rotp" in directory))
         relative_dir = os.path.relpath(directory, app)
         parts = relative_dir.split(os.sep)
         if parts[0] in ("_build", ".elixir_ls") or (len(parts) > 2 and parts[0] == "deps" and parts[2] == ".git"):
@@ -179,10 +187,9 @@ def app_files(app):
             continue
         if parts[0] == "_build_rotp" and len(parts) == 1:
             dirs[:] = [d for d in dirs if d == "dev"]
-            continue
         for name in sorted(names):
             path = os.path.join(directory, name)
-            if os.path.islink(path) or not os.path.isfile(path):
+            if not os.path.isfile(path):
                 continue
             relative = os.path.relpath(path, app)
             if relative.startswith("_build_rotp/") and relative.count("/") == 1:

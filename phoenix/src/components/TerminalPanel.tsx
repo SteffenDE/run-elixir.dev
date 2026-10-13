@@ -30,5 +30,5 @@ export function TerminalPanel() {
       term.dispose();
     };
   }, []);
-  return <div className="terminal" ref={host} />;
+  return <div className="terminal-host" ref={host} />;
 }

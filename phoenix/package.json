@@ -19,6 +19,7 @@
     "react": "19.3.0",
     "react-dom": "19.3.0",
     "react-resizable-panels": "4.14.4",
+    "tailwindcss": "4.3.3",
     "zustand": "5.0.15"
   },
   "devDependencies": {

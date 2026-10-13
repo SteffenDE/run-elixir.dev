@@ -20,6 +20,11 @@ declare module '*/runtime/host.js' {
     remove(path: string): Promise<void>;
     rename(path: string, to: string): Promise<void>;
   }
+  export interface PageProcess {
+    write(data: string | Uint8Array): void;
+    exit(code?: number): void;
+    onkill: (() => void) | null;
+  }
   export class Node {
     constructor(options: {
       base?: string;
@@ -28,6 +33,13 @@ declare module '*/runtime/host.js' {
       onexit?: (code: number) => void;
       onchange?: (paths: string[]) => void;
       serve?: Record<number, (connection: Connection) => void>;
+      programs?: Record<
+        string,
+        (
+          process: PageProcess,
+          context: { args: string[]; cwd: string; env: Record<string, string>; fs: Files },
+        ) => void | Promise<void>
+      >;
     });
     worker: Worker;
     readonly fs: Files;

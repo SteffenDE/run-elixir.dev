@@ -1,5 +1,6 @@
 import { RiExternalLinkLine, RiRefreshLine } from '@remixicon/react';
 import { useEffect, useRef, useState } from 'react';
+import { built } from '../programs/tailwind';
 import { useStore } from '../store';
 
 // The app in the node, through the service worker (runtime/sw.js).
@@ -28,6 +29,28 @@ export function Preview() {
     iframe.src = at;
     setTyped(at);
   }, [key, path, running]);
+
+  // New CSS from the tailwind watcher: the page's stylesheets reload in
+  // place, as Phoenix's live reload does.
+  useEffect(() => {
+    const refresh = () => {
+      try {
+        const document = frame.current?.contentDocument;
+        for (const link of document?.querySelectorAll<HTMLLinkElement>('link[rel=stylesheet]') ??
+          []) {
+          const url = new URL(link.href);
+          url.searchParams.set('vsn', String(Date.now()));
+          link.href = url.href;
+        }
+      } catch {
+        // Not loaded.
+      }
+    };
+    built.add(refresh);
+    return () => {
+      built.delete(refresh);
+    };
+  }, []);
 
   return (
     <div className="preview">

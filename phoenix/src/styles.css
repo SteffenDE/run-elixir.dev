@@ -318,11 +318,17 @@ button {
 
 /* Terminal */
 
-.terminal {
+.terminal-host {
   flex: 1;
   min-height: 0;
   padding: 6px 0 0 8px;
   background: var(--term);
+}
+
+/* xterm's own element: the host's colour, edge to edge. */
+.terminal-host .xterm,
+.terminal-host .xterm-viewport {
+  background: var(--term) !important;
 }
 
 /* Preview */

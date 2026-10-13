@@ -5,6 +5,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { Node } from '../../runtime/host.js';
 import { Bridge } from '../../runtime/bridge.js';
 import { postgres } from '../../runtime/postgres.js';
+import { filesChanged, tailwind } from './programs/tailwind';
 import { HIDDEN, PROJECT, WORK, useStore } from './store';
 
 type Output = (text: string) => void;
@@ -51,6 +52,7 @@ let reloading: ReturnType<typeof setTimeout> | null = null;
 // What the node changed: the tree, open tabs without edits, and the preview
 // once the server serves the change.
 async function changed(paths: string[]): Promise<void> {
+  filesChanged(paths);
   const visible = paths.filter((path) => path.startsWith(WORK) && !hidden(path));
   if (!visible.length) return;
   refreshing ??= setTimeout(() => {
@@ -78,6 +80,7 @@ export async function save(path: string, text: string): Promise<void> {
   if (!node) return;
   await node.fs.write(path, encoder.encode(text));
   useStore.getState().saved(path, text);
+  filesChanged([path]);
   // The code reloader compiles on the next request.
   if (path.startsWith(PROJECT)) {
     if (reloading) clearTimeout(reloading);
@@ -114,6 +117,8 @@ export async function start(): Promise<void> {
   node = new Node({
     base: './',
     serve: { 5432: postgres(db) },
+    // The Hex tailwind package's binary is this page's.
+    programs: { tailwind },
     onoutput(bytes) {
       const text = decoder.decode(bytes, { stream: true });
       backlog = (backlog + text).slice(-200_000);
