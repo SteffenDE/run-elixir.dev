@@ -37,7 +37,10 @@ export const hex = fetcher({
   // Tarballs never change; the registry does, hourly.
   keep: (url: string) => url.includes('/tarballs/'),
   async route(path: string) {
-    if (path.startsWith('/repo/')) return `${await repositoryBase()}${path.slice('/repo'.length)}`;
+    // A repository's files only (not Hex's own installs, which its update
+    // check asks for).
+    if (/^\/repo\/(names|versions|public_key|(packages|tarballs)\/[^/]+)$/.test(path.split('?')[0]))
+      return `${await repositoryBase()}${path.slice('/repo'.length)}`;
     if (path.startsWith('/api/')) return `${API}${path.slice('/api'.length)}`;
     return null;
   },
