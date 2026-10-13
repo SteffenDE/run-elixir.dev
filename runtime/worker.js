@@ -7,8 +7,8 @@
 // instance over the same filesystem, as a Unix shell runs processes, and
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node.
-import { WASI, Dir, File, Network, untar, mount, urandom } from './wasi.js';
-import { git } from './programs.js';
+import { WASI, Dir, File, Network, untar, mount } from './wasi.js';
+import { ENV, prepare, programs } from './setup.js';
 
 const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5 };
 const RING = 1 << 20;
@@ -162,7 +162,7 @@ cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
 `;
 
-onmessage = async ({ data: { shared, shell, args, env, ports } }) => {
+onmessage = async ({ data: { shared, shell, args, env, ports, initial = [] } }) => {
   try {
     say('status', 'Loading OTP and Elixir…');
     const [image, manifest, module] = await Promise.all([
@@ -173,11 +173,7 @@ onmessage = async ({ data: { shared, shell, args, env, ports } }) => {
     const root = new Dir();
     mount(manifest, root);
     await untar(new Uint8Array(image), root);
-    root.mkdirs('work');
-    root.mkdirs('tmp');
-    root.put('dev/urandom', urandom());
-    root.put('usr/bin/git', new File());
-    root.put('rotp/bin/mix', new File(new TextEncoder().encode('Mix.CLI.main()\n')));
+    prepare(root);
     const channel = new Channel(shared);
     const fetchFile = (source) => {
       const request = new XMLHttpRequest();
@@ -205,14 +201,13 @@ onmessage = async ({ data: { shared, shell, args, env, ports } }) => {
       };
       const wasi = new WASI({
         args: ['erl', ...argv],
-        env: { ROOTDIR: '/rotp', HOME: '/work', LANG: 'C.UTF-8', TERM: 'xterm-256color',
-          MIX_HOME: '/work/.mix', PATH: '/usr/bin:/rotp/bin', MIX_ARCHIVES: '/rotp/mix/archives', ...env, PWD: cwd },
+        env: { ...ENV, ...env, PWD: cwd },
         root,
         tty: true,
         network,
         pump,
         fetch: fetchFile,
-        programs: { git: git(fetchFile) },
+        programs: programs(fetchFile),
         stdin(max) {
           pump();
           return channel.input.length ? channel.take(max) : null;
@@ -242,7 +237,12 @@ onmessage = async ({ data: { shared, shell, args, env, ports } }) => {
     text(HELP);
     for (;;) {
       text(`\x1b[1;35m${cwd.replace(/^\/work/, '~')}\x1b[0m $ `);
-      const line = channel.line();
+      // The page's first commands run as if typed.
+      let line;
+      if (initial.length) {
+        line = initial.shift();
+        text(line + '\n');
+      } else line = channel.line();
       if (line === null) {
         text('^C\n');
         continue;

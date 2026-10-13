@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phoenix Playground</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<style>
+  :root { --bg: #fbfaf7; --fg: #24212b; --muted: #6b6578; --accent: #e5532d; --term: #1d1b22; --line: #e4e0d8; }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) { --bg: #16151a; --fg: #e9e6ef; --muted: #9a94a8; --accent: #ff7a50; --term: #0f0e12; --line: #2b2833; }
+  }
+  :root[data-theme="dark"] { --bg: #16151a; --fg: #e9e6ef; --muted: #9a94a8; --accent: #ff7a50; --term: #0f0e12; --line: #2b2833; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.5 system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
+  header { padding: 10px 16px; display: flex; gap: 12px; align-items: baseline; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; }
+  header h1 span { color: var(--accent); }
+  #status { color: var(--muted); font-size: 13px; }
+  main { flex: 1; display: grid; grid-template-columns: 1fr 1fr; min-height: 0; }
+  @media (max-width: 800px) { main { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+  #terminal { background: var(--term); padding: 8px; min-height: 0; }
+  .preview { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); }
+  .bar { display: flex; gap: 6px; padding: 6px; border-bottom: 1px solid var(--line); }
+  .bar input { flex: 1; font: 13px ui-monospace, monospace; padding: 4px 8px; border: 1px solid var(--line); border-radius: 6px; background: transparent; color: var(--fg); }
+  .bar button { border: 1px solid var(--line); background: transparent; color: var(--fg); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  iframe { flex: 1; border: 0; background: white; width: 100%; }
+</style>
+</head>
+<body>
+<header><h1>Phoenix <span>Playground</span></h1><div id="status">Starting…</div></header>
+<main>
+  <div id="terminal"></div>
+  <div class="preview">
+    <form class="bar" id="bar"><input id="path" value="/" aria-label="Path"><button>Go</button></form>
+    <iframe id="preview" title="Your Phoenix app"></iframe>
+  </div>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
+<script type="module">
+import { Node } from './host.js';
+import { cooked } from './terminal.js';
+import { Bridge } from './bridge.js';
+import { postgres } from './postgres.js';
+
+const status = document.getElementById('status');
+const preview = document.getElementById('preview');
+const term = new Terminal({ convertEol: true, cursorBlink: true, fontSize: 13,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace' });
+const fit = new FitAddon.FitAddon();
+term.loadAddon(fit);
+term.open(document.getElementById('terminal'));
+fit.fit();
+addEventListener('resize', () => fit.fit());
+document.getElementById('bar').onsubmit = (e) => {
+  e.preventDefault();
+  preview.src = document.getElementById('path').value;
+};
+
+window.playground = { output: '', status: '' };
+async function start() {
+  if (!crossOriginIsolated) {
+    status.textContent = 'This page needs cross-origin isolation (see playground/README.md).';
+    return;
+  }
+  status.textContent = 'Starting the database…';
+  const { PGlite } = await import('https://cdn.jsdelivr.net/npm/@electric-sql/pglite@0.5.7/dist/index.js');
+  const db = await PGlite.create();
+  window.playground.db = db;
+  await Bridge.register('sw.js');
+  const decoder = new TextDecoder();
+  let started = false;
+  const node = new Node({
+    serve: { 5432: postgres(db) },
+    onoutput(bytes) {
+      const text = decoder.decode(bytes, { stream: true });
+      window.playground.output += text;
+      term.write(text);
+      if (!started && /Running PlaygroundWeb\.Endpoint/.test(window.playground.output)) {
+        started = true;
+        preview.src = '/';
+      }
+    },
+    onstatus(text) {
+      window.playground.status = text;
+      status.textContent = text === 'running' ? 'Phoenix 1.8 on Rust-OTP (WebAssembly), PGlite' : text;
+    },
+  });
+  new Bridge(node);
+  window.playground.node = node;
+  node.start({ shell: true, initial: ['cd playground', 'iex -S mix phx.server'] });
+  cooked(term, node);
+  term.focus();
+}
+start();
+</script>
+</body>
+</html>

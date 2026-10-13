@@ -54,8 +54,9 @@ export class Node {
   }
 
   // shell: a shell (true), or one command: { args, env }.
-  start({ shell = false, args, env = {} }) {
-    this.worker.postMessage({ shared: this.shared, shell, args, env, ports: Object.keys(this.serve).map(Number) });
+  // initial: command lines the shell runs first, as if typed.
+  start({ shell = false, args, env = {}, initial = [] }) {
+    this.worker.postMessage({ shared: this.shared, shell, args, env, initial, ports: Object.keys(this.serve).map(Number) });
   }
 
   input(text) {

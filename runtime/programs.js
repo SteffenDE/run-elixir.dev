@@ -72,3 +72,27 @@ export const git = (fetch) => (process, { args, cwd, root }) => {
   process.write(`git ${rest.join(' ')}: not available in the playground\n`);
   process.exit(1);
 };
+
+// esbuild and tailwind, as the Hex packages run them. For now they answer
+// the version checks (the versions phx.new 1.8.15 configures); the assets
+// in the image are prebuilt.
+export const ESBUILD_VERSION = '0.25.4';
+export const TAILWIND_VERSION = '4.3.3';
+
+export function esbuild(process, { args }) {
+  if (args[0] === '--version') {
+    process.write(ESBUILD_VERSION + '\n');
+    return process.exit(0);
+  }
+  process.write('esbuild: not yet available in the playground\n');
+  process.exit(1);
+}
+
+export function tailwind(process, { args }) {
+  if (args[0] === '--help') {
+    process.write(`\u2248 tailwindcss v${TAILWIND_VERSION}\n`);
+    return process.exit(0);
+  }
+  process.write('tailwind: not yet available in the playground\n');
+  process.exit(1);
+}

@@ -23,6 +23,7 @@ export class Exit extends Error {
 let inodes = 1;
 const now = () => BigInt(Date.now()) * 1000000n;
 
+// A file; `written` once the node has written it (node.mjs's SNAPSHOT).
 export class File {
   constructor(data = new Uint8Array(0)) {
     this.ino = BigInt(inodes++);
@@ -51,11 +52,13 @@ export class File {
 
 // Files that are only listed: `size` bytes, fetched from `source` (a path
 // below the site's fs/files/) by WASI's fetch when first opened.
+// mtime: seconds since the epoch (Mix compares sources and manifests).
 export function mount(manifest, root) {
-  for (const [path, size] of manifest) {
+  for (const [path, size, mtime] of manifest) {
     const file = root.put(path, new File());
     file.size = size;
     file.source = path;
+    if (mtime) file.mtime = BigInt(mtime) * 1000000000n;
   }
 }
 
@@ -248,12 +251,13 @@ export async function untar(gzipped, root) {
       longName = null;
     }
     const size = parseInt(text(at + 124, 12).trim() || '0', 8);
+    const mtime = BigInt(parseInt(text(at + 136, 12).trim() || '0', 8)) * 1000000000n;
     const type = String.fromCharCode(tar[at + 156] || 48);
     const body = at + 512;
     if (type === 'L') longName = text(body, size);
     else if (type === '5') root.mkdirs(name);
     else if (type === '0') {
-      root.put(name, new File(tar.slice(body, body + size)));
+      root.put(name, new File(tar.slice(body, body + size))).mtime = mtime;
       count++;
     }
     at = body + Math.ceil(size / 512) * 512;
@@ -378,7 +382,9 @@ export class WASI {
       const at = v.indexOf('=');
       return [v.slice(0, at), v.slice(at + 1)];
     }));
-    const run = this.programs[program.split('/').pop()];
+    // By base name, or its first part: _build/esbuild-linux-x64 is esbuild.
+    const base = program.split('/').pop();
+    const run = this.programs[base] ?? this.programs[base.split('-')[0]];
     if (!run) return E.NOENT;
     const process = new Process();
     entry.process = process;
@@ -621,6 +627,7 @@ export class WASI {
             file.data.set(bytes, entry.position);
             if (end > file.size) file.size = end;
             file.mtime = now();
+            file.written = true;
             entry.position = end;
           }
           total += len;
@@ -703,6 +710,7 @@ export class WASI {
         if (!node) {
           if (!(oflags & OFLAGS.CREAT) || !found.parent) return found.error;
           node = new File();
+          node.written = true;
           found.parent.entries.set(found.name, node);
           found.parent.mtime = now();
         }
@@ -716,7 +724,10 @@ export class WASI {
           node.size = node.data.length;
           node.source = null;
         }
-        if (node instanceof File && oflags & OFLAGS.TRUNC) node.truncate(0);
+        if (node instanceof File && oflags & OFLAGS.TRUNC) {
+          node.truncate(0);
+          node.written = true;
+        }
         const opened = self.next++;
         self.fds.set(opened, { node, position: 0, append: !!(fdflags & FDFLAGS.APPEND) });
         self.view().setUint32(fdPtr, opened, true);
