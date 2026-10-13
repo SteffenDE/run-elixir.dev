@@ -10,7 +10,7 @@ import { postgres } from '@runtime/postgres.js';
 import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
 import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
-import { filesStore } from '@/shared/lib/storage';
+import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
@@ -26,7 +26,10 @@ const sessions = new Map<number, Session>();
 let files: Files | null = null;
 let setup: Setup = setupOf('empty');
 let kind: WorkspaceKind = 'empty';
-// Started on the first connection to 5432.
+// The stored project's id (null for a temporary IEx).
+let projectId: string | null = null;
+// Started on the first connection to 5432; a stored project's is kept in
+// IndexedDB.
 let db: Promise<PGlite> | null = null;
 let nextSession = 1;
 export const FIRST_SESSION = 1;
@@ -143,7 +146,7 @@ function updateListening(): void {
 }
 
 function database(): Promise<PGlite> {
-  db ??= PGlite.create();
+  db ??= PGlite.create(projectId ? pgliteDataDir(projectId) : undefined);
   return db;
 }
 
@@ -202,6 +205,7 @@ previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessag
 // temporary IEx).
 export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<void> {
   kind = workspaceKind;
+  projectId = id;
   setup = setupOf(kind);
   const store = useStore.getState();
   if (!crossOriginIsolated) {
