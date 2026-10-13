@@ -78,11 +78,17 @@ terminal. All of them are the shim's.
 3. `runtime/bridge.js` on the page opens a connection to the preview's port
    (4000, else the lowest port a node serves on; ports a node asked for
    with 0, such as Mix's compile lock's, are no server) of the node that
-   listens there. Nodes report their listening ports, and the IDE routes by them. The request goes in as HTTP/1.1, with the cookies the
-   bridge keeps (a service worker's responses cannot set cookies).
-4. Bandit answers in the node; the response comes back the same way. HTML
-   gets `window.WebSocket` removed, so LiveView falls back to long polling,
-   which works through the service worker.
+   listens there. Nodes report their listening ports, and the IDE routes by
+   them. The request goes in as HTTP/1.1 with the app's cookies: the
+   HttpOnly ones the bridge keeps (a service worker's responses cannot set
+   cookies) and those in `document.cookie`, which the preview shares with
+   the page.
+4. Bandit answers in the node; the response comes back the same way.
+
+A service worker sees no WebSocket connection, so HTML gets a `WebSocket`
+of the bridge's: it asks the service worker for the project's page, whose
+bridge connects to the app and speaks the protocol for it. LiveView runs
+over it as outside the playground.
 
 ## The database
 

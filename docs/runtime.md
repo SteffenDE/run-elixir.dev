@@ -21,7 +21,7 @@ bundled), because the workers import them by URL.
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history, pastes, Ctrl+C. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
-| `bridge.js` | page | Sends them on to the node as HTTP/1.1; keeps cookies; makes LiveView long-poll. |
+| `bridge.js` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.js` | page | Postgres wire protocol to PGlite. |
 | `fetcher.js` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
@@ -209,9 +209,22 @@ one it:
 - opens `connect(bridge.port)` (the IDE sets it to the preview's port) and
   sends HTTP/1.1 with `connection: close`;
 - reads the response to its end, removing chunked encoding;
-- keeps `Set-Cookie`s in its own jar and sends them back as `cookie`;
-- injects `window.WebSocket = undefined` into HTML;
+- keeps HttpOnly `Set-Cookie`s in its own jar and puts the others in
+  `document.cookie` (the preview's origin is the page's, so the app's
+  JavaScript reads and sets them too), and sends both as `cookie`;
+- injects a `WebSocket` of its own into HTML (below);
 - answers a page that reloads every two seconds while nothing listens.
+
+**WebSockets.** A service worker sees no WebSocket connection. The
+injected `WebSocket` (the browser's API: `onopen`/`onmessage`/`onclose`,
+`send`, `close`, `binaryType`, the state constants) sends
+`{ kind: 'websocket', path, protocols }` with a MessagePort to the service
+worker, which passes it to its project's page. There `Bridge.websocket`
+connects to the app, sends the opening handshake (with the cookies and an
+`origin` of `http://localhost:PORT`), and after `101` speaks RFC 6455:
+client frames masked, fragments joined, pings answered with pongs, close
+answered. The port carries `{ send }`/`{ close }` in and
+`{ open }`/`{ message }`/`{ close }` out.
 
 ## Postgres (`postgres.js`)
 

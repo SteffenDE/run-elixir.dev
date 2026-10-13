@@ -106,7 +106,8 @@ width to the editor until that window closes (or "Dock preview"). Reloads
 and new CSS reach it over the BroadcastChannel `playground-preview:KEY`,
 one per project.
 
-Inside the iframe, LiveView long-polls (the bridge removes `WebSocket`).
+Inside the iframe, LiveView connects over the bridge's WebSocket
+([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
 
 ## Terminals
 

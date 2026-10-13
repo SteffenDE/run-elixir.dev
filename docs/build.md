@@ -72,8 +72,8 @@ The filesystem holds:
      (PGlite is one session). There is no symlink warning for colocated
      assets. The watchers are just the tailwind one, which runs on the page;
      esbuild's is left out, and the JavaScript is prebuilt.
-   - **`runtime.exs`:** the live reload block goes, because its socket needs
-     a WebSocket the preview cannot open. The IDE reloads the preview itself.
+   - **`runtime.exs`:** the live reload block goes: without `inotifywait`
+     its watcher sees no change. The IDE reloads the preview itself.
 4. **Files.** The installation, then the app:
    - `_build_rotp` becomes `_build`;
    - links in the build (each dependency's `priv`, some `src`) are copied in

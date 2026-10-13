@@ -29,7 +29,9 @@ last_updated: 2026-10-13
   - The server runs about 7 s after load. Pages serve in about 200–400 ms,
     and static files in milliseconds.
   - Ecto through PGlite.
-  - LiveView over long polling.
+  - LiveView over WebSockets (the bridge's).
+  - `mix phx.gen.auth … --hashing-lib pbkdf2`: generated, `pbkdf2_elixir`
+    from Hex, migrated (citext), and a user registered in the preview.
   - Editing and saving with recompilation on the next request; Tailwind on
     the page.
   - Several shells: `mix phx.gen.live`, `mix ecto.migrate` and others run in
@@ -41,13 +43,17 @@ last_updated: 2026-10-13
 ## Known gaps
 
 **In Rust-OTP**
-- Phoenix LiveDashboard (`/dev/dashboard/home`) fails with `:notsup`, which
-  Plug.Debugger then hits again while rendering the error. Not yet
-  investigated.
-- `file_system` finds no `inotifywait`, so Phoenix's live reload is off (its
-  socket needs a WebSocket anyway), and boot logs the warning. A small
-  `inotifywait` program fed by `files.js` changes would quiet it and could
-  drive live reload.
+- Phoenix LiveDashboard (`/dev/dashboard/home`) answers 500. Not yet
+  investigated (its `:notsup` was on_load, now supported; something else
+  remains).
+- `file_system` finds no `inotifywait`, so Phoenix's live reload is off, and
+  boot logs the warning. A small `inotifywait` program fed by `files.js`
+  changes would quiet it and could drive live reload, now that its socket
+  has a WebSocket.
+- **NIFs** do not load (Rust-OTP loads no native libraries): a module whose
+  on_load loads one stays unloaded, as on ERTS without the library. So
+  `phx.gen.auth` needs `--hashing-lib pbkdf2`; its default on Linux,
+  bcrypt_elixir, is a NIF.
 - WASI has no symlinks: Phoenix warns that its code reloader would be faster
   with them. `priv` and colocated assets are copies.
 
@@ -63,7 +69,17 @@ last_updated: 2026-10-13
   command yet); no pushes.
 - **Nodes reach each other only through the page's ports** (5432, 4000).
   Mix's compile lock checks its holder over TCP, which another shell's node
-  cannot reach, so two shells compiling at once can both proceed.
+  cannot reach, so two shells compiling at once can both proceed. The page
+  could route a node's connection to the node listening on that port, as
+  it routes the preview's.
+- **`mix ecto.migrate` right after `mix deps.get`** of a new dependency
+  (after `phx.gen.auth`) fails to start `ecto_sql` (`eex.app` not found):
+  compiling the new dependencies pruned `eex` from the code path before
+  the app's own compile adds it back. Only in the browser (host OTP and
+  native Rust-OTP in the same sequence pass); not yet understood. `mix
+  compile` first avoids it.
+- **rebar3** is a stand-in: Mix finds it, so locked rebar3 dependencies
+  load, but a new rebar3 dependency cannot be built.
 - **PGlite is one session,** so Ecto's pool is 1, and two shells using the
   database at once share it.
 - **Changes under a second old** are lost when the tab closes (files are
@@ -89,9 +105,11 @@ last_updated: 2026-10-13
 1. esbuild-wasm as a page program, and the esbuild watcher back in the app's
    config.
 2. `mix phx.new` with prebuilt deps and a Hex cache.
-3. The LiveDashboard `:notsup` in Rust-OTP.
-4. A gate job for the playground tests; a persistent browser context per
+3. The LiveDashboard 500, and `ecto.migrate`'s pruned `eex` after a new
+   dependency.
+4. Routing a node's connection to another node's listener (Mix's locks).
+5. A gate job for the playground tests; a persistent browser context per
    test worker.
-5. Zip export and import of a project ([projects.md](projects.md#plans)).
-6. Collaboration ([projects.md](projects.md#plans)).
-7. Several schedulers (wasm32-wasip1-threads).
+6. Zip export and import of a project ([projects.md](projects.md#plans)).
+7. Collaboration ([projects.md](projects.md#plans)).
+8. Several schedulers (wasm32-wasip1-threads).
