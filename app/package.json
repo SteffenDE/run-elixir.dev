@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build",
-    "lint": "oxlint src",
-    "format": "oxfmt src",
-    "format:check": "oxfmt --check src"
+    "lint": "oxlint src test",
+    "format": "oxfmt src test",
+    "format:check": "oxfmt --check src test",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",
@@ -25,6 +26,8 @@
     "zustand": "5.0.15"
   },
   "devDependencies": {
+    "@playwright/test": "1.55.0",
+    "@types/node": "24.19.0",
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.2",
