@@ -104,3 +104,12 @@ declare module '@runtime/terminal.js' {
     node: { input(text: string): void; interrupt(): void },
   ): void;
 }
+declare module '@runtime/fetcher.js' {
+  import type { Connection } from '@runtime/host.js';
+  export function fetcher(options: {
+    route(path: string): Promise<string | null> | string | null;
+    keep?: (url: string) => boolean;
+    cache?: string | null;
+    onrequest?: (method: string, path: string, url: string | null) => void;
+  }): (connection: Connection) => void;
+}

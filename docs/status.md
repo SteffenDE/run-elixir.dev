@@ -15,6 +15,8 @@ last_updated: 2026-10-13
   deletes its storage.
 - **Temporary IEx.** Answers about 1.4 s after load (Chromium). Modules
   load lazily; colours, history, Ctrl+C.
+- **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
+  compiled and used in 19 s in Chromium, 2 min in Firefox).
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
 - **Phoenix projects** (Chromium; Firefox, slower):
@@ -48,9 +50,11 @@ last_updated: 2026-10-13
   `assets/js` do not take effect. esbuild-wasm behind the `esbuild` program,
   as Tailwind is, is the plan.
 - **`mix phx.new`** in the playground is untested beyond the archive being
-  there: a new app's `deps.get` needs Hex over the network, and compiling
-  its deps in WebAssembly takes minutes. The plan is a bundled Hex cache and
-  prebuilt deps for phx.new's default lock.
+  there: Hex works, but a new app has two git dependencies (daisyui,
+  heroicons), which the page cannot clone (GitHub sends no CORS headers),
+  and compiling its deps in WebAssembly takes minutes on one scheduler.
+  The plans: git through the site's proxy, prebuilt deps for phx.new's
+  default lock, and several schedulers (wasm32-wasip1-threads).
 - **Nodes reach each other only through the page's ports** (5432, 4000).
   Mix's compile lock checks its holder over TCP, which another shell's node
   cannot reach, so two shells compiling at once can both proceed.

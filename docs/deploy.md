@@ -22,6 +22,11 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
   `require-corp`). Without them the page says so and starts nothing.
   The preview's own responses come from the service worker, which adds what
   they need.
+- **Hex's repository at `/hex/`.** repo.hex.pm sends no CORS headers, so
+  the page fetches Hex's registry and tarballs through the site
+  ([architecture.md](architecture.md#hex)). Only what Hex fetches is
+  proxied. Without it, the page falls back to a public mirror that sends
+  CORS headers (hexpm.upyun.com, slower).
 - **The page for every route.** `/`, `/phoenix`, `/empty`, `/iex` and each
   project's `/ID/` are all `index.html`: a path that is no file gets it.
 - **The service worker at the site's root.** `/sw.js` controls the scope
@@ -62,6 +67,14 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 			header Content-Type application/x-tar
 		}
 	}
+	# Hex's repository, for the page (repo.hex.pm sends no CORS headers).
+	@hex path_regexp hex ^/hex/(names|versions|public_key|(packages|tarballs)/[A-Za-z0-9_.+-]+)$
+	handle @hex {
+		uri strip_prefix /hex
+		reverse_proxy https://repo.hex.pm {
+			header_up Host repo.hex.pm
+		}
+	}
 	try_files {path} /index.html
 	file_server
 }
@@ -81,4 +94,5 @@ phoenix-playground.steffend.me {
 
 `python3 -I playground/runtime/serve.py [PORT]` serves
 `target/playground/site` with the isolation headers, `no-cache` and the
-`index.html` fallback. It does not compress.
+`index.html` fallback, and proxies `/hex/` as above. It does not
+compress.

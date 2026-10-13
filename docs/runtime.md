@@ -23,6 +23,7 @@ bundled), because the workers import them by URL.
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
 | `bridge.js` | page | Sends them on to the node as HTTP/1.1; keeps cookies; makes LiveView long-poll. |
 | `postgres.js` | page | Postgres wire protocol to PGlite. |
+| `fetcher.js` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
 
 ## WASI (`wasi.js`)

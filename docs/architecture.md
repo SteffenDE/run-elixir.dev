@@ -93,6 +93,27 @@ the app's pool has one connection. It starts on the first connection, and a
 stored project's lives in IndexedDB (`idb://playground-pg-ID`); a temporary
 IEx's lives in memory.
 
+## Hex
+
+The node has no sockets to the internet, and the page reads only what
+CORS allows: hex.pm's API does, repo.hex.pm (the registry and tarballs)
+does not. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
+`HEX_API_URL=http://localhost:49180/api`; the page serves that port with
+`runtime/fetcher.js`, which answers each request with a `fetch()`
+(`src/project/lib/hex.ts`):
+
+- `/repo/…` goes to the site's own proxy at `/hex/` (`serve.py`, Caddy in
+  [deploy.md](deploy.md)), or, on a site without one, to hexpm.upyun.com,
+  a public mirror that sends CORS headers;
+- `/api/…` goes to hex.pm directly.
+
+Hex treats a mirror as untrusted: it checks the registry's signature
+against hex.pm's key and every tarball's checksum, so the proxy or mirror
+can fail but not alter packages. Tarballs are kept in Cache Storage
+(`playground-hex`), so a second project fetches them from the browser.
+Git dependencies (a new `phx.new` app's daisyui and heroicons) are not
+covered: GitHub's git and tarball endpoints send no CORS headers either.
+
 ## Programs
 
 When the node spawns a program (`open_port`, `System.cmd`), the shim runs a

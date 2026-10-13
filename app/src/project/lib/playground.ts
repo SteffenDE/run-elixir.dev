@@ -16,6 +16,7 @@ import {
 } from '@/project/lib/previewChannel';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
+import { HEX_PORT, hex, hexEnv } from './hex';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
@@ -217,7 +218,7 @@ export function openTerminal(initial: string[] = []): number {
   session.node = new Node({
     base: '/',
     files,
-    serve: { 5432: postgres(database) },
+    serve: { 5432: postgres(database), [HEX_PORT]: hex },
     // The Hex tailwind package's binary is this page's.
     programs: { tailwind },
     onoutput(bytes) {
@@ -235,7 +236,7 @@ export function openTerminal(initial: string[] = []): number {
     onlistening: updateListening,
   });
   sessions.set(id, session);
-  session.node.start({ shell: true, initial, cwd: setup.cwd, boots: setup.boots });
+  session.node.start({ shell: true, initial, cwd: setup.cwd, boots: setup.boots, env: hexEnv });
   useStore.getState().addTerminal(id);
   return id;
 }

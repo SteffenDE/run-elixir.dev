@@ -41,7 +41,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL = os.path.join(ROOT, "target", "rotp")
 CACHE = os.path.join(ROOT, "target", "playground-cache")
 RUNTIME = ("wasi.js", "worker.js", "host.js", "terminal.js", "programs.js", "setup.js", "postgres.js", "files.js", "vfs.js",
-           "overlay.js", "bridge.js", "sw.js")
+           "overlay.js", "fetcher.js", "bridge.js", "sw.js")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
