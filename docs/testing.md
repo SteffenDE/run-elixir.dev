@@ -43,6 +43,9 @@ the page through `window.playground` (`node`, `output`, `sessions`,
 | `terminal` | Terminals fit their panel after resizes; a `path:line` opens the file at that line; an address opens in the preview. |
 | `edit` | A heading typed in the editor and saved shows in the preview, and Tailwind builds its class. |
 | `preview` | The path bar navigates and a reload stays; the preview pops out and docks; it comes back after the service worker stops (Chromium). |
+| `hex` | In an empty project, a Mix app depending on Jason: `mix deps.get` fetches it through the page and `mix run` uses it. |
+| `git` | heroicons as phx.new adds it (tag, sparse, depth 1): fetched and checked out sparsely, the lock checked, and fetched again from the lock. |
+| `tree` | Files and folders made, renamed, moved (Chromium) and deleted from the tree, kept across a reload. |
 | `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
 
 Typical times: Chromium 16 tests in about 1.2 minutes; Firefox in about 3.4.

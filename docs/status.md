@@ -17,6 +17,9 @@ last_updated: 2026-10-13
   load lazily; colours, history, Ctrl+C.
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
   compiled and used in 19 s in Chromium, 2 min in Firefox).
+- **git dependencies.** Through the page and the site's proxy: heroicons
+  as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
+  again from the lock.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
 - **Phoenix projects** (Chromium; Firefox, slower):
@@ -50,11 +53,11 @@ last_updated: 2026-10-13
   `assets/js` do not take effect. esbuild-wasm behind the `esbuild` program,
   as Tailwind is, is the plan.
 - **`mix phx.new`** in the playground is untested beyond the archive being
-  there: Hex works, but a new app has two git dependencies (daisyui,
-  heroicons), which the page cannot clone (GitHub sends no CORS headers),
-  and compiling its deps in WebAssembly takes minutes on one scheduler.
-  The plans: git through the site's proxy, prebuilt deps for phx.new's
-  default lock, and several schedulers (wasm32-wasip1-threads).
+  there: Hex and git dependencies work, but compiling a new app's deps in
+  WebAssembly takes minutes on one scheduler. The plans: prebuilt deps for
+  phx.new's default lock, and several schedulers (wasm32-wasip1-threads).
+- **git in the shell:** only what Mix asks (`git` is a program, not a shell
+  command yet); no pushes.
 - **Nodes reach each other only through the page's ports** (5432, 4000).
   Mix's compile lock checks its holder over TCP, which another shell's node
   cannot reach, so two shells compiling at once can both proceed.

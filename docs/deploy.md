@@ -27,6 +27,9 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
   ([architecture.md](architecture.md#hex)). Only what Hex fetches is
   proxied. Without it, the page falls back to a public mirror that sends
   CORS headers (hexpm.upyun.com, slower).
+- **git clones at `/git/`.** Git dependencies are fetched by the page
+  over git's smart HTTP, which GitHub, GitLab and Codeberg serve without
+  CORS headers; the site proxies cloning and fetching only (no pushes).
 - **The page for every route.** `/`, `/phoenix`, `/empty`, `/iex` and each
   project's `/ID/` are all `index.html`: a path that is no file gets it.
 - **The service worker at the site's root.** `/sw.js` controls the scope
@@ -74,6 +77,24 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 		reverse_proxy https://repo.hex.pm {
 			header_up Host repo.hex.pm
 		}
+	}
+	# git's smart HTTP, for cloning and fetching only (GitHub, GitLab and
+	# Codeberg send no CORS headers): /git/HOST/OWNER/REPO/...
+	@git path_regexp git ^/git/(github\.com|gitlab\.com|codeberg\.org)(/[\w.-]+/[\w.-]+/(info/refs|git-upload-pack))$
+	handle @git {
+		@clone expression `({method} == "GET" && {re.git.3} == "info/refs" && {query} == "service=git-upload-pack") || ({method} == "POST" && {re.git.3} == "git-upload-pack")`
+		handle @clone {
+			rewrite * {re.git.2}?{query}
+			# A placeholder upstream takes no scheme: TLS by transport.
+			reverse_proxy {re.git.1}:443 {
+				header_up Host {re.git.1}
+				transport http {
+					tls
+					tls_server_name {re.git.1}
+				}
+			}
+		}
+		respond 403
 	}
 	# Everything else: files, and the page for every route. (In a handle of
 	# its own: try_files, a rewrite, would otherwise run before @hex.)

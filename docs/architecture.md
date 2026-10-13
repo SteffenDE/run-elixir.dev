@@ -111,8 +111,19 @@ Hex treats a mirror as untrusted: it checks the registry's signature
 against hex.pm's key and every tarball's checksum, so the proxy or mirror
 can fail but not alter packages. Tarballs are kept in Cache Storage
 (`playground-hex`), so a second project fetches them from the browser.
-Git dependencies (a new `phx.new` app's daisyui and heroicons) are not
-covered: GitHub's git and tarball endpoints send no CORS headers either.
+
+## git
+
+GitHub's, GitLab's and Codeberg's git endpoints send no CORS headers
+either. The node's `git` is a page program (`src/project/lib/programs/git.ts`)
+on isomorphic-git over the node's files (through `Files`' POSIX-shaped
+operations), fetching over git's smart HTTP through the site's proxy at
+`/git/HOST/OWNER/REPO/` (cloning and fetching only). It answers what Mix
+asks for a git dependency: `init`, `remote add` and `set-head`, `config`,
+`fetch` (a branch, a tag, or a locked revision, which it finds among the
+server's refs; a locked revision with depth 1), `checkout` (sparse, as
+`.git/info/sparse-checkout` says), `read-tree -mu HEAD`, `rev-parse`.
+The Node harness keeps a stub that answers only the lock check.
 
 ## Programs
 
