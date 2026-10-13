@@ -9,6 +9,7 @@ const decoder = new TextDecoder();
 
 // Tree paths are relative to /work; directories end in a slash.
 const absolute = (path: string) => `${WORK}/${path.replace(/\/$/, '')}`;
+const baseName = (path: string) => path.replace(/\/$/, '').replace(/^.*\//, '');
 const parentOf = (path: string) => path.replace(/\/$/, '').replace(/[^/]*$/, '');
 const report = (error: Error) => useStore.getState().setStatus(error.message);
 
@@ -47,6 +48,31 @@ export function FileTreePanel() {
     // Room around the search field, which sits flush with the panel's top.
     unsafeCSS: '[data-file-tree-search-container] { padding-block: 8px 4px; }',
     composition: { contextMenu: { enabled: true, triggerMode: 'both' } },
+    // Dropping moves what was dragged into the folder (or /work), in the
+    // node's files too; it is refused where a name exists already, and put
+    // back if the node refuses it.
+    dragAndDrop: {
+      canDrop: ({ draggedPaths, target }) =>
+        draggedPaths.every((path) => {
+          const destination = (target.directoryPath ?? '') + baseName(path);
+          return !shown.current?.some((p) => p === destination || p.startsWith(`${destination}/`));
+        }),
+      onDropComplete({ draggedPaths, target }) {
+        for (const path of draggedPaths) {
+          const from = path.replace(/\/$/, '');
+          const to = (target.directoryPath ?? '') + baseName(path);
+          const folder = path.endsWith('/');
+          if (from === to) continue;
+          follow(from, folder ? `${to}/` : to);
+          movePath(absolute(from), absolute(to)).catch((error: Error) => {
+            report(error);
+            follow(to, folder ? `${from}/` : from);
+            model.move(folder ? `${to}/` : to, path);
+          });
+        }
+      },
+      onDropError: (message) => useStore.getState().setStatus(message),
+    },
     renaming: {
       onError: (message) => useStore.getState().setStatus(message),
       onRename({ sourcePath, destinationPath, isFolder }) {

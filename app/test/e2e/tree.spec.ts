@@ -13,7 +13,10 @@ async function name(page: import('@playwright/test').Page, text: string) {
 const item = (page: import('@playwright/test').Page, label: string) =>
   page.getByRole('treeitem', { name: label, exact: true });
 
-test('files and folders are made, renamed and deleted from the tree', async ({ page }) => {
+test('files and folders are made, renamed, moved and deleted from the tree', async ({
+  page,
+  browserName,
+}) => {
   await newProject(page, 'empty');
   await prompted(page, 1);
 
@@ -46,6 +49,15 @@ test('files and folders are made, renamed and deleted from the tree', async ({ p
   expect(await exists(page, '/work/hello.ex')).toBe(false);
   await expect(page.locator('.tab', { hasText: 'greet.ex' })).toBeVisible();
 
+  // Dropped on a file at the top, it moves to /work. Playwright's drag in
+  // Firefox does not start the tree's drag and drop (unverified there).
+  const dragged = browserName === 'chromium';
+  if (dragged) {
+    await item(page, 'inner.ex').dragTo(item(page, 'greet.ex'));
+    await expect.poll(() => exists(page, '/work/inner.ex')).toBe(true);
+    expect(await exists(page, '/work/lib/inner.ex')).toBe(false);
+  }
+
   await item(page, 'greet.ex').click({ button: 'right' });
   await page.getByRole('menuitem', { name: 'Delete' }).click();
   await page.getByRole('menuitem', { name: 'Delete greet.ex?' }).click();
@@ -58,6 +70,7 @@ test('files and folders are made, renamed and deleted from the tree', async ({ p
   await page.reload();
   await prompted(page, 1);
   await expect(item(page, 'lib')).toBeVisible();
-  expect(await exists(page, '/work/lib/inner.ex')).toBe(true);
+  expect(await exists(page, dragged ? '/work/inner.ex' : '/work/lib/inner.ex')).toBe(true);
+  expect(await exists(page, '/work/lib')).toBe(true);
   expect(await exists(page, '/work/greet.ex')).toBe(false);
 });
