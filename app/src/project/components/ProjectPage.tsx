@@ -163,7 +163,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
               collapsible
               className="panel"
             >
-              <EditorArea />
+              <EditorArea phoenix={kind === 'phoenix'} />
             </Panel>
             <Separator className="separator horizontal" />
             <Panel defaultSize={showFiles ? '38' : '100'} minSize={100} className="panel">

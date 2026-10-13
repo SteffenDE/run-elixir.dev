@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef } from 'react';
 import { save } from '@/project/lib/playground';
 import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
+import { Shortcut } from '@/shared/components/Kbd';
+import { isModifierKeyPressed, modifierKey } from '@/shared/lib/keys';
 
 const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =>
   new PierreEditor(type, options, key);
@@ -78,8 +80,9 @@ function TabEditor({ tab }: { tab: Tab }) {
   );
 }
 
-// Open files in tabs; Cmd/Ctrl+S saves the active one.
-export function EditorArea() {
+// Open files in tabs; ⌘S / Ctrl+S saves the active one. `phoenix`: saving
+// reloads a server's preview, which Phoenix recompiles for.
+export function EditorArea({ phoenix }: { phoenix: boolean }) {
   const tabs = useStore((state) => state.tabs);
   const active = useStore((state) => state.active);
   const activate = useStore((state) => state.activate);
@@ -92,7 +95,7 @@ export function EditorArea() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key === 's') {
+      if (isModifierKeyPressed(event) && event.key === 's') {
         event.preventDefault();
         saveCurrent();
       }
@@ -106,8 +109,8 @@ export function EditorArea() {
       <div className="editor-empty">
         <p>Open a file from the tree to edit it.</p>
         <p className="muted">
-          Saving (⌘S / Ctrl+S) reloads the preview while a server runs; Phoenix recompiles what
-          changed.
+          Save with <Shortcut keyName="S" />
+          {phoenix ? '; the preview reloads, and Phoenix recompiles what changed.' : '.'}
         </p>
       </div>
     );
@@ -152,7 +155,7 @@ export function EditorArea() {
           className="icon-button"
           disabled={!current || current.draft === current.saved}
           onClick={saveCurrent}
-          title="Save (⌘S / Ctrl+S)"
+          title={`Save (${modifierKey()} S)`}
         >
           <RiSave3Line size={16} />
         </button>

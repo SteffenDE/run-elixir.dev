@@ -689,3 +689,25 @@ button {
 .tree-menu button.danger {
   color: var(--accent);
 }
+
+.kbd-group {
+  display: inline-flex;
+  gap: 3px;
+  vertical-align: baseline;
+}
+
+.kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--panel-2);
+  color: var(--muted);
+  font:
+    500 12px/1 system-ui,
+    sans-serif;
+  user-select: none;
+}
