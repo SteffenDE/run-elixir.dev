@@ -30,6 +30,8 @@ last_updated: 2026-10-13
     and static files in milliseconds.
   - Ecto through PGlite.
   - LiveView over WebSockets (the bridge's).
+  - Phoenix LiveDashboard (`/dev/dashboard`) over the same WebSocket: every
+    page, and the details of processes, ports, ETS tables and applications.
   - `mix phx.gen.auth … --hashing-lib pbkdf2`: generated, `pbkdf2_elixir`
     from Hex, migrated (citext), and a user registered in the preview.
   - Editing and saving with recompilation on the next request; Tailwind on
@@ -43,9 +45,10 @@ last_updated: 2026-10-13
 ## Known gaps
 
 **In Rust-OTP**
-- Phoenix LiveDashboard (`/dev/dashboard/home`) answers 500. Not yet
-  investigated (its `:notsup` was on_load, now supported; something else
-  remains).
+- **LiveDashboard shows less than on ERTS:** no OS data (no `os_mon`),
+  no sockets (Rust-OTP's sockets are not ports), 0 atoms (atoms are
+  values, not table entries), no allocators, and memory sizes Rust-OTP
+  does not measure (every process reports a fresh process's 2.6 KB).
 - `file_system` finds no `inotifywait`, so Phoenix's live reload is off, and
   boot logs the warning. A small `inotifywait` program fed by `files.js`
   changes would quiet it and could drive live reload, now that its socket
@@ -105,8 +108,7 @@ last_updated: 2026-10-13
 1. esbuild-wasm as a page program, and the esbuild watcher back in the app's
    config.
 2. `mix phx.new` with prebuilt deps and a Hex cache.
-3. The LiveDashboard 500, and `ecto.migrate`'s pruned `eex` after a new
-   dependency.
+3. `ecto.migrate`'s pruned `eex` after a new dependency.
 4. Routing a node's connection to another node's listener (Mix's locks).
 5. A gate job for the playground tests; a persistent browser context per
    test worker.

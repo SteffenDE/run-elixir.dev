@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, serverRunning } from './helpers';
+import { newProject, preview, serverRunning, syncLV } from './helpers';
 
 test('the preview reaches Phoenix over a WebSocket', async ({ page }) => {
   await newProject(page, 'phoenix');
@@ -27,4 +27,23 @@ test('the preview reaches Phoenix over a WebSocket', async ({ page }) => {
     'phx_reply',
     { status: 'ok', response: {} },
   ]);
+});
+
+test('LiveDashboard connects over the WebSocket', async ({ page }) => {
+  await newProject(page, 'phoenix');
+  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  await page.locator('.preview-bar input').fill('/dev/dashboard');
+  await page.locator('.preview-bar input').press('Enter');
+  await syncLV(preview(page));
+  // Its home page: the system information and limits.
+  await expect(preview(page).getByText('[rust-otp]')).toBeVisible();
+  await expect(preview(page).getByText('System limits')).toBeVisible();
+  await expect
+    .poll(() => page.evaluate(() => /Transport: :websocket/.test(window.playground.output)))
+    .toBe(true);
+  // A process's details (process_info with its monitors) open over the socket.
+  await preview(page).getByRole('link', { name: 'Processes' }).click();
+  await syncLV(preview(page));
+  await preview(page).locator('tr[phx-click="show_info"]').first().click();
+  await expect(preview(page).getByText('Monitored by')).toBeVisible({ timeout: 30_000 });
 });

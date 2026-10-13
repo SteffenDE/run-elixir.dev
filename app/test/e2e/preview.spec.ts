@@ -4,8 +4,7 @@ import { newProject, preview, reloadPreview, serverRunning } from './helpers';
 test('the path bar navigates the preview, and a reload stays there', async ({ page }) => {
   await newProject(page, 'phoenix');
   await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
-  // LiveDashboard fails on Rust-OTP for now (docs/status.md); this checks
-  // where the preview goes (it redirects to /dev/dashboard/home).
+  // /dev/dashboard redirects to /dev/dashboard/home.
   await page.locator('.preview-bar input').fill('/dev/dashboard');
   await page.locator('.preview-bar input').press('Enter');
   const at = () =>
