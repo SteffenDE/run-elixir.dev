@@ -9,7 +9,7 @@ import indexCss from 'tailwindcss/index.css?raw';
 import preflightCss from 'tailwindcss/preflight.css?raw';
 import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
-import type { Files } from '../../../runtime/host.js';
+import type { FileSystem as Files } from '../../../runtime/host.js';
 import { SyncFiles, evaluate, path, withFaults } from './modules';
 
 export const TAILWIND_VERSION = '4.3.3';

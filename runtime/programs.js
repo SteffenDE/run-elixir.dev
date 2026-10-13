@@ -1,41 +1,24 @@
 // Programs a playground node can run (open_port, System.cmd), in place of
-// the OS's. Each gets its Process (write, exit) and { args, cwd, env, root }.
-import { Dir, File, load } from './wasi.js';
-
-function lookup(root, path) {
-  let node = root;
-  for (const part of path.split('/').filter((p) => p && p !== '.')) {
-    if (!(node instanceof Dir)) return null;
-    node = part === '..' ? node.parent || node : node.entries.get(part);
-    if (!node) return null;
-  }
-  return node;
-}
-const absolute = (cwd, path) => (path.startsWith('/') ? path : `${cwd}/${path}`);
-const read = (root, path, fetch) => {
-  const node = lookup(root, path);
-  if (!(node instanceof File)) return null;
-  load(node, fetch);
-  return new TextDecoder().decode(node.bytes);
-};
-
+// the OS's. Each gets its Process (write, exit) and { args, cwd, env }.
+// fs: vfs.js's files (readText).
 // git, as far as Mix asks a checked-out dependency (Mix.SCM.Git's
 // lock_status): its origin and its revision, from .git.
-export const git = (fetch) => (process, { args, cwd, root }) => {
+export const git = (fs) => (process, { args, cwd }) => {
   let gitDir = '.git';
   const rest = [];
   for (const arg of args) {
     if (arg.startsWith('--git-dir=')) gitDir = arg.slice('--git-dir='.length);
     else rest.push(arg);
   }
-  const dir = absolute(cwd, gitDir);
+  const dir = gitDir.startsWith('/') ? gitDir : `${cwd}/${gitDir}`;
+  const read = (path) => fs.readText(path);
   const [command, ...more] = rest;
   if (command === '--version') {
     process.write('git version 2.47.0 (playground)\n');
     return process.exit(0);
   }
   if (command === 'config' && more.length === 1) {
-    const config = read(root, `${dir}/config`, fetch) ?? '';
+    const config = read(`${dir}/config`) ?? '';
     const [section, ...keys] = more[0].split('.');
     const key = keys.pop();
     const subsection = keys.join('.');
@@ -52,12 +35,12 @@ export const git = (fetch) => (process, { args, cwd, root }) => {
     return process.exit(1);
   }
   if (command === 'rev-parse' && more.at(-1) === 'HEAD') {
-    let head = (read(root, `${dir}/HEAD`, fetch) ?? '').trim();
+    let head = (read(`${dir}/HEAD`) ?? '').trim();
     if (head.startsWith('ref: ')) {
       const ref = head.slice(5);
-      head = (read(root, `${dir}/${ref}`, fetch) ?? '').trim();
+      head = (read(`${dir}/${ref}`) ?? '').trim();
       if (!head) {
-        const packed = read(root, `${dir}/packed-refs`, fetch) ?? '';
+        const packed = read(`${dir}/packed-refs`) ?? '';
         head = packed.split('\n').find((l) => l.endsWith(` ${ref}`))?.split(' ')[0] ?? '';
       }
     }

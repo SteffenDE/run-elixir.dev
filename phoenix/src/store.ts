@@ -45,6 +45,12 @@ interface State {
   navigate(path: string): void;
   reloadPreview(): void;
   popOut(popped: boolean): void;
+  // Terminal tabs, by session id (playground.ts).
+  terminals: number[];
+  activeTerminal: number;
+  addTerminal(id: number): void;
+  removeTerminal(id: number): void;
+  activateTerminal(id: number): void;
 }
 
 export const useStore = create<State>((set) => ({
@@ -103,4 +109,20 @@ export const useStore = create<State>((set) => ({
     set((state) => ({ previewPath, previewNavigation: state.previewNavigation + 1 })),
   reloadPreview: () => set((state) => ({ previewKey: state.previewKey + 1 })),
   popOut: (previewPopped) => set({ previewPopped }),
+  terminals: [],
+  activeTerminal: 0,
+  addTerminal: (id) =>
+    set((state) => ({ terminals: [...state.terminals, id], activeTerminal: id })),
+  removeTerminal: (id) =>
+    set((state) => {
+      const terminals = state.terminals.filter((t) => t !== id);
+      return {
+        terminals,
+        activeTerminal:
+          state.activeTerminal === id
+            ? (terminals[terminals.length - 1] ?? 0)
+            : state.activeTerminal,
+      };
+    }),
+  activateTerminal: (activeTerminal) => set({ activeTerminal }),
 }));

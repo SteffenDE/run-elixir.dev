@@ -12,7 +12,18 @@ declare module '*/runtime/host.js' {
     path: string;
     dir: boolean;
   }
-  export interface Files {
+  // The shared filesystem's operations (files.js through host.js Files).
+  export interface FileSystem {
+    list(path: string, skip?: string[]): Promise<Entry[]>;
+    read(path: string): Promise<Uint8Array>;
+    write(path: string, data: string | Uint8Array): Promise<void>;
+    mkdir(path: string): Promise<void>;
+    remove(path: string): Promise<void>;
+    rename(path: string, to: string): Promise<void>;
+  }
+  export class Files implements FileSystem {
+    constructor(options?: { base?: string; onchange?: (paths: string[]) => void });
+    ready: Promise<void>;
     list(path: string, skip?: string[]): Promise<Entry[]>;
     read(path: string): Promise<Uint8Array>;
     write(path: string, data: string | Uint8Array): Promise<void>;
@@ -28,27 +39,31 @@ declare module '*/runtime/host.js' {
   export class Node {
     constructor(options: {
       base?: string;
+      files?: Files;
       onoutput?: (bytes: Uint8Array) => void;
       onstatus?: (text: string) => void;
       onexit?: (code: number) => void;
-      onchange?: (paths: string[]) => void;
+      onlistening?: (port: number, on: boolean) => void;
       serve?: Record<number, (connection: Connection) => void>;
       programs?: Record<
         string,
         (
           process: PageProcess,
-          context: { args: string[]; cwd: string; env: Record<string, string>; fs: Files },
+          context: { args: string[]; cwd: string; env: Record<string, string>; fs: FileSystem },
         ) => void | Promise<void>
       >;
     });
     worker: Worker;
-    readonly fs: Files;
+    readonly fs: FileSystem;
+    readonly listening: Set<number>;
     start(options: {
       shell?: boolean;
       args?: string[];
       env?: Record<string, string>;
       initial?: string[];
+      cwd?: string;
     }): void;
+    stop(): void;
     input(text: string): void;
     interrupt(): void;
     connect(port: number): Connection;
@@ -57,7 +72,7 @@ declare module '*/runtime/host.js' {
 declare module '*/runtime/bridge.js' {
   import type { Node } from '*/runtime/host.js';
   export class Bridge {
-    constructor(node: Node, port?: number);
+    constructor(node: Pick<Node, 'connect'>, port?: number);
     static register(url?: string): Promise<void>;
   }
 }

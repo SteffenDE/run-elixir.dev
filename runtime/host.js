@@ -5,7 +5,78 @@
 // (the worker sleeps on its write count, so a frame wakes it):
 // [kind u8][id u32][length u32][payload]. The worker answers with
 // messages.
-export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, FILES: 6, OUTPUT: 7, EXIT: 8 };
+export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8 };
+const CHANNEL = 1 << 20;
+
+// A module worker from a blob that imports the runtime's script: Firefox
+// does not start a worker from a page its service worker controls; a blob
+// worker takes the page's cross-origin isolation in both.
+function worker(name, base) {
+  const script = new URL(name, new URL(base, location.href)).href;
+  const blob = new Blob([`import ${JSON.stringify(script)};`], { type: 'text/javascript' });
+  return new Worker(URL.createObjectURL(blob), { type: 'module' });
+}
+
+// The shared filesystem (files.js): /work and /tmp, which every node and
+// the page see. onchange(paths): what changed in it.
+export class Files {
+  constructor({ base = './', onchange = () => {} } = {}) {
+    this.doorbell = new SharedArrayBuffer(4);
+    this.requests = new Map();
+    this.next = 0;
+    this.worker = worker('files.js', base);
+    this.ready = new Promise((resolve, reject) => {
+      this.worker.onmessage = ({ data }) => {
+        if (data.kind === 'ready') resolve();
+        else if (data.kind === 'failed') reject(new Error(data.message));
+        else if (data.kind === 'changed') onchange(data.paths);
+        else if (data.kind === 'reply') {
+          const request = this.requests.get(data.id);
+          this.requests.delete(data.id);
+          if (data.error) request?.reject(new Error(data.error));
+          else request?.resolve(data);
+        }
+      };
+    });
+    this.worker.postMessage({ kind: 'start', base: new URL(base, location.href).href, doorbell: this.doorbell });
+  }
+
+  // A node's channel (wasi.js sharedClient).
+  connect() {
+    const channel = new SharedArrayBuffer(8 + CHANNEL);
+    this.worker.postMessage({ kind: 'connect', channel });
+    return { doorbell: this.doorbell, channel };
+  }
+  disconnect({ channel }) {
+    this.worker.postMessage({ kind: 'disconnect', channel });
+  }
+
+  ask(request) {
+    return new Promise((resolve, reject) => {
+      const id = ++this.next;
+      this.requests.set(id, { resolve, reject });
+      this.worker.postMessage({ kind: 'request', id, ...request });
+    });
+  }
+  list(path, skip = []) {
+    return this.ask({ op: 'list', path, skip }).then((r) => r.entries);
+  }
+  read(path) {
+    return this.ask({ op: 'read', path }).then((r) => r.data);
+  }
+  write(path, data) {
+    return this.ask({ op: 'write', path, data: typeof data === 'string' ? new TextEncoder().encode(data) : data }).then(() => {});
+  }
+  mkdir(path) {
+    return this.ask({ op: 'mkdir', path }).then(() => {});
+  }
+  remove(path) {
+    return this.ask({ op: 'remove', path }).then(() => {});
+  }
+  rename(path, to) {
+    return this.ask({ op: 'rename', path, to }).then(() => {});
+  }
+}
 export const RING = 1 << 20;
 const CHUNK = 1 << 16;
 
@@ -34,14 +105,16 @@ class Connection {
 
 export class Node {
   // base: where the site's runtime files are; onoutput(bytes),
-  // onstatus(text), onexit(code), onchange(paths): what the node created,
-  // wrote, renamed or removed; serve: { port: (connection) => ... } for
-  // ports the node may connect to on the page.
+  // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
+  // ports the node may connect to on the page; files: a Files the node
+  // shares /work and /tmp with; onlistening(port, on): the node started or
+  // stopped listening on a port.
   // programs: { name: (process, { args, cwd, env, fs }) => ... }, programs
   // the node may spawn that run on the page (they may be async):
   // process.write(text | bytes), process.exit(code), process.onkill.
-  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, onchange = () => {}, serve = {}, programs = {} }) {
-    this.requests = new Map();
+  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, programs = {}, files = null, onlistening = () => {} }) {
+    this.files = files;
+    this.listening = new Set();
     this.programs = programs;
     this.running = new Map();
     this.shared = new SharedArrayBuffer(8 + RING);
@@ -51,28 +124,21 @@ export class Node {
     this.connections = new Map();
     this.next = 1;
     this.serve = serve;
-    // A blob that imports worker.js: Firefox does not start a worker from
-    // a page its service worker controls (the Phoenix playground's); a
-    // blob worker takes the page's cross-origin isolation in both.
-    const script = new URL('worker.js', new URL(base, location.href)).href;
-    const blob = new Blob([`import ${JSON.stringify(script)};`], { type: 'text/javascript' });
-    this.worker = new Worker(URL.createObjectURL(blob), { type: 'module' });
+    this.worker = worker('worker.js', base);
     this.worker.onmessage = ({ data }) => {
       if (data.kind === 'out') onoutput(data.payload);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
       else if (data.kind === 'net') this.network(data);
-      else if (data.kind === 'changed') onchange(data.payload);
+      else if (data.kind === 'listening') {
+        if (data.on) this.listening.add(data.port);
+        else this.listening.delete(data.port);
+        onlistening(data.port, data.on);
+      }
       else if (data.kind === 'spawn') this.spawn(data);
       else if (data.kind === 'kill') {
         this.running.get(data.id)?.onkill?.();
         this.running.delete(data.id);
-      }
-      else if (data.kind === 'files') {
-        const request = this.requests.get(data.id);
-        this.requests.delete(data.id);
-        if (data.error) request?.reject(new Error(data.error));
-        else request?.resolve(data);
       }
     };
     // A worker that does not load (or throws outside its own handler).
@@ -81,32 +147,22 @@ export class Node {
 
   // shell: a shell (true), or one command: { args, env }.
   // initial: command lines the shell runs first, as if typed.
-  start({ shell = false, args, env = {}, initial = [] }) {
-    this.worker.postMessage({ shared: this.shared, shell, args, env, initial, ports: Object.keys(this.serve).map(Number),
-      pagePrograms: Object.keys(this.programs) });
+  // cwd: where the shell starts.
+  start({ shell = false, args, env = {}, initial = [], cwd } = {}) {
+    this.channel = this.files?.connect() ?? null;
+    this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, env, initial, cwd,
+      ports: Object.keys(this.serve).map(Number), pagePrograms: Object.keys(this.programs) });
   }
 
-  // The node's filesystem, answered by the worker whatever the node is
-  // doing: paths are absolute.
+  // The node's files: its Files.
   get fs() {
-    const ask = (request, data = new Uint8Array(0)) => new Promise((resolve, reject) => {
-      const id = (this.next += 2);
-      this.requests.set(id, { resolve, reject });
-      const json = new TextEncoder().encode(JSON.stringify(request));
-      const payload = new Uint8Array(4 + json.length + data.length);
-      new DataView(payload.buffer).setUint32(0, json.length, true);
-      payload.set(json, 4);
-      payload.set(data, 4 + json.length);
-      this.frame(FRAME.FILES, id, payload);
-    });
-    return {
-      list: (path, skip = []) => ask({ op: 'list', path, skip }).then((r) => r.entries),
-      read: (path) => ask({ op: 'read', path }).then((r) => r.data),
-      write: (path, data) => ask({ op: 'write', path }, typeof data === 'string' ? new TextEncoder().encode(data) : data).then(() => {}),
-      mkdir: (path) => ask({ op: 'mkdir', path }).then(() => {}),
-      remove: (path) => ask({ op: 'remove', path }).then(() => {}),
-      rename: (path, to) => ask({ op: 'rename', path, to }).then(() => {}),
-    };
+    return this.files;
+  }
+
+  // Stop the node and its worker.
+  stop() {
+    this.worker.terminate();
+    if (this.channel) this.files.disconnect(this.channel);
   }
 
   // A program the node started (worker.js onPage).

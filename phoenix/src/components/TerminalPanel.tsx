@@ -5,9 +5,10 @@ import { useEffect, useRef } from 'react';
 import { cooked } from '../../../runtime/terminal.js';
 import { interrupt, onOutput, type } from '../playground';
 
-// The node's shell: the Phoenix server's IEx, and mix after Ctrl+C.
-export function TerminalPanel() {
+// One shell's terminal (playground.ts session `id`).
+export function TerminalPanel({ id, visible }: { id: number; visible: boolean }) {
   const host = useRef<HTMLDivElement>(null);
+  const terminal = useRef<Terminal | null>(null);
   useEffect(() => {
     const term = new Terminal({
       convertEol: true,
@@ -20,15 +21,22 @@ export function TerminalPanel() {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(host.current!);
-    const resize = new ResizeObserver(() => fit.fit());
+    terminal.current = term;
+    const resize = new ResizeObserver(() => {
+      if (host.current?.offsetParent) fit.fit();
+    });
     resize.observe(host.current!);
-    cooked(term, { input: type, interrupt });
-    const unsubscribe = onOutput((text) => term.write(text));
+    cooked(term, { input: (text) => type(id, text), interrupt: () => interrupt(id) });
+    const unsubscribe = onOutput(id, (text) => term.write(text));
     return () => {
       unsubscribe();
       resize.disconnect();
       term.dispose();
+      terminal.current = null;
     };
-  }, []);
-  return <div className="terminal-host" ref={host} />;
+  }, [id]);
+  useEffect(() => {
+    if (visible) terminal.current?.focus();
+  }, [visible]);
+  return <div className="terminal-host" ref={host} hidden={!visible} />;
 }

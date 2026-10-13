@@ -4,7 +4,7 @@ import { Group, Panel, Separator, useGroupRef } from 'react-resizable-panels';
 import { EditorArea } from './components/Editor';
 import { FileTreePanel } from './components/FileTreePanel';
 import { Preview } from './components/Preview';
-import { TerminalPanel } from './components/TerminalPanel';
+import { Terminals } from './components/Terminals';
 import { restartServer, start } from './playground';
 import { closePopup } from './previewChannel';
 import { useStore } from './store';
@@ -87,7 +87,7 @@ export function App() {
             </Panel>
             <Separator className="separator horizontal" />
             <Panel defaultSize="38" minSize={100} className="panel">
-              <TerminalPanel />
+              <Terminals />
             </Panel>
           </Group>
         </Panel>

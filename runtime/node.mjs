@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
+import { vfs } from './vfs.js';
 
 const [dir, ...args] = process.argv.slice(2);
 const t0 = performance.now();
@@ -106,7 +107,7 @@ const wasi = new WASI({
   sleep: (ms) => Atomics.wait(wait, 0, 0, Math.min(ms, 5)),
   network,
   pump,
-  programs: programs(fetchFile),
+  programs: programs(vfs(root, fetchFile)),
   fetch: fetchFile,
 });
 // TRACE_WASI=1: every WASI call and its result, on standard error.

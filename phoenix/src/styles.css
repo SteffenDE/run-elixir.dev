@@ -400,3 +400,27 @@ button {
 .preview-window {
   background: var(--panel);
 }
+
+/* Terminal tabs */
+
+.terminals {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--term);
+}
+
+.terminal-bar {
+  background: var(--panel-2);
+}
+
+.terminal-stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+.terminal-host[hidden] {
+  display: none;
+}

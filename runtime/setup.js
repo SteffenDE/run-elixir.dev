@@ -12,6 +12,8 @@ export const ENV = {
   ROTP_OS_TYPE: 'linux', ROTP_SYSTEM_ARCHITECTURE: 'x86_64-pc-linux-gnu',
 };
 
+// The node's own tree around the installation (/work and /tmp may be
+// shared: files.js).
 export function prepare(root) {
   root.mkdirs('work');
   root.mkdirs('tmp');
@@ -20,5 +22,5 @@ export function prepare(root) {
   for (const name of ['git', 'esbuild', 'tailwind']) root.put(`usr/bin/${name}`, new File());
 }
 
-// fetch: a lazily mounted file's bytes.
-export const programs = (fetch) => ({ git: git(fetch), esbuild, tailwind });
+// fs: the node's files (vfs.js).
+export const programs = (fs) => ({ git: git(fs), esbuild, tailwind });

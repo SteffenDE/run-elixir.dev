@@ -165,7 +165,8 @@ class Endpoint {
 // TCP for the node (crates/rotp/src/host/wasm_net.rs): listeners and
 // connections inside it, and connections to and from the page (`remote`:
 // remote.open(id, port) for a connection the node makes to a port in
-// remote.ports; send/end/close by id). Ids the node makes are even; the
+// remote.ports; send/end/close by id; listening(port, bool) as the node
+// starts and stops listening). Ids the node makes are even; the
 // page's are odd.
 export class Network {
   constructor(remote = { ports: [], open() {}, send() {}, end() {}, close() {} }) {
@@ -182,6 +183,7 @@ export class Network {
     if (this.listeners.has(port)) return null;
     const queue = [];
     this.listeners.set(port, queue);
+    this.remote.listening?.(port, true);
     return { queue, port };
   }
   // A connection to the node's listener on `port` from the page.
@@ -290,11 +292,13 @@ export function* entries(tar) {
 }
 
 // A gzipped tar into `root`: the number of files.
-export async function untar(gzipped, root) {
+// keep(name): whether a file or directory belongs in `root`.
+export async function untar(gzipped, root, keep = () => true) {
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'));
   const tar = new Uint8Array(await new Response(stream).arrayBuffer());
   let count = 0;
   for (const { name, type, body, mtime } of entries(tar)) {
+    if (!keep(name)) continue;
     if (type === '5') root.mkdirs(name);
     else if (type === '0') {
       root.put(name, new File(body)).mtime = mtime;
@@ -303,6 +307,38 @@ export async function untar(gzipped, root) {
   }
   return count;
 }
+
+// A node's synchronous channel to the shared filesystem (files.js): send a
+// request and its bytes, wait for the answer.
+export function sharedClient(doorbell, channel) {
+  const bell = new Int32Array(doorbell);
+  const control = new Int32Array(channel, 0, 2);
+  const data = new Uint8Array(channel, 8);
+  const view = new DataView(channel, 8);
+  const encoder = new TextEncoder();
+  const decoder = new TextDecoder();
+  return (request, bytes = new Uint8Array(0)) => {
+    const header = encoder.encode(JSON.stringify(request));
+    view.setUint32(0, header.length, true);
+    data.set(header, 4);
+    data.set(bytes, 4 + header.length);
+    Atomics.store(control, 1, 4 + header.length + bytes.length);
+    Atomics.store(control, 0, 1);
+    Atomics.add(bell, 0, 1);
+    Atomics.notify(bell, 0);
+    while (Atomics.load(control, 0) === 1) Atomics.wait(control, 0, 1, 1000);
+    const length = view.getUint32(0, true);
+    const total = Atomics.load(control, 1);
+    const answer = JSON.parse(decoder.decode(data.slice(4, 4 + length)));
+    const out = data.slice(4 + length, total);
+    Atomics.store(control, 0, 0);
+    return { answer, bytes: out };
+  };
+}
+
+// The most a shared read or write moves at once (the channel's size, less
+// room for headers).
+const SHARED_CHUNK = 512 * 1024;
 
 export class WASI {
   // { args, env, root: Dir, stdin(), stdout(bytes), stderr(bytes),
@@ -314,7 +350,10 @@ export class WASI {
   // exits its Process.
   // onchange(path): the node created, wrote (reported when the file is
   // closed), renamed or removed what is at the absolute `path`.
-  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch, programs = {}, onchange = () => {} }) {
+  // shared: { prefixes, call }: directories (as /work) another worker
+  // holds, reached with call(request, bytes) (sharedClient).
+  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch, programs = {}, onchange = () => {}, shared = null }) {
+    this.shared = shared;
     this.onchange = onchange;
     this.fetch = fetch;
     this.programs = programs;
@@ -336,7 +375,8 @@ export class WASI {
     ]);
     this.next = 4;
     this.memory = null;
-    this.imports = { wasi_snapshot_preview1: this.functions() };
+    const functions = this.functions();
+    this.imports = { wasi_snapshot_preview1: shared ? { ...functions, ...this.remote(functions) } : functions };
   }
 
   start(instance) {
@@ -450,6 +490,184 @@ export class WASI {
     return null;
   }
 
+  isShared(path) {
+    return this.shared.prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  }
+
+  // A filestat for a shared node (files.js status).
+  sharedFilestat(ptr, { type, size, ino, mtime }) {
+    const v = this.view();
+    v.setBigUint64(ptr, 2n, true);
+    v.setBigUint64(ptr + 8, BigInt(ino), true);
+    v.setUint8(ptr + 16, type === 'dir' ? FILETYPE.DIR : FILETYPE.REG);
+    v.setBigUint64(ptr + 24, 1n, true);
+    v.setBigUint64(ptr + 32, BigInt(size), true);
+    v.setBigUint64(ptr + 40, BigInt(mtime), true);
+    v.setBigUint64(ptr + 48, BigInt(mtime), true);
+    v.setBigUint64(ptr + 56, BigInt(mtime), true);
+  }
+
+  // The WASI calls on shared paths and their descriptors, in front of the
+  // local ones (`local`), which take everything else.
+  remote(local) {
+    const self = this;
+    const call = (request, bytes) => self.shared.call(request, bytes);
+    const ask = (request, bytes) => call(request, bytes).answer;
+    const path = (fd, ptr, len) => self.absolute(fd, self.string(ptr, len));
+    const remoteOf = (fd) => self.fds.get(fd)?.remote;
+    const simple = (op, name) => (fd, ptr, len) => {
+      const target = path(fd, ptr, len);
+      if (!self.isShared(target)) return local[name](fd, ptr, len);
+      return ask({ op, path: target }).error ?? E.SUCCESS;
+    };
+    return {
+      path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr) {
+        const target = path(fd, pathPtr, pathLen);
+        if (!self.isShared(target)) return local.path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr);
+        const opened = ask({ op: 'open', path: target, oflags });
+        if (opened.error) return opened.error;
+        const id = self.next++;
+        self.fds.set(id, {
+          path: target,
+          remote: { handle: opened.handle, position: 0, append: !!(fdflags & FDFLAGS.APPEND), dir: opened.type === 'dir', listing: null },
+        });
+        self.view().setUint32(fdPtr, id, true);
+        return E.SUCCESS;
+      },
+      path_filestat_get(fd, flags, pathPtr, pathLen, ptr) {
+        const target = path(fd, pathPtr, pathLen);
+        if (!self.isShared(target)) return local.path_filestat_get(fd, flags, pathPtr, pathLen, ptr);
+        const status = ask({ op: 'stat', path: target });
+        if (status.error) return status.error;
+        self.sharedFilestat(ptr, status);
+        return E.SUCCESS;
+      },
+      path_create_directory: simple('mkdir', 'path_create_directory'),
+      path_remove_directory: simple('rmdir', 'path_remove_directory'),
+      path_unlink_file: simple('unlink', 'path_unlink_file'),
+      path_rename(fd, oldPtr, oldLen, fd2, newPtr, newLen) {
+        const from = path(fd, oldPtr, oldLen);
+        const to = path(fd2, newPtr, newLen);
+        if (!self.isShared(from) && !self.isShared(to)) return local.path_rename(fd, oldPtr, oldLen, fd2, newPtr, newLen);
+        if (self.isShared(from) !== self.isShared(to)) return 75; // EXDEV
+        return ask({ op: 'rename', path: from, to }).error ?? E.SUCCESS;
+      },
+      path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen) {
+        const from = path(fd, oldPtr, oldLen);
+        const to = path(fd2, newPtr, newLen);
+        if (!self.isShared(from) && !self.isShared(to)) return local.path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen);
+        if (self.isShared(from) !== self.isShared(to)) return 75; // EXDEV
+        return ask({ op: 'link', path: from, to }).error ?? E.SUCCESS;
+      },
+      fd_read(fd, iovs, count, nreadPtr) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_read(fd, iovs, count, nreadPtr);
+        if (remote.dir) return E.ISDIR;
+        let total = 0;
+        for (const [ptr, len] of self.iovecs(iovs, count)) {
+          let filled = 0;
+          while (filled < len) {
+            const want = Math.min(len - filled, SHARED_CHUNK);
+            const { answer, bytes } = call({ op: 'read', handle: remote.handle, offset: remote.position, length: want });
+            if (answer.error) return answer.error;
+            self.bytes(ptr + filled, bytes.length).set(bytes);
+            filled += bytes.length;
+            remote.position += bytes.length;
+            if (bytes.length < want) break;
+          }
+          total += filled;
+          if (filled < len) break;
+        }
+        self.view().setUint32(nreadPtr, total, true);
+        return E.SUCCESS;
+      },
+      fd_write(fd, iovs, count, nwrittenPtr) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_write(fd, iovs, count, nwrittenPtr);
+        let total = 0;
+        for (const [ptr, len] of self.iovecs(iovs, count)) {
+          for (let at = 0; at < len; at += SHARED_CHUNK) {
+            const bytes = self.bytes(ptr + at, Math.min(SHARED_CHUNK, len - at)).slice();
+            const answer = ask({ op: 'write', handle: remote.handle, offset: remote.position, append: remote.append }, bytes);
+            if (answer.error) return answer.error;
+            remote.position = answer.position;
+          }
+          total += len;
+        }
+        self.view().setUint32(nwrittenPtr, total, true);
+        return E.SUCCESS;
+      },
+      fd_seek(fd, offset, whence, ptr) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_seek(fd, offset, whence, ptr);
+        const size = whence === 2 ? ask({ op: 'fstat', handle: remote.handle }).size : 0;
+        const base = [0, remote.position, size][whence];
+        if (base === undefined) return E.INVAL;
+        const position = base + Number(offset);
+        if (position < 0) return E.INVAL;
+        remote.position = position;
+        self.view().setBigUint64(ptr, BigInt(position), true);
+        return E.SUCCESS;
+      },
+      fd_filestat_get(fd, ptr) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_filestat_get(fd, ptr);
+        const status = ask({ op: 'fstat', handle: remote.handle });
+        if (status.error) return status.error;
+        self.sharedFilestat(ptr, status);
+        return E.SUCCESS;
+      },
+      fd_filestat_set_size(fd, size) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_filestat_set_size(fd, size);
+        return ask({ op: 'truncate', handle: remote.handle, size: Number(size) }).error ?? E.SUCCESS;
+      },
+      fd_fdstat_get(fd, ptr) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_fdstat_get(fd, ptr);
+        const v = self.view();
+        v.setUint8(ptr, remote.dir ? FILETYPE.DIR : FILETYPE.REG);
+        v.setUint16(ptr + 2, remote.append ? FDFLAGS.APPEND : 0, true);
+        v.setBigUint64(ptr + 8, 0xffffffffffffffffn, true);
+        v.setBigUint64(ptr + 16, 0xffffffffffffffffn, true);
+        return E.SUCCESS;
+      },
+      fd_readdir(fd, buf, len, cookie, usedPtr) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_readdir(fd, buf, len, cookie, usedPtr);
+        if (!remote.dir) return E.NOTDIR;
+        if (!remote.listing || cookie === 0n) {
+          const answer = ask({ op: 'readdir', handle: remote.handle });
+          if (answer.error) return answer.error;
+          remote.listing = answer.entries;
+        }
+        let used = 0;
+        for (let i = Number(cookie); i < remote.listing.length && used < len; i++) {
+          const [name, type, ino] = remote.listing[i];
+          const encoded = new TextEncoder().encode(name);
+          const record = new Uint8Array(24 + encoded.length);
+          const h = new DataView(record.buffer);
+          h.setBigUint64(0, BigInt(i + 1), true);
+          h.setBigUint64(8, BigInt(ino), true);
+          h.setUint32(16, encoded.length, true);
+          h.setUint8(20, type === 'dir' ? FILETYPE.DIR : FILETYPE.REG);
+          record.set(encoded, 24);
+          const room = Math.min(record.length, len - used);
+          self.bytes(buf + used, room).set(record.subarray(0, room));
+          used += room;
+        }
+        self.view().setUint32(usedPtr, used, true);
+        return E.SUCCESS;
+      },
+      fd_close(fd) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_close(fd);
+        self.fds.delete(fd);
+        return ask({ op: 'close', handle: remote.handle }).error ?? E.SUCCESS;
+      },
+    };
+  }
+
   functions() {
     const self = this;
     const ok = E.SUCCESS;
@@ -553,7 +771,10 @@ export class WASI {
         if (!self.fds.has(fd) || fd < 3) return fd < 3 ? ok : E.BADF;
         const entry = self.fds.get(fd);
         if (entry.endpoint) entry.endpoint.peer.close();
-        if (entry.listener) self.network.listeners.delete(entry.port);
+        if (entry.listener) {
+          self.network.listeners.delete(entry.port);
+          self.network.remote.listening?.(entry.port, false);
+        }
         if (entry.changed) self.onchange(entry.path);
         // The port closed: a program still running is told (onclose).
         if (entry.process) {
