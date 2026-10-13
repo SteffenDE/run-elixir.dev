@@ -10,6 +10,7 @@ import { postgres } from '@runtime/postgres.js';
 import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
 import { previewChannel, send, type PreviewMessage } from '@/project/lib/previewChannel';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
+import { filesStore } from '@/shared/lib/storage';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
@@ -197,8 +198,9 @@ previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessag
 });
 
 // Start a project of `kind`: its files, the service worker, and the first
-// shell.
-export async function start(workspaceKind: WorkspaceKind): Promise<void> {
+// shell. `id`: the stored project's, whose changes are kept (none for a
+// temporary IEx).
+export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<void> {
   kind = workspaceKind;
   setup = setupOf(kind);
   const store = useStore.getState();
@@ -211,7 +213,9 @@ export async function start(workspaceKind: WorkspaceKind): Promise<void> {
     base: '/',
     boots: setup.boots,
     template: setup.template,
+    store: id ? filesStore(id) : null,
     onchange: (paths: string[]) => void changed(paths),
+    onwarning: (message: string) => useStore.getState().setStatus(message),
   });
   await Promise.all([files.ready, Bridge.register('/sw.js', '/')]);
   void refreshTree();

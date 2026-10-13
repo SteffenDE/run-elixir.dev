@@ -20,8 +20,9 @@ function worker(name, base) {
 // The shared filesystem (files.js): /work and /tmp, which every node and
 // the page see. onchange(paths): what changed in it.
 export class Files {
-  // boots, template: what files.js starts with (its 'start').
-  constructor({ base = './', boots = ['boot'], template = [], onchange = () => {} } = {}) {
+  // boots, template, store: what files.js starts with (its 'start').
+  // onwarning(message): a change that was not kept.
+  constructor({ base = './', boots = ['boot'], template = [], store = null, onchange = () => {}, onwarning = () => {} } = {}) {
     this.doorbell = new SharedArrayBuffer(4);
     this.requests = new Map();
     this.next = 0;
@@ -31,6 +32,7 @@ export class Files {
         if (data.kind === 'ready') resolve();
         else if (data.kind === 'failed') reject(new Error(data.message));
         else if (data.kind === 'changed') onchange(data.paths);
+        else if (data.kind === 'warning') onwarning(data.message);
         else if (data.kind === 'reply') {
           const request = this.requests.get(data.id);
           this.requests.delete(data.id);
@@ -39,7 +41,7 @@ export class Files {
         }
       };
     });
-    this.worker.postMessage({ kind: 'start', base: new URL(base, location.href).href, doorbell: this.doorbell, boots, template });
+    this.worker.postMessage({ kind: 'start', base: new URL(base, location.href).href, doorbell: this.doorbell, boots, template, store });
   }
 
   // A node's channel (wasi.js sharedClient).
@@ -76,6 +78,10 @@ export class Files {
   }
   rename(path, to) {
     return this.ask({ op: 'rename', path, to }).then(() => {});
+  }
+  // Keep everything changed so far (a store's).
+  flush() {
+    return this.ask({ op: 'flush' }).then(() => {});
   }
 }
 export const RING = 1 << 20;

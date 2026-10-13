@@ -45,8 +45,10 @@ export function ProjectPage({ project }: { project: Project | null }) {
   useEffect(() => {
     if (started) return;
     started = true;
-    start(kind).catch((error: Error) => useStore.getState().setStatus(`failed: ${error.message}`));
-  }, [kind]);
+    start(kind, project?.id ?? null).catch((error: Error) =>
+      useStore.getState().setStatus(`failed: ${error.message}`),
+    );
+  }, [kind, project]);
 
   return (
     <div className="app">

@@ -26,9 +26,12 @@ declare module '@runtime/host.js' {
       base?: string;
       boots?: string[];
       template?: string[];
+      store?: string | null;
       onchange?: (paths: string[]) => void;
+      onwarning?: (message: string) => void;
     });
     ready: Promise<void>;
+    flush(): Promise<void>;
     list(path: string, skip?: string[]): Promise<Entry[]>;
     read(path: string): Promise<Uint8Array>;
     write(path: string, data: string | Uint8Array): Promise<void>;

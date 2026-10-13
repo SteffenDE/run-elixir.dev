@@ -8,7 +8,12 @@
 // it, 2 with the answer; it rings the shared doorbell and waits on
 // control[0]. Requests and answers are a JSON header and bytes:
 // [header length u32][header][bytes]. The page asks with messages.
+//
+// With a `store`, what changes below /work is kept (overlay.js): written
+// a second after it changes, and laid over the template when the files
+// start again.
 import { Dir, File, untar, mount, load, bundled } from './wasi.js';
+import * as overlays from './overlay.js';
 
 const E = { SUCCESS: 0, EXIST: 20, INVAL: 28, IO: 29, ISDIR: 31, NOENT: 44, NOTDIR: 54, NOTEMPTY: 55, PERM: 63, XDEV: 75 };
 const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
@@ -27,6 +32,12 @@ const changed = new Set();
 let reported = 0;
 const channels = []; // { control: Int32Array, data: Uint8Array }
 let doorbell = null;
+// The kept changes: { db, version, whiteouts }, and the paths below /work
+// changed since they were last written (true: with everything in them).
+let overlay = null;
+const dirty = new Map();
+let saving = null;
+let saved = 0;
 
 function parts(path) {
   return path.split('/').filter((p) => p && p !== '.');
@@ -60,8 +71,73 @@ function status(node) {
   };
 }
 
-function report(path) {
+// `deep`: everything in it changed too (a directory moved there).
+function report(path, deep = false) {
   changed.add(path);
+  if (overlay && path.startsWith('/work/')) dirty.set(path, dirty.get(path) || deep);
+}
+
+// The records for what changed (overlay.js), and the directories whose
+// earlier records go.
+function collect(path, node, deep, records, cleared) {
+  if (node instanceof Dir) {
+    const opaque = deep || overlay.whiteouts.has(path);
+    records.push({ path, kind: 'dir', opaque, mtime: String(node.mtime) });
+    if (opaque) cleared.push(path);
+    overlay.whiteouts.delete(path);
+    if (deep) for (const [name, child] of node.entries) collect(`${path}/${name}`, child, true, records, cleared);
+  } else if (node instanceof File) {
+    load(node, fetchFile);
+    records.push({ path, kind: 'file', data: node.bytes.slice(), mtime: String(node.mtime) });
+    overlay.whiteouts.delete(path);
+  }
+}
+
+// Write what changed; one write at a time.
+function persist() {
+  if (saving || !dirty.size) return saving;
+  const records = [];
+  const cleared = [];
+  for (const [path, deep] of [...dirty].sort(([a], [b]) => (a < b ? -1 : 1))) {
+    const found = resolve(path);
+    if (found.node) {
+      try {
+        collect(path, found.node, deep, records, cleared);
+      } catch (error) {
+        postMessage({ kind: 'warning', message: `${path}: not kept (${error.message})` });
+      }
+    } else {
+      records.push({ path, kind: 'gone' });
+      cleared.push(path);
+      overlay.whiteouts.add(path);
+    }
+  }
+  dirty.clear();
+  saved = performance.now();
+  saving = overlays
+    .save(overlay.db, records, cleared, overlay.version)
+    .catch((error) => postMessage({ kind: 'warning', message: `changes not kept: ${error.message}` }))
+    .finally(() => {
+      saving = null;
+    });
+  return saving;
+}
+
+// Lay the kept changes over the files.
+function apply(records) {
+  for (const record of records) {
+    const found = resolve(record.path);
+    if (record.kind === 'gone') {
+      if (found.node) found.parent.entries.delete(found.name);
+    } else if (record.kind === 'dir') {
+      const dir = record.opaque || !(found.node instanceof Dir) ? root.put(record.path, new Dir()) : found.node;
+      dir.mtime = BigInt(record.mtime);
+    } else if (record.kind === 'file') {
+      const file = root.put(record.path, new File(record.data));
+      file.written = true;
+      file.mtime = BigInt(record.mtime);
+    }
+  }
 }
 
 // One request: { op, ... } and bytes; the answer and its bytes.
@@ -180,7 +256,7 @@ function handle({ op, path, to, handle: id, offset, length, oflags = 0, append, 
       target.parent.entries.set(target.name, from.node);
       if (from.node instanceof Dir) from.node.parent = target.parent;
       report(path);
-      report(to);
+      report(to, true);
       return {};
     }
     case 'link': {
@@ -227,6 +303,7 @@ function answer() {
     changed.clear();
     reported = performance.now();
   }
+  if (overlay && dirty.size && performance.now() - saved > 1000) persist();
 }
 
 // The page's requests (host.js Files): the same filesystem, by message.
@@ -290,11 +367,13 @@ onmessage = async ({ data }) => {
     try {
       // boots: the boot images to unpack (worker.js); template: the
       // directories below /work the project starts with, from the site's
-      // files (/work/playground for a Phoenix project).
-      const { base, boots = ['boot'], template = [] } = data;
-      const [images, manifest] = await Promise.all([
+      // files (/work/playground for a Phoenix project); store: the
+      // IndexedDB database the project's changes are kept in.
+      const { base, boots = ['boot'], template = [], store = null } = data;
+      const [images, manifest, version] = await Promise.all([
         Promise.all(boots.map((boot) => fetch(new URL(`fs/${boot}.tar.gz`, base)).then((r) => r.arrayBuffer()))),
         fetch(new URL('fs/manifest.json', base)).then((r) => r.json()),
+        fetch(new URL('fs/version', base)).then((r) => (r.ok ? r.text() : '')),
       ]);
       root = new Dir();
       const shared = (path) =>
@@ -302,6 +381,19 @@ onmessage = async ({ data }) => {
       mount(manifest.filter(([path]) => shared(path)), root);
       for (const image of images) await untar(new Uint8Array(image), root, shared);
       for (const prefix of SHARED) root.mkdirs(prefix);
+      if (store) {
+        const db = await overlays.open(store);
+        let kept = await overlays.load(db);
+        // Another site build: the template's own build is the new one, and
+        // the project's sources recompile over it.
+        if (kept.version && kept.version !== version.trim() && template.length) {
+          for (const prefix of template) await overlays.drop(db, `${prefix}/_build`);
+          kept = await overlays.load(db);
+        }
+        apply(kept.records);
+        const whiteouts = new Set(kept.records.filter((record) => record.kind === 'gone').map((record) => record.path));
+        overlay = { db, version: version.trim(), whiteouts };
+      }
       fetchFile = bundled((bundle) => {
         const request = new XMLHttpRequest();
         request.open('GET', new URL(`fs/bundles/${bundle}.tar`, base), false);
@@ -321,6 +413,13 @@ onmessage = async ({ data }) => {
   } else if (data.kind === 'disconnect') {
     const index = channels.findIndex((c) => c.control.buffer === data.channel);
     if (index >= 0) channels.splice(index, 1);
+  } else if (data.kind === 'request' && data.op === 'flush') {
+    // Everything changed so far, kept.
+    if (overlay) {
+      await saving;
+      await persist();
+    }
+    postMessage({ kind: 'reply', id: data.id });
   } else if (data.kind === 'request') {
     let reply;
     try {
