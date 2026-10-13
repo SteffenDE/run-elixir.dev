@@ -162,6 +162,17 @@ class Endpoint {
   }
 }
 
+// Ephemeral ports (49152-65535), as an OS hands them out: one sequence for
+// every node this worker runs, from a random start, so that a node does
+// not get the port an earlier one had (Mix's lock files name the port of
+// their holder, and a node that finds its own port there waits on itself).
+let ephemeralPort = 49152 + Math.floor(Math.random() * 16384);
+function nextEphemeral() {
+  const port = ephemeralPort;
+  ephemeralPort = ephemeralPort >= 65535 ? 49152 : ephemeralPort + 1;
+  return port;
+}
+
 // TCP for the node (crates/rotp/src/host/wasm_net.rs): listeners and
 // connections inside it, and connections to and from the page (`remote`:
 // remote.open(id, port) for a connection the node makes to a port in
@@ -175,14 +186,13 @@ export class Network {
     this.waiting = new Map(); // id -> Endpoint, until accepted
     this.endpoints = new Map(); // id -> Endpoint, for the page's
     this.next = 2;
-    this.ephemeral = 50000;
   }
   // A listener's queue, on `port` or (0) a free one: { queue, port }.
   // listening(port, true, ephemeral): ephemeral when the port was given,
   // not asked for (Mix's lock listens so; a web server names its port).
   listen(port) {
     const ephemeral = port === 0;
-    if (ephemeral) do port = this.ephemeral++; while (this.listeners.has(port));
+    if (ephemeral) do port = nextEphemeral(); while (this.listeners.has(port));
     if (this.listeners.has(port)) return null;
     const queue = [];
     this.listeners.set(port, queue);
@@ -201,7 +211,7 @@ export class Network {
     });
     this.endpoints.set(id, endpoint);
     this.waiting.set(id, endpoint);
-    queue.push({ id, ip: '127.0.0.1', port: this.ephemeral++ });
+    queue.push({ id, ip: '127.0.0.1', port: nextEphemeral() });
     return true;
   }
   // The node connects: to itself, or to the page.
@@ -221,7 +231,7 @@ export class Network {
         close: () => { theirs.eof = true; },
       });
       this.waiting.set(id, theirs);
-      queue.push({ id, ip: '127.0.0.1', port: this.ephemeral++ });
+      queue.push({ id, ip: '127.0.0.1', port: nextEphemeral() });
       return mine;
     }
     if (!this.remote.ports.includes(port)) return null;
