@@ -1,6 +1,6 @@
 // What the tests do to a playground page, mostly through
 // window.playground (src/project/lib/playground.ts).
-import { expect, type Page } from '@playwright/test';
+import { expect, type FrameLocator, type Page } from '@playwright/test';
 
 export const APP = '/work/playground';
 export const HOME_HEEX = `${APP}/lib/playground_web/controllers/page_html/home.html.heex`;
@@ -124,4 +124,15 @@ export async function clickTerminalText(page: Page, text: string): Promise<void>
   await page.mouse.move(point!.x, point!.y);
   await page.waitForTimeout(400);
   await page.mouse.click(point!.x, point!.y);
+}
+
+// Until a LiveView (in `scope`: a page or the preview's frame) is connected
+// and has no event pending; before and after clicks and submits.
+export async function syncLV(scope: Page | FrameLocator): Promise<void> {
+  await Promise.all([
+    expect(scope.locator('.phx-connected').first()).toBeVisible({ timeout: 120_000 }),
+    expect(scope.locator('.phx-change-loading')).toHaveCount(0),
+    expect(scope.locator('.phx-click-loading')).toHaveCount(0),
+    expect(scope.locator('.phx-submit-loading')).toHaveCount(0),
+  ]);
 }
