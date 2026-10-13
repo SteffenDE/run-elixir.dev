@@ -3,13 +3,13 @@ import { defineConfig, devices } from '@playwright/test';
 // The playground's browser tests, against a built site (runtime/build.py)
 // that runtime/serve.py serves. Run them in Docker with
 // playground/tests/run.sh, which mounts the repository at /repo.
-const port = Number(process.env.PORT ?? 8081);
+const port = Number(process.env.PORT || 8081);
 
 export default defineConfig({
   testDir: 'test/e2e',
   outputDir: process.env.OUTPUT_DIR ?? 'test-results',
   // Each Phoenix boot is a few seconds of a core; a test can hold two.
-  workers: Number(process.env.WORKERS ?? 3),
+  workers: Number(process.env.WORKERS || 3),
   timeout: 300_000,
   expect: { timeout: 30_000 },
   reporter: [['list']],
