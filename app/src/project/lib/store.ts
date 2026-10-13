@@ -48,6 +48,10 @@ interface State {
   setPaths(paths: string[]): void;
   open(path: string, contents: string, line?: number): void;
   close(path: string): void;
+  // A file or directory moved (tabs below it follow), or removed (they
+  // close).
+  moved(from: string, to: string): void;
+  removed(path: string): void;
   activate(path: string): void;
   edit(path: string, draft: string): void;
   saved(path: string, text: string): void;
@@ -107,6 +111,23 @@ export const useStore = create<State>((set) => ({
         state.active === path
           ? (tabs[Math.min(index, tabs.length - 1)]?.path ?? null)
           : state.active;
+      return { tabs, active };
+    }),
+  moved: (from, to) =>
+    set((state) => {
+      const follow = (path: string) =>
+        path === from || path.startsWith(`${from}/`) ? to + path.slice(from.length) : path;
+      return {
+        tabs: state.tabs.map((tab) => ({ ...tab, path: follow(tab.path) })),
+        active: state.active && follow(state.active),
+      };
+    }),
+  removed: (path) =>
+    set((state) => {
+      const gone = (tab: string) => tab === path || tab.startsWith(`${path}/`);
+      const tabs = state.tabs.filter((tab) => !gone(tab.path));
+      const active =
+        state.active && gone(state.active) ? (tabs[tabs.length - 1]?.path ?? null) : state.active;
       return { tabs, active };
     }),
   activate: (active) => set({ active }),

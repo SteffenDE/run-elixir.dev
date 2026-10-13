@@ -637,3 +637,55 @@ button {
   align-items: center;
   gap: 16px;
 }
+
+/* The file tree's header and context menu (slotted into the tree). */
+
+.tree-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 2px;
+  padding: 4px 6px 0;
+}
+
+.tree-actions .icon-button {
+  width: 24px;
+  height: 24px;
+  color: var(--muted);
+}
+
+.tree-menu {
+  /* A popover: placed by TreeMenu, not centred by the browser. */
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+  box-shadow: 0 6px 24px rgb(0 0 0 / 0.16);
+}
+
+.tree-menu button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+
+.tree-menu button:hover,
+.tree-menu button:focus-visible {
+  background: var(--panel-2);
+}
+
+.tree-menu button.danger {
+  color: var(--accent);
+}

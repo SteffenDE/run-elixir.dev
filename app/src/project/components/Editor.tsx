@@ -14,9 +14,11 @@ const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =
 type FileEditor = PierreEditor<'file', undefined, undefined>;
 
 // The caret on `line`, in view (the editor would show its caret wherever
-// it was, the end for a new session).
+// it was, the end for a new session). Focus stays in the file tree when
+// the user is there (selecting, renaming).
 function goTo(editor: FileEditor, line: number) {
-  editor.focus({ lineNumber: line, offset: 80 });
+  if (!document.activeElement?.closest('.file-tree'))
+    editor.focus({ lineNumber: line, offset: 80 });
   if (line === 1) {
     requestAnimationFrame(() =>
       document.querySelector('.tab-panel:not([hidden]) .editor-scroll')?.scrollTo(0, 0),

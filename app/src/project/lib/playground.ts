@@ -105,6 +105,38 @@ export function stat(path: string): Promise<'file' | 'dir' | null> {
   return files ? files.stat(path) : Promise.resolve(null);
 }
 
+function running(): Files {
+  if (!files) throw new Error('the playground is not running');
+  return files;
+}
+
+async function vacant(path: string): Promise<void> {
+  if ((await stat(path)) !== null) throw new Error(`${path.slice(WORK.length + 1)} exists already`);
+}
+
+// The tree's file operations, on absolute paths below /work.
+export async function createFile(path: string): Promise<void> {
+  await vacant(path);
+  await running().write(path, new Uint8Array(0));
+  await openFile(path);
+}
+
+export async function createDirectory(path: string): Promise<void> {
+  await vacant(path);
+  await running().mkdir(path);
+}
+
+export async function movePath(from: string, to: string): Promise<void> {
+  await vacant(to);
+  await running().rename(from, to);
+  useStore.getState().moved(from, to);
+}
+
+export async function removePath(path: string): Promise<void> {
+  await running().remove(path);
+  useStore.getState().removed(path);
+}
+
 // Open a file in the editor, with the caret on `line`.
 export async function openFile(path: string, line = 1): Promise<void> {
   const text = decoder.decode(await read(path));
