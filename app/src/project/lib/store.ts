@@ -38,6 +38,9 @@ interface State {
   previewPopped: boolean;
   // Another page took the project over; this one stopped.
   elsewhere: boolean;
+  // The file tree and the editor show (else the terminals have the room).
+  filesShown: boolean;
+  setFilesShown(shown: boolean): void;
   setElsewhere(elsewhere: boolean): void;
   setStatus(status: string): void;
   setReady(ready: boolean): void;
@@ -72,6 +75,8 @@ export const useStore = create<State>((set) => ({
   previewKey: 0,
   previewPopped: false,
   elsewhere: false,
+  filesShown: true,
+  setFilesShown: (filesShown) => set({ filesShown }),
   setElsewhere: (elsewhere) => set({ elsewhere }),
   setStatus: (status) => set({ status }),
   setReady: (ready) => set({ ready }),

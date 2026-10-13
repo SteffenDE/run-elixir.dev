@@ -1,5 +1,12 @@
 import { Tabs } from '@base-ui/react/tabs';
-import { RiAddLine, RiCloseLine, RiServerLine, RiTerminalBoxLine } from '@remixicon/react';
+import {
+  RiAddLine,
+  RiCloseLine,
+  RiFullscreenExitLine,
+  RiFullscreenLine,
+  RiServerLine,
+  RiTerminalBoxLine,
+} from '@remixicon/react';
 import { FIRST_SESSION, closeTerminal, openTerminal } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { disposeTerminal } from '@/project/lib/terminal-handle';
@@ -7,8 +14,18 @@ import { TerminalPanel } from './TerminalPanel';
 
 // The shells, in tabs: the first runs what the project starts with (the
 // Phoenix server, IEx); more run mix and friends beside it (each a node of
-// its own over the same files). `firstTab`: the first one's name.
-export function Terminals({ firstTab }: { firstTab: string }) {
+// its own over the same files). `firstTab`: the first one's name;
+// `maximized`: the terminals have the files' and the editor's room, which
+// `onMaximize` gives or gives back.
+export function Terminals({
+  firstTab,
+  maximized,
+  onMaximize,
+}: {
+  firstTab: string;
+  maximized: boolean;
+  onMaximize(): void;
+}) {
   const terminals = useStore((state) => state.terminals);
   const active = useStore((state) => state.activeTerminal);
   const activate = useStore((state) => state.activateTerminal);
@@ -55,6 +72,15 @@ export function Terminals({ firstTab }: { firstTab: string }) {
           onClick={() => openTerminal()}
         >
           <RiAddLine size={16} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          title={maximized ? 'Show the files and the editor' : 'Maximize the terminals'}
+          aria-pressed={maximized}
+          onClick={onMaximize}
+        >
+          {maximized ? <RiFullscreenExitLine size={16} /> : <RiFullscreenLine size={16} />}
         </button>
       </div>
       <div className="terminal-stack">

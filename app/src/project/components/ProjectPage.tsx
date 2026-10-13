@@ -1,6 +1,13 @@
 import { RiLoader4Line, RiRestartLine, RiSideBarLine } from '@remixicon/react';
-import { useEffect, useRef } from 'react';
-import { Group, Panel, Separator, useGroupRef } from 'react-resizable-panels';
+import { useEffect, useLayoutEffect, useRef } from 'react';
+import {
+  Group,
+  Panel,
+  Separator,
+  useGroupRef,
+  usePanelRef,
+  type PanelImperativeHandle,
+} from 'react-resizable-panels';
 import { EditorArea } from '@/project/components/Editor';
 import { FileTreePanel } from '@/project/components/FileTreePanel';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
@@ -15,6 +22,22 @@ import type { Project } from '@/shared/lib/projects';
 
 let started = false;
 
+// Panels and their usual sizes (percent).
+type FilePanels = [PanelImperativeHandle | null, number][];
+
+// The tree and the editor, shown (at no less than half their usual sizes)
+// or collapsed, giving their room to the terminals and the preview.
+function showPanels(panels: FilePanels, show: boolean) {
+  for (const [panel, usual] of panels) {
+    if (!panel) continue;
+    if (!show) panel.collapse();
+    else if (panel.isCollapsed()) {
+      panel.expand();
+      if (panel.getSize().asPercentage < usual / 2) panel.resize(`${usual}%`);
+    }
+  }
+}
+
 // A project in the IDE: tree, editor over terminals, and the preview while
 // there is something to show. `project` is null for a temporary IEx.
 export function ProjectPage({ project }: { project: Project | null }) {
@@ -28,7 +51,35 @@ export function ProjectPage({ project }: { project: Project | null }) {
   const workspace = useGroupRef();
   // The tree's width while the preview is docked: undocking redistributes
   // before the layout below runs.
-  const treeSize = useRef(18);
+  const showFiles = setup(kind).showFiles;
+  const treeSize = useRef(showFiles ? 18 : 0);
+  const treePanel = usePanelRef();
+  const editorPanel = usePanelRef();
+  const filesShown = useStore((state) => state.filesShown);
+  const setFilesShown = useStore((state) => state.setFilesShown);
+  const files = (): FilePanels => [
+    [treePanel.current, 18],
+    [editorPanel.current, 62],
+  ];
+
+  // The kind's default, before the first paint; then as asked (a terminal's
+  // link to a file shows them).
+  useLayoutEffect(() => setFilesShown(showFiles), [showFiles, setFilesShown]);
+  useEffect(() => {
+    showPanels(
+      [
+        [treePanel.current, 18],
+        [editorPanel.current, 62],
+      ],
+      filesShown,
+    );
+  }, [filesShown, treePanel, editorPanel]);
+  // The toggle goes by what shows, which dragging may have changed.
+  const toggleFiles = () => {
+    const shown = files().some(([panel]) => panel && !panel.isCollapsed());
+    if (shown === filesShown) setFilesShown(!shown);
+    else showPanels(files(), !shown);
+  };
 
   // The preview's width goes to the editor while it is not docked, and
   // comes back from it; the tree keeps its size.
@@ -92,18 +143,35 @@ export function ProjectPage({ project }: { project: Project | null }) {
             treeSize.current = layout.tree;
         }}
       >
-        <Panel id="tree" defaultSize="18" minSize={160} className="panel">
+        <Panel
+          id="tree"
+          panelRef={treePanel}
+          defaultSize={showFiles ? '18' : '0'}
+          minSize={160}
+          collapsible
+          className="panel"
+        >
           <FileTreePanel />
         </Panel>
         <Separator className="separator" />
         <Panel id="work" defaultSize="44" minSize={240} className="panel">
           <Group orientation="vertical">
-            <Panel defaultSize="62" minSize={120} className="panel">
+            <Panel
+              panelRef={editorPanel}
+              defaultSize={showFiles ? '62' : '0'}
+              minSize={120}
+              collapsible
+              className="panel"
+            >
               <EditorArea />
             </Panel>
             <Separator className="separator horizontal" />
-            <Panel defaultSize="38" minSize={100} className="panel">
-              <Terminals firstTab={setup(kind).firstTab} />
+            <Panel defaultSize={showFiles ? '38' : '100'} minSize={100} className="panel">
+              <Terminals
+                firstTab={setup(kind).firstTab}
+                maximized={!filesShown}
+                onMaximize={toggleFiles}
+              />
             </Panel>
           </Group>
         </Panel>

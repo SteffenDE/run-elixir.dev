@@ -15,6 +15,21 @@ test('a temporary IEx answers and is marked ephemeral', async ({ page }) => {
   await expect.poll(() => output(page)).toMatch(/55\s+iex\(2\)> $/);
   await expect(page.locator('.chip.ephemeral')).toBeVisible();
   await expect(page.locator('.preview')).toHaveCount(0);
+  // Just the shell, until asked for the files: the tree's and the editor's
+  // panels have no room.
+  const room = async () => {
+    const tree = await page.locator('.panel', { has: page.locator('.file-tree') }).boundingBox();
+    const editor = await page
+      .locator('.panel', { has: page.locator('.editor-empty') })
+      .last()
+      .boundingBox();
+    return Math.round(Math.min(tree!.width, editor!.height));
+  };
+  await expect.poll(room).toBe(0);
+  await page.getByRole('button', { name: 'Show the files and the editor' }).click();
+  await expect.poll(room).toBeGreaterThan(100);
+  await page.getByRole('button', { name: 'Maximize the terminals' }).click();
+  await expect.poll(room).toBe(0);
   await page.goto('/');
   await expect(page.getByText('None yet.')).toBeVisible();
 });
@@ -22,6 +37,7 @@ test('a temporary IEx answers and is marked ephemeral', async ({ page }) => {
 test('an empty project has a shell, is listed, and is deleted', async ({ page }) => {
   await newProject(page, 'empty');
   await prompted(page, 1);
+  await expect(page.locator('.file-tree')).toBeVisible();
   expect(await run(page, 'pwd')).toContain('/work');
   const name = (await page.locator('.project-name').textContent())!;
   await page.goto('/');
@@ -60,4 +76,21 @@ test('a project starts again after a forced reload', async ({ page, browserName 
     ]);
   } else await page.reload();
   await prompted(page, 1);
+});
+
+test('the preview opens for a server, not for Mix or an ephemeral port', async ({ page }) => {
+  test.setTimeout(600_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mix new demo');
+  await run(page, 'cd demo');
+  // Compiling takes Mix's lock, which listens on an ephemeral port.
+  await page.evaluate(() => window.playground.node.input('iex -S mix\n'));
+  await expect.poll(() => output(page), { timeout: 300_000 }).toMatch(/iex\(1\)> $/);
+  await page.evaluate(() => window.playground.node.input(':gen_tcp.listen(0, [])\n'));
+  await expect.poll(() => output(page)).toMatch(/\{:ok, #Port<[\d.]+>\}\s+iex\(2\)> $/);
+  await page.waitForTimeout(1000);
+  await expect(page.locator('.preview')).toHaveCount(0);
+  await page.evaluate(() => window.playground.node.input(':gen_tcp.listen(4001, [])\n'));
+  await expect(page.locator('.preview')).toBeVisible();
 });
