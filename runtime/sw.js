@@ -52,13 +52,16 @@ function load() {
 }
 
 let saving = null;
-// Keep the maps, without what is gone (a few hundred clients at most).
+// Keep the maps. Clients that are gone go once there are many: a document
+// still loading is no client yet, and must keep its key.
 function save() {
   saving ??= new Promise((resolve) => setTimeout(resolve, 200))
     .then(async () => {
       saving = null;
-      const live = new Set((await self.clients.matchAll({ includeUncontrolled: true })).map((c) => c.id));
-      for (const id of keys.keys()) if (!live.has(id)) keys.delete(id);
+      if (keys.size > 256) {
+        const live = new Set((await self.clients.matchAll({ includeUncontrolled: true })).map((c) => c.id));
+        for (const id of [...keys.keys()].slice(0, keys.size - 128)) if (!live.has(id)) keys.delete(id);
+      }
       const db = await database();
       db.transaction('clients', 'readwrite').objectStore('clients').put({ keys: [...keys], hosts: [...hosts] }, 'routes');
     })
@@ -74,6 +77,18 @@ function remember(id, key) {
 self.addEventListener('message', (event) => {
   if (event.data === 'claim') {
     event.waitUntil(self.clients.claim());
+    return;
+  }
+  // A preview's WebSocket (bridge.js): its port goes to its project's page.
+  if (event.data?.kind === 'websocket') {
+    event.waitUntil(
+      load()
+        .then(() => host(keys.get(event.source.id)))
+        .then((page) => {
+          if (page) page.postMessage(event.data, [event.ports[0]]);
+          else event.ports[0].postMessage({ close: { code: 1006, reason: '', clean: false } });
+        }),
+    );
     return;
   }
   const { kind, key } = event.data ?? {};
