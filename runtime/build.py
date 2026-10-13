@@ -2,8 +2,8 @@
 
     python3 -I playground/runtime/build.py elixir|phoenix
 
-A site is its own files (playground/SITE, or its Vite build in
-playground/SITE/dist), the runtime's JavaScript, rotp.wasm, and a
+A site is its own files (playground/SITE, or, with a package.json, its
+Vite build, made in Docker), the runtime's JavaScript, rotp.wasm, and a
 filesystem under fs/: the installation (target/rotp) at /rotp and, for
 phoenix, a phx.new app at /work/playground.
 
@@ -197,6 +197,16 @@ def app_files(app):
     return out
 
 
+def vite_build(source):
+    """A site's Vite app into its dist/, with Node in Docker."""
+    script = "npm ci --no-audit --no-fund && npm run build"
+    if os.path.isdir(os.path.join(source, "node_modules")):
+        script = "npm run build"
+    subprocess.run(DOCKER + ["run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+                             "-v", f"{os.path.dirname(source)}:/p", "-w", f"/p/{os.path.basename(source)}",
+                             NODE_IMAGE, "sh", "-c", script], check=True)
+
+
 def record(out, site, snapshot):
     """The files the site's first command fetches, run under Node; what it
     writes below /work goes to `snapshot` (Mix's builds name their absolute
@@ -227,6 +237,8 @@ def main():
     out = os.path.join(ROOT, "target", "playground", site)
     shutil.rmtree(out, ignore_errors=True)
     source = os.path.join(ROOT, "playground", site)
+    if os.path.exists(os.path.join(source, "package.json")):
+        vite_build(source)
     dist = os.path.join(source, "dist")
     shutil.copytree(dist if os.path.isdir(dist) else source, out,
                     ignore=shutil.ignore_patterns("node_modules", "dist", "src", "*.json", "*.ts", "*.tsx"))

@@ -22,8 +22,12 @@ Web Worker.
     network.
   - `postgres.js`: Postgrex's connections to PGlite on the page.
 - `elixir/`: IEx in xterm.js (elixir-playground.steffend.me).
-- `phoenix/`: a `phx.new` app with a shell, its preview and PGlite
-  (phoenix-playground.steffend.me).
+- `phoenix/`: the Phoenix playground IDE (phoenix-playground.steffend.me), a
+  React app built with Vite: a file tree (`@pierre/trees`), tabs of files
+  edited with `@pierre/diffs`' edit mode, the node's shell in xterm.js, and
+  the app's preview; PGlite as its database. Plain CSS; `@base-ui/react`,
+  `react-resizable-panels`, `zustand` and Remix Icon. `npm run lint`
+  (oxlint), `npm run format` (oxfmt); `build.py` builds it in Docker.
 
 ## The Phoenix playground
 
