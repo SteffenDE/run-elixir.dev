@@ -52,6 +52,8 @@ last_updated: 2026-10-14
     downloaded for any project.
   - Several shells: `mix phx.gen.live`, `mix ecto.migrate` and others run in
     one while the server runs in another.
+  - `mix test`, LiveView tests too (lazy_html as a NIF): about 5 minutes
+    the first time, for the test environment's dependencies (Chromium).
   - The preview pops out into its own window.
   - After a reload, the server is back in about 6 s without recompiling
     dependencies.
@@ -134,7 +136,8 @@ last_updated: 2026-10-14
    built, `phx.gen.auth` with its default hashing library.
 2. More NIF packages ([nif.md](nif.md)): exqlite, argon2_elixir; Rustler
    NIFs (rustler_precompiled); a build service for releases the site has
-   not built yet; `mix test` with LiveViewTest in a Phoenix project.
+   not built yet. The template's test build prebuilt, so `mix test`
+   starts at once.
 3. `ecto.migrate`'s pruned `eex` after a new dependency.
 4. Routing a node's connection to another node's listener (Mix's locks).
 5. A gate job for the playground tests; a persistent browser context per

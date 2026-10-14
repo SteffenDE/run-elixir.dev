@@ -57,6 +57,7 @@ submits) (`node`, `output`, `sessions`,
 | `phone` | At 390×844: the home page and projects fit, one pane at a time, a Phoenix project opens on its preview. |
 | `websocket` | A WebSocket from the preview to `/live/websocket` gets Phoenix's heartbeat reply; LiveDashboard (path bar `/dev/dashboard`) connects over `:websocket`, shows its home page and a process's details. |
 | `auth` (`@slow`) | `phx.gen.auth --hashing-lib pbkdf2` in a second shell, `deps.get`, `compile`, `ecto.migrate`, the server restarted, a registration in the preview over LiveView's WebSocket (flash, PGlite row). About 1.2 min. |
+| `livetest` (`@slow`) | In a Phoenix project's second shell, `mix test` with a LiveView test added (`live_isolated`, `render_click`, `has_element?`: LiveViewTest parses with lazy_html, built by `make` from the site): the test environment's dependencies compile (about 5 minutes in Chromium), then the app's 5 tests and the LiveView one pass. |
 | `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
 
 Typical times: all three browsers' 102 tests in about 8 minutes, or
