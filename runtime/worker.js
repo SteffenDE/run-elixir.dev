@@ -265,13 +265,18 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
       return new Uint8Array(request.response);
     });
     const fs = vfs(root, fetchFile, sharedFs);
-    // A package's NIF library built to WebAssembly (nif/NAME-VERSION.tar).
+    // A package's NIF library built to WebAssembly (nif/NAME-VERSION.tar),
+    // if the answer is a tar: a site answers a path it does not have with
+    // its page (status 200), which make read as one and failed on.
     const nif = (name, version) => {
       const request = new XMLHttpRequest();
       request.open('GET', new URL(`nif/${name}-${version}.tar`, import.meta.url), false);
       request.responseType = 'arraybuffer';
       request.send();
-      return request.status === 200 ? new Uint8Array(request.response) : null;
+      if (request.status !== 200) return null;
+      const tar = new Uint8Array(request.response);
+      const magic = new TextDecoder().decode(tar.subarray(257, 262));
+      return magic === 'ustar' ? tar : null;
     };
 
     // One node, until it halts or is interrupted.
