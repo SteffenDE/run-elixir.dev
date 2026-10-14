@@ -79,6 +79,9 @@ the apex and a project's origin frame each other's pages (`registry.html`,
 	}
 	header /_playground/* Cache-Control "public, max-age=31536000, immutable"
 	header /sw.js Cache-Control no-cache
+	# Never application/gzip: PGlite takes a gzip Content-Encoding for its
+	# extension archives' own gzip and does not unpack them ("File is
+	# corrupted"), and a cache keeps such a response until purged.
 	encode zstd gzip {
 		match {
 			header Content-Type text/*

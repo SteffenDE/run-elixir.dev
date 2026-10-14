@@ -22,6 +22,13 @@ last_updated: 2026-10-13
   again from the lock.
 - **Sharing:** a link carries a project's changes over its template; opening
   it makes a new project with them (Phoenix included).
+- **A project per origin** with a project domain (`p-ID.DOMAIN`; the apex
+  keeps the list): [projects.md](projects.md#a-project-domain).
+- **Rust-OTP programs and shell lines from a node:** `System.cmd("mix", …)`,
+  `System.shell` lines and rebar3 run as nodes of their own, so a phx.new
+  1.6 app's deps (rebar3's included) compile, and its server runs.
+- **HTTPS from a node** by the page's `fetch()`, to sites with CORS (hex.pm's
+  API: igniter's version lookups).
 - **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
@@ -34,8 +41,9 @@ last_updated: 2026-10-13
     page, and the details of processes, ports, ETS tables and applications.
   - `mix phx.gen.auth … --hashing-lib pbkdf2`: generated, `pbkdf2_elixir`
     from Hex, migrated (citext), and a user registered in the preview.
-  - Editing and saving with recompilation on the next request; Tailwind on
-    the page.
+  - Editing and saving with recompilation on the next request; Tailwind and
+    esbuild (esbuild-wasm, the template's watcher) on the page, never
+    downloaded for any project.
   - Several shells: `mix phx.gen.live`, `mix ecto.migrate` and others run in
     one while the server runs in another.
   - The preview pops out into its own window.
