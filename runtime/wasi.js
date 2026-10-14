@@ -434,7 +434,8 @@ export class WASI {
     return new Uint8Array(this.memory.buffer, ptr, len);
   }
   string(ptr, len) {
-    return new TextDecoder().decode(this.bytes(ptr, len));
+    // A copy: TextDecoder takes no view of a shared memory (threads.js).
+    return new TextDecoder().decode(this.bytes(ptr, len).slice());
   }
 
   // The absolute path of `path` below directory fd `fd`.
@@ -503,7 +504,7 @@ export class WASI {
 
   // A spawn request (wasm_proc.rs): run the program it names.
   spawn(entry, bytes) {
-    const fields = new TextDecoder().decode(bytes).split('\0');
+    const fields = new TextDecoder().decode(bytes.slice()).split('\0');
     const [program, cwd] = fields;
     const argc = Number(fields[2]);
     const args = fields.slice(3, 3 + argc);
@@ -743,8 +744,11 @@ export class WASI {
         return ok;
       },
       random_get(ptr, len) {
+        // Into a copy: getRandomValues takes no view of a shared memory.
         for (let at = 0; at < len; at += 65536) {
-          crypto.getRandomValues(self.bytes(ptr + at, Math.min(65536, len - at)));
+          const part = new Uint8Array(Math.min(65536, len - at));
+          crypto.getRandomValues(part);
+          self.bytes(ptr + at, part.length).set(part);
         }
         return ok;
       },

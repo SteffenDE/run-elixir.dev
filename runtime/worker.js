@@ -8,8 +8,9 @@
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node. With `files`, /work and /tmp are files.js's, which every
 // shell (each in its own worker) and the page share.
-import { WASI, Dir, Network, untar, mount, bundled, sharedClient } from './wasi.js';
+import { WASI, Dir, Exit, Network, untar, mount, bundled, sharedClient } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
+import { channel as threadChannel, Host } from './threads.js';
 import { vfs } from './vfs.js';
 
 const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8 };
@@ -19,6 +20,26 @@ const say = (kind, payload) => postMessage({ kind, payload });
 const text = (string) => say('out', new TextEncoder().encode(string));
 
 class Interrupted extends Error {}
+
+// A threaded node's memory: shared, and as large as it may grow here (a
+// shared memory reserves its maximum up front, which a phone may not
+// have room for), or null where there is no shared memory: the node then
+// runs single-threaded (rotp.wasm).
+function sharedMemory() {
+  if (!globalThis.crossOriginIsolated) return null;
+  for (const maximum of [65536, 32768, 16384]) {
+    try {
+      return new WebAssembly.Memory({ initial: 1024, maximum, shared: true });
+    } catch {
+      // Too large a reservation: a smaller one.
+    }
+  }
+  return null;
+}
+
+// How many schedulers a threaded node runs.
+const SCHEDULERS = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1));
+let nodes = 0;
 
 // The page's frames: input, connections, interrupts, page programs.
 class Channel {
@@ -183,16 +204,48 @@ function onPage(channel, name) {
   };
 }
 
+// A threaded node: the page runs its threads in workers (host.js), which
+// this worker serves WASI calls for until the node ends; then the page
+// stops them.
+function runThreaded(wasi, module, memory, pump) {
+  wasi.memory = memory;
+  const node = ++nodes;
+  const chan = threadChannel();
+  const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
+  const start = (tid, startArg) =>
+    postMessage({ kind: 'thread', node, start: { module, memory, chan, slot: tid, names, tid, startArg } });
+  const host = new Host(wasi, chan, { spawn: start });
+  start(0, 0);
+  try {
+    for (;;) {
+      const status = host.wait(5);
+      if (status !== null) return status;
+      pump();
+    }
+  } catch (error) {
+    if (error instanceof Exit) return error.code;
+    throw error;
+  } finally {
+    postMessage({ kind: 'threads-end', node });
+  }
+}
+
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
 // commands' files (build.py). command: one command by name, as the shell
 // runs it (['mix', 'deps.get']), in place of erl's `args`.
 onmessage = async ({ data: { shared, files, shell, args, command: named, env, ports, https = false, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
   try {
     say('status', 'Loading OTP and Elixir…');
-    const [images, manifest, module] = await Promise.all([
+    // The threaded build where shared memory is; the single-threaded one
+    // otherwise, or when the threaded one does not load.
+    const compile = (name) => WebAssembly.compileStreaming(fetch(new URL(name, import.meta.url)));
+    const threaded = sharedMemory() !== null;
+    const [images, manifest, [module, threads]] = await Promise.all([
       Promise.all(boots.map((boot) => fetch(new URL(`fs/${boot}.tar.gz`, import.meta.url)).then((r) => r.arrayBuffer()))),
       fetch(new URL('fs/manifest.json', import.meta.url)).then((r) => r.json()),
-      WebAssembly.compileStreaming(fetch(new URL('rotp.wasm', import.meta.url))),
+      threaded
+        ? compile('rotp-threads.wasm').then((m) => [m, true], () => compile('rotp.wasm').then((m) => [m, false]))
+        : compile('rotp.wasm').then((m) => [m, false]),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path) => !files || !SHARED.some((prefix) => `/${path}`.startsWith(`${prefix}/`));
@@ -238,8 +291,10 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         channel.pump();
         if (channel.interrupted) throw new Interrupted();
       };
+      // A threaded node runs as many schedulers as SCHEDULERS says.
+      const memory = threads ? sharedMemory() : null;
       const wasi = new WASI({
-        args: ['erl', ...argv],
+        args: memory ? ['erl', '+S', String(SCHEDULERS), ...argv] : ['erl', ...argv],
         env: { ...ENV, ...env, PWD: cwd },
         root,
         tty: true,
@@ -259,8 +314,10 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         stderr: (bytes) => say('out', bytes),
         sleep: (ms) => channel.sleep(ms),
       });
-      const instance = await WebAssembly.instantiate(module, wasi.imports);
       try {
+        if (memory) return runThreaded(wasi, module, memory, pump);
+        if (threads) throw new Error('no room for a shared memory for the node');
+        const instance = await WebAssembly.instantiate(module, wasi.imports);
         return wasi.start(instance);
       } catch (error) {
         if (error instanceof Interrupted) return 130;

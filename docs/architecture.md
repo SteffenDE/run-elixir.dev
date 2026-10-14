@@ -36,11 +36,24 @@ A node is one Rust-OTP instance: `rotp.wasm` instantiated in a Web Worker
 sees an ordinary filesystem, TCP, child processes, a clock, random bytes and a
 terminal. All of them are the shim's.
 
-- **One scheduler.** WASI has no threads, so the node runs one scheduler, and
-  the worker is busy for as long as the node runs. Its event loop does not
-  turn. Everything that must reach a running node goes through shared memory:
-  input, network data, interrupts and the output of page programs. The worker
-  reads it whenever the node polls, sleeps or reads the clock.
+- **Schedulers in workers of their own.** Where the page is cross-origin
+  isolated and a shared memory of up to 4, 2 or 1 GiB can be had, the
+  worker loads `rotp-threads.wasm` (`wasm32-wasip1-threads`) and runs the
+  node with as many schedulers as the machine has cores, at most four.
+  The worker then runs no WebAssembly: it keeps the WASI state and serves
+  the threads' calls (`runtime/threads.js`), and the page starts a worker
+  for each thread (`runtime/thread.js`), since a worker busy serving could
+  not start them; the page stops them when the node ends. Elsewhere, or
+  when `rotp-threads.wasm` does not load, the worker runs `rotp.wasm` with
+  one scheduler itself. Chromium before 157 (V8 before 15.7) checks
+  `memory.copy`'s bounds against a size of the memory each thread learns
+  late after another grew it; rotp's allocator (`crates/thread-cache`)
+  brings the thread up to date for a block it hands out.
+- **A busy worker.** The worker is busy for as long as the node runs. Its
+  event loop does not turn. Everything that must reach a running node goes
+  through shared memory: input, network data, interrupts and the output of
+  page programs. The worker reads it whenever the node polls, sleeps or
+  reads the clock (a threaded node's host, at least every 5 ms).
 - **The shell.** A worker runs a small shell. `elixir`, `iex`, `mix` and `erl`
   each start a fresh instance of the compiled module, as a Unix shell starts
   processes; `cd`, `ls`, `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are

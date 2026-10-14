@@ -35,7 +35,8 @@ existing site, without the recording runs (seconds instead of a minute).
 target/playground/site/
   index.html, preview.html   the app's Vite build (assets in _playground/)
   wasi.js worker.js …        runtime/*.js, served as they are
-  rotp.wasm                  stripped, 2.9 MB
+  rotp.wasm                  stripped, 3.1 MB
+  rotp-threads.wasm          the same for wasm32-wasip1-threads, 3.1 MB
   fs/boot.tar.gz             what IEx reads first (3.8 MB)
   fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it (14.5 MB)
   fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
@@ -62,7 +63,8 @@ The filesystem holds:
 1. **Vite build.** `npm ci && npm run build` in `playground/app`, in Docker,
    then `dist/` and the runtime's JavaScript into the site, and the NIF
    builds into `nif/`.
-2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`.
+2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`, and
+   `rotp-threads.wasm`, the same for `wasm32-wasip1-threads`.
 3. **The Phoenix template** (once, into `target/playground-cache`):
    1. `mix archive.install hex phx_new 1.8.15` and `mix phx.new playground
       --no-install`, with the native Rust-OTP.
@@ -151,8 +153,8 @@ a worker on one shared memory, the node's schedulers as `+S` says.
 (a thread waiting in a futex could not serve calls): a thread forwards
 each call through its slot in a SharedArrayBuffer, and the host runs
 `wasi.js`'s function on the shared memory and answers. Clocks,
-randomness and sleeping stay with the thread. The site does not build or
-load this yet. Compiling ecto (deps compiled natively): 41.9 s with
+randomness and sleeping stay with the thread. The site runs nodes this
+way too ([architecture.md](architecture.md#the-node)). Compiling ecto (deps compiled natively): 41.9 s with
 `+S 1`, 23.6 s with `+S 2`, 16.2 s with `+S 4` and as long with `+S 8`
 (native: 29.2, 17.7, 13.5 s); 474 MiB of memory with one scheduler,
 565 MiB with four. Every WebAssembly build allocates through

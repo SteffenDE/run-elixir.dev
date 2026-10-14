@@ -45,7 +45,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL = os.path.join(ROOT, "target", "rotp")
 CACHE = os.path.join(ROOT, "target", "playground-cache")
 RUNTIME = ("wasi.js", "worker.js", "host.js", "terminal.js", "programs.js", "setup.js", "postgres.js", "files.js", "vfs.js",
-           "overlay.js", "fetcher.js", "bridge.js", "sw.js", "nif.js")
+           "overlay.js", "fetcher.js", "bridge.js", "sw.js", "nif.js", "threads.js", "thread.js")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
@@ -67,12 +67,15 @@ RECORD = {
 }
 
 
-def build_wasm():
-    env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, "target", "wasm"),
+# rotp.wasm for wasm32-wasip1, or (directory "wasm-threads") its threaded
+# build for wasm32-wasip1-threads, which worker.js prefers where shared
+# memory is (threads.js).
+def build_wasm(target="wasm32-wasip1", directory="wasm"):
+    env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, "target", directory),
                CARGO_PROFILE_RELEASE_DEBUG="false", CARGO_PROFILE_RELEASE_STRIP="true")
-    subprocess.run(["cargo", "build", "--release", "--target", "wasm32-wasip1", "-p", "rotp"],
+    subprocess.run(["cargo", "build", "--release", "--target", target, "-p", "rotp"],
                    cwd=ROOT, env=env, check=True)
-    return os.path.join(ROOT, "target", "wasm", "wasm32-wasip1", "release", "rotp.wasm")
+    return os.path.join(ROOT, "target", directory, target, "release", "rotp.wasm")
 
 
 # Mozilla's CA certificates (curl.se's extract), where OTP looks for the
@@ -315,6 +318,7 @@ def main():
     shutil.rmtree(out, ignore_errors=True)
     page(out)
     shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
+    shutil.copy(build_wasm("wasm32-wasip1-threads", "wasm-threads"), os.path.join(out, "rotp-threads.wasm"))
 
     files = []  # (path in the node, path here)
     for directory, dirs, names in os.walk(INSTALL):
@@ -386,7 +390,8 @@ def main():
     with open(os.path.join(fs, "version"), "w") as f:
         f.write(digest.hexdigest()[:16] + "\n")
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
-    print(f"{out}: rotp.wasm {mb(os.path.join(out, 'rotp.wasm'))}; " + "; ".join(
+    print(f"{out}: rotp.wasm {mb(os.path.join(out, 'rotp.wasm'))}, "
+          f"rotp-threads.wasm {mb(os.path.join(out, 'rotp-threads.wasm'))}; " + "; ".join(
         f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"
         for boot in RECORD) + f"; {len(lazy)} lazy files in {bundles} bundles")
 
