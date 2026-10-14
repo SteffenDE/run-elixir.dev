@@ -50,7 +50,7 @@ submits) (`node`, `output`, `sessions`,
 | `tree` | Files and folders made, renamed, moved (Chromium) and deleted from the tree, kept across a reload. |
 | `share` | An empty project (text and bytes) and a Phoenix project (an edited and a removed template file) shared as links and opened in a fresh browser context; a damaged link. |
 | `phone` | At 390×844: the home page and projects fit, one pane at a time, a Phoenix project opens on its preview. |
-| `websocket` | A WebSocket from the preview to `/live/websocket` gets Phoenix's heartbeat reply. |
+| `websocket` | A WebSocket from the preview to `/live/websocket` gets Phoenix's heartbeat reply; LiveDashboard (path bar `/dev/dashboard`) connects over `:websocket`, shows its home page and a process's details. |
 | `auth` (`@slow`) | `phx.gen.auth --hashing-lib pbkdf2` in a second shell, `deps.get`, `compile`, `ecto.migrate`, the server restarted, a registration in the preview over LiveView's WebSocket (flash, PGlite row). About 1.2 min. |
 | `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
 

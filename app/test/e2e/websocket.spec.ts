@@ -29,10 +29,7 @@ test('the preview reaches Phoenix over a WebSocket', async ({ page }) => {
   ]);
 });
 
-test('LiveDashboard connects over the WebSocket', async ({ page, browserName }) => {
-  // Firefox encodes its first render (25 kB of JSON) past LiveView's 10 s
-  // join timeout (docs/status.md, Rust-OTP's binary clause dispatch).
-  test.skip(browserName !== 'chromium', 'too slow to join in Firefox');
+test('LiveDashboard connects over the WebSocket', async ({ page }) => {
   await newProject(page, 'phoenix');
   await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
   await page.locator('.preview-bar input').fill('/dev/dashboard');
