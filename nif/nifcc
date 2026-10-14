@@ -2,11 +2,14 @@
 # cc (or c++, as nifc++) for NIF libraries in wasi-sdk: compiles for
 # wasm32-wasip1, and links a WASI reactor with the erl_nif layer
 # (beamos_nif.o) instead of a shared library. Flags for shared libraries
-# and dynamic lookup mean nothing here and are left out.
+# and dynamic lookup mean nothing here and are left out. C++ has
+# exceptions: WebAssembly's new ones (try_table, exnref), as wasi-sdk's
+# libc++ has them, since browsers but Firefox refuse a module that mixes
+# them with the legacy ones clang still makes by default.
 set -e
 case $(basename "$0") in
-  *++) compiler=${NIF_CXX:-/opt/wasi-sdk/bin/clang++} ;;
-  *) compiler=${NIF_CC:-/opt/wasi-sdk/bin/clang} ;;
+  *++) compiler=${NIF_CXX:-/opt/wasi-sdk/bin/clang++}; exceptions="-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false"; unwind=-lunwind ;;
+  *) compiler=${NIF_CC:-/opt/wasi-sdk/bin/clang}; exceptions=; unwind= ;;
 esac
 layer=${NIF_LAYER:-/nif/lib/beamos_nif.o}
 link=1
@@ -23,6 +26,6 @@ for arg do
   set -- "$@" "$arg"
 done
 if [ "$link" = 1 ]; then
-  exec "$compiler" -mexec-model=reactor -Wl,-z,stack-size=1048576 "$@" "$layer"
+  exec "$compiler" $exceptions -mexec-model=reactor -Wl,-z,stack-size=1048576 "$@" "$layer" $unwind
 fi
-exec "$compiler" "$@"
+exec "$compiler" $exceptions "$@"
