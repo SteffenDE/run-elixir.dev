@@ -278,6 +278,10 @@ export async function esbuild(process: Process, { args, cwd, env, fs }: Context)
     setup(build) {
       build.onResolve({ filter: /.*/ }, async ({ path: id, resolveDir, kind: how }) => {
         if (how === 'entry-point') return { path: id };
+        // As esbuild does itself: data: URLs are its own (they need no
+        // file), and remote URLs stay external.
+        if (id.startsWith('data:')) return undefined;
+        if (/^(https?:)?\/\//.test(id)) return { path: id, external: true };
         if (external.some((pattern) => matches(pattern, id))) return { path: id, external: true };
         let target = id;
         let from = resolveDir || cwd;

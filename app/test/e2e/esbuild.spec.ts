@@ -24,12 +24,12 @@ test('the Hex esbuild package runs the page’s esbuild, never downloading one, 
     '/work/demo/mix.exs',
     mix.replace(/defp deps do\n\s*\[/, 'defp deps do\n    [{:esbuild, "0.10.0"},'),
   );
-  await run(page, 'mkdir -p demo/config demo/assets/js');
+  await run(page, 'mkdir -p demo/config demo/assets/js demo/assets/css');
   await writeText(page, '/work/demo/config/config.exs', CONFIG);
   await writeText(
     page,
     '/work/demo/assets/js/app.js',
-    'import { greeting } from "./greet"\nimport "@/js/side"\nimport logo from "/images/logo.svg"\nconsole.log(greeting, logo)\n',
+    'import { greeting } from "./greet"\nimport "@/js/side"\nimport "../css/app.css"\nimport logo from "/images/logo.svg"\nconsole.log(greeting, logo)\n',
   );
   await writeText(
     page,
@@ -37,6 +37,12 @@ test('the Hex esbuild package runs the page’s esbuild, never downloading one, 
     'export const greeting = "hello from greet"\n',
   );
   await writeText(page, '/work/demo/assets/js/side.js', 'console.log("side effect")\n');
+  // phx.new 1.6's phoenix.css: data: and remote URLs, which esbuild keeps.
+  await writeText(
+    page,
+    '/work/demo/assets/css/app.css',
+    `.a { background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>') }\n.b { background: url(https://example.com/x.png) }\n`,
+  );
   await run(page, 'cd demo');
   expect(await run(page, 'mix deps.get')).toMatch(/esbuild 0\.10\.0/);
   const path = await run(page, `mix run -e 'IO.inspect Esbuild.bin_path()'`);
@@ -51,4 +57,7 @@ test('the Hex esbuild package runs the page’s esbuild, never downloading one, 
   expect(bundle).toContain('side effect');
   // External: left for the page to load (an iife bundle requires it).
   expect(bundle).toContain('__require("/images/logo.svg")');
+  const css = await readText(page, '/work/demo/assets/out/app.css');
+  expect(css).toContain('data:image/svg+xml');
+  expect(css).toContain('https://example.com/x.png');
 });

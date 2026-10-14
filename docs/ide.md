@@ -111,7 +111,8 @@ runs; the node's `:path` for it is `/usr/bin/esbuild`
   directory), and packages in `node_modules` up from the importer, then
   `NODE_PATH` (deps and the build path, as the Hex package sets it), by
   `exports` (browser, import, module, default), `browser`, `module` or
-  `main`. Externals are left to the page. A script's linked source map
+  `main`. Externals are left to the page, and so are remote URLs
+  (`https://`, `//`); `data:` URLs are esbuild's own, as natively. A script's linked source map
   (the deps ship them) is inlined, since esbuild-wasm reads no files.
 - **Watch mode** rebuilds 50 ms after a change to a file it read (a change
   during a build counts once it is done): about 1.2 s for the template's
