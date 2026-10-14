@@ -48,6 +48,7 @@ submits) (`node`, `output`, `sessions`,
 | `hex` | In an empty project, a Mix app depending on Jason: `mix deps.get` fetches it through the page and `mix run` uses it. |
 | `rebar3` | `System.cmd` runs `elixir` and `mix` from `PATH` as nodes; a shell line ending in `\` goes on; `System.shell` runs a command line as a node (`elixir -e`, `cd /tmp && …`, in the node's `File.cd` directory, an unknown command answers 127); a Mix app depending on telemetry, a rebar3 package, builds it with rebar3 and uses it. |
 | `esbuild` | In an empty project, a Mix app depending on the Hex esbuild package: `Esbuild.bin_path()` is the page's program, and `mix esbuild default` downloads nothing, warns that the configured version (0.12.18) is not the page's, and bundles a relative import, an `@` alias, an external and CSS with `data:` and remote URLs. |
+| `https` | httpc in an empty project gets hex.pm's API (200, JSON) through the page's fetch; a site without CORS headers answers 502 with why. |
 | `git` | heroicons as phx.new adds it (tag, sparse, depth 1): fetched and checked out sparsely, the lock checked, and fetched again from the lock. |
 | `tree` | Files and folders made, renamed, moved (Chromium) and deleted from the tree, kept across a reload. |
 | `share` | An empty project (text and bytes) and a Phoenix project (an edited and a removed template file) shared as links and opened in a fresh browser context; a damaged link. |

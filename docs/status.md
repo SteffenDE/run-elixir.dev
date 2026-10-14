@@ -68,6 +68,12 @@ last_updated: 2026-10-13
   phx.new's default lock, and several schedulers (wasm32-wasip1-threads).
 - **git in the shell:** only what Mix asks (`git` is a program, not a shell
   command yet); no pushes.
+- **HTTPS from a node** goes by the page's `fetch()` (`https.js`): only
+  to sites that send CORS headers (hex.pm's API does; most others do not:
+  502), HTTP/1.1 only, one request per connection, without the headers
+  the browser sets itself. Other protocols over TLS have no route. A relay
+  through the site (an allow-listed TCP relay, on a Phoenix API app) is
+  the plan for the rest.
 - **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run
   only `mix`, `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`,
   each as a node of its own; `os:cmd` (which writes its command to the
@@ -114,5 +120,8 @@ last_updated: 2026-10-13
 4. A gate job for the playground tests; a persistent browser context per
    test worker.
 5. Zip export and import of a project ([projects.md](projects.md#plans)).
+6. A TCP relay through the site for the node's other connections
+   (allow-listed hosts, TLS in the node), as an API-only Phoenix app the
+   collaboration relay can grow from.
 7. Collaboration ([projects.md](projects.md#plans)).
 8. Several schedulers (wasm32-wasip1-threads).

@@ -72,6 +72,7 @@ declare module '@runtime/host.js' {
       onexit?: (code: number) => void;
       onlistening?: (port: number, on: boolean) => void;
       serve?: Record<number, (connection: Connection) => void>;
+      https?: ((connection: Connection, target: { host: string; port: number }) => void) | null;
       programs?: Record<
         string,
         (
@@ -121,6 +122,12 @@ declare module '@runtime/terminal.js' {
     term: { write(data: string): void; onData(listener: (data: string) => void): unknown },
     node: { input(text: string): void; interrupt(): void },
   ): void;
+}
+declare module '@runtime/https.js' {
+  import type { Connection } from '@runtime/host.js';
+  export function httpsByFetch(options?: {
+    onrequest?: (method: string, url: string) => void;
+  }): (connection: Connection, target: { host: string; port: number }) => void;
 }
 declare module '@runtime/fetcher.js' {
   import type { Connection } from '@runtime/host.js';

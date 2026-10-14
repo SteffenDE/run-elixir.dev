@@ -73,6 +73,26 @@ def build_wasm():
     return os.path.join(ROOT, "target", "wasm", "wasm32-wasip1", "release", "rotp.wasm")
 
 
+# Mozilla's CA certificates (curl.se's extract), where OTP looks for the
+# system's on Linux (public_key:cacerts_get/0): clients such as httpc and
+# Mint ask for them before connecting, also when the host carries the TLS.
+CACERTS = ("https://curl.se/ca/cacert-2026-09-25.pem",
+           "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505")
+
+
+def cacerts():
+    url, digest = CACERTS
+    path = os.path.join(CACHE, os.path.basename(url))
+    if not os.path.exists(path) or hashlib.sha256(open(path, "rb").read()).hexdigest() != digest:
+        os.makedirs(CACHE, exist_ok=True)
+        data = subprocess.run(["curl", "-sSfL", url], check=True, capture_output=True).stdout
+        if hashlib.sha256(data).hexdigest() != digest:
+            sys.exit(f"{url}: unexpected SHA-256")
+        with open(path, "wb") as f:
+            f.write(data)
+    return path
+
+
 def installed(relative):
     parts = relative.split("/")
     if parts[0] == "bin":
@@ -292,6 +312,7 @@ def main():
             relative = os.path.relpath(os.path.join(directory, name), INSTALL)
             if installed(relative):
                 files.append(("rotp/" + relative, os.path.join(INSTALL, relative)))
+    files.append(("etc/ssl/certs/ca-certificates.crt", cacerts()))
     files += app_files(phoenix_app())
 
     # Everything lazy first, to record what each boot image's command

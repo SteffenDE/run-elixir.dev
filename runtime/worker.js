@@ -186,7 +186,7 @@ function onPage(channel, name) {
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
 // commands' files (build.py). command: one command by name, as the shell
 // runs it (['mix', 'deps.get']), in place of erl's `args`.
-onmessage = async ({ data: { shared, files, shell, args, command: named, env, ports, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
+onmessage = async ({ data: { shared, files, shell, args, command: named, env, ports, https = false, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
   try {
     say('status', 'Loading OTP and Elixir…');
     const [images, manifest, module] = await Promise.all([
@@ -217,7 +217,8 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
     const run = async (argv, cwd) => {
       const network = new Network({
         ports,
-        open: (id, port) => postMessage({ kind: 'net', op: 'open', id, port }),
+        https,
+        open: (id, port, host) => postMessage({ kind: 'net', op: 'open', id, port, host }),
         send: (id, payload) => postMessage({ kind: 'net', op: 'data', id, payload }),
         end: (id) => postMessage({ kind: 'net', op: 'end', id }),
         close: (id) => postMessage({ kind: 'net', op: 'close', id }),

@@ -137,7 +137,9 @@ class Connection {
 export class Node {
   // base: where the site's runtime files are; onoutput(bytes),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
-  // ports the node may connect to on the page; files: a Files the node
+  // ports the node may connect to on the page; https: (connection,
+  // { host, port }) => ..., HTTPS the page carries for the node
+  // (/.net/https, https.js), or null; files: a Files the node
   // shares /work and /tmp with; onlistening(port, on): the node started or
   // stopped listening on a port. `listening` holds every port it listens
   // on; `serving` only those it named (a server's, not an ephemeral port
@@ -145,7 +147,8 @@ export class Node {
   // programs: { name: (process, { args, cwd, env, fs }) => ... }, programs
   // the node may spawn that run on the page (they may be async):
   // process.write(text | bytes), process.exit(code), process.onkill.
-  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, programs = {}, files = null, onlistening = () => {} }) {
+  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, https = null, programs = {}, files = null, onlistening = () => {} }) {
+    this.https = https;
     this.files = files;
     this.listening = new Set();
     this.serving = new Set();
@@ -189,7 +192,7 @@ export class Node {
   start({ shell = false, args, command, env = {}, initial = [], cwd, boots } = {}) {
     this.channel = this.files?.connect() ?? null;
     this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, command, env, initial, cwd, boots,
-      ports: Object.keys(this.serve).map(Number), pagePrograms: Object.keys(this.programs) });
+      ports: Object.keys(this.serve).map(Number), https: Boolean(this.https), pagePrograms: Object.keys(this.programs) });
   }
 
   // The node's files: its Files.
@@ -245,11 +248,16 @@ export class Node {
     return connection;
   }
 
-  network({ op, id, port, payload }) {
+  network({ op, id, port, host, payload }) {
     let connection = this.connections.get(id);
     if (op === 'open') {
       connection = new Connection(this, id);
       this.connections.set(id, connection);
+      if (host !== undefined) {
+        if (this.https) this.https(connection, { host, port });
+        else connection.close();
+        return;
+      }
       const handler = this.serve[port];
       if (handler) handler(connection);
       else connection.close();

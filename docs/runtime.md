@@ -21,6 +21,7 @@ bundled), because the workers import them by URL.
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history, pastes, Ctrl+C. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
+| `https.js` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.js` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.js` | page | Postgres wire protocol to PGlite. |
 | `fetcher.js` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
@@ -65,6 +66,7 @@ The node's sockets (`crates/rotp/src/host/wasm_net.rs`) are files that
 | `/.net/listen/IP/PORT` | Listen (`PORT` 0: any free port). The file's size is the port; each read gives one waiting connection as `ID IP PORT`, or EAGAIN. |
 | `/.net/conn/ID` | That connection. |
 | `/.net/connect/IP/PORT` | Connect: to the node's own listener, or to a port the page serves (`remote.ports`, for example 5432); else ECONNREFUSED. |
+| `/.net/https/NAME/PORT` | HTTPS to NAME that the page carries (`remote.https`): a connection to the page whose bytes are plain HTTP/1.1; else ENOENT, and the node's `ssl` does TLS itself. |
 
 A connection's reads return what the peer sent: EAGAIN while it has sent
 nothing, 0 once it has ended. Writes go to the peer, truncating the file
@@ -167,6 +169,17 @@ the shell with `initial` commands typed first, or one command (erl's
 | `net` | Connection traffic: `open`, `data`, `end`, `close` and `refused`, by id. |
 | `listening` | The node started or stopped listening on a port (`ephemeral`: one it asked for with 0). `Node.listening` holds every port, `Node.serving` the named ones. |
 | `spawn`, `kill` | Start a page program, or tell it its port closed. |
+
+`https: (connection, { host, port }) => …` answers the node's
+`/.net/https` connections; the playground's is `https.js`'s
+`httpsByFetch()`. It reads requests with a body (Content-Length or
+chunked) and answers each with `fetch()`: the browser does TLS, checks the
+certificate, follows redirects, decompresses, and leaves out request
+headers it sets itself (Host, User-Agent, Cookie, Accept-Encoding) and
+response headers the site does not expose; the answer comes back chunked,
+as it arrives, and the connection closes after it. A site without CORS
+headers fails the fetch, answered 502 with why. Without `https`, the node
+has no HTTPS.
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
 `onend` and `onclose`, with `write`, `end` and `close`. `serve: { port:

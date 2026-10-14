@@ -246,6 +246,21 @@ export class Network {
     r.open(id, port);
     return endpoint;
   }
+  // HTTPS to `host` the page carries (/.net/https/NAME/PORT): a connection
+  // to the page, if it offers it (remote.https).
+  https(host, port) {
+    if (!this.remote.https) return null;
+    const id = (this.next += 2);
+    const r = this.remote;
+    const endpoint = new Endpoint({
+      send: (bytes) => r.send(id, bytes),
+      end: () => r.end(id),
+      close: () => { this.endpoints.delete(id); r.close(id); },
+    });
+    this.endpoints.set(id, endpoint);
+    r.open(id, port, host);
+    return endpoint;
+  }
   // From the page: data for, or the end of, connection `id`.
   data(id, bytes) {
     this.endpoints.get(id)?.inbox.push(bytes);
@@ -992,6 +1007,10 @@ export class WASI {
           } else if (op === 'connect') {
             const endpoint = net.connect(Number(b));
             if (!endpoint) return E.CONNREFUSED;
+            entry = { endpoint };
+          } else if (op === 'https') {
+            const endpoint = net.https(a, Number(b));
+            if (!endpoint) return E.NOENT;
             entry = { endpoint };
           } else return E.NOENT;
           const opened = self.next++;

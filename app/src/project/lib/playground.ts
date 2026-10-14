@@ -15,6 +15,7 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files, Node } from '@runtime/host.js';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
+import { httpsByFetch } from '@runtime/https.js';
 import { built, tailwind } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { filesChanged } from '@/project/lib/programs/watch';
@@ -250,6 +251,8 @@ function database(): Promise<PGlite> {
 function nodeServices() {
   return {
     serve: { 5432: postgres(database), [HEX_PORT]: hex },
+    // The node's HTTPS (ssl to a host name), by the page's fetch().
+    https: httpsByFetch(),
     programs: {
       tailwind,
       esbuild,
