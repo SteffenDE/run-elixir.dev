@@ -21,12 +21,13 @@ const SPAWN = -1;
 // one slot per thread.
 // `end` says how the node ended: [0] 1 when its main thread returned
 // (status in [1]), 2 when a thread failed (its message's length in [1],
-// the message after).
+// the message from byte 16); [2] is taken by the first to end, which
+// writes the rest before [0].
 export function channel(threads = 64) {
   return {
     doorbell: new SharedArrayBuffer(4),
     slots: new SharedArrayBuffer(SLOT * threads),
-    end: new SharedArrayBuffer(8 + 4096),
+    end: new SharedArrayBuffer(16 + 4096),
     threads,
   };
 }
@@ -35,11 +36,12 @@ const RETURNED = 1;
 const FAILED = 2;
 
 function finish(chan, how, value, message = '') {
-  const end = new Int32Array(chan.end, 0, 2);
-  if (Atomics.compareExchange(end, 0, 0, how) !== 0) return;
-  const bytes = new TextEncoder().encode(message).subarray(0, chan.end.byteLength - 8);
-  new Uint8Array(chan.end, 8).set(bytes);
+  const end = new Int32Array(chan.end, 0, 3);
+  if (Atomics.compareExchange(end, 2, 0, 1) !== 0) return;
+  const bytes = new TextEncoder().encode(message).subarray(0, chan.end.byteLength - 16);
+  new Uint8Array(chan.end, 16).set(bytes);
   end[1] = how === FAILED ? bytes.length : value;
+  Atomics.store(end, 0, how);
   const doorbell = new Int32Array(chan.doorbell);
   Atomics.add(doorbell, 0, 1);
   Atomics.notify(doorbell, 0);
@@ -78,6 +80,7 @@ export class Host {
       try {
         if (call === SPAWN) {
           const tid = this.nextTid++;
+          if (tid >= this.chan.threads) throw new Error(`a node has at most ${this.chan.threads} threads`);
           this.spawn(tid, args[0]);
           words[4] = tid;
         } else {
@@ -106,7 +109,7 @@ export class Host {
       case RETURNED:
         return end[1];
       case FAILED:
-        throw new Error(new TextDecoder().decode(new Uint8Array(this.chan.end, 8, end[1]).slice()));
+        throw new Error(new TextDecoder().decode(new Uint8Array(this.chan.end, 16, end[1]).slice()));
       default:
         return null;
     }
