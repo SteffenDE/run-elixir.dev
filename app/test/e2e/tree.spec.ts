@@ -41,6 +41,10 @@ test('files and folders are made, renamed, moved and deleted from the tree', asy
   expect(edges.row - edges.button).toBeLessThan(10);
 
   await page.getByRole('button', { name: 'New folder' }).click();
+  // Still being named after the tree's first listing of the node's files
+  // (a refresh 300 ms after hello.ex), which used to reset the tree, cancel
+  // the naming and remove the folder.
+  await page.waitForTimeout(600);
   await name(page, 'lib');
   await expect.poll(() => exists(page, '/work/lib')).toBe(true);
 

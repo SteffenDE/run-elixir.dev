@@ -148,7 +148,10 @@ export function FileTreePanel() {
   // The tree follows the node: added and removed paths, the rest as it is.
   useEffect(() => {
     if (!paths.length) return;
-    const before = shown.current;
+    // The first listing replaces what the tree holds, unless the user has
+    // already made something in it (an empty project's first file): then,
+    // as later, it only adds and removes, and an item being named stays.
+    const before = shown.current ?? (paths.some((path) => model.getItem(path)) ? [] : null);
     shown.current = paths;
     if (!before) {
       model.resetPaths(paths);
