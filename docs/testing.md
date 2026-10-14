@@ -56,6 +56,17 @@ submits) (`node`, `output`, `sessions`,
 
 Typical times: Chromium 16 tests in about 1.2 minutes; Firefox in about 3.4.
 
+**Firefox in the tests is slower than Firefox.** Playwright's Firefox build
+(1.55: Firefox 141) has no optimizing WebAssembly compiler: with the
+baseline compiler turned off (`javascript.options.wasm_baselinejit`) it
+compiles no module at all ("no WebAssembly compiler available"), and its
+default speed is its baseline-only speed. So `rotp.wasm` runs about 10×
+slower there than in Chromium (`Enum.reduce(1..3_000_000, 0, &+/2)`: 8.6 s
+against 0.9 s), and Firefox's steps in the tests take 5–9× Chromium's
+(`auth`: 8.6 min against 1.2). Stock Firefox 158, run directly with the same
+site, is as fast as Chromium (1.0 s). Without Playwright, its own Firefox
+build is just as slow, so the cause is the build and not the automation.
+
 ## Without a browser: `node.mjs`
 
 The Node harness ([build.md](build.md#the-node-harness-runtimenodemjs)) runs

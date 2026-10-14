@@ -16,7 +16,7 @@ last_updated: 2026-10-13
 - **Temporary IEx.** Answers about 1.4 s after load (Chromium). Modules
   load lazily; colours, history, Ctrl+C.
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
-  compiled and used in 19 s in Chromium, 2 min in Firefox).
+  compiled and used in 19 s in Chromium, 2 min in the tests' Firefox).
 - **git dependencies.** Through the page and the site's proxy: heroicons
   as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
   again from the lock.
@@ -25,7 +25,8 @@ last_updated: 2026-10-13
 - **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
-- **Phoenix projects** (Chromium; Firefox, slower):
+- **Phoenix projects** (Chromium and Firefox; the tests' Firefox is slower,
+  [testing.md](testing.md)):
   - The server runs about 7 s after load. Pages serve in about 200–400 ms,
     and static files in milliseconds.
   - Ecto through PGlite.
