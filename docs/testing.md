@@ -11,8 +11,8 @@ building it.
 
 ## In browsers: Playwright (`playground/app/test/e2e`)
 
-`@playwright/test` 1.55, run in the Playwright Docker image against the
-built site:
+`@playwright/test` 1.64 (Chrome 156, Firefox 157), run in the Playwright
+Docker image against the built site:
 
 ```sh
 python3 -I playground/runtime/build.py                   # or `build.py app` after page changes
@@ -57,18 +57,20 @@ submits) (`node`, `output`, `sessions`,
 | `auth` (`@slow`) | `phx.gen.auth --hashing-lib pbkdf2` in a second shell, `deps.get`, `compile`, `ecto.migrate`, the server restarted, a registration in the preview over LiveView's WebSocket (flash, PGlite row). About 1.2 min. |
 | `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
 
-Typical times: Chromium 16 tests in about 1.2 minutes; Firefox in about 3.4.
+Typical times: Chromium's 34 tests in about 2.7 minutes; Firefox's tests
+take about as long each (`hex` 25 s against 22, `rebar3` 26 against 26,
+`https` 32 against 33).
 
-**Firefox in the tests is slower than Firefox.** Playwright's Firefox build
-(1.55: Firefox 141) has no optimizing WebAssembly compiler: with the
-baseline compiler turned off (`javascript.options.wasm_baselinejit`) it
-compiles no module at all ("no WebAssembly compiler available"), and its
-default speed is its baseline-only speed. So `rotp.wasm` runs about 10×
-slower there than in Chromium (`Enum.reduce(1..3_000_000, 0, &+/2)`: 8.6 s
-against 0.9 s), and Firefox's steps in the tests take 5–9× Chromium's
-(`auth`: 8.6 min against 1.2). Stock Firefox 158, run directly with the same
-site, is as fast as Chromium (1.0 s). Without Playwright, its own Firefox
-build is just as slow, so the cause is the build and not the automation.
+**WebKit is not in the suite yet.** Playwright's WebKit (Safari 27.2's
+engine) does not take `Cross-Origin-Embedder-Policy: credentialless`, which
+`serve.py` and the deployment send: its page is not cross-origin isolated,
+has no SharedArrayBuffer, and the playground says so and starts nothing.
+With `require-corp` it is isolated.
+
+Playwright before 1.64 shipped a Firefox (141) without an optimizing
+WebAssembly compiler, which ran `rotp.wasm` about 10× slower than Chromium
+(`Enum.reduce(1..3_000_000, 0, &+/2)`: 8.6 s against 0.9 s); Firefox 157
+has one.
 
 ## Without a browser: `node.mjs`
 
