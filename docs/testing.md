@@ -102,6 +102,8 @@ programs (Tailwind), the service worker, PGlite.
     -D warnings`
   - `CARGO_TARGET_DIR=target/wasm cargo clippy -q --target wasm32-wasip1 -p
     rotp -- -D warnings`
+- **The erl_nif layer** (`playground/nif`): `python3 -I playground/nif/test/test.py`
+  over the built site ([nif.md](nif.md)).
 - **The app:** `npm run lint`, `npm run format:check`, `tsc --noEmit` (part
   of `npm run build`).
 - **The browsers:** the Playwright suite in Chromium, Firefox and WebKit.
