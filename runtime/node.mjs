@@ -129,9 +129,40 @@ if (process.env.TRACE_WASI) {
     };
   }
 }
-const instance = await WebAssembly.instantiate(module, wasi.imports);
-t2 = performance.now();
-const status = wasi.start(instance);
+// A threaded node (rotp.wasm for wasm32-wasip1-threads, which imports its
+// memory) runs its threads in workers on a shared memory, and this thread
+// serves their WASI calls (threads.js); otherwise the node runs here.
+const threaded = WebAssembly.Module.imports(module).some((i) => i.module === 'env' && i.name === 'memory');
+let status;
+if (threaded) {
+  const { Worker } = await import('node:worker_threads');
+  const { channel, Host } = await import('./threads.js');
+  const memory = new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
+  wasi.memory = memory;
+  const chan = channel();
+  const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
+  const start = (tid, startArg) =>
+    new Worker(new URL('./thread-node.mjs', import.meta.url), {
+      workerData: { module, memory, chan, slot: tid, names, tid, startArg },
+    });
+  const host = new Host(wasi, chan, { spawn: start });
+  t2 = performance.now();
+  start(0, 0);
+  try {
+    for (;;) {
+      status = host.wait(5);
+      if (status !== null) break;
+      pump();
+    }
+  } catch (error) {
+    if (!(error instanceof Exit)) throw error;
+    status = error.code;
+  }
+} else {
+  const instance = await WebAssembly.instantiate(module, wasi.imports);
+  t2 = performance.now();
+  status = wasi.start(instance);
+}
 // SNAPSHOT=VFSDIR:HOSTDIR: what the node wrote below VFSDIR, copied to
 // HOSTDIR with its modification times.
 if (process.env.SNAPSHOT) {

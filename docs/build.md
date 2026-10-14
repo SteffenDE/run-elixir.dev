@@ -143,3 +143,16 @@ docker run --rm -i -e CWD=/work/playground -e HTTP=4000/ -e STOP_AFTER=20000 -e 
 
 The harness runs the node with its whole filesystem local: no `files.js`, no
 page programs. It is the recording run's environment.
+
+A `rotp.wasm` built for `wasm32-wasip1-threads` (it imports its memory;
+`.cargo/config.toml` lets it grow to 4 GiB) runs threaded: each thread in
+a worker on one shared memory, the node's schedulers as `+S` says.
+`threads.js` keeps the WASI state with a host that runs no WebAssembly
+(a thread waiting in a futex could not serve calls): a thread forwards
+each call through its slot in a SharedArrayBuffer, and the host runs
+`wasi.js`'s function on the shared memory and answers. Clocks,
+randomness and sleeping stay with the thread. The site does not build or
+load this yet. Compiling ecto (deps compiled natively): 43.3 s with
+`+S 1`, 32.8 s with `+S 2`, 42.3 s with `+S 4` (native: 29.2, 17.7,
+13.5 s); with four schedulers each spends half its time in wasi-libc's
+malloc, which one lock serializes (2026-10-14).
