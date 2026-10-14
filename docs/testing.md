@@ -43,7 +43,7 @@ submits) (`node`, `output`, `sessions`,
 | `database` | A Phoenix project's PGlite rows survive a reload; deleting the project deletes both of its databases. |
 | `tabs` | Two Phoenix projects in two tabs each show their own app, also after the service worker stops (Chromium); a third tab takes one over. |
 | `terminal` | Terminals fit their panel after resizes; a `path:line` opens the file at that line; an address opens in the preview. |
-| `edit` | A heading typed in the editor and saved shows in the preview, and Tailwind builds its class. |
+| `edit` | A heading typed in the editor and saved shows in the preview, and Tailwind builds its class; a change to `assets/js/app.js` is bundled by the esbuild watcher and runs in the reloaded preview. |
 | `preview` | The path bar navigates and a reload stays; the preview pops out and docks; it comes back after the service worker stops (Chromium). |
 | `hex` | In an empty project, a Mix app depending on Jason: `mix deps.get` fetches it through the page and `mix run` uses it. |
 | `rebar3` | `System.shell` runs a command line as a node (`elixir -e`, `cd /tmp && …`, in the node's `File.cd` directory, an unknown command answers 127); a Mix app depending on telemetry, a rebar3 package, builds it with rebar3 and uses it. |

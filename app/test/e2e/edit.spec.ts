@@ -1,5 +1,8 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, serverRunning } from './helpers';
+import { newProject, output, preview, readText, serverRunning, writeText } from './helpers';
+
+const APP_JS = '/work/playground/assets/js/app.js';
+const BUNDLE = '/work/playground/priv/static/assets/js/app.js';
 
 test('an edit saved in the editor shows in the preview, with Tailwind', async ({ page }) => {
   await newProject(page, 'phoenix');
@@ -22,4 +25,26 @@ test('an edit saved in the editor shows in the preview, with Tailwind', async ({
   await expect
     .poll(() => heading.evaluate((e) => getComputedStyle(e).fontSize), { timeout: 60_000 })
     .toBe('36px');
+});
+
+test('a change to the app’s JavaScript is bundled by esbuild on the page', async ({ page }) => {
+  await newProject(page, 'phoenix');
+  await serverRunning(page);
+  await expect.poll(() => output(page), { timeout: 120_000 }).toContain('[watch] build finished');
+  const app = await readText(page, APP_JS);
+  await writeText(page, APP_JS, `${app}\nwindow.playgroundMarker = "bundled on the page"\n`);
+  // The watcher rebuilds the bundle, and the preview reloads with it.
+  await expect
+    .poll(() => readText(page, BUNDLE), { timeout: 60_000 })
+    .toContain('bundled on the page');
+  await expect
+    .poll(
+      () =>
+        preview(page)
+          .locator('body')
+          .evaluate(() => (window as { playgroundMarker?: string }).playgroundMarker)
+          .catch(() => undefined),
+      { timeout: 60_000 },
+    )
+    .toBe('bundled on the page');
 });

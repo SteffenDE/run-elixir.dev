@@ -102,9 +102,11 @@ DEV_EXS = """
 config :playground, Playground.Repo, database: "postgres", pool_size: 1
 config :phoenix_live_view, :colocated_assets, disable_symlink_warning: true
 """
-# Tailwind's watcher runs on the page (programs/tailwind.ts); esbuild's
-# does not yet, and the app's JavaScript is prebuilt.
+# phx.new's watchers; both run on the page (programs/esbuild.ts and
+# tailwind.ts). The app's assets are built natively first, so the
+# template starts with them.
 WATCHERS = """  watchers: [
+    esbuild: {Esbuild, :install_and_run, [:playground, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:playground, ~w(--watch)]}
   ]"""
 RUNTIME_EXS = """# Playground: no live reload; the page reloads the preview.
@@ -221,11 +223,8 @@ def app_files(app):
                 continue
             relative = os.path.relpath(path, app)
             if relative.startswith("_build_rotp/") and relative.count("/") == 1:
-                # The native esbuild and tailwind: empty files in their
-                # place stand for the playground's (programs.js).
-                empty = os.path.join(CACHE, "empty")
-                open(empty, "w").close()
-                out.append(("work/playground/" + relative.replace("_build_rotp/", "_build/"), empty))
+                # The native esbuild and tailwind: the node runs the page's
+                # (their :path, worker.js).
                 continue
             relative = relative.replace("_build_rotp/", "_build/", 1)
             out.append(("work/playground/" + relative, path))

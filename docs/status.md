@@ -62,9 +62,6 @@ last_updated: 2026-10-13
   with them. `priv` and colocated assets are copies.
 
 **In the playground**
-- **esbuild** does not run on the page: app.js is prebuilt, so changes to
-  `assets/js` do not take effect. esbuild-wasm behind the `esbuild` program,
-  as Tailwind is, is the plan.
 - **`mix phx.new`** in the playground is untested beyond the archive being
   there: Hex and git dependencies work, but compiling a new app's deps in
   WebAssembly takes minutes on one scheduler. The plans: prebuilt deps for
@@ -95,7 +92,10 @@ last_updated: 2026-10-13
   is, even if a new `rotp.wasm` would compile differently.
 - **Long sessions:** each node's frame ring counts bytes in an Int32, so a
   session that sends it 2 GB would wrap.
-- **No esbuild or Tailwind minification;** Tailwind's candidate scan is a
+- **esbuild's options** are the common ones (ide.md); plugins, a metafile
+  and `--serve` are not there, and a change before the watcher starts is
+  bundled only by its first build, without a preview reload.
+- **No Tailwind minification;** Tailwind's candidate scan is a
   plain split, not the oxide scanner.
 
 **In the build**
@@ -108,13 +108,11 @@ last_updated: 2026-10-13
 
 ## Next
 
-1. esbuild-wasm as a page program, and the esbuild watcher back in the app's
-   config.
-2. `mix phx.new` with prebuilt deps and a Hex cache.
-3. `ecto.migrate`'s pruned `eex` after a new dependency.
-4. Routing a node's connection to another node's listener (Mix's locks).
-5. A gate job for the playground tests; a persistent browser context per
+1. `mix phx.new` with prebuilt deps and a Hex cache.
+2. `ecto.migrate`'s pruned `eex` after a new dependency.
+3. Routing a node's connection to another node's listener (Mix's locks).
+4. A gate job for the playground tests; a persistent browser context per
    test worker.
-6. Zip export and import of a project ([projects.md](projects.md#plans)).
+5. Zip export and import of a project ([projects.md](projects.md#plans)).
 7. Collaboration ([projects.md](projects.md#plans)).
 8. Several schedulers (wasm32-wasip1-threads).
