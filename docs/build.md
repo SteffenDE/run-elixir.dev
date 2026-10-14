@@ -152,7 +152,12 @@ a worker on one shared memory, the node's schedulers as `+S` says.
 each call through its slot in a SharedArrayBuffer, and the host runs
 `wasi.js`'s function on the shared memory and answers. Clocks,
 randomness and sleeping stay with the thread. The site does not build or
-load this yet. Compiling ecto (deps compiled natively): 43.3 s with
-`+S 1`, 32.8 s with `+S 2`, 42.3 s with `+S 4` (native: 29.2, 17.7,
-13.5 s); with four schedulers each spends half its time in wasi-libc's
-malloc, which one lock serializes (2026-10-14).
+load this yet. Compiling ecto (deps compiled natively): 41.9 s with
+`+S 1`, 23.6 s with `+S 2`, 16.2 s with `+S 4` and as long with `+S 8`
+(native: 29.2, 17.7, 13.5 s); 474 MiB of memory with one scheduler,
+565 MiB with four. Every WebAssembly build allocates through
+`crates/thread-cache`, a per-thread cache of small blocks: wasi-libc's
+malloc serializes threads on one lock, and before it four schedulers
+spent half their time waiting there (42.3 s with `+S 4`; 2026-10-14).
+The single-threaded build compiles ecto in 39.9 s with it, about 41.5
+without.
