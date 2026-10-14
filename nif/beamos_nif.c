@@ -206,9 +206,16 @@ static ErlNifResourceType *resource_types;
 static resource **resources; /* by id */
 static uint32_t resources_cap;
 static uint32_t next_resource = 1;
-static uint32_t nonce; /* this instance's, in its resources' references */
-static uint32_t next_ref = 1;
-static const char NODE[] = "beamos_nif@wasm";
+static uint32_t nonce; /* this instance's (16 bits), in its references */
+static uint64_t next_ref = 1;
+
+/* The references a library makes, resources' and enif_make_ref's, are the
+   node's own (Rust-OTP's: nonode@nohost, a 61-bit counter in three words,
+   the first of 18 bits and the third of 11), with bit 59 set, which the
+   node's counter never reaches, bit 58 set for a plain one, the
+   instance's nonce, and a 34-bit id. */
+static const char NODE[] = "nonode@nohost";
+
 
 #define OBJECT(r) ((void *)((r) + 1))
 #define HEADER(obj) (((resource *)(obj)) - 1)
@@ -356,18 +363,20 @@ static ERL_NIF_TERM make_int(ErlNifEnv *env, int64_t i) {
 static int decode(reader *r, ERL_NIF_TERM *out);
 
 static int decode_reference(reader *r, const unsigned char *start, ERL_NIF_TERM *out) {
-    /* 90, length, node, creation, ids: ours name a resource. */
+    /* 90, length, node, creation, words: a resource's names it (put_ref). */
     reader at = { start + 1, r->end, r->env };
     if (!skip(r)) return 0;
     uint32_t n = be16(at.p);
     at.p += 2;
     const unsigned char *node = at.p;
     if (!skip_atom(&at)) return 0;
-    size_t node_size = at.p - node;
+    size_t header = node[0] == 100 || node[0] == 118 ? 3 : 2;
+    size_t node_size = at.p - node - header;
     at.p += 4;
-    if (n == 3 && node_size == 2 + sizeof NODE - 1 && node[0] == 119 &&
-        !memcmp(node + 2, NODE, sizeof NODE - 1) && be32(at.p) == 1 && be32(at.p + 8) == nonce) {
-        uint32_t id = be32(at.p + 4);
+    uint32_t w0 = be32(at.p), w1 = be32(at.p + 4), w2 = be32(at.p + 8);
+    if (n == 3 && node_size == sizeof NODE - 1 && !memcmp(node + header, NODE, node_size) &&
+        (w2 & 0x700) == 0x200 && w1 >> 16 == nonce) {
+        uint64_t id = (uint64_t)(w1 & 0xffff) << 18 | w0;
         if (id < resources_cap && resources[id]) {
             cell *c = new_cell(r->env, K_RES);
             c->u.r = resources[id];
@@ -580,6 +589,18 @@ static void put_big(buffer *b, int negative, uint64_t mag) {
     put(b, digits, n);
 }
 
+static void put_ref(buffer *b, int plain, uint64_t id) {
+    put8(b, 90);
+    put16(b, 3);
+    put8(b, 119);
+    put8(b, sizeof NODE - 1);
+    put(b, NODE, sizeof NODE - 1);
+    put32(b, 0);
+    put32(b, id & 0x3ffff);
+    put32(b, nonce << 16 | (id >> 18 & 0xffff));
+    put32(b, 0x200 | (plain ? 0x100 : 0));
+}
+
 static void encode(buffer *b, ERL_NIF_TERM term) {
     cell *c = C(term);
     switch (c->kind) {
@@ -641,15 +662,7 @@ static void encode(buffer *b, ERL_NIF_TERM term) {
         put(b, c->u.b.data, c->u.b.size);
         return;
     case K_RES:
-        put8(b, 90);
-        put16(b, 3);
-        put8(b, 119);
-        put8(b, sizeof NODE - 1);
-        put(b, NODE, sizeof NODE - 1);
-        put32(b, 0);
-        put32(b, 1);
-        put32(b, c->u.r->id);
-        put32(b, nonce);
+        put_ref(b, 0, c->u.r->id);
         return;
     default: /* the exception marker */
         encode(b, atom("badarg"));
@@ -1497,31 +1510,23 @@ int enif_port_command(ErlNifEnv *env, const ErlNifPort *to_port, ErlNifEnv *msg_
     return 0;
 }
 
-static ERL_NIF_TERM make_ref(ErlNifEnv *env, uint32_t kind, uint32_t a, uint32_t b) {
+static ERL_NIF_TERM make_ref(ErlNifEnv *env, uint64_t id) {
     buffer out = { 0 };
-    put8(&out, 90);
-    put16(&out, 3);
-    put8(&out, 119);
-    put8(&out, sizeof NODE - 1);
-    put(&out, NODE, sizeof NODE - 1);
-    put32(&out, 0);
-    put32(&out, kind);
-    put32(&out, a);
-    put32(&out, b);
+    put_ref(&out, 1, id);
     unsigned char *data = env_alloc(env, out.size);
     memcpy(data, out.data, out.size);
     free(out.data);
     return raw(env, data, data + out.size);
 }
 
-ERL_NIF_TERM enif_make_ref(ErlNifEnv *env) { return make_ref(env, 2, next_ref++, nonce); }
+ERL_NIF_TERM enif_make_ref(ErlNifEnv *env) { return make_ref(env, next_ref++); }
 
 /* Monitors: accepted, and never fire. */
 int enif_monitor_process(ErlNifEnv *env, void *obj, const ErlNifPid *pid, ErlNifMonitor *monitor) {
     (void)env; (void)obj; (void)pid;
     if (monitor) {
         memset(monitor, 0, sizeof *monitor);
-        uint32_t id = next_ref++;
+        uint64_t id = next_ref++;
         memcpy(monitor->data, &id, sizeof id);
     }
     return 0;
@@ -1538,9 +1543,9 @@ int enif_compare_monitors(const ErlNifMonitor *a, const ErlNifMonitor *b) {
 }
 
 ERL_NIF_TERM enif_make_monitor_term(ErlNifEnv *env, const ErlNifMonitor *monitor) {
-    uint32_t id;
+    uint64_t id;
     memcpy(&id, monitor->data, sizeof id);
-    return make_ref(env, 3, id, nonce);
+    return make_ref(env, id);
 }
 
 int enif_select(ErlNifEnv *env, ErlNifEvent e, enum ErlNifSelectFlags flags, void *obj, const ErlNifPid *pid, ERL_NIF_TERM ref) {
@@ -2145,7 +2150,10 @@ size_t beamos_nif_run(size_t size) {
     env_clear(env);
     env->self = 0;
     if (!nonce) {
-        while (!nonce) getentropy(&nonce, sizeof nonce);
+        while (!nonce) {
+            getentropy(&nonce, sizeof nonce);
+            nonce &= 0xffff;
+        }
     }
     reader r = { input + 1, input + size, env };
     ERL_NIF_TERM request, answer;

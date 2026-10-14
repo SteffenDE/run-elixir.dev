@@ -25,10 +25,14 @@ into a WASI reactor. The layer implements the API over terms of its own:
   or frees it.
 - **External terms** cross both ways. Integers beyond 64 bits, bitstrings,
   funs, ports and references stay their external bytes.
-- **Resources** cross as references on node `beamos_nif@wasm` whose ids
-  name them (with the instance's nonce, so another instance's do not
-  match). A resource that has crossed is kept for the instance's life:
-  the node does not report collected references yet.
+- **References** a library makes (resources', `enif_make_ref`'s) are the
+  node's own kind: Rust-OTP's are `nonode@nohost` and a 61-bit counter in
+  three words, which it decodes exactly only within that layout. The layer
+  sets bit 59, which the node's counter never reaches, bit 58 for a plain
+  reference, a 16-bit nonce of the instance's (so another instance's do
+  not match) and a 34-bit id. A resource that has crossed is kept for
+  the instance's life: the node does not report collected references
+  yet.
 - **`enif_send`** queues the message; the answer carries it to the node.
 - **One thread.** Locks do nothing, `enif_thread_create` fails with
   ENOTSUP, `enif_cond_wait` aborts. Dirty NIFs and `enif_schedule_nif` run
@@ -95,6 +99,13 @@ with the layer where the Makefile asks for a shared library (it leaves out
 `-shared`, `-fPIC` and dynamic lookup). What the build put in the app's
 `priv` becomes `packages/NAME-VERSION.tar`: the library is the file ERTS
 would load (`priv/bcrypt_nif.so`), holding WebAssembly.
+
+**Test.** `test/test.py` builds `test/layer.c` with `nifcc` and runs
+`test/layer.exs` in the Node harness over the built site: a resource made,
+bumped and given back, a message from `enif_send`, a map with an unsigned
+64-bit value, a term with a pid, a reference, a bitstring, bignums, a map
+and a fun echoed unchanged, and `badarg` for a bad argument and for a
+reference that is no resource.
 
 | Package | Library |
 | --- | --- |
