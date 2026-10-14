@@ -55,6 +55,7 @@ function fetchFile(source, bundle) {
 // HTTP=PORT/PATH,...: once the node listens on PORT, GET each PATH from it
 // (one after another) and print the response's status line. STOP_AFTER
 // (ms): interrupt the node then (a server never halts by itself).
+// STOP_SERVED (ms): interrupt it that long after the last response.
 const network = new Network();
 const requests = (process.env.HTTP || '').split(',').filter(Boolean).map((r) => {
   const at = r.indexOf('/');
@@ -62,8 +63,10 @@ const requests = (process.env.HTTP || '').split(',').filter(Boolean).map((r) => 
 });
 let current = null;
 let nextId = 1;
+let served = null;
 const pump = () => {
   if (process.env.STOP_AFTER && performance.now() - t2 > Number(process.env.STOP_AFTER)) throw new Exit(0);
+  if (served !== null && performance.now() - served > Number(process.env.STOP_SERVED)) throw new Exit(0);
   if (current) {
     if (!current.done) return;
     const text = new TextDecoder().decode(current.response);
@@ -73,6 +76,7 @@ const pump = () => {
     // HTTP_BODY=FILE: the last response's body.
     if (process.env.HTTP_BODY) writeFileSync(process.env.HTTP_BODY, current.response.subarray(text.indexOf('\r\n\r\n') + 4));
     current = null;
+    if (!requests.length && process.env.STOP_SERVED) served = performance.now();
   }
   const next = requests[0];
   if (!next || !network.listeners.has(next.port)) return;

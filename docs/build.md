@@ -95,8 +95,8 @@ The filesystem holds:
    in the WebAssembly node under `node.mjs` in Docker (`RECORD` in
    `build.py`):
    - `boot`: IEx in `/work` with `1 + 1`.
-   - `boot-phoenix`: `iex -S mix phx.server` in `/work/playground` for 60 s,
-     with one `GET /`.
+   - `boot-phoenix`: `iex -S mix phx.server` in `/work/playground` with one
+     `GET /`, until 5 s after its response (at most 120 s).
 
    What each fetches is its boot set. The Phoenix run's writes below
    `/work` (`SNAPSHOT`) replace the template's files. Mix's builds record
@@ -128,6 +128,7 @@ environment controls the rest:
 | `HTTP=PORT/PATH,…` | Once the node listens on PORT, GET each PATH in turn; print each status line. |
 | `HTTP_HEADERS=1`, `HTTP_BODY=FILE` | Also print the headers; write the last body to FILE. |
 | `STOP_AFTER=MS` | Stop the node then (a server never halts). |
+| `STOP_SERVED=MS` | Stop the node that long after the last `HTTP` response. |
 | `NO_EOF=1` | Standard input waits instead of ending (IEx halts at its end). |
 | `RECORD=FILE` | Write the files fetched lazily, one per line. |
 | `SNAPSHOT=VFSDIR:HOSTDIR` | Copy what the node wrote below VFSDIR out, with mtimes. |

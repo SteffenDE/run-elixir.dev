@@ -63,7 +63,7 @@ IEX = ELIXIR + ["-user", "elixir", "-extra", "--no-halt", "+iex"]
 RECORD = {
     "boot": (IEX, "/work", {}, "1 + 1\n"),
     "boot-phoenix": (IEX + ["/rotp/bin/mix", "phx.server"], "/work/playground",
-                     {"HTTP": "4000/", "STOP_AFTER": "60000", "NO_EOF": "1"}, ""),
+                     {"HTTP": "4000/", "STOP_SERVED": "5000", "STOP_AFTER": "120000", "NO_EOF": "1"}, ""),
 }
 
 
