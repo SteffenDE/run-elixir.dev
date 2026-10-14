@@ -57,7 +57,7 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 ## A project domain
 
 With `PLAYGROUND_DOMAIN` set when building (written to
-`playground.json`), each project runs on its own origin, `ID.DOMAIN`, and
+`playground.json`), each project runs on its own origin, `p-ID.DOMAIN`, and
 the domain itself has the projects' list
 ([projects.md](projects.md#a-project-domain)). The server then serves
 the same site for `DOMAIN` and `*.DOMAIN`, which needs a wildcard

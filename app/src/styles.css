@@ -501,6 +501,30 @@ button {
   color: var(--accent);
 }
 
+.button.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+}
+
+.button.big {
+  text-decoration: none;
+  padding: 12px 20px;
+  font-size: 16px;
+  border-radius: 8px;
+}
+
+.not-found .button.big {
+  margin: 12px 0 24px;
+}
+
+.not-found-leftovers {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 16px;
+}
+
 /* Home */
 
 .home {

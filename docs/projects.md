@@ -50,8 +50,15 @@ has everything else (`src/shared/lib/site.ts`):
 | `DOMAIN/` | The home page, as above. |
 | `DOMAIN/phoenix`, `/empty`, `/import#DATA` | Make a project, then go to its origin. |
 | `DOMAIN/iex` | A temporary IEx, on the apex (it keeps nothing). |
-| `DOMAIN/ID/` | An older link: goes to `ID.DOMAIN/`. |
-| `ID.DOMAIN/` | The project: its IDE, nodes and preview. |
+| `DOMAIN/ID/` | An older link: goes to `p-ID.DOMAIN/`. |
+| `p-ID.DOMAIN/` | The project: its IDE, nodes and preview. |
+| Any other `NAME.DOMAIN/` | Reserved (`www`, `phoenix`, …): not found, with a button to `DOMAIN/`. |
+
+A project's subdomain is `p-` and its id (`p-` and a chosen name could
+follow); every other name stays free for the site. A `p-ID` this browser
+has no project for is not found either; if the project's files or
+database are still kept on that origin (its entry gone from the list),
+the page says so and offers to delete them, which only that origin can.
 
 A project's files, database, service worker, Hex cache, and the cookies
 and local storage of the app in its preview are its origin's own, and
@@ -68,7 +75,7 @@ one site, so neither frame's storage is partitioned:
   (read, renamed, opened, its template, a link's seed), and only its
   own. It holds the project's lock on the apex for as long as the page
   lives, so the home page marks it open.
-- `ID.DOMAIN/storage.html`, in the home page: deletes what the project
+- `p-ID.DOMAIN/storage.html`, in the home page: deletes what the project
   keeps on its origin (`registry.ts`), refused while a tab runs it.
 
 Projects made before a site had a domain stay where they were, on the
