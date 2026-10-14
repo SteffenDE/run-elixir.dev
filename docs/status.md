@@ -18,10 +18,11 @@ last_updated: 2026-10-14
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
   compiled and used in about 20 s in Chromium and Firefox).
 - **NIFs built to WebAssembly** ([nif.md](nif.md)): a package the site
-  has a build of (bcrypt_elixir 3.3.2) compiles in a project, its `make`
-  unpacking the library, and its NIFs run in the node's worker
-  (bcrypt_elixir fetched, built and hashing in about 11 s in Chromium,
-  14 s in Firefox and WebKit).
+  has a build of (bcrypt_elixir 3.3.2; lazy_html 0.1.13, C++ with
+  exceptions, which the Phoenix template's tests use) compiles in a
+  project, its `make` unpacking the library, and its NIFs run in the
+  node's worker (fetched, built and used in about 13–16 s in each
+  browser).
 - **git dependencies.** Through the page and the site's proxy: heroicons
   as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
   again from the lock.
@@ -67,13 +68,12 @@ last_updated: 2026-10-14
   changes would quiet it and could drive live reload, now that its socket
   has a WebSocket.
 - **NIFs** load only as WebAssembly built for the playground
-  ([nif.md](nif.md)), and only bcrypt_elixir 3.3.2 is built so far. Other
-  packages' `make` fails, and a module whose on_load loads a native
-  library stays unloaded, as on ERTS without the library. Resources live
-  as long as their library (the node does not report collected
-  references), NIF threads, `enif_select` and monitors are missing, and
-  precompiled packages (rustler_precompiled, cc_precompiler: lazy_html)
-  are not built yet.
+  ([nif.md](nif.md)): bcrypt_elixir 3.3.2 and lazy_html 0.1.13 so far.
+  Other packages' (and versions') `make` fails, and a module whose on_load
+  loads a native library stays unloaded, as on ERTS without the library.
+  Resources live as long as their library (the node does not report
+  collected references); NIF threads, `enif_select` and monitors are
+  missing; rustler_precompiled packages still try to download.
 - WASI has no symlinks: Phoenix warns that its code reloader would be faster
   with them. `priv` and colocated assets are copies.
 
@@ -132,9 +132,9 @@ last_updated: 2026-10-14
 
 1. `mix phx.new` with prebuilt deps and a Hex cache; with bcrypt_elixir
    built, `phx.gen.auth` with its default hashing library.
-2. More NIF packages ([nif.md](nif.md)): lazy_html (C++, cc_precompiler),
-   exqlite, argon2_elixir; Rustler NIFs; a build service for releases
-   the site has not built yet.
+2. More NIF packages ([nif.md](nif.md)): exqlite, argon2_elixir; Rustler
+   NIFs (rustler_precompiled); a build service for releases the site has
+   not built yet; `mix test` with LiveViewTest in a Phoenix project.
 3. `ecto.migrate`'s pruned `eex` after a new dependency.
 4. Routing a node's connection to another node's listener (Mix's locks).
 5. A gate job for the playground tests; a persistent browser context per

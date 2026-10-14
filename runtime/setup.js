@@ -11,6 +11,10 @@ export const ENV = {
   ROOTDIR: '/rotp', HOME: '/work', LANG: 'C.UTF-8', TERM: 'xterm-256color',
   PATH: '/usr/bin:/rotp/bin', MIX_HOME: '/work/.mix', MIX_ARCHIVES: '/rotp/mix/archives',
   ROTP_OS_TYPE: 'linux', ROTP_SYSTEM_ARCHITECTURE: 'x86_64-pc-linux-gnu',
+  // cc_precompiler's target (lazy_html's): Rust-OTP's own on WebAssembly,
+  // which no package lists, so elixir_make runs make (programs.js) rather
+  // than downloading the x86_64 Linux build.
+  TARGET_ARCH: 'wasm32', TARGET_OS: 'unknown', TARGET_ABI: 'wasi',
   // The rebar3 Mix builds rebar3 dependencies with (installed by
   // tools/rotp/mix.exs): an escript, which the page's rebar3 program runs.
   MIX_REBAR3: '/rotp/mix/rebar3',

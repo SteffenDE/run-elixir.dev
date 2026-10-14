@@ -56,17 +56,22 @@ list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
 
 ## In the node
 
-1. **`make`.** elixir_make runs `make` in the package's directory. The
+1. **`make`.** elixir_make runs `make` in the package's directory (with
+   cc_precompiler too: the node's `TARGET_ARCH`, `TARGET_OS` and
+   `TARGET_ABI` make its target `wasm32-unknown-wasi`, which no package
+   lists, so it builds instead of downloading an x86_64 Linux library). The
    playground's `make` (`runtime/programs.js`) reads the package's name and
    version from its `hex_metadata.config`, fetches the site's
    `nif/NAME-VERSION.tar` and unpacks it into `MIX_APP_PATH`, so
    `priv/bcrypt_nif.so` is where the Makefile would have put it. Without a
    build it fails (status 2) and says so; `make clean` does nothing.
 2. **Stubs.** The installation's `compile` runs one more pass before the
-   backend (`BeamOS.Nif.core_pass/2`): every function whose body calls
-   `erlang:nif_error` (after `nif_start`, for `-nifs`) first asks
-   `BeamOS.Nif.call(Module, Name, Args)`, and runs its own body when that
-   answers `none`. Stubs that raise some other way are not found.
+   backend (`BeamOS.Nif.core_pass/2`): in a module that calls
+   `erlang:load_nif`, every function (but `module_info`, `__info__` and
+   those that call `load_nif`) first asks `BeamOS.Nif.call(Module, Name,
+   Args)`, and runs its own body when that answers `none`. ERTS too
+   replaces whatever the library names, whatever the stub's body:
+   `nif_error`, a helper that calls it (lazy_html's `err!()`), `raise`.
 3. **`erlang:load_nif(Path, Info)`** (`BeamOS.HostedOs`, `BeamOS.Nif`):
    reads `Path.so`; WebAssembly loads through `/.nif/new`
    ([runtime.md](runtime.md#nif-libraries-nif)), then `{load, Info,
@@ -85,7 +90,7 @@ ERTS without dirty schedulers.
 ## Building (`build.py`)
 
 ```sh
-python3 -I playground/nif/build.py   # → target/playground/nif
+python3 -I playground/nif/build.py [PACKAGE...]   # → target/playground/nif
 ```
 
 The site build copies `target/playground/nif/packages` to the site's
@@ -94,9 +99,19 @@ The site build copies `target/playground/nif/packages` to the site's
 In the wasi-sdk image (Docker, pinned by digest): `beamos_nif.o`, then each
 package in `PACKAGES` from its Hex tarball, by its own Makefile with the
 environment elixir_make gives it (`ERTS_INCLUDE_DIR`, `MIX_APP_PATH`, …)
-and `CC=nifcc`. `nifcc` compiles for `wasm32-wasip1` and links a reactor
-with the layer where the Makefile asks for a shared library (it leaves out
-`-shared`, `-fPIC` and dynamic lookup). What the build put in the app's
+and `CC=nifcc`, `CXX=nifc++`. `nifcc` compiles for `wasm32-wasip1` and
+links a reactor with the layer where the Makefile asks for a shared library
+(it leaves out `-shared`, `-fPIC` and dynamic lookup). C++ gets
+WebAssembly exceptions (`-fwasm-exceptions`, libunwind) in their new
+encoding (`try_table`): wasi-sdk's libc++ has that one, and Chromium and
+WebKit refuse a module that mixes it with the legacy one clang still makes
+by default. So C++ NIFs need Chrome 137, Firefox 131 or Safari 18.4.
+
+A package's recipe in `PACKAGES` gives its make targets, its `make_env`
+per version, Hex packages whose directories it names (`headers`, such as
+Fine's include directory) and `prepare`, what the Makefile would fetch and
+build itself (lazy_html's lexbor, cloned and built with cmake: here from
+GitHub's archive of the commit, with the wasi-sdk cmake toolchain). What the build put in the app's
 `priv` becomes `packages/NAME-VERSION.tar`: the library is the file ERTS
 would load (`priv/bcrypt_nif.so`), holding WebAssembly.
 
@@ -110,3 +125,4 @@ reference that is no resource.
 | Package | Library |
 | --- | --- |
 | bcrypt_elixir 3.3.2 | `priv/bcrypt_nif.so`, 239 KB |
+| lazy_html 0.1.13 (Fine 0.1.6, lexbor 244b849) | `priv/liblazy_html.so`, 1.6 MB |
