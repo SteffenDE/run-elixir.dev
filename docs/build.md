@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Building the site (`runtime/build.py`)
@@ -25,6 +25,9 @@ existing site, without the recording runs (seconds instead of a minute).
   a boot.
 - **Network access the first time,** for the template's Hex packages, two
   git dependencies and the native tailwind and esbuild binaries.
+- **NIF builds,** optional: `python3 -I playground/nif/build.py` first
+  ([nif.md](nif.md)); the site takes what is in
+  `target/playground/nif/packages` (also `build.py app`).
 
 ## What the site is
 
@@ -39,6 +42,7 @@ target/playground/site/
   fs/bundles/N.tar           those files, uncompressed tars of ≤ 512 KB
   fs/templates.json          each template's id (its files, without its build) and label
   fs/version                 a digest of fs/, which kept project changes note
+  nif/NAME-VERSION.tar       a package's NIF library built to WebAssembly (its priv)
 ```
 
 Every project unpacks `boot.tar.gz`; a Phoenix project also unpacks
@@ -56,7 +60,8 @@ The filesystem holds:
 ## Steps
 
 1. **Vite build.** `npm ci && npm run build` in `playground/app`, in Docker,
-   then `dist/` and the runtime's JavaScript into the site.
+   then `dist/` and the runtime's JavaScript into the site, and the NIF
+   builds into `nif/`.
 2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`.
 3. **The Phoenix template** (once, into `target/playground-cache`):
    1. `mix archive.install hex phx_new 1.8.15` and `mix phx.new playground

@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Architecture
@@ -48,6 +48,9 @@ terminal. All of them are the shim's.
   makes the next poll throw out of the instance.
 - **One node per worker.** A worker cannot interleave two nodes, so each
   terminal tab is a worker of its own.
+- **NIFs.** A NIF library built to WebAssembly runs beside the node, in its
+  worker, in an instance of its own; the node reaches it through `/.nif`
+  files, in external terms ([nif.md](nif.md)).
 
 ## Files
 
@@ -142,7 +145,9 @@ When the node spawns a program (`open_port`, `System.cmd`), the shim runs a
 JavaScript one instead:
 
 - **In the worker, synchronously:** `git`, as far as Mix asks a git
-  dependency.
+  dependency, and `make`, as elixir_make runs it: it unpacks the site's
+  WebAssembly build of the package's NIF library into the app's `priv`
+  ([nif.md](nif.md)).
 - **On the page, asynchronously:** `tailwind`, `esbuild` and `git`. The
   worker forwards the spawn, and output and exit come back as frames.
 - **As a node of its own:** `sh`, `rebar3`, and `mix`, `elixir`, `iex`,

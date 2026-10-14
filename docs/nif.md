@@ -7,7 +7,7 @@ last_updated: 2026-10-14
 # NIFs (`playground/nif`)
 
 Rust-OTP loads no native libraries. In the playground a NIF library is a
-WebAssembly module instead: the package's C, built with wasi-sdk against
+WebAssembly module instead: the package's C or C++, built with wasi-sdk against
 an erl_nif of our own, run by the node's worker in an instance of its own.
 The node and the library exchange external terms (`term_to_binary`), so
 nothing in Rust-OTP's runtime needs to know about NIFs.
@@ -99,7 +99,9 @@ The site build copies `target/playground/nif/packages` to the site's
 In the wasi-sdk image (Docker, pinned by digest): `beamos_nif.o`, then each
 package in `PACKAGES` from its Hex tarball, by its own Makefile with the
 environment elixir_make gives it (`ERTS_INCLUDE_DIR`, `MIX_APP_PATH`, …)
-and `CC=nifcc`, `CXX=nifc++`. `nifcc` compiles for `wasm32-wasip1` and
+and `CC=nifcc`, `CXX=nifc++`. What the build put in the app's `priv`
+becomes `packages/NAME-VERSION.tar`: the library is the file ERTS would
+load (`priv/bcrypt_nif.so`), holding WebAssembly. `nifcc` compiles for `wasm32-wasip1` and
 links a reactor with the layer where the Makefile asks for a shared library
 (it leaves out `-shared`, `-fPIC` and dynamic lookup). C++ gets
 WebAssembly exceptions (`-fwasm-exceptions`, libunwind) in their new
@@ -111,9 +113,13 @@ A package's recipe in `PACKAGES` gives its make targets, its `make_env`
 per version, Hex packages whose directories it names (`headers`, such as
 Fine's include directory) and `prepare`, what the Makefile would fetch and
 build itself (lazy_html's lexbor, cloned and built with cmake: here from
-GitHub's archive of the commit, with the wasi-sdk cmake toolchain). What the build put in the app's
-`priv` becomes `packages/NAME-VERSION.tar`: the library is the file ERTS
-would load (`priv/bcrypt_nif.so`), holding WebAssembly.
+GitHub's archive of the commit, with the wasi-sdk cmake toolchain).
+
+**Adding a package** (or a version): a recipe in `PACKAGES`, then
+`build.py NAME`, the layer's and the package's checks, and a site build.
+A library that does not link names the `enif_` functions the layer lacks.
+`make` looks a build up by the exact name and version in the project's
+`deps`, so a version the site has not built fails in `make`.
 
 **Test.** `test/test.py` builds `test/layer.c` with `nifcc` and runs
 `test/layer.exs` in the Node harness over the built site: a resource made,
@@ -126,3 +132,15 @@ reference that is no resource.
 | --- | --- |
 | bcrypt_elixir 3.3.2 | `priv/bcrypt_nif.so`, 239 KB |
 | lazy_html 0.1.13 (Fine 0.1.6, lexbor 244b849) | `priv/liblazy_html.so`, 1.6 MB |
+
+## Not yet
+
+- Releasing resources when the node collects their references, and the
+  rest of the API above (threads, `enif_select`, monitors).
+- Rustler: rustler_precompiled downloads its build (its target is the
+  node's `x86_64-pc-linux-gnu`); Rust NIFs need a recipe that builds the
+  crate for `wasm32-wasip1` against the layer.
+- A build service for versions the site has not built (planned: Firecracker
+  VMs behind an API), and the template's test build prebuilt, so a
+  Phoenix project's first `mix test` does not compile for minutes.
+- Native Rust-OTP could run the same builds under a WebAssembly engine.

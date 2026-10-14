@@ -10,9 +10,12 @@ page), empty projects, and a temporary IEx.
   Vite, and its Playwright tests (`app/test/e2e`).
 - `runtime/`: the WASI shim, workers, shared files and their storage, the
   service worker, bridges, and the build.
+- `nif/`: an erl_nif for NIF libraries built to WebAssembly, and the
+  builds of packages' native code (bcrypt_elixir, lazy_html).
 - `tests/run.sh`: runs the Playwright tests in Docker.
 
 ```sh
+python3 -I playground/nif/build.py            # → target/playground/nif (NIF builds)
 python3 -I playground/runtime/build.py        # → target/playground/site
 python3 -I playground/runtime/serve.py 8081   # http://localhost:8081/
 playground/tests/run.sh --project=chromium    # the browser tests

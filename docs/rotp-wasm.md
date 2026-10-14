@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Rust-OTP on `wasm32-wasip1`
@@ -28,9 +28,10 @@ to 2.9 MB. Native builds are unchanged; the differences sit behind
 | TLS | A host may carry HTTPS for the node: `/.net/https/NAME/PORT` ([runtime.md](runtime.md#tcp-net)) is a stream of plain HTTP/1.1 it answers over TLS to NAME, checking the certificate itself. `ssl:connect` to a host name (not an address or `localhost`) asks for one first (`BeamOS.Ssl`, wrapping `ssl`'s socket API in the install); the socket is a TCP one whose messages are ssl's (`{ssl, S, Data}`, `{ssl_closed, S}`, `{ssl_passive, S}`), and it negotiates no ALPN protocol, so HTTP/2 clients use HTTP/1.1. A host that offers none, or not to that name, leaves the connection to OTP's `ssl` (natively always). |
 | Ports | `wasm_proc.rs`: `open_port` and `System.cmd` run the host's programs through `/.proc/spawn`; `port.rs` polls them as it polls its reader threads natively. |
 | zstd | Not built (no C toolchain for wasm): `zstd_none.rs` refuses, as a BEAM built without zstd. |
+| NIFs | Nothing in Rust: the installation's `erlang:load_nif` (`BeamOS.Nif`) loads a library that is WebAssembly through the host's `/.nif` files, and a compile pass makes the functions of a module that loads one ask it first ([nif.md](nif.md)). |
 | Process id | `os:getpid/0` is 1 (`std::process::id` panics on WASI). |
 | Working directory | WASI starts in `/`; `main.rs` changes to `$PWD`. |
-| OS and architecture | `{unix, wasi}` and `wasm32-unknown-wasi`, unless `ROTP_OS_TYPE` and `ROTP_SYSTEM_ARCHITECTURE` say otherwise. The playground sets `linux` and `x86_64-pc-linux-gnu`, so Hex tool wrappers (esbuild, tailwind) take their Linux paths. |
+| OS and architecture | `{unix, wasi}` and `wasm32-unknown-wasi`, unless `ROTP_OS_TYPE` and `ROTP_SYSTEM_ARCHITECTURE` say otherwise. The playground sets `linux` and `x86_64-pc-linux-gnu`, so Hex tool wrappers (esbuild, tailwind) take their Linux paths; and cc_precompiler's `TARGET_*` to `wasm32-unknown-wasi`, so it builds NIFs ([nif.md](nif.md)). |
 | 32-bit | The runtime's binary size guards compare as u64. |
 
 The runtime itself (`beam-runtime`) and the compiler need nothing
