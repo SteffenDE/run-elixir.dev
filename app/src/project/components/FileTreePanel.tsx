@@ -57,7 +57,15 @@ export function FileTreePanel() {
     search: true,
     fileTreeSearchMode: 'hide-non-matches',
     // Room around the search field, which sits flush with the panel's top.
-    unsafeCSS: '[data-file-tree-search-container] { padding-block: 8px 4px; }',
+    // The rows' right edge assumes the scrollbar gutter the tree measured,
+    // but WebKit reserves none (scrollbar-gutter: stable) until the list
+    // overflows: rows ran 6 px past their context menu button. A scrollbar
+    // always there (the tree's thin one, its thumb shown on hover) keeps
+    // the gutter in Chromium and WebKit; Firefox has its own branch.
+    unsafeCSS:
+      '[data-file-tree-search-container] { padding-block: 8px 4px; }' +
+      ' @supports not (-moz-appearance: none) {' +
+      ' [data-file-tree-virtualized-scroll="true"] { overflow-y: scroll; } }',
     composition: { contextMenu: { enabled: true, triggerMode: 'both' } },
     // Dropping moves what was dragged into the folder (or /work), in the
     // node's files too; it is refused where a name exists already, and put
