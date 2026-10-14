@@ -138,8 +138,11 @@ function join(cwd, path) {
 }
 
 // Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix), and
-// escript's (bin/escript; a script's %%! flags are not read).
-const ELIXIR = ['-noshell', '-elixir_root', '/rotp/lib', '-pa', '/rotp/lib/elixir/ebin'];
+// escript's (bin/escript; a script's %%! flags are not read). The Hex
+// esbuild and tailwind packages run the page's programs (their :path,
+// unless a project's config sets one), so no project downloads them.
+const ELIXIR = ['-noshell', '-elixir_root', '/rotp/lib', '-pa', '/rotp/lib/elixir/ebin',
+  '-esbuild', 'path', '<<"/usr/bin/esbuild">>', '-tailwind', 'path', '<<"/usr/bin/tailwind">>'];
 function command(name, args) {
   switch (name) {
     case 'erl':

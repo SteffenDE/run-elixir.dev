@@ -52,7 +52,9 @@ PHX_NEW = "1.8.15"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
 
-ELIXIR = ["-noshell", "-elixir_root", "/rotp/lib", "-pa", "/rotp/lib/elixir/ebin"]
+# As worker.js launches Elixir, with the page's esbuild and tailwind.
+ELIXIR = ["-noshell", "-elixir_root", "/rotp/lib", "-pa", "/rotp/lib/elixir/ebin",
+          "-esbuild", "path", '<<"/usr/bin/esbuild">>', "-tailwind", "path", '<<"/usr/bin/tailwind">>']
 IEX = ELIXIR + ["-user", "elixir", "-extra", "--no-halt", "+iex"]
 # What each boot image records: erl arguments, the working directory, the
 # node harness's environment, and standard input.

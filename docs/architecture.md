@@ -154,7 +154,11 @@ JavaScript one instead:
   to the shell's input, which page programs do not read, so it is not
   covered.
 
-The node presents itself as Linux x86_64, so the Hex `esbuild` and `tailwind`
-packages look for their binaries at `_build/esbuild-linux-x64` and
-`_build/tailwind-linux-x64-VSN`. Empty files there stand for the
-playground's programs.
+The Hex `esbuild` and `tailwind` packages run the playground's programs
+whatever the project: Elixir starts with their `:path` set to
+`/usr/bin/esbuild` and `/usr/bin/tailwind` (`-esbuild path …` on the command
+line, worker.js), so they never download a binary. A project's own `:path`
+wins. The packages check the program's `--version` against the configured
+one, so a project configuring another version gets their "Outdated …
+version" warning. The node presents itself as Linux x86_64, so other tool
+wrappers take their Linux paths.
