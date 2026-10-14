@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Testing
@@ -48,6 +48,7 @@ submits) (`node`, `output`, `sessions`,
 | `hex` | In an empty project, a Mix app depending on Jason: `mix deps.get` fetches it through the page and `mix run` uses it. |
 | `rebar3` | `System.cmd` runs `elixir` and `mix` from `PATH` as nodes; a shell line ending in `\` goes on; `System.shell` runs a command line as a node (`elixir -e`, `cd /tmp && …`, in the node's `File.cd` directory, an unknown command answers 127); a Mix app depending on telemetry, a rebar3 package, builds it with rebar3 and uses it. |
 | `esbuild` | In an empty project, a Mix app depending on the Hex esbuild package: `Esbuild.bin_path()` is the page's program, and `mix esbuild default` downloads nothing, warns that the configured version (0.12.18) is not the page's, and bundles a relative import, an `@` alias, an external and CSS with `data:` and remote URLs. |
+| `nif` | In an empty project, a Mix app depending on bcrypt_elixir 3.3.2: `mix deps.get`, then `mix run` builds it (`make` unpacks the site's WebAssembly build) and hashes a password that `verify_pass` accepts, and rejects another. |
 | `https` | httpc in an empty project gets hex.pm's API (200, JSON) through the page's fetch; a site without CORS headers answers 502 with why. |
 | `domain` (project `domain`, Chromium) | With a project domain (`serve.py --domain playground.localhost:8082`, which the config starts): an empty project runs on its own origin; renamed there, the apex lists it, marks it open, refuses to delete it while open and deletes it once closed; an old `/ID/` link and a share link reach a project's origin; a Phoenix project's preview and LiveDashboard (its redirect too) on its origin; other names (`random-foo`, `phoenix`, an unknown `p-ID`) are not found, with a button to the apex; what a project left on its origin, its entry gone, is deleted from there. |
 | `git` | heroicons as phx.new adds it (tag, sparse, depth 1): fetched and checked out sparsely, the lock checked, and fetched again from the lock. |

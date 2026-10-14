@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Status
@@ -17,6 +17,11 @@ last_updated: 2026-10-13
   load lazily; colours, history, Ctrl+C.
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
   compiled and used in about 20 s in Chromium and Firefox).
+- **NIFs built to WebAssembly** ([nif.md](nif.md)): a package the site
+  has a build of (bcrypt_elixir 3.3.2) compiles in a project, its `make`
+  unpacking the library, and its NIFs run in the node's worker
+  (bcrypt_elixir fetched, built and hashing in about 11 s in Chromium,
+  14 s in Firefox and WebKit).
 - **git dependencies.** Through the page and the site's proxy: heroicons
   as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
   again from the lock.
@@ -61,10 +66,14 @@ last_updated: 2026-10-13
   boot logs the warning. A small `inotifywait` program fed by `files.js`
   changes would quiet it and could drive live reload, now that its socket
   has a WebSocket.
-- **NIFs** do not load (Rust-OTP loads no native libraries): a module whose
-  on_load loads one stays unloaded, as on ERTS without the library. So
-  `phx.gen.auth` needs `--hashing-lib pbkdf2`; its default on Linux,
-  bcrypt_elixir, is a NIF.
+- **NIFs** load only as WebAssembly built for the playground
+  ([nif.md](nif.md)), and only bcrypt_elixir 3.3.2 is built so far. Other
+  packages' `make` fails, and a module whose on_load loads a native
+  library stays unloaded, as on ERTS without the library. Resources live
+  as long as their library (the node does not report collected
+  references), NIF threads, `enif_select` and monitors are missing, and
+  precompiled packages (rustler_precompiled, cc_precompiler: lazy_html)
+  are not built yet.
 - WASI has no symlinks: Phoenix warns that its code reloader would be faster
   with them. `priv` and colocated assets are copies.
 
@@ -121,14 +130,18 @@ last_updated: 2026-10-13
 
 ## Next
 
-1. `mix phx.new` with prebuilt deps and a Hex cache.
-2. `ecto.migrate`'s pruned `eex` after a new dependency.
-3. Routing a node's connection to another node's listener (Mix's locks).
-4. A gate job for the playground tests; a persistent browser context per
+1. `mix phx.new` with prebuilt deps and a Hex cache; with bcrypt_elixir
+   built, `phx.gen.auth` with its default hashing library.
+2. More NIF packages ([nif.md](nif.md)): lazy_html (C++, cc_precompiler),
+   exqlite, argon2_elixir; Rustler NIFs; a build service for releases
+   the site has not built yet.
+3. `ecto.migrate`'s pruned `eex` after a new dependency.
+4. Routing a node's connection to another node's listener (Mix's locks).
+5. A gate job for the playground tests; a persistent browser context per
    test worker.
-5. Zip export and import of a project ([projects.md](projects.md#plans)).
-6. A TCP relay through the site for the node's other connections
+6. Zip export and import of a project ([projects.md](projects.md#plans)).
+7. A TCP relay through the site for the node's other connections
    (allow-listed hosts, TLS in the node), as an API-only Phoenix app the
    collaboration relay can grow from.
-7. Collaboration ([projects.md](projects.md#plans)).
-8. Several schedulers (wasm32-wasip1-threads).
+8. Collaboration ([projects.md](projects.md#plans)).
+9. Several schedulers (wasm32-wasip1-threads).

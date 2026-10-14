@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # The runtime (`playground/runtime`)

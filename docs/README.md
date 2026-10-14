@@ -1,7 +1,7 @@
 ---
 kind: index
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Playground documentation
