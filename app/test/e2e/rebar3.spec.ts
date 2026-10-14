@@ -1,7 +1,9 @@
 import { expect, test } from './fixtures';
 import { newProject, prompted, readText, run, writeText } from './helpers';
 
-test('a shell command runs as a node, and rebar3 builds a dependency', async ({ page }) => {
+test('shell commands and Rust-OTP programs run as nodes, and rebar3 builds a dependency', async ({
+  page,
+}) => {
   test.setTimeout(900_000);
   await newProject(page, 'empty');
   await prompted(page, 1);
@@ -22,6 +24,15 @@ test('a shell command runs as a node, and rebar3 builds a dependency', async ({ 
     `elixir -e 'File.cd!("/tmp"); IO.inspect System.shell(~s(elixir -e "IO.puts File.cwd!"))'`,
   );
   expect(inherited).toContain('{"/tmp\\n", 0}');
+  // System.cmd finds them on PATH and runs them as nodes.
+  const cmd = await run(
+    page,
+    `elixir -e 'IO.inspect System.cmd("elixir", ["-e", "IO.puts 6 * 7"]); IO.inspect System.cmd("mix", ["--version"])'`,
+  );
+  expect(cmd).toContain('{"42\\n", 0}');
+  expect(cmd).toMatch(/Mix 1\.20\.\d+[\s\S]*",\s*0\}/);
+  // A line ending in \ goes on in the next.
+  expect(await run(page, 'echo one \\\ntwo')).toContain('one two');
   const missing = await run(page, `elixir -e 'IO.inspect System.shell("make")'`);
   expect(missing).toContain('127}');
   // telemetry is a rebar3 package: Mix runs rebar3, an escript, to build it.

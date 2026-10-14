@@ -284,6 +284,18 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         line = initial.shift();
         text(line + '\n');
       } else line = channel.line();
+      // A line ending in \ goes on in the next one, as in sh.
+      while (line !== null && line.endsWith('\\')) {
+        let more;
+        if (initial.length) {
+          more = initial.shift();
+          text(`> ${more}\n`);
+        } else {
+          text('> ');
+          more = channel.line();
+        }
+        line = more === null ? null : `${line.slice(0, -1)} ${more}`;
+      }
       if (line === null) {
         text('^C\n');
         continue;

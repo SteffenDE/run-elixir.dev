@@ -44,7 +44,8 @@ terminal. All of them are the shim's.
 - **The shell.** A worker runs a small shell. `elixir`, `iex`, `mix` and `erl`
   each start a fresh instance of the compiled module, as a Unix shell starts
   processes; `cd`, `ls`, `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are
-  builtins. Ctrl+C makes the next poll throw out of the instance.
+  builtins. A line ending in `\` goes on in the next, as in sh. Ctrl+C
+  makes the next poll throw out of the instance.
 - **One node per worker.** A worker cannot interleave two nodes, so each
   terminal tab is a worker of its own.
 
@@ -141,7 +142,8 @@ JavaScript one instead:
   dependency.
 - **On the page, asynchronously:** `tailwind`, `esbuild` and `git`. The
   worker forwards the spawn, and output and exit come back as frames.
-- **As a node of its own:** `sh` and `rebar3` (`programs/node.ts`), page
+- **As a node of its own:** `sh`, `rebar3`, and `mix`, `elixir`, `iex`,
+  `erl` and `escript` themselves (`programs/node.ts`), page
   programs that start a node in a new worker over the same files, as the
   shell does, and pass on its output and exit status. `sh -c LINE` (open_port's
   `{spawn, Command}`, `System.shell`; `phx.new` runs `mix deps.get` that way)
@@ -149,7 +151,10 @@ JavaScript one instead:
   joined by `&&`, without the `( )` and `</dev/null` that `System.shell`
   wraps it in; anything else answers 127. `rebar3` runs
   `escript /rotp/mix/rebar3`, the rebar3 the installation built, which Mix
-  builds rebar3 dependencies with (`MIX_REBAR3`). The image has the OTP
+  builds rebar3 dependencies with (`MIX_REBAR3`). `System.cmd("mix", …)`
+  finds `/rotp/bin/mix` on `PATH` (the others have stand-ins in
+  `/usr/bin`) and runs it as a node; `igniter.new` runs `mix deps.get`
+  that way. The image has the OTP
   applications' `include` directories for them. `os:cmd` writes its command
   to the shell's input, which page programs do not read, so it is not
   covered.

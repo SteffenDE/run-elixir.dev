@@ -23,7 +23,10 @@ export function prepare(root) {
   root.mkdirs('tmp');
   root.put('dev/urandom', urandom());
   root.put('rotp/bin/mix', new File(new TextEncoder().encode('Mix.CLI.main()\n')));
-  for (const name of ['git', 'esbuild', 'tailwind', 'sh']) root.put(`usr/bin/${name}`, new File());
+  // Programs the node finds on PATH (os:find_executable, System.cmd): the
+  // page's (/rotp/bin/mix is Mix's script, which mix runs).
+  for (const name of ['git', 'esbuild', 'tailwind', 'sh', 'elixir', 'iex', 'erl', 'escript'])
+    root.put(`usr/bin/${name}`, new File());
 }
 
 // fs: the node's files (vfs.js).

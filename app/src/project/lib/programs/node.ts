@@ -113,6 +113,13 @@ export const shProgram =
     next(0);
   };
 
+// A Rust-OTP command run as a program (System.cmd("mix", ...) finds
+// /rotp/bin/mix on PATH; igniter.new runs `mix deps.get` that way).
+export const commandProgram =
+  (start: StartNode, name: string) =>
+  (process: Process, context: Context): void =>
+    run(start, process, [name, ...context.args], context);
+
 // rebar3 ARGS: escript /rotp/mix/rebar3 ARGS.
 export const REBAR3 = '/rotp/mix/rebar3';
 export const rebar3Program =

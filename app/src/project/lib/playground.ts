@@ -19,7 +19,12 @@ import { built, tailwind } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
-import { rebar3Program, shProgram, type StartNode } from '@/project/lib/programs/node';
+import {
+  commandProgram,
+  rebar3Program,
+  shProgram,
+  type StartNode,
+} from '@/project/lib/programs/node';
 import {
   previewChannel,
   previewKey,
@@ -251,6 +256,12 @@ function nodeServices() {
       git: gitProgram,
       sh: shProgram(startNode),
       rebar3: rebar3Program(startNode),
+      ...Object.fromEntries(
+        ['mix', 'elixir', 'iex', 'erl', 'escript'].map((name) => [
+          name,
+          commandProgram(startNode, name),
+        ]),
+      ),
     },
   };
 }
