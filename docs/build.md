@@ -65,7 +65,10 @@ The filesystem holds:
       `tailwind.install` through Rust-OTP's httpc was killed downloading
       100 MB.
    3. `mix assets.build`, then `configure()`.
-   4. `mix compile`.
+   4. `mix compile`. A later build compiles it again (from an empty
+      `_build_rotp/dev`) when the Rust-OTP binary differs from the one that
+      compiled it, since its backend decides the code; the binary's digest
+      is `playground-cache/playground.compiler`.
 
    `configure()` edits the generated config:
    - **`dev.exs`:** the Repo uses database `postgres` with a pool of 1

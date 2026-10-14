@@ -136,12 +136,27 @@ def configure(app):
     return edit("runtime.exs", runtime) or changed
 
 
+def compiler_stamp():
+    """The Rust-OTP that compiles the template: its backend decides the code."""
+    with open(os.path.join(INSTALL, "bin", "rotp"), "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
+
+
 def phoenix_app():
-    """The phx.new app, generated and built once into the cache."""
+    """The phx.new app, generated once into the cache; built again when
+    configure changes it or another Rust-OTP compiled it."""
     app = os.path.join(CACHE, "playground")
     env = rotp_env()
+    stamp = os.path.join(CACHE, "playground.compiler")
     if os.path.exists(os.path.join(app, "priv", "static", "assets", "css", "app.css")):
-        if configure(app):
+        built = open(stamp).read() if os.path.exists(stamp) else None
+        if built != compiler_stamp():
+            shutil.rmtree(os.path.join(app, "_build_rotp", "dev"), ignore_errors=True)
+            configure(app)
+            subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
+            with open(stamp, "w") as f:
+                f.write(compiler_stamp())
+        elif configure(app):
             subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
         return app
     os.makedirs(CACHE, exist_ok=True)
@@ -173,6 +188,8 @@ def phoenix_app():
     subprocess.run(["mix", "assets.build"], cwd=app, env=env, check=True)
     configure(app)
     subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
+    with open(stamp, "w") as f:
+        f.write(compiler_stamp())
     return app
 
 
