@@ -4,6 +4,8 @@
 // Standard input is a callback that answers bytes, null when none is
 // waiting (EAGAIN: the node polls again) or an empty array at its end.
 
+import { Nifs } from './nif.js';
+
 const E = {
   SUCCESS: 0, ACCES: 2, ADDRINUSE: 3, AGAIN: 6, CONNREFUSED: 14, BADF: 8, EXIST: 20, INVAL: 28, IO: 29,
   ISDIR: 31, NOENT: 44, NOSYS: 52, NOTDIR: 54, NOTEMPTY: 55, NOTSUP: 58,
@@ -403,6 +405,7 @@ export class WASI {
     ]);
     this.next = 4;
     this.memory = null;
+    this.nifs = new Nifs(this);
     const functions = this.functions();
     this.imports = { wasi_snapshot_preview1: shared ? { ...functions, ...this.remote(functions) } : functions };
   }
@@ -852,7 +855,25 @@ export class WASI {
         self.pump();
         let total = 0;
         const net = entry.endpoint || entry.listener;
-        if (entry.spawn) {
+        if (entry.nif) {
+          // A NIF library's answer (nif.js), once the request is in.
+          if (!entry.answer) {
+            const request = new Uint8Array(entry.request.reduce((n, part) => n + part.length, 0));
+            let at = 0;
+            for (const part of entry.request) {
+              request.set(part, at);
+              at += part.length;
+            }
+            entry.answer = self.nifs.answer(entry.nif, request);
+          }
+          for (const [ptr, len] of self.iovecs(iovs, count)) {
+            const part = entry.answer.subarray(entry.position, entry.position + len);
+            self.bytes(ptr, part.length).set(part);
+            entry.position += part.length;
+            total += part.length;
+            if (part.length < len) break;
+          }
+        } else if (entry.spawn) {
           const process = entry.process;
           if (!process) return E.BADF;
           const [ptr, len] = self.iovecs(iovs, count)[0] || [0, 0];
@@ -917,7 +938,9 @@ export class WASI {
         let total = 0;
         for (const [ptr, len] of self.iovecs(iovs, count)) {
           const bytes = self.bytes(ptr, len);
-          if (entry.spawn && !entry.process) {
+          if (entry.nif) {
+            entry.request.push(bytes.slice());
+          } else if (entry.spawn && !entry.process) {
             const error = self.spawn(entry, bytes);
             if (error) return error;
           } else if (entry.spawn) {
@@ -988,6 +1011,13 @@ export class WASI {
         if (path === '.proc/spawn') {
           const opened = self.next++;
           self.fds.set(opened, { spawn: true, process: null });
+          self.view().setUint32(fdPtr, opened, true);
+          return ok;
+        }
+        // A NIF library: /.nif/new loads one, /.nif/ID calls it (nif.js).
+        if (path.startsWith('.nif/')) {
+          const opened = self.next++;
+          self.fds.set(opened, { nif: path.slice(5), request: [], answer: null, position: 0 });
           self.view().setUint32(fdPtr, opened, true);
           return ok;
         }

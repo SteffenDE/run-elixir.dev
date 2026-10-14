@@ -1,7 +1,7 @@
 // What every playground node gets, in the browser and under node.mjs: its
 // environment, the files around the installation, and its programs.
 import { File, urandom } from './wasi.js';
-import { git, esbuild, tailwind } from './programs.js';
+import { git, esbuild, tailwind, make } from './programs.js';
 
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
 // so Hex tool wrappers take their Linux paths; the esbuild and tailwind
@@ -25,9 +25,10 @@ export function prepare(root) {
   root.put('rotp/bin/mix', new File(new TextEncoder().encode('Mix.CLI.main()\n')));
   // Programs the node finds on PATH (os:find_executable, System.cmd): the
   // page's (/rotp/bin/mix is Mix's script, which mix runs).
-  for (const name of ['git', 'esbuild', 'tailwind', 'sh', 'elixir', 'iex', 'erl', 'escript'])
+  for (const name of ['git', 'esbuild', 'tailwind', 'make', 'sh', 'elixir', 'iex', 'erl', 'escript'])
     root.put(`usr/bin/${name}`, new File());
 }
 
-// fs: the node's files (vfs.js).
-export const programs = (fs) => ({ git: git(fs), esbuild, tailwind });
+// fs: the node's files (vfs.js); nif(name, version): a package's NIF
+// library build (make), or null.
+export const programs = (fs, nif = () => null) => ({ git: git(fs), esbuild, tailwind, make: make(fs, nif) });

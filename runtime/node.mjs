@@ -3,7 +3,7 @@
 // DIR is a site build.py made (target/playground/elixir). Standard
 // input is read whole first and then ends.
 import { readFile } from 'node:fs/promises';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
 import { vfs } from './vfs.js';
@@ -112,7 +112,10 @@ const wasi = new WASI({
   sleep: (ms) => Atomics.wait(wait, 0, 0, Math.min(ms, 5)),
   network,
   pump,
-  programs: programs(vfs(root, fetchFile)),
+  programs: programs(vfs(root, fetchFile), (name, version) => {
+    const path = `${dir}/nif/${name}-${version}.tar`;
+    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+  }),
   fetch: fetchFile,
 });
 // TRACE_WASI=1: every WASI call and its result, on standard error.

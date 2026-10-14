@@ -212,6 +212,14 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
       return new Uint8Array(request.response);
     });
     const fs = vfs(root, fetchFile, sharedFs);
+    // A package's NIF library built to WebAssembly (nif/NAME-VERSION.tar).
+    const nif = (name, version) => {
+      const request = new XMLHttpRequest();
+      request.open('GET', new URL(`nif/${name}-${version}.tar`, import.meta.url), false);
+      request.responseType = 'arraybuffer';
+      request.send();
+      return request.status === 200 ? new Uint8Array(request.response) : null;
+    };
 
     // One node, until it halts or is interrupted.
     const run = async (argv, cwd) => {
@@ -240,7 +248,7 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         fetch: fetchFile,
         shared: sharedFs,
         programs: {
-          ...programs(fs),
+          ...programs(fs, nif),
           ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
         },
         stdin(max) {

@@ -3,6 +3,8 @@
 // (sharedClient), as one.
 import { Dir, File, load } from './wasi.js';
 
+const CREATE = 1 | 8; // OFLAGS CREAT | TRUNC
+
 function lookup(root, path) {
   let node = root;
   for (const part of path.split('/').filter((p) => p && p !== '.')) {
@@ -83,6 +85,20 @@ export function vfs(root, fetch, shared = null) {
         return;
       }
       root.mkdirs(path);
+    },
+    // A file with these bytes, made or replaced; its directory must exist.
+    write(path, bytes) {
+      if (remote(path)) {
+        const opened = ask({ op: 'open', path, oflags: CREATE }).answer;
+        if (opened.error) return false;
+        for (let at = 0; at < bytes.length; at += 512 * 1024)
+          ask({ op: 'write', handle: opened.handle, offset: at }, bytes.subarray(at, at + 512 * 1024));
+        ask({ op: 'close', handle: opened.handle });
+        return true;
+      }
+      const file = root.put(path, new File(bytes));
+      file.written = true;
+      return true;
     },
     // Recursively.
     remove(path) {

@@ -50,11 +50,42 @@ into a WASI reactor. The layer implements the API over terms of its own:
 `Module` is `ERL_NIF_INIT`'s name, `Index` a function's place in that
 list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
 
+## In the node
+
+1. **`make`.** elixir_make runs `make` in the package's directory. The
+   playground's `make` (`runtime/programs.js`) reads the package's name and
+   version from its `hex_metadata.config`, fetches the site's
+   `nif/NAME-VERSION.tar` and unpacks it into `MIX_APP_PATH`, so
+   `priv/bcrypt_nif.so` is where the Makefile would have put it. Without a
+   build it fails (status 2) and says so; `make clean` does nothing.
+2. **Stubs.** The installation's `compile` runs one more pass before the
+   backend (`BeamOS.Nif.core_pass/2`): every function whose body calls
+   `erlang:nif_error` (after `nif_start`, for `-nifs`) first asks
+   `BeamOS.Nif.call(Module, Name, Args)`, and runs its own body when that
+   answers `none`. Stubs that raise some other way are not found.
+3. **`erlang:load_nif(Path, Info)`** (`BeamOS.HostedOs`, `BeamOS.Nif`):
+   reads `Path.so`; WebAssembly loads through `/.nif/new`
+   ([runtime.md](runtime.md#nif-libraries-nif)), then `{load, Info,
+   self()}` runs the library's load. Its functions are kept in
+   `persistent_term` under the module `ERL_NIF_INIT` names. Anything else
+   fails as before, and the caller's on_load with it. ERTS's errors:
+   `load`, `bad_lib`, `load_failed`.
+4. **Calls** go to `/.nif/ID` as `{call, Index, Args, self()}`; `raise`
+   raises its reason as an error, as ERTS does; messages the library sent
+   are sent from the caller. A library that traps is gone: its calls raise
+   `{nif_failed, {M, F, A}, Why}`.
+
+A call blocks the node's one scheduler while it runs, as a long NIF does on
+ERTS without dirty schedulers.
+
 ## Building (`build.py`)
 
 ```sh
 python3 -I playground/nif/build.py   # → target/playground/nif
 ```
+
+The site build copies `target/playground/nif/packages` to the site's
+`nif/` (`runtime/build.py`, also `build.py app`).
 
 In the wasi-sdk image (Docker, pinned by digest): `beamos_nif.o`, then each
 package in `PACKAGES` from its Hex tarball, by its own Makefile with the

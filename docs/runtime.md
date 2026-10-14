@@ -17,7 +17,8 @@ bundled), because the workers import them by URL.
 | `overlay.js` | worker | A project's kept changes in IndexedDB. |
 | `host.js` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
 | `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
-| `programs.js` | worker, Node | `git` (as far as Mix asks), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
+| `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
+| `nif.js` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history, pastes, Ctrl+C. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
@@ -91,6 +92,23 @@ The program is looked up by its base name, then by the part before the first
 `(process, { args, cwd, env }) => …` that writes to and exits its `Process`.
 Closing the port calls `process.onclose`. No program by that name means
 ENOENT, which the node reports as `enoent`.
+
+### NIF libraries: `/.nif`
+
+`BeamOS.Nif` (the installation's `erlang:load_nif`) runs NIF libraries
+built to WebAssembly ([nif.md](nif.md)) through two kinds of file, each
+opened for one exchange: the node writes its request, and its reads give
+the answer, then 0.
+
+| Path | Request | Answer |
+| --- | --- | --- |
+| `/.nif/new` | A library's bytes. | Its id, or `error WHY`. |
+| `/.nif/ID` | An external term for the library. | The library's external term, or `{error, Why}` once it trapped or exited (it is gone then). |
+
+`nif.js` (`Nifs`) instantiates each library with the node's own WASI
+imports and runs it synchronously, in the node's worker. While a library
+runs, the WASI calls work on its memory instead of the node's: it sees
+the node's files, environment and terminal.
 
 ### Shared files
 

@@ -1,3 +1,5 @@
+import { entries } from './wasi.js';
+
 // Programs a playground node can run (open_port, System.cmd), in place of
 // the OS's. Each gets its Process (write, exit) and { args, cwd, env }.
 // fs: vfs.js's files (readText).
@@ -76,3 +78,31 @@ export function tailwind(process, { args }) {
   process.write('tailwind: not yet available in the playground\n');
   process.exit(1);
 }
+
+// make, as elixir_make runs it to build a Hex package's native code: the
+// package's NIF library built to WebAssembly (playground/nif), fetched
+// from the site, into the app's priv directory (MIX_APP_PATH). nif(name,
+// version): that build's tar (priv/...), or null when the site has none.
+export const make = (fs, nif) => (process, { args, cwd, env }) => {
+  if (args.length && args.every((target) => target === 'clean')) return process.exit(0);
+  const metadata = fs.readText(`${cwd}/hex_metadata.config`) ?? '';
+  const field = (key) => metadata.match(new RegExp(`\\{<<"${key}">>,\\s*<<"([^"]*)">>\\}`))?.[1];
+  const [name, version] = [field('name'), field('version')];
+  const app = env.MIX_APP_PATH;
+  const tar = name && version && app ? nif(name, version) : null;
+  if (!tar) {
+    const what = name ? `${name} ${version}` : cwd;
+    process.write(`make: there is no WebAssembly build of ${what}'s native code in the playground\n`);
+    return process.exit(2);
+  }
+  for (const entry of entries(tar)) {
+    const path = `${app}/${entry.name.replace(/\/$/, '')}`;
+    if (entry.type === '5') fs.mkdir(path);
+    else if (entry.type === '0') {
+      fs.mkdir(path.slice(0, path.lastIndexOf('/')));
+      fs.write(path, entry.body);
+    }
+  }
+  process.write(`make: ${name} ${version}'s native code, built to WebAssembly for the playground\n`);
+  process.exit(0);
+};
