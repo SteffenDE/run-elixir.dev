@@ -278,14 +278,22 @@ def record(out, boot, snapshot):
         for path in (scratch, snapshot):
             os.chmod(path, 0o777)
         os.chmod(listing, 0o666)
-        command = DOCKER + ["run", "--rm", "-i", "--user", f"{os.getuid()}:{os.getgid()}",
+        # Named, so a timeout stops the container itself: killing the docker
+        # client leaves it running (one went on for an hour, its snapshot
+        # directory deleted under it by the next build).
+        name = f"playground-record-{boot}-{os.getpid()}"
+        command = DOCKER + ["run", "--rm", "-i", "--name", name, "--user", f"{os.getuid()}:{os.getgid()}",
                             "-e", f"CWD={cwd}", "-e", "RECORD=/r/fetched",
                             "-e", "SNAPSHOT=/work:/s", "-v", f"{snapshot}:/s"]
         for name, value in env.items():
             command += ["-e", f"{name}={value}"]
         command += ["-v", f"{HERE}:/w:ro", "-v", f"{out}:/d:ro", "-v", f"{scratch}:/r",
                     NODE_IMAGE, "node", "/w/node.mjs", "/d", *args]
-        result = subprocess.run(command, input=stdin.encode(), capture_output=True, timeout=600)
+        try:
+            result = subprocess.run(command, input=stdin.encode(), capture_output=True, timeout=600)
+        except subprocess.TimeoutExpired:
+            subprocess.run(DOCKER + ["kill", name], capture_output=True)
+            raise
         sys.stderr.write(result.stderr.decode(errors="replace")[-2000:])
         with open(listing) as f:
             return {line for line in f.read().split("\n") if line}
