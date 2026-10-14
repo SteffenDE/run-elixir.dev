@@ -11,12 +11,12 @@ building it.
 
 ## In browsers: Playwright (`playground/app/test/e2e`)
 
-`@playwright/test` 1.64 (Chrome 156, Firefox 157), run in the Playwright
+`@playwright/test` 1.64 (Chrome 156, Firefox 157, WebKit as in Safari 27.2), run in the Playwright
 Docker image against the built site:
 
 ```sh
 python3 -I playground/runtime/build.py                   # or `build.py app` after page changes
-playground/tests/run.sh                                  # Chromium and Firefox
+playground/tests/run.sh                                  # Chromium, Firefox and WebKit
 playground/tests/run.sh --project=chromium terminal      # one browser, one file
 SLOW=1 playground/tests/run.sh --project=chromium shells # the slow ones too
 ```
@@ -57,15 +57,18 @@ submits) (`node`, `output`, `sessions`,
 | `auth` (`@slow`) | `phx.gen.auth --hashing-lib pbkdf2` in a second shell, `deps.get`, `compile`, `ecto.migrate`, the server restarted, a registration in the preview over LiveView's WebSocket (flash, PGlite row). About 1.2 min. |
 | `shells` (`@slow`) | A second shell runs `mix phx.gen.live`, patches the router and migrates while the server runs; the generated form saves a post. Minutes. |
 
-Typical times: Chromium's 34 tests in about 2.7 minutes; Firefox's tests
-take about as long each (`hex` 25 s against 22, `rebar3` 26 against 26,
-`https` 32 against 33).
+Typical times: all three browsers' 102 tests in about 8 minutes, or
+Chromium's 34 in about 2.7; Firefox's and WebKit's take about as long each
+(`hex` 25 s against 22, `rebar3` 26 against 26, `https` 32 against 33).
 
-**WebKit is not in the suite yet.** Playwright's WebKit (Safari 27.2's
-engine) does not take `Cross-Origin-Embedder-Policy: credentialless`, which
-`serve.py` and the deployment send: its page is not cross-origin isolated,
-has no SharedArrayBuffer, and the playground says so and starts nothing.
-With `require-corp` it is isolated.
+**WebKit needs `require-corp`.** It does not take
+`Cross-Origin-Embedder-Policy: credentialless`: with it the page is not
+cross-origin isolated, has no SharedArrayBuffer, and the playground starts
+nothing. So `serve.py`, the deployment and the service worker send
+`require-corp`. WebKit also reports a `fetch()` that CORS blocks as an
+uncaught page error, though `https.js` catches it; the fixture leaves that
+one out. `tree` fails a focus check under heavy load (four workers and all
+three browsers), in Chromium too, and passes alone.
 
 Playwright before 1.64 shipped a Firefox (141) without an optimizing
 WebAssembly compiler, which ran `rotp.wasm` about 10× slower than Chromium
@@ -99,7 +102,7 @@ programs (Tailwind), the service worker, PGlite.
     rotp -- -D warnings`
 - **The app:** `npm run lint`, `npm run format:check`, `tsc --noEmit` (part
   of `npm run build`).
-- **The browsers:** the Playwright suite in Chromium and Firefox.
+- **The browsers:** the Playwright suite in Chromium, Firefox and WebKit.
 
 ## Not yet: caching the runtime between tests
 

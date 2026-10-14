@@ -214,7 +214,7 @@ over. The service worker:
 - keeps which client has which key, and each key's host, in IndexedDB
   (`playground-sw`), so a restart keeps routing;
 - answers 503 when the key's page is gone;
-- adds `Cross-Origin-Embedder-Policy: credentialless` and
+- adds `Cross-Origin-Embedder-Policy: require-corp` and
   `Cross-Origin-Resource-Policy: same-origin` to every answer, including
   errors, which the isolated page needs to frame them.
 

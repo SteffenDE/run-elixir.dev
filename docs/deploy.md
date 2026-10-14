@@ -18,8 +18,11 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 
 - **Cross-origin isolation, on every response.** Nodes share memory with the
   page (SharedArrayBuffer), which needs `Cross-Origin-Opener-Policy:
-  same-origin` and `Cross-Origin-Embedder-Policy: credentialless` (or
-  `require-corp`). Without them the page says so and starts nothing.
+  same-origin` and `Cross-Origin-Embedder-Policy: require-corp`. Without
+  them the page says so and starts nothing. Not `credentialless`: WebKit
+  (Safari) does not take it, and its page is then not isolated. So an app
+  in the preview loads another site's images, scripts or styles only when
+  that site sends CORS or `Cross-Origin-Resource-Policy: cross-origin`.
   The preview's own responses come from the service worker, which adds what
   they need.
 - **Hex's repository at `/hex/`.** repo.hex.pm sends no CORS headers, so
@@ -57,7 +60,7 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 (playground) {
 	header {
 		Cross-Origin-Opener-Policy same-origin
-		Cross-Origin-Embedder-Policy credentialless
+		Cross-Origin-Embedder-Policy require-corp
 	}
 	header /_playground/* Cache-Control "public, max-age=31536000, immutable"
 	header /sw.js Cache-Control no-cache

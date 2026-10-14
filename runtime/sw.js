@@ -14,9 +14,10 @@ self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 // What every answer to the preview carries: it is in a cross-origin
-// isolated page, which loads no frame without them.
+// isolated page, which loads no frame without them. require-corp, as the
+// site sends: WebKit takes no credentialless.
 const ISOLATION = {
-  'Cross-Origin-Embedder-Policy': 'credentialless',
+  'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
