@@ -16,6 +16,12 @@ test('a shell command runs as a node, and rebar3 builds a dependency', async ({ 
     `elixir -e 'IO.inspect System.shell(~s(cd /tmp && elixir -e "IO.puts File.cwd!"))'`,
   );
   expect(moved).toContain('{"/tmp\\n", 0}');
+  // A port starts where the node is (File.cd), as a native child does.
+  const inherited = await run(
+    page,
+    `elixir -e 'File.cd!("/tmp"); IO.inspect System.shell(~s(elixir -e "IO.puts File.cwd!"))'`,
+  );
+  expect(inherited).toContain('{"/tmp\\n", 0}');
   const missing = await run(page, `elixir -e 'IO.inspect System.shell("make")'`);
   expect(missing).toContain('127}');
   // telemetry is a rebar3 package: Mix runs rebar3, an escript, to build it.
