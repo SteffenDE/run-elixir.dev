@@ -4,8 +4,9 @@ import { File, urandom } from './wasi.js';
 import { git, esbuild, tailwind } from './programs.js';
 
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
-// so Hex tool wrappers look for _build/esbuild-linux-x64 and
-// _build/tailwind-linux-x64-VSN, which are the programs below.
+// so Hex tool wrappers take their Linux paths; the esbuild and tailwind
+// packages run /usr/bin/esbuild and /usr/bin/tailwind (their :path,
+// worker.js), the programs below.
 export const ENV = {
   ROOTDIR: '/rotp', HOME: '/work', LANG: 'C.UTF-8', TERM: 'xterm-256color',
   PATH: '/usr/bin:/rotp/bin', MIX_HOME: '/work/.mix', MIX_ARCHIVES: '/rotp/mix/archives',

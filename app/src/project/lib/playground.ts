@@ -15,7 +15,9 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files, Node } from '@runtime/host.js';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
-import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
+import { built, tailwind } from '@/project/lib/programs/tailwind';
+import { bundled, esbuild } from '@/project/lib/programs/esbuild';
+import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
 import { rebar3Program, shProgram, type StartNode } from '@/project/lib/programs/node';
 import {
@@ -237,13 +239,15 @@ function database(): Promise<PGlite> {
   return db;
 }
 
-// What every node serves and runs on the page. The Hex tailwind package's
-// binary is this page's; sh and rebar3 start nodes of their own.
+// What every node serves and runs on the page. The Hex tailwind and
+// esbuild packages' binaries are this page's; sh and rebar3 start nodes of
+// their own.
 function nodeServices() {
   return {
     serve: { 5432: postgres(database), [HEX_PORT]: hex },
     programs: {
       tailwind,
+      esbuild,
       git: gitProgram,
       sh: shProgram(startNode),
       rebar3: rebar3Program(startNode),
@@ -328,6 +332,12 @@ useStore.subscribe((state, before) => {
   if (state.previewKey !== before.previewKey) send({ type: 'reload' });
 });
 built.add(() => send({ type: 'css' }));
+// A rebuilt bundle: the preview loads it (a save's reload may come first).
+bundled.add(() => {
+  if (useStore.getState().previewPort === null) return;
+  if (reloading) clearTimeout(reloading);
+  reloading = setTimeout(() => useStore.getState().reloadPreview(), 100);
+});
 previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessage>) => {
   if (data.type === 'closed') useStore.getState().popOut(false);
   else if (data.type === 'opened') useStore.getState().popOut(true);

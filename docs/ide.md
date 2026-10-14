@@ -93,7 +93,31 @@ page, where `programs/tailwind.ts` is the CLI:
   first build. The preview reloads its stylesheets in place, without a page
   reload.
 
-esbuild does not run on the page yet; the app's JavaScript is prebuilt.
+## esbuild on the page
+
+`src/project/lib/programs/esbuild.ts` is esbuild 0.25.4 (esbuild-wasm,
+loaded on first use, about 11 MB) in place of the binary the Hex package
+runs; the node's `:path` for it is `/usr/bin/esbuild`
+([architecture.md](architecture.md#programs)).
+
+- **Options:** entry points, `--bundle`, `--minify`, `--splitting`,
+  `--sourcemap[=…]`, `--target=`, `--outdir=`, `--outfile=`, `--outbase=`,
+  `--format=`, `--platform=`, `--jsx=`, `--public-path=`, the `--*-names=`,
+  `--main-fields=`, `--resolve-extensions=`, `--external:`, `--alias:`,
+  `--loader:`, `--define:`, `--watch` and `--version`. Others are reported
+  and left out.
+- **Imports** resolve from the node's files: relative and absolute paths
+  with esbuild's extensions and index files, aliases (from the working
+  directory), and packages in `node_modules` up from the importer, then
+  `NODE_PATH` (deps and the build path, as the Hex package sets it), by
+  `exports` (browser, import, module, default), `browser`, `module` or
+  `main`. Externals are left to the page. A script's linked source map
+  (the deps ship them) is inlined, since esbuild-wasm reads no files.
+- **Watch mode** rebuilds 50 ms after a change to a file it read (a change
+  during a build counts once it is done): about 1.2 s for the template's
+  first build, 0.3–0.4 s after. The preview then reloads, and Phoenix's
+  code reloader copies the new bundle into `_build` (no symlinks) before
+  serving it.
 
 ## The preview
 

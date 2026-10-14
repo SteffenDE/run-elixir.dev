@@ -11,6 +11,7 @@ import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
 import type { FileSystem as Files } from '@runtime/host.js';
 import { SyncFiles, evaluate, path, withFaults } from './modules';
+import { type Watcher, watchers } from './watch';
 
 export const TAILWIND_VERSION = '4.3.3';
 
@@ -38,12 +39,6 @@ export interface Context {
   fs: Files;
 }
 
-// Changes from the node and the editor, for watchers.
-type Watcher = (paths: string[]) => void;
-const watchers = new Set<Watcher>();
-export function filesChanged(paths: string[]): void {
-  for (const watcher of watchers) watcher(paths);
-}
 // Called after each build in watch mode (the preview refreshes its CSS).
 export const built = new Set<(output: string) => void>();
 

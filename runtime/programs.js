@@ -52,9 +52,10 @@ export const git = (fs) => (process, { args, cwd }) => {
   process.exit(1);
 };
 
-// esbuild and tailwind, as the Hex packages run them. For now they answer
-// the version checks (the versions phx.new 1.8.15 configures); the assets
-// in the image are prebuilt.
+// esbuild and tailwind, as the Hex packages run them, for the Node harness:
+// they answer the version checks (the versions phx.new 1.8.15 configures).
+// In the browser, the page's programs (programs/esbuild.ts, tailwind.ts)
+// take their place.
 export const ESBUILD_VERSION = '0.25.4';
 export const TAILWIND_VERSION = '4.3.3';
 

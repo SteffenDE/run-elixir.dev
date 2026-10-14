@@ -17,7 +17,7 @@ bundled), because the workers import them by URL.
 | `overlay.js` | worker | A project's kept changes in IndexedDB. |
 | `host.js` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
 | `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
-| `programs.js` | worker, Node | `git` (as far as Mix asks), and stubs for `esbuild` and `tailwind`. |
+| `programs.js` | worker, Node | `git` (as far as Mix asks), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history, pastes, Ctrl+C. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |

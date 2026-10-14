@@ -139,8 +139,8 @@ JavaScript one instead:
 
 - **In the worker, synchronously:** `git`, as far as Mix asks a git
   dependency.
-- **On the page, asynchronously:** `tailwind` and `git`. The worker forwards
-  the spawn, and output and exit come back as frames.
+- **On the page, asynchronously:** `tailwind`, `esbuild` and `git`. The
+  worker forwards the spawn, and output and exit come back as frames.
 - **As a node of its own:** `sh` and `rebar3` (`programs/node.ts`), page
   programs that start a node in a new worker over the same files, as the
   shell does, and pass on its output and exit status. `sh -c LINE` (open_port's

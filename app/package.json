@@ -20,6 +20,7 @@
     "@xterm/xterm": "6.0.0",
     "buffer": "6.0.3",
     "dexie": "4.4.6",
+    "esbuild-wasm": "0.25.4",
     "isomorphic-git": "1.42.3",
     "react": "19.3.0",
     "react-dom": "19.3.0",
