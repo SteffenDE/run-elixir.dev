@@ -15,6 +15,12 @@ const FILETYPE = { CHAR: 2, DIR: 3, REG: 4 };
 const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
 const FDFLAGS = { APPEND: 1 };
 
+// WebAssembly passes an i32 to JavaScript signed, so a pointer into a
+// memory past 2 GiB arrives negative. Every i32 of WASI preview 1 is
+// unsigned (fds, flags, pointers, lengths): take them as such.
+const unsigned = (functions) => Object.fromEntries(Object.entries(functions).map(([name, f]) =>
+  [name, (...args) => f(...args.map((a) => (typeof a === 'number' ? a >>> 0 : a)))]));
+
 export class Exit extends Error {
   constructor(code) {
     super(`exit ${code}`);
@@ -407,7 +413,7 @@ export class WASI {
     this.memory = null;
     this.nifs = new Nifs(this);
     const functions = this.functions();
-    this.imports = { wasi_snapshot_preview1: shared ? { ...functions, ...this.remote(functions) } : functions };
+    this.imports = { wasi_snapshot_preview1: unsigned(shared ? { ...functions, ...this.remote(functions) } : functions) };
   }
 
   start(instance) {

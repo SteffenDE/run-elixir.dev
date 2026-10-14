@@ -56,9 +56,9 @@ export class Nifs {
     try {
       return this.within(instance, () => {
         const { memory, beamos_nif_input, beamos_nif_run, beamos_nif_output } = instance.exports;
-        new Uint8Array(memory.buffer, beamos_nif_input(request.length), request.length).set(request);
+        new Uint8Array(memory.buffer, beamos_nif_input(request.length) >>> 0, request.length).set(request);
         const size = beamos_nif_run(request.length);
-        return new Uint8Array(memory.buffer, beamos_nif_output(), size).slice();
+        return new Uint8Array(memory.buffer, beamos_nif_output() >>> 0, size >>> 0).slice();
       });
     } catch (error) {
       // A trap or an abort leaves the library unusable.
