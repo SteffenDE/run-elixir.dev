@@ -43,6 +43,7 @@ Vite build). See [build.md](build.md).
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
 | [runtime.md](runtime.md) | `playground/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
 | [rotp-wasm.md](rotp-wasm.md) | What Rust-OTP does differently on `wasm32-wasip1`. |
+| [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |
 | [ide.md](ide.md) | The app (`playground/app`): home page, the project IDE, Tailwind on the page, the preview, terminals and their links. |
 | [deploy.md](deploy.md) | Serving the site: headers, routes, compression, caching (Caddy). |

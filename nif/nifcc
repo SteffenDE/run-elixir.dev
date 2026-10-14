@@ -1,0 +1,28 @@
+#!/bin/sh
+# cc (or c++, as nifc++) for NIF libraries in wasi-sdk: compiles for
+# wasm32-wasip1, and links a WASI reactor with the erl_nif layer
+# (beamos_nif.o) instead of a shared library. Flags for shared libraries
+# and dynamic lookup mean nothing here and are left out.
+set -e
+case $(basename "$0") in
+  *++) compiler=${NIF_CXX:-/opt/wasi-sdk/bin/clang++} ;;
+  *) compiler=${NIF_CC:-/opt/wasi-sdk/bin/clang} ;;
+esac
+layer=${NIF_LAYER:-/nif/lib/beamos_nif.o}
+link=1
+skip=0
+for arg do
+  shift
+  if [ "$skip" = 1 ]; then skip=0; continue; fi
+  case $arg in
+    -c|-E|-S|-M|-MM) link=0 ;;
+    -shared|-fPIC|-fpic|-dynamiclib|-rdynamic|-pthread|-flat_namespace) continue ;;
+    -undefined) skip=1; continue ;;
+    -Wl,-undefined,*|-Wl,--no-undefined|-Wl,-soname,*|-Wl,-z,defs) continue ;;
+  esac
+  set -- "$@" "$arg"
+done
+if [ "$link" = 1 ]; then
+  exec "$compiler" -mexec-model=reactor -Wl,-z,stack-size=1048576 "$@" "$layer"
+fi
+exec "$compiler" "$@"
