@@ -23,6 +23,8 @@ app, at /work/playground.
   its build) and label; a project notes the template it was made from;
 - fs/version: a digest of the above; a project's kept changes note the
   version they were made over.
+- playground.json: the project domain, PLAYGROUND_DOMAIN in the build's
+  environment (none: projects are paths, /ID/).
 
 The template is generated once into target/playground-cache with the
 native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
@@ -294,6 +296,10 @@ def page(out):
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
     for name in RUNTIME:
         shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
+    # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
+    # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
+    with open(os.path.join(out, "playground.json"), "w") as f:
+        json.dump({"domain": os.environ.get("PLAYGROUND_DOMAIN") or None}, f)
 
 
 def main():

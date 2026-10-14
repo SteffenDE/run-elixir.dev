@@ -2,7 +2,9 @@ import { RiDeleteBinLine, RiFireLine, RiFolderAddLine, RiTerminalLine } from '@r
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { KindChip } from '@/shared/components/KindChip';
 import { listProjects, type Project } from '@/shared/lib/projects';
-import { deleteProject, openProjects } from '@/shared/lib/storage';
+import { deleteEverywhere } from '@/shared/lib/registry';
+import { projectUrl } from '@/shared/lib/site';
+import { openProjects } from '@/shared/lib/storage';
 
 function ago(time: number): string {
   const minutes = Math.round((Date.now() - time) / 60000);
@@ -36,7 +38,7 @@ function ProjectRow({
   const [error, setError] = useState<string | null>(null);
   return (
     <li className="project-row">
-      <a className="project-link" href={`/${project.id}/`}>
+      <a className="project-link" href={projectUrl(project.id)}>
         <span className="project-row-name">{project.name}</span>
         <KindChip kind={project.kind} />
         {open && <span className="chip">open in a tab</span>}
@@ -49,7 +51,7 @@ function ProjectRow({
             type="button"
             className="button danger"
             onClick={() =>
-              deleteProject(project.id).then(onDeleted, (failed: Error) => {
+              deleteEverywhere(project.id).then(onDeleted, (failed: Error) => {
                 setConfirming(false);
                 setError(failed.message);
               })

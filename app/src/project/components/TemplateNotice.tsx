@@ -1,6 +1,7 @@
 import { RiCloseLine, RiInformationLine } from '@remixicon/react';
 import { useEffect, useState } from 'react';
-import { templateSeen, type Project } from '@/shared/lib/projects';
+import type { Project } from '@/shared/lib/projects';
+import { templateSeen } from '@/shared/lib/registry';
 import { siteTemplate, type Template } from '@/shared/lib/templates';
 
 // A project made from another version of its template: its changes now

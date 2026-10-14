@@ -23,6 +23,7 @@ import { useStore } from '@/project/lib/store';
 import { NarrowWorkspace } from '@/project/components/NarrowWorkspace';
 import { useNarrow } from '@/shared/lib/narrow';
 import type { Project } from '@/shared/lib/projects';
+import { apexUrl } from '@/shared/lib/site';
 
 let started = false;
 
@@ -117,7 +118,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
   return (
     <div className="app">
       <header className="top-bar">
-        <a className="brand" href="/" title="All projects">
+        <a className="brand" href={apexUrl('/')} title="All projects">
           <RiHome5Line size={18} className="brand-icon" />
           <span className="brand-name">
             Elixir <span>Playground</span>

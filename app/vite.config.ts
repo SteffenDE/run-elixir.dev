@@ -16,8 +16,16 @@ export default defineConfig({
   build: {
     assetsDir: '_playground',
     target: 'es2022',
-    // The IDE, and the preview popped out into its own window.
-    rollupOptions: { input: { main: 'index.html', preview: 'preview.html' } },
+    // The IDE, the preview popped out into its own window, and the frames
+    // the apex and a project's origin call each other through (site.ts).
+    rollupOptions: {
+      input: {
+        main: 'index.html',
+        preview: 'preview.html',
+        registry: 'registry.html',
+        storage: 'storage.html',
+      },
+    },
   },
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
   worker: { format: 'es' },

@@ -5,10 +5,17 @@ paths that are no file (a project's /ID/), Hex's repository at /hex/
 clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
 does in production.
 
-    python3 -I playground/runtime/serve.py [PORT]
+    python3 -I playground/runtime/serve.py [PORT] [--domain DOMAIN]
+
+With --domain (for example playground.localhost:8082: browsers resolve
+*.localhost to this machine, and with two labels the apex and its
+projects are one site), /playground.json names it the project domain:
+projects run at ID.DOMAIN (app/src/shared/lib/site.ts), whatever the
+build says.
 """
 import functools
 import http.server
+import json
 import os
 import re
 import shutil
@@ -83,7 +90,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(405)
 
     def do_GET(self):
-        if not self.proxy_hex(False) and not self.proxy_git("GET"):
+        if DOMAIN is not None and self.path.split("?")[0] == "/playground.json":
+            data = json.dumps({"domain": DOMAIN}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+        elif not self.proxy_hex(False) and not self.proxy_git("GET"):
             super().do_GET()
 
     def do_HEAD(self):
@@ -99,11 +113,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
+        # A project's origin and the apex frame each other (the same site).
+        self.send_header("Cross-Origin-Resource-Policy", "same-site")
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
 
 directory = os.path.join(ROOT, "target", "playground", "site")
-port = int(sys.argv[1]) if len(sys.argv) > 1 else 8080
+args = sys.argv[1:]
+DOMAIN = args[args.index("--domain") + 1] if "--domain" in args else None
+args = [arg for i, arg in enumerate(args) if arg != "--domain" and (i == 0 or args[i - 1] != "--domain")]
+port = int(args[0]) if args else 8080
 print(f"http://localhost:{port}/ serving {directory}")
 http.server.ThreadingHTTPServer(("", port), functools.partial(Handler, directory=directory)).serve_forever()

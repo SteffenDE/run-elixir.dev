@@ -77,6 +77,9 @@ terminal. All of them are the shim's.
    project. Each project page announces itself under its project's key, and
    each preview document takes the key of what navigated it; the routes
    outlive a service worker restart ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
+   With a project domain each project has an origin, and so a service
+   worker, of its own ([projects.md](projects.md#a-project-domain)). Its
+   frames (`registry.html`, `storage.html`) are never a preview.
 3. `runtime/bridge.js` on the page opens a connection to the preview's port
    (4000, else the lowest port a node serves on; ports a node asked for
    with 0, such as Mix's compile lock's, are no server) of the node that

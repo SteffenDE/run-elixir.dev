@@ -1,3 +1,5 @@
+import { apexUrl } from '@/shared/lib/site';
+
 // A path that is no project in this browser.
 export function NotFound() {
   return (
@@ -8,7 +10,7 @@ export function NotFound() {
         </h1>
         <p>There is no such project in this browser. Projects are kept where they were made.</p>
         <p>
-          <a href="/">All projects</a>
+          <a href={apexUrl('/')}>All projects</a>
         </p>
       </main>
     </div>

@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Deploying the site
@@ -10,7 +10,7 @@ The site is static. Build it, then copy `target/playground/site/` to the
 server:
 
 ```sh
-python3 -I playground/runtime/build.py
+PLAYGROUND_DOMAIN=run-elixir.dev python3 -I playground/runtime/build.py
 rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 ```
 
@@ -54,6 +54,20 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
   and a project's next start drops its template build records
   ([projects.md](projects.md#what-is-kept)).
 
+## A project domain
+
+With `PLAYGROUND_DOMAIN` set when building (written to
+`playground.json`), each project runs on its own origin, `ID.DOMAIN`, and
+the domain itself has the projects' list
+([projects.md](projects.md#a-project-domain)). The server then serves
+the same site for `DOMAIN` and `*.DOMAIN`, which needs a wildcard
+certificate, and so a DNS challenge: a Caddy built with its DNS
+provider's module (`xcaddy build --with github.com/caddy-dns/PROVIDER`).
+Every response also carries `Cross-Origin-Resource-Policy: same-site`:
+the apex and a project's origin frame each other's pages (`registry.html`,
+`storage.html`), which `require-corp` lets in only so. Without
+`PLAYGROUND_DOMAIN`, a project is a path (`/ID/`) on one origin.
+
 ## Caddy
 
 ```caddy
@@ -61,6 +75,7 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
 	header {
 		Cross-Origin-Opener-Policy same-origin
 		Cross-Origin-Embedder-Policy require-corp
+		Cross-Origin-Resource-Policy same-site
 	}
 	header /_playground/* Cache-Control "public, max-age=31536000, immutable"
 	header /sw.js Cache-Control no-cache
@@ -112,6 +127,16 @@ elixir-playground.steffend.me {
 	import playground
 }
 
+# With a project domain (PLAYGROUND_DOMAIN=run-elixir.dev): the same site
+# for the apex and every project's origin, one wildcard certificate.
+run-elixir.dev, *.run-elixir.dev {
+	tls {
+		dns PROVIDER {env.DNS_API_TOKEN}
+	}
+	root * /srv/run-elixir
+	import playground
+}
+
 # The former Phoenix playground: a new Phoenix project.
 phoenix-playground.steffend.me {
 	redir https://elixir-playground.steffend.me/phoenix
@@ -123,4 +148,8 @@ phoenix-playground.steffend.me {
 `python3 -I playground/runtime/serve.py [PORT]` serves
 `target/playground/site` with the isolation headers, `no-cache` and the
 `index.html` fallback, and proxies `/hex/` as above. It does not
-compress.
+compress. With `--domain playground.localhost:PORT` it answers
+`playground.json` with that project domain, whatever the build says:
+browsers resolve `*.localhost` to this machine, and with two labels the
+apex and its projects are one site (Chromium takes `localhost` for a
+top-level domain, so `ID.localhost` would be a site of its own).

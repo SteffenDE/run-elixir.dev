@@ -20,6 +20,7 @@ const ISOLATION = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'same-origin',
 };
+const FRAMES = ['/registry.html', '/storage.html'];
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
 // client id → key (hosts, preview windows, the app's documents), and
@@ -136,6 +137,11 @@ self.addEventListener('fetch', (event) => {
   if (new URL(request.url).origin !== self.location.origin) return;
   if (request.mode === 'navigate') {
     if (request.destination !== 'iframe') return;
+    // The site's own frames (frames.ts), never a preview.
+    if (FRAMES.includes(new URL(request.url).pathname)) {
+      nested.set(event.resultingClientId, false);
+      return;
+    }
     nested.set(event.resultingClientId, true);
     event.respondWith(app(event, true));
   } else if (event.clientId && nested.get(event.clientId) !== false) {

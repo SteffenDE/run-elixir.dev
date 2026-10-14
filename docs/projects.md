@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-14
 ---
 
 # Projects
@@ -37,6 +37,42 @@ A project's kind (`src/project/lib/kinds.ts`) decides how it starts:
 
 PGlite starts for any kind on the first connection to 5432. A new project
 gets a random name (`brave-otter`), renamed by clicking it in the top bar.
+
+## A project domain
+
+A site may have a project domain (`playground.json`'s `domain`;
+`PLAYGROUND_DOMAIN` when building, [deploy.md](deploy.md)). Then each
+project runs on an origin of its own, and the apex (the domain itself)
+has everything else (`src/shared/lib/site.ts`):
+
+| Where | What |
+| --- | --- |
+| `DOMAIN/` | The home page, as above. |
+| `DOMAIN/phoenix`, `/empty`, `/import#DATA` | Make a project, then go to its origin. |
+| `DOMAIN/iex` | A temporary IEx, on the apex (it keeps nothing). |
+| `DOMAIN/ID/` | An older link: goes to `ID.DOMAIN/`. |
+| `ID.DOMAIN/` | The project: its IDE, nodes and preview. |
+
+A project's files, database, service worker, Hex cache, and the cookies
+and local storage of the app in its preview are its origin's own, and
+the preview's service worker has only that project to send a request to
+(with one origin it tells projects apart by their tabs: a navigation by
+the document that started it, else the only, focused or last tab).
+
+The projects' list stays the apex's. The two sides call each other
+through a hidden frame of the other origin (`src/shared/lib/frames.ts`),
+which answers only the origins it lets in. The apex and its projects are
+one site, so neither frame's storage is partitioned:
+
+- `DOMAIN/registry.html`, in a project's page: the project's entry
+  (read, renamed, opened, its template, a link's seed), and only its
+  own. It holds the project's lock on the apex for as long as the page
+  lives, so the home page marks it open.
+- `ID.DOMAIN/storage.html`, in the home page: deletes what the project
+  keeps on its origin (`registry.ts`), refused while a tab runs it.
+
+Projects made before a site had a domain stay where they were, on the
+origin that made them.
 
 ## What is kept
 
@@ -136,7 +172,9 @@ want a server to keep them (with the collaboration server).
 
 Deleting from the home page takes the project's lock (so not while a tab
 runs it), deletes both of its databases and then its row. The home page
-marks projects open in a tab.
+marks projects open in a tab. With a project domain, the project's
+storage frame takes the lock and deletes on its origin (also its caches
+and service worker), and then the apex deletes the row.
 
 ## Plans
 

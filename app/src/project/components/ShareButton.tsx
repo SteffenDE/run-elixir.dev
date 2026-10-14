@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { shareable } from '@/project/lib/playground';
 import { encodeShared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
+import { apexUrl } from '@/shared/lib/site';
 
 interface Link {
   url: string;
@@ -39,7 +40,7 @@ export function ShareButton({ name, template }: { name: string; template?: Templ
     setCopied(false);
     try {
       const shared = await shareable(name, template);
-      const url = `${location.origin}/import#${await encodeShared(shared)}`;
+      const url = new URL(apexUrl(`/import#${await encodeShared(shared)}`), location.href).href;
       setLink({ url, files: Object.keys(shared.files).length, removed: shared.removed.length });
       setError(null);
       await navigator.clipboard.writeText(url).then(

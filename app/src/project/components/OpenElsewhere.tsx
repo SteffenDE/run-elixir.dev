@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { Project } from '@/shared/lib/projects';
+import { apexUrl } from '@/shared/lib/site';
 
 // The project runs in another tab: open it here instead (that tab keeps
 // its changes and stops), or go back. `moved`: this tab ran it until
@@ -35,7 +36,7 @@ export function OpenElsewhere({
           >
             {opening ? 'Opening…' : 'Open it here'}
           </button>
-          <a href="/">All projects</a>
+          <a href={apexUrl('/')}>All projects</a>
         </p>
       </main>
     </div>

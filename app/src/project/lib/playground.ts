@@ -34,7 +34,7 @@ import {
 } from '@/project/lib/previewChannel';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
-import { seedTaken, takeSeed } from '@/shared/lib/projects';
+import { seedTaken, takeSeed } from '@/shared/lib/registry';
 import { fileBytes, fileEntry, type Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { HEX_PORT, hex, hexEnv } from './hex';
