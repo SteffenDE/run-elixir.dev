@@ -32,6 +32,19 @@ IMAGE = "ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0
 # Makefile would fetch and build itself, done beforehand.
 PACKAGES = {
     "bcrypt_elixir": {"targets": ["all"], "versions": {"3.3.2": {}}},
+    # Argon2's reference code runs its lanes in threads, which the layer
+    # does not have: without them, one after another.
+    "argon2_elixir": {"targets": ["all"], "versions": {"4.1.3": {"CFLAGS": "-O2 -DARGON2_NO_THREADS"}}},
+    # Its Makefile builds into $(MIX_BUILD_PATH)/lib/picosat_elixir/priv:
+    # that is the app's directory here.
+    "picosat_elixir": {
+        "targets": ["all"],
+        # Without getrusage (WASI has no process clocks): its statistics
+        # only; its NIF includes signal.h and uses nothing of it.
+        "versions": {"0.2.3": {"MIX_BUILD_PATH": "/work/_mix_build",
+                               "CC": "/tools/nifcc -DNGETRUSAGE -D_WASI_EMULATED_SIGNAL"}},
+        "prepare": lambda work, env: build_path(work, "picosat_elixir"),
+    },
     "lazy_html": {
         "targets": [],
         "versions": {"0.1.13": {"LEXBOR_GIT_SHA": "244b84956a6dc7eec293781d051354f351274c46"}},
@@ -101,6 +114,14 @@ def lexbor(work, sha):
            "-DLEXBOR_BUILD_SEPARATELY=OFF >/dev/null && cmake --build build >/dev/null && ls -la build/*.a")
 
 
+def build_path(work, name):
+    """A MIX_BUILD_PATH in the work tree whose lib/NAME is the app's
+    directory (/app in the build's container)."""
+    lib = os.path.join(work, "_mix_build", "lib")
+    os.makedirs(lib)
+    os.symlink("/app", os.path.join(lib, name))
+
+
 def package(name, version, about):
     source = fetch(name, version)
     build = os.path.join(OUT, "build", f"{name}-{version}")
@@ -110,14 +131,15 @@ def package(name, version, about):
     app = os.path.join(build, "app")
     os.makedirs(app)
     # elixir_make's environment, as far as Makefiles use it.
-    env = [("CC", "/tools/nifcc"), ("CXX", "/tools/nifc++"), ("CFLAGS", "-O2"), ("CXXFLAGS", "-O2"),
-           ("ERTS_INCLUDE_DIR", "/nif/include"), ("MIX_APP_PATH", "/app"), ("MIX_ENV", "prod"),
-           ("MIX_TARGET", "host"), ("CROSSCOMPILE", "wasm32-wasip1")]
+    # (A recipe's variables replace these.)
+    env = {"CC": "/tools/nifcc", "CXX": "/tools/nifc++", "CFLAGS": "-O2", "CXXFLAGS": "-O2",
+           "ERTS_INCLUDE_DIR": "/nif/include", "MIX_APP_PATH": "/app", "MIX_ENV": "prod",
+           "MIX_TARGET": "host", "CROSSCOMPILE": "wasm32-wasip1"}
     variables = about["versions"][version]
-    env += list(variables.items())
+    env.update(variables)
     for variable, (dep, dep_version, subdirectory) in about.get("headers", {}).items():
         fetch(dep, dep_version)
-        env.append((variable, f"/deps/{dep}-{dep_version}/{subdirectory}"))
+        env[variable] = f"/deps/{dep}-{dep_version}/{subdirectory}"
     if "prepare" in about:
         about["prepare"](work, variables)
     tools = os.path.join(OUT, "tools")
@@ -127,7 +149,7 @@ def package(name, version, about):
         os.chmod(os.path.join(tools, tool), 0o755)
     docker([(work, "/work", "rw"), (app, "/app", "rw"), (OUT, "/nif", "ro"), (tools, "/tools", "ro"),
             (os.path.join(OUT, "src"), "/deps", "ro")],
-           f"cd /work && make {' '.join(about['targets'])}", env)
+           f"cd /work && make {' '.join(about['targets'])}", env.items())
     os.makedirs(os.path.join(OUT, "packages"), exist_ok=True)
     out = os.path.join(OUT, "packages", f"{name}-{version}.tar")
     with tarfile.open(out, "w", format=tarfile.USTAR_FORMAT) as tar:

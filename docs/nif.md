@@ -131,6 +131,8 @@ reference that is no resource.
 | Package | Library |
 | --- | --- |
 | bcrypt_elixir 3.3.2 | `priv/bcrypt_nif.so`, 239 KB |
+| argon2_elixir 4.1.3 (Argon2's lanes in turn: `ARGON2_NO_THREADS`) | `priv/argon2_nif.so`, 250 KB |
+| picosat_elixir 0.2.3 (Ash's policy SAT solver; without `getrusage`) | `priv/picosat_nif.so`, 296 KB |
 | lazy_html 0.1.13 (Fine 0.1.6, lexbor 244b849) | `priv/liblazy_html.so`, 1.6 MB |
 
 ## Not yet
