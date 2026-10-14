@@ -71,6 +71,10 @@ last_updated: 2026-10-13
   phx.new's default lock, and several schedulers (wasm32-wasip1-threads).
 - **git in the shell:** only what Mix asks (`git` is a program, not a shell
   command yet); no pushes.
+- **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run
+  only `mix`, `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`,
+  each as a node of its own; `os:cmd` (which writes its command to the
+  shell's input) does not run.
 - **Nodes reach each other only through the page's ports** (5432, 4000).
   Mix's compile lock checks its holder over TCP, which another shell's node
   cannot reach, so two shells compiling at once can both proceed. The page
@@ -82,8 +86,6 @@ last_updated: 2026-10-13
   the app's own compile adds it back. Only in the browser (host OTP and
   native Rust-OTP in the same sequence pass); not yet understood. `mix
   compile` first avoids it.
-- **rebar3** is a stand-in: Mix finds it, so locked rebar3 dependencies
-  load, but a new rebar3 dependency cannot be built.
 - **PGlite is one session,** so Ecto's pool is 1, and two shells using the
   database at once share it.
 - **Changes under a second old** are lost when the tab closes (files are

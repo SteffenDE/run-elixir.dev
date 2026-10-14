@@ -78,10 +78,10 @@ def installed(relative):
     if parts[0] == "releases":
         return True
     if parts[0] == "mix":
-        # Mix archives built for Rust-OTP: Hex, phx_new.
-        return len(parts) > 2 and parts[1] == "archives"
+        # Mix archives built for Rust-OTP (Hex, phx_new), and rebar3.
+        return len(parts) > 2 and parts[1] == "archives" or relative == "mix/rebar3"
     if parts[0] == "lib" and len(parts) > 1:
-        return parts[1].startswith(APPS) and (len(parts) < 3 or parts[2] in ("ebin", "priv"))
+        return parts[1].startswith(APPS) and (len(parts) < 3 or parts[2] in ("ebin", "priv", "include"))
     return False
 
 

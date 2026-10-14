@@ -17,6 +17,7 @@ import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
 import { built, filesChanged, tailwind } from '@/project/lib/programs/tailwind';
 import { gitProgram } from '@/project/lib/programs/git';
+import { rebar3Program, shProgram, type StartNode } from '@/project/lib/programs/node';
 import {
   previewChannel,
   previewKey,
@@ -230,21 +231,63 @@ function database(): Promise<PGlite> {
     unaccent,
     uuid_ossp,
   };
-  db ??= PGlite.create(projectId ? pgliteDataDir(projectId) : undefined, { extensions });
+  db ??= PGlite.create(projectId ? pgliteDataDir(projectId) : undefined, {
+    extensions,
+  });
   return db;
 }
+
+// What every node serves and runs on the page. The Hex tailwind package's
+// binary is this page's; sh and rebar3 start nodes of their own.
+function nodeServices() {
+  return {
+    serve: { 5432: postgres(database), [HEX_PORT]: hex },
+    programs: {
+      tailwind,
+      git: gitProgram,
+      sh: shProgram(startNode),
+      rebar3: rebar3Program(startNode),
+    },
+  };
+}
+
+// A node for one command a node ran (sh, rebar3), in its own worker.
+const startNode: StartNode = (command, { cwd, env }, output, exit) => {
+  if (!files) {
+    exit(1);
+    return { stop() {} };
+  }
+  const node = new Node({
+    base: '/',
+    files,
+    ...nodeServices(),
+    onoutput: output,
+    onexit: exit,
+    onstatus(text) {
+      if (!text.startsWith('failed')) return;
+      output(encoder.encode(`${command[0]}: ${text}\n`));
+      exit(1);
+    },
+  });
+  // The port's directory, not the node's own (its PWD came with its env).
+  node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
+  return node;
+};
 
 // A shell in a new terminal tab (the first runs `initial`).
 export function openTerminal(initial: string[] = []): number {
   if (!files) return 0;
   const id = nextSession++;
-  const session: Session = { id, node: null as unknown as Node, backlog: '', listeners: new Set() };
+  const session: Session = {
+    id,
+    node: null as unknown as Node,
+    backlog: '',
+    listeners: new Set(),
+  };
   session.node = new Node({
     base: '/',
     files,
-    serve: { 5432: postgres(database), [HEX_PORT]: hex },
-    // The Hex tailwind package's binary is this page's.
-    programs: { tailwind, git: gitProgram },
+    ...nodeServices(),
     onoutput(bytes) {
       const text = decoder.decode(bytes, { stream: true });
       session.backlog = (session.backlog + text).slice(-200_000);
@@ -260,7 +303,13 @@ export function openTerminal(initial: string[] = []): number {
     onlistening: updateListening,
   });
   sessions.set(id, session);
-  session.node.start({ shell: true, initial, cwd: setup.cwd, boots: setup.boots, env: hexEnv });
+  session.node.start({
+    shell: true,
+    initial,
+    cwd: setup.cwd,
+    boots: setup.boots,
+    env: hexEnv,
+  });
   useStore.getState().addTerminal(id);
   return id;
 }
@@ -358,7 +407,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   }
   void refreshTree();
   // The preview's requests go to whichever node listens on the port.
-  bridge = new Bridge({ connect: (port: number) => nodeOn(port)!.connect(port) });
+  bridge = new Bridge({
+    connect: (port: number) => nodeOn(port)!.connect(port),
+  });
   openTerminal(setup.first);
   // For tests and the curious.
   Object.assign(window, {

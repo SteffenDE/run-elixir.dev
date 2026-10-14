@@ -25,7 +25,8 @@ several projects (one tab per project, [projects.md](projects.md)).
  ├─ bridge.js ◄──── sw.js (service worker) ◄─── preview <iframe> (the app)
  │                  routes by project key       or a popped-out window
  ├─ postgres.js ─── PGlite (Postgres in WebAssembly; IndexedDB)
- └─ page programs: tailwind (programs/tailwind.ts)
+ └─ page programs: tailwind, git, and sh and rebar3 (programs/node.ts),
+                    which start a node of their own
 ```
 
 ## The node
@@ -138,8 +139,20 @@ JavaScript one instead:
 
 - **In the worker, synchronously:** `git`, as far as Mix asks a git
   dependency.
-- **On the page, asynchronously:** `tailwind`. The worker forwards the spawn,
-  and output and exit come back as frames.
+- **On the page, asynchronously:** `tailwind` and `git`. The worker forwards
+  the spawn, and output and exit come back as frames.
+- **As a node of its own:** `sh` and `rebar3` (`programs/node.ts`), page
+  programs that start a node in a new worker over the same files, as the
+  shell does, and pass on its output and exit status. `sh -c LINE` (open_port's
+  `{spawn, Command}`, `System.shell`; `phx.new` runs `mix deps.get` that way)
+  runs a line of `mix`, `elixir`, `iex`, `erl` or `escript` commands and `cd`,
+  joined by `&&`, without the `( )` and `</dev/null` that `System.shell`
+  wraps it in; anything else answers 127. `rebar3` runs
+  `escript /rotp/mix/rebar3`, the rebar3 the installation built, which Mix
+  builds rebar3 dependencies with (`MIX_REBAR3`). The image has the OTP
+  applications' `include` directories for them. `os:cmd` writes its command
+  to the shell's input, which page programs do not read, so it is not
+  covered.
 
 The node presents itself as Linux x86_64, so the Hex `esbuild` and `tailwind`
 packages look for their binaries at `_build/esbuild-linux-x64` and

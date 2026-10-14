@@ -87,6 +87,7 @@ declare module '@runtime/host.js' {
     start(options: {
       shell?: boolean;
       args?: string[];
+      command?: string[];
       env?: Record<string, string>;
       initial?: string[];
       cwd?: string;

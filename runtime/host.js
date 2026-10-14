@@ -181,13 +181,14 @@ export class Node {
     this.worker.onerror = (event) => onstatus(`failed: ${event.message || 'the worker did not start'}`);
   }
 
-  // shell: a shell (true), or one command: { args, env }.
+  // shell: a shell (true), or one command: erl's { args, env }, or
+  // { command, env }, a command by name as the shell runs it.
   // initial: command lines the shell runs first, as if typed.
   // cwd: where the shell starts.
   // boots: the boot images to unpack (worker.js).
-  start({ shell = false, args, env = {}, initial = [], cwd, boots } = {}) {
+  start({ shell = false, args, command, env = {}, initial = [], cwd, boots } = {}) {
     this.channel = this.files?.connect() ?? null;
-    this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, env, initial, cwd, boots,
+    this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, command, env, initial, cwd, boots,
       ports: Object.keys(this.serve).map(Number), pagePrograms: Object.keys(this.programs) });
   }
 

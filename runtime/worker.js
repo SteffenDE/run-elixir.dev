@@ -137,7 +137,8 @@ function join(cwd, path) {
   return '/' + out.join('/');
 }
 
-// Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix).
+// Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix), and
+// escript's (bin/escript; a script's %%! flags are not read).
 const ELIXIR = ['-noshell', '-elixir_root', '/rotp/lib', '-pa', '/rotp/lib/elixir/ebin'];
 function command(name, args) {
   switch (name) {
@@ -152,6 +153,9 @@ function command(name, args) {
       const rest = args[0] === '-S' && args[1] === 'mix' ? ['/rotp/bin/mix', ...args.slice(2)] : args;
       return [...ELIXIR, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
     }
+    case 'escript':
+      if (!args.length) return null;
+      return ['+B', '-noshell', '-boot', '/rotp/bin/no_dot_erlang', '-run', 'escript', 'start', '-extra', ...args];
   }
   return null;
 }
@@ -177,8 +181,9 @@ function onPage(channel, name) {
 }
 
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
-// commands' files (build.py).
-onmessage = async ({ data: { shared, files, shell, args, env, ports, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
+// commands' files (build.py). command: one command by name, as the shell
+// runs it (['mix', 'deps.get']), in place of erl's `args`.
+onmessage = async ({ data: { shared, files, shell, args, command: named, env, ports, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
   try {
     say('status', 'Loading OTP and Elixir…');
     const [images, manifest, module] = await Promise.all([
@@ -257,7 +262,13 @@ onmessage = async ({ data: { shared, files, shell, args, env, ports, initial = [
 
     say('status', 'running');
     if (!shell) {
-      say('exit', await run(args, env.PWD || start));
+      const argv = named ? command(named[0], named.slice(1)) : args;
+      if (!argv) {
+        text(`${named[0]}: command not found\n`);
+        say('exit', 127);
+        return;
+      }
+      say('exit', await run(argv, env.PWD || start));
       return;
     }
     let cwd = fs.stat(start)?.dir ? start : '/work';

@@ -136,9 +136,11 @@ to the page as `{ kind: 'warning', message }`.
 onlistening })` starts a worker. It is a blob module that imports
 `worker.js`: Firefox does not start a module worker from a page its service
 worker controls, and a blob worker takes the page's cross-origin isolation.
-`node.start({ shell, initial, cwd, args, env, boots })` boots it: the shell
-with `initial` commands typed first, or one command, over the boot images
-`boots` (default `['boot']`).
+`node.start({ shell, initial, cwd, args, command, env, boots })` boots it:
+the shell with `initial` commands typed first, or one command (erl's
+`args`, or a `command` by name as the shell runs it, such as `['mix',
+'deps.get']` or `['escript', FILE, ...]`), over the boot images `boots`
+(default `['boot']`).
 
 **Page → node: frames** in a SharedArrayBuffer ring of 1 MiB:
 
