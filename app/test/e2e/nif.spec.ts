@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, output, prompted, readText, run, writeText } from './helpers';
+import { newProject, prompted, readText, run, writeText } from './helpers';
 
 test('a NIF package (bcrypt_elixir) builds from the site and hashes', async ({ page }) => {
   test.setTimeout(900_000);
