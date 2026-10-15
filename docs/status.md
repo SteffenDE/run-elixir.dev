@@ -31,9 +31,14 @@ last_updated: 2026-10-15
   runs one scheduler from `rotp.wasm`.
 - **An Ash app** (`mix igniter.new … --install ash,ash_phoenix,
   ash_postgres,ash_authentication,ash_authentication_phoenix,ash_admin
-  --auth-strategy magic_link --setup --yes`): 2299 s in Chromium on a
-  12-core AMD machine with four schedulers, BEAM `+S 4` 314 s
-  ([log](../../docs/log/2026-10-15.md#playground-the-ash-app)).
+  --auth-strategy magic_link --setup --yes`) is generated, compiled and
+  installed: 2299 s in Chromium on a 12-core AMD machine with four
+  schedulers, BEAM `+S 4` 314 s
+  ([log](../../docs/log/2026-10-15.md#playground-the-ash-app)); measured
+  before the day's later runtime fixes, which took Ash's own compile from
+  157 s to about 135 s natively. Starting it needed mnesia, which every
+  Ash app starts and the installation now has; not yet tried in the
+  browser.
 - **git dependencies.** Through the page and the site's proxy: heroicons
   as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
   again from the lock.
@@ -92,9 +97,10 @@ last_updated: 2026-10-15
   with them. `priv` and colocated assets are copies.
 
 **In the playground**
-- **Compiling is about 7× BEAM** (the Ash app above), most of it the
-  interpreter: a new app's deps take minutes. The plans: prebuilt deps,
-  and a faster interpreter ([log](../../docs/log/2026-10-15.md#open)).
+- **Compiling is about 7× BEAM** (the Ash app above, before the day's later
+  fixes), most of it the interpreter: a new app's deps take minutes. The
+  plans: prebuilt deps, and a faster interpreter
+  ([interpreter.md](../../docs/design/interpreter.md#where-it-stands-2026-10-15)).
 - **git in the shell:** only what Mix asks (`git` is a program, not a shell
   command yet); no pushes.
 - **HTTPS from a node** goes by the page's `fetch()` (`https.js`): only
