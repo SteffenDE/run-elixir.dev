@@ -5,7 +5,7 @@
 // (the worker sleeps on its write count, so a frame wakes it):
 // [kind u8][id u32][length u32][payload]. The worker answers with
 // messages.
-export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8 };
+export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8, RESIZE: 9 };
 const CHANNEL = 1 << 20;
 
 // A module worker from a blob that imports the runtime's script: Firefox
@@ -147,7 +147,9 @@ export class Node {
   // programs: { name: (process, { args, cwd, env, fs }) => ... }, programs
   // the node may spawn that run on the page (they may be async):
   // process.write(text | bytes), process.exit(code), process.onkill.
-  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, https = null, programs = {}, files = null, onlistening = () => {} }) {
+  // onterminal(raw): the node set its terminal to raw input (keys go to
+  // it as typed) or back to lines.
+  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, https = null, programs = {}, files = null, onlistening = () => {}, onterminal = () => {} }) {
     this.https = https;
     this.files = files;
     this.listening = new Set();
@@ -169,6 +171,7 @@ export class Node {
       if (data.kind === 'out') onoutput(data.payload);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
+      else if (data.kind === 'tty') onterminal(data.raw);
       else if (data.kind === 'net') this.network(data);
       else if (data.kind === 'listening') {
         if (data.on) this.listening.add(data.port);
@@ -254,6 +257,14 @@ export class Node {
   }
   interrupt() {
     this.frame(FRAME.INTERRUPT, 0);
+  }
+  // The terminal's size, which the node reads from /.tty/size.
+  resize(columns, rows) {
+    const payload = new Uint8Array(4);
+    const view = new DataView(payload.buffer);
+    view.setUint16(0, columns, true);
+    view.setUint16(2, rows, true);
+    this.frame(FRAME.RESIZE, 0, payload);
   }
 
   // A connection to the node's listener on `port`.

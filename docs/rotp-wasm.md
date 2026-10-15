@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Rust-OTP on `wasm32-wasip1`
@@ -22,6 +22,7 @@ to 2.9 MB. Native builds are unchanged; the differences sit behind
 | --- | --- |
 | Schedulers | One: `std::thread::available_parallelism` fails on WASI. The single-scheduler loop in `session.rs` ticks and polls in turn. |
 | Standard input | No reader thread (WASI has none): `tty.rs` reads standard input from its poll while a select is armed. A read that would block adds nothing. |
+| Terminal | `tty.rs` sets raw input (IEx's line editing) by writing `raw` or `cooked` to the host's `/.tty/mode`, and reads the window size from `/.tty/size` ([runtime.md](runtime.md)); natively, raw input is refused and user_drv reads cooked lines. terminfo is `$TERM`'s compiled entry, as natively. |
 | Files | `platform.rs` holds what is not portable std. On WASI the mode is 644/755 (WASI has no permission bits, and std calls every file read-only, which made `System.tmp_dir!` fail). Files report the executable bit, so `os:find_executable` finds the host's programs. Positioned I/O goes through the file offset; there are no links or owners. |
 | File errors | `file.rs` `posix/1` names errors by their kind off Linux (WASI's errno numbers differ), not by Linux numbers. |
 | TCP | `wasm_net.rs`: `TcpListener` and `TcpStream` over the host's `/.net` files ([runtime.md](runtime.md#tcp-net)), with a peek buffer for passive sockets. `localhost` and written-out addresses resolve. |

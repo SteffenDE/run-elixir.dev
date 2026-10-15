@@ -10,8 +10,15 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { cooked } from '@runtime/terminal.js';
-import { initialLines, interrupt, onOutput, type } from '@/project/lib/playground';
+import { lineDiscipline } from '@runtime/terminal.js';
+import {
+  initialLines,
+  interrupt,
+  onOutput,
+  onTerminalMode,
+  resize,
+  type,
+} from '@/project/lib/playground';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
 import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
 
@@ -22,6 +29,7 @@ export class TerminalHandle {
   private readonly fit = new FitAddon();
   private resize: ResizeObserver | null = null;
   private unsubscribe: (() => void) | null = null;
+  private unwatchMode: (() => void) | null = null;
   private readonly unwatchScheme: () => void;
   private opened = false;
 
@@ -60,7 +68,7 @@ export class TerminalHandle {
       if (width && height) this.fit.fit();
     });
     this.resize.observe(this.container);
-    cooked(
+    const discipline = lineDiscipline(
       this.terminal,
       {
         input: (text) => type(this.id, text),
@@ -68,7 +76,11 @@ export class TerminalHandle {
       },
       initialLines(this.id),
     );
+    // The node's line editing needs the terminal's size.
+    this.terminal.onResize(({ cols, rows }) => resize(this.id, cols, rows));
+    resize(this.id, this.terminal.cols, this.terminal.rows);
     this.unsubscribe = onOutput(this.id, (text) => this.terminal.write(text));
+    this.unwatchMode = onTerminalMode(this.id, (raw) => discipline.raw(raw));
   }
 
   attach(parent: HTMLElement) {
@@ -87,6 +99,7 @@ export class TerminalHandle {
 
   dispose() {
     this.unsubscribe?.();
+    this.unwatchMode?.();
     this.unwatchScheme();
     this.resize?.disconnect();
     this.terminal.dispose();

@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-13
+last_updated: 2026-10-15
 ---
 
 # The app (`playground/app`)
@@ -157,6 +157,9 @@ attaches to whichever panel shows it.
 - **History.** A terminal's history (up, down) starts with the lines its
   shell ran before it opened, so the first tab's `iex -S mix phx.server`
   is one up after Ctrl+C.
+- **IEx** edits its own lines: while it runs, keys go to it
+  as typed (tab completes, up recalls its history) and it knows the
+  terminal's size; Ctrl+C still stops it.
 - **The first tab** runs what the kind starts with and can't be closed. In
   a Phoenix project it is "Server"; "Restart server" interrupts it and
   types `cd /work/playground` and `iex -S mix phx.server` again.

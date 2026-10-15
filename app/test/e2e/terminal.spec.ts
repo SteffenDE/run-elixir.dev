@@ -1,5 +1,21 @@
 import { expect, test } from './fixtures';
-import { clickTerminalText, newProject, newShell, prompted, serverRunning } from './helpers';
+import {
+  clickTerminalText,
+  newProject,
+  newShell,
+  output,
+  prompted,
+  serverRunning,
+} from './helpers';
+
+// The visible terminal's last line with anything on it.
+const lastLine = (page: import('@playwright/test').Page) =>
+  page.evaluate(() =>
+    [...document.querySelectorAll('.terminal-host:not([hidden]) .xterm-rows > div')]
+      .map((row) => row.textContent?.trimEnd() ?? '')
+      .filter(Boolean)
+      .at(-1),
+  );
 
 // How far the visible terminal's screen stays inside its panel (both
 // non-negative when it fits).
@@ -56,14 +72,40 @@ test('the first terminal keeps the server command in its history', async ({ page
   await page.keyboard.press('Control+c');
   await prompted(page, 2);
   await page.keyboard.press('ArrowUp');
-  await expect
-    .poll(() =>
-      page.evaluate(() =>
-        [...document.querySelectorAll('.terminal-host:not([hidden]) .xterm-rows > div')]
-          .map((row) => row.textContent?.trimEnd() ?? '')
-          .filter(Boolean)
-          .at(-1),
-      ),
-    )
-    .toMatch(/\$ iex -S mix phx\.server$/);
+  await expect.poll(() => lastLine(page)).toMatch(/\$ iex -S mix phx\.server$/);
+});
+
+test('IEx edits its own lines: tab completes, up recalls, Ctrl+C leaves', async ({ page }) => {
+  await page.goto('/iex');
+  await expect.poll(() => output(page), { timeout: 120_000 }).toMatch(/iex\(1\)> $/);
+  await page.locator('.terminal-host:not([hidden]) .xterm').click();
+  await page.keyboard.type('String.upc');
+  await page.keyboard.press('Tab');
+  await expect.poll(() => lastLine(page)).toBe('iex(1)> String.upcase');
+  await page.keyboard.type('("tab")');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => output(page)).toMatch(/"TAB"\s+iex\(2\)> $/);
+  await page.keyboard.press('ArrowUp');
+  await expect.poll(() => lastLine(page)).toBe('iex(2)> String.upcase("tab")');
+  await page.keyboard.press('Enter');
+  // The terminal's width, also after it changes.
+  const columns = async (prompt: number) => {
+    await page.keyboard.type(':io.columns');
+    await page.keyboard.press('Enter');
+    const pattern = new RegExp(`\\{:ok, (\\d+)\\}\\s+iex\\(${prompt + 1}\\)> $`);
+    await expect.poll(() => output(page)).toMatch(pattern);
+    return Number((await output(page)).match(pattern)![1]);
+  };
+  const wide = await columns(3);
+  expect(wide).toBeGreaterThan(80);
+  await page.setViewportSize({ width: 900, height: 700 });
+  await page.waitForTimeout(1000);
+  expect(await columns(4)).toBeLessThan(wide);
+  // The shell's prompt (it ran `iex` at the first), and lines again.
+  await page.keyboard.press('Control+c');
+  await prompted(page, 2);
+  await page.keyboard.type('pwd');
+  await page.keyboard.press('Enter');
+  await prompted(page, 3);
+  expect(await output(page)).toMatch(/iex\(5\)> \n~ \$ \/work\n~ \$ $/);
 });

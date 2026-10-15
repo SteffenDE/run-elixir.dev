@@ -461,8 +461,11 @@ export class WASI {
   // closed), renamed or removed what is at the absolute `path`.
   // shared: { prefixes, call }: directories (as /work) another worker
   // holds, reached with call(request, bytes) (sharedClient).
-  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, network = new Network(), pump = () => {}, fetch, programs = {}, onchange = () => {}, shared = null }) {
+  // terminal: { mode('raw' | 'cooked'), size(): [columns, rows] }, the
+  // terminal the node may set to raw input (/.tty, tty.rs).
+  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, terminal = null, network = new Network(), pump = () => {}, fetch, programs = {}, onchange = () => {}, shared = null }) {
     this.shared = shared;
+    this.terminal = terminal;
     this.onchange = onchange;
     this.fetch = fetch;
     this.programs = programs;
@@ -1017,6 +1020,8 @@ export class WASI {
           const bytes = self.bytes(ptr, len);
           if (entry.nif) {
             entry.request.push(bytes.slice());
+          } else if (entry.terminal) {
+            self.terminal.mode(new TextDecoder().decode(bytes.slice()).trim());
           } else if (entry.spawn && !entry.process) {
             const error = self.spawn(entry, bytes);
             if (error) return error;
@@ -1088,6 +1093,20 @@ export class WASI {
         if (path === '.proc/spawn') {
           const opened = self.next++;
           self.fds.set(opened, { spawn: true, process: null });
+          self.view().setUint32(fdPtr, opened, true);
+          return ok;
+        }
+        // The terminal: writing `raw` or `cooked` to /.tty/mode sets its
+        // input mode; /.tty/size reads as `COLUMNS ROWS`.
+        if (path.startsWith('.tty/')) {
+          let entry;
+          if (!self.terminal) return E.NOENT;
+          if (path === '.tty/mode') entry = { terminal: true, node: new File() };
+          else if (path === '.tty/size') {
+            entry = { node: new File(new TextEncoder().encode(self.terminal.size().join(' '))), position: 0 };
+          } else return E.NOENT;
+          const opened = self.next++;
+          self.fds.set(opened, entry);
           self.view().setUint32(fdPtr, opened, true);
           return ok;
         }

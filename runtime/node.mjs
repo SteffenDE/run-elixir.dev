@@ -106,6 +106,11 @@ const wasi = new WASI({
   args: ['erl', ...args],
   env: { ...ENV, PWD: process.env.CWD || '/work', ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('ROTP_'))) },
   root,
+  // TTY=1: the standard streams are an 80x24 terminal that takes raw
+  // input; its mode changes go to standard error.
+  ...(process.env.TTY
+    ? { tty: true, terminal: { mode: (mode) => console.error(`[tty ${mode}]`), size: () => [80, 24] } }
+    : {}),
   // NO_EOF=1: once read, standard input waits instead of ending (IEx
   // halts at its end).
   stdin(max) {

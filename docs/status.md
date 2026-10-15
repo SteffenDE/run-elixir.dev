@@ -14,7 +14,8 @@ last_updated: 2026-10-15
   several tabs, one tab per project with a handover; deleting a project
   deletes its storage.
 - **Temporary IEx.** Answers about 1.4 s after load (Chromium). Modules
-  load lazily; colours, history, Ctrl+C.
+  load lazily; colours, IEx's own line editing (tab completion, history,
+  the terminal's width), Ctrl+C.
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
   compiled and used in about 20 s in Chromium and Firefox).
 - **NIFs built to WebAssembly** ([nif.md](nif.md)): a package the site

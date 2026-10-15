@@ -50,6 +50,9 @@ interface Session {
   listeners: Set<Output>;
   // The command lines it ran first, as if typed.
   initial: string[];
+  // Whether the node set its terminal to raw input, and who is told.
+  raw: boolean;
+  modeListeners: Set<(raw: boolean) => void>;
 }
 
 const sessions = new Map<number, Session>();
@@ -205,6 +208,21 @@ export function interrupt(id: number): void {
   sessions.get(id)?.node.interrupt();
 }
 
+// Whether shell `id`'s node reads raw keys (IEx's line editing) or lines:
+// now, and on each change.
+export function onTerminalMode(id: number, listener: (raw: boolean) => void): () => void {
+  const session = sessions.get(id);
+  if (!session) return () => {};
+  listener(session.raw);
+  session.modeListeners.add(listener);
+  return () => session.modeListeners.delete(listener);
+}
+
+// The size of shell `id`'s terminal, for the node's line editing.
+export function resize(id: number, columns: number, rows: number): void {
+  sessions.get(id)?.node.resize(columns, rows);
+}
+
 // Stop whatever runs in the first shell, then start the Phoenix server
 // again.
 export function restartServer(): void {
@@ -310,6 +328,8 @@ export function openTerminal(initial: string[] = []): number {
     backlog: '',
     listeners: new Set(),
     initial,
+    raw: false,
+    modeListeners: new Set(),
   };
   session.node = new Node({
     base: BUILD,
@@ -330,6 +350,10 @@ export function openTerminal(initial: string[] = []): number {
       } else useStore.getState().setStatus(text);
     },
     onlistening: updateListening,
+    onterminal(raw) {
+      session.raw = raw;
+      for (const listener of session.modeListeners) listener(raw);
+    },
   });
   sessions.set(id, session);
   session.node.start({

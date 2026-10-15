@@ -13,7 +13,7 @@ import { ENV, prepare, programs } from './setup.js';
 import { channel as threadChannel, Host } from './threads.js';
 import { vfs } from './vfs.js';
 
-const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8 };
+const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8, RESIZE: 9 };
 const RING = 1 << 20;
 const SHARED = ['/work', '/tmp'];
 const say = (kind, payload) => postMessage({ kind, payload });
@@ -49,6 +49,10 @@ class Channel {
     this.input = [];
     this.network = null;
     this.interrupted = false;
+    // The terminal's size (RESIZE frames) and whether the node set it to
+    // raw input.
+    this.size = [80, 24];
+    this.raw = false;
     // Programs the page runs (host.js programs), by id.
     this.processes = new Map();
   }
@@ -70,6 +74,10 @@ class Channel {
       const net = this.network;
       if (kind === FRAME.INPUT) this.input.push(payload);
       else if (kind === FRAME.INTERRUPT) this.interrupted = true;
+      else if (kind === FRAME.RESIZE) {
+        const view = new DataView(payload.buffer);
+        this.size = [view.getUint16(0, true), view.getUint16(2, true)];
+      }
       else if (kind === FRAME.OPEN) {
         if (!net || !net.accepted(id, (payload[0] << 8) | payload[1])) {
           postMessage({ kind: 'net', op: 'refused', id });
@@ -105,6 +113,13 @@ class Channel {
       at += part.length;
     }
     return bytes;
+  }
+  // The node set the terminal to raw input (IEx's line editing) or back:
+  // the page passes keys through instead of editing lines.
+  mode(raw) {
+    if (raw === this.raw) return;
+    this.raw = raw;
+    postMessage({ kind: 'tty', raw });
   }
   // A line typed at the shell (blocking).
   line() {
@@ -303,6 +318,10 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         env: { ...ENV, ...env, PWD: cwd },
         root,
         tty: true,
+        terminal: {
+          mode: (mode) => channel.mode(mode === 'raw'),
+          size: () => channel.size,
+        },
         network,
         pump,
         fetch: fetchFile,
@@ -330,6 +349,7 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
       } finally {
         // The interrupt that stopped the node is spent.
         channel.interrupted = false;
+        channel.mode(false);
         channel.network = null;
         for (const port of network.listeners.keys()) postMessage({ kind: 'listening', port, on: false });
         for (const id of network.endpoints.keys()) postMessage({ kind: 'net', op: 'close', id });

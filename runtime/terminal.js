@@ -1,12 +1,15 @@
-// A cooked terminal over xterm.js, as a tty driver gives one: echo, line
-// editing (left, right, backspace), history (up, down) and pastes; the
-// node gets whole lines. Ctrl+C interrupts the node. `typed`: lines the
-// shell ran before the terminal opened, as if typed here (the history).
-export function cooked(term, node, typed = []) {
+// A tty's line discipline over xterm.js. Cooked, as a tty driver gives
+// one: echo, line editing (left, right, backspace), history (up, down) and
+// pastes; the node gets whole lines. Raw (the node asked for it, as IEx's
+// line editing does): keys go to the node as typed, and it echoes. Ctrl+C
+// interrupts the node in both. `typed`: lines the shell ran before the
+// terminal opened, as if typed here (the history). raw(on) switches.
+export function lineDiscipline(term, node, typed = []) {
   let line = '';
   let cursor = 0;
   const history = typed.filter((text) => text.trim());
   let recalled = history.length;
+  let raw = false;
   const redraw = (next, at = next.length) => {
     term.write('\b'.repeat(cursor) + next + ' '.repeat(Math.max(0, line.length - next.length)));
     term.write('\b'.repeat(Math.max(line.length, next.length) - at));
@@ -19,7 +22,12 @@ export function cooked(term, node, typed = []) {
     node.input(text + '\n');
   };
   term.onData((data) => {
-    if (data === '\r') {
+    if (raw) {
+      if (data === '\x03') {
+        term.write('^C');
+        node.interrupt();
+      } else node.input(data);
+    } else if (data === '\r') {
       term.write('\r\n');
       enter(line);
       line = '';
@@ -58,4 +66,18 @@ export function cooked(term, node, typed = []) {
       }
     }
   });
+  return {
+    // A line being typed goes to the node to edit, off the screen here.
+    raw(on) {
+      if (on === raw) return;
+      raw = on;
+      if (raw && line) {
+        const typing = line;
+        redraw('', 0);
+        node.input(typing);
+      }
+      line = '';
+      cursor = 0;
+    },
+  };
 }

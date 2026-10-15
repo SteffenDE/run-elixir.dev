@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # The runtime (`playground/runtime`)
@@ -20,7 +20,7 @@ bundled), because the workers import them by URL.
 | `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.js` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
-| `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C. Tab and other control keys are dropped. |
+| `terminal.js` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
 | `https.js` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.js` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
@@ -56,6 +56,13 @@ environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the
 - **Terminal.** With `tty: true`, the standard streams are character devices
   without seek or tell rights, which is wasi-libc's test for `isatty`. The
   node then treats them as a terminal (colours, IEx's prompt).
+- **Raw input** (`/.tty`, with a `terminal`): the node writes `raw` or
+  `cooked` to `/.tty/mode`, and reads `/.tty/size` as `COLUMNS ROWS`
+  (`tty.rs`). worker.js tells the page of a mode change (a `tty` message;
+  back to cooked when the node ends) and keeps the size the page sends in
+  RESIZE frames. With TERM=xterm-256color and the entry at
+  `/usr/share/terminfo/x/xterm-256color`, IEx edits its own lines: tab
+  completion, its history, line wrapping by the terminal's width.
 - **Standard input** is a callback. It answers bytes, `null` when nothing is
   waiting (EAGAIN: the node polls again) or an empty array at its end.
 - **Sleep.** `poll_oneoff` with a clock calls `sleep(ms)`. The worker sleeps

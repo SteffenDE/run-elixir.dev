@@ -388,6 +388,10 @@ def main():
             if installed(relative):
                 files.append(("rotp/" + relative, os.path.join(INSTALL, relative)))
     files.append(("etc/ssl/certs/ca-certificates.crt", cacerts()))
+    # The terminal's terminfo entry (worker.js sets TERM): IEx's line
+    # editing needs it.
+    files.append(("usr/share/terminfo/x/xterm-256color",
+                  os.path.join(ROOT, "crates/rotp/terminfo/x/xterm-256color")))
     files += app_files(phoenix_app())
 
     # Everything lazy first, to record what each boot image's command

@@ -71,6 +71,7 @@ declare module '@runtime/host.js' {
       onstatus?: (text: string) => void;
       onexit?: (code: number) => void;
       onlistening?: (port: number, on: boolean) => void;
+      onterminal?: (raw: boolean) => void;
       serve?: Record<number, (connection: Connection) => void>;
       https?: ((connection: Connection, target: { host: string; port: number }) => void) | null;
       programs?: Record<
@@ -97,6 +98,7 @@ declare module '@runtime/host.js' {
     stop(): void;
     input(text: string): void;
     interrupt(): void;
+    resize(columns: number, rows: number): void;
     connect(port: number): Connection;
   }
 }
@@ -118,11 +120,11 @@ declare module '@runtime/postgres.js' {
   ): (connection: Connection) => void;
 }
 declare module '@runtime/terminal.js' {
-  export function cooked(
+  export function lineDiscipline(
     term: { write(data: string): void; onData(listener: (data: string) => void): unknown },
     node: { input(text: string): void; interrupt(): void },
     typed?: string[],
-  ): void;
+  ): { raw(on: boolean): void };
 }
 declare module '@runtime/https.js' {
   import type { Connection } from '@runtime/host.js';
