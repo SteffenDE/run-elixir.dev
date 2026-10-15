@@ -79,9 +79,9 @@ The filesystem holds:
 
    `configure()` edits the generated config:
    - **`dev.exs`:** the Repo uses database `postgres` with a pool of 1
-     (PGlite is one session). There is no symlink warning for colocated
-     assets. The watchers are phx.new's, esbuild and tailwind, which run
-     on the page; the natively built assets are where they start.
+     (PGlite is one session). The watchers are phx.new's, esbuild and
+     tailwind, which run on the page; the natively built assets are where
+     they start.
    - **`runtime.exs`:** the live reload block goes: without `inotifywait`
      its watcher sees no change. The IDE reloads the preview itself.
 4. **Files.** The installation, then the app:

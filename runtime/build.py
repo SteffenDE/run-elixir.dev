@@ -117,15 +117,12 @@ def rotp_env():
 
 
 # The playground's settings for a phx.new app's config/dev.exs: one
-# connection to PGlite (one session), and no warning for the symlinks WASI
-# has none of. configure also sets the watchers (WATCHERS) and takes live
-# reload out of runtime.exs (its socket needs a
+# connection to PGlite (one session). configure also sets the watchers
+# (WATCHERS) and takes live reload out of runtime.exs (its socket needs a
 # WebSocket, which the preview cannot open; the page reloads the preview).
 DEV_EXS = """
-# Playground: PGlite in the browser is one session; WebAssembly has no
-# symlinks for colocated assets.
+# Playground: PGlite in the browser is one session.
 config :playground, Playground.Repo, database: "postgres", pool_size: 1
-config :phoenix_live_view, :colocated_assets, disable_symlink_warning: true
 """
 # phx.new's watchers; both run on the page (programs/esbuild.ts and
 # tailwind.ts). The app's assets are built natively first, so the
