@@ -80,7 +80,7 @@ has one.
 
 ## Without a browser: `node.mjs`
 
-The Node harness ([build.md](build.md#the-node-harness-runtimenodemjs)) runs
+The Node harness ([build.md](build.md#the-node-harness-srcruntimenodets)) runs
 the site's node with the same shim. It is the quickest way to see what a
 node does: boot errors, a request's status and headers, which files are
 fetched, every WASI call. For example, IEx with input:

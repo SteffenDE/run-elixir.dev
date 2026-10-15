@@ -22,7 +22,7 @@ export default defineConfig(({ mode }): UserConfig =>
           target: 'node24',
           minify: false,
           rollupOptions: {
-            input: { node: runtime('node.mjs'), 'thread-node': runtime('thread-node.ts') },
+            input: { node: runtime('node.ts'), 'thread-node': runtime('thread-node.ts') },
             output: { format: 'es', entryFileNames: '[name].mjs', chunkFileNames: '[name]-[hash].mjs' },
           },
         },

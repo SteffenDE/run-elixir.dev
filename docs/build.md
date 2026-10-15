@@ -81,7 +81,7 @@ The filesystem holds:
    `files.js`, `thread.js` and `sw.js`, keep their names (the page starts
    them by URL; `sw.js` is the service worker), beside the app's in
    `dist/`, which goes into the site; with `--mode node`, the Node harness
-   (`node.mjs`, and `thread-node.ts` as `thread-node.mjs`) into `dist-node/`, which goes to
+   (`node.ts` and `thread-node.ts`, as `.mjs`) into `dist-node/`, which goes to
    `target/playground/node`. The NIF builds go into `nif/`.
 2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`, and
    `rotp-threads.wasm`, the same for `wasm32-wasip1-threads`.
@@ -134,7 +134,7 @@ The filesystem holds:
    - Results: 272 and 1342 files in the two images (3.8 and 14.5 MB),
      4825 lazy files in 706 bundles.
 
-## The Node harness (`src/runtime/node.mjs`)
+## The Node harness (`src/runtime/node.ts`)
 
 `node node.mjs DIR ERL-ARGS…` runs the site's node under Node with the same
 shim, without a browser. It runs bundled, from `target/playground/node`

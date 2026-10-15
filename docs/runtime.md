@@ -30,7 +30,7 @@ site's root. `node.mjs` is bundled for Node.
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
-| `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
+| `node.ts` (`build.py`, `serve.py` in `playground/runtime`) | build machine | See [build.md](build.md) and [testing.md](testing.md). |
 
 ## WASI (`wasi.ts`)
 

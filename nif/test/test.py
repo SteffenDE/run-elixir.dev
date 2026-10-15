@@ -1,5 +1,5 @@
 """The erl_nif layer from a node: layer.c built with nifcc, loaded and called
-by layer.exs in the Node harness (runtime/node.mjs, as build.py bundles it)
+by layer.exs in the Node harness (src/runtime/node.ts, which build.py bundles)
 over the built site.
 
     python3 -I playground/nif/build.py && python3 -I playground/runtime/build.py

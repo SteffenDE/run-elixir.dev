@@ -63,7 +63,7 @@ export class Exit extends Error {
 let inodes = 1;
 const now = () => BigInt(Date.now()) * 1000000n;
 
-// A file; `written` once the node has written it (node.mjs's SNAPSHOT).
+// A file; `written` once the node has written it (node.ts's SNAPSHOT).
 export class File {
   declare ino: bigint;
   declare data: Uint8Array;
@@ -103,7 +103,8 @@ export class File {
 // fetched by WASI's fetch(source, bundle) when first opened; `bundle`
 // names the tar in the site's fs/bundles/ that holds the file. mtime:
 // seconds since the epoch (Mix compares sources and manifests).
-export type Manifest = [path: string, size: number, mtime: number, bundle: number][];
+// A host's own files (node.ts MOUNT) have no mtime or bundle.
+export type Manifest = [path: string, size: number, mtime?: number, bundle?: number][];
 export type Fetch = (source: string, bundle: number) => Uint8Array;
 
 export function mount(manifest: Manifest, root: Dir): void {

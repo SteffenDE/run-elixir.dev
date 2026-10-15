@@ -1,4 +1,4 @@
-// What every playground node gets, in the browser and under node.mjs: its
+// What every playground node gets, in the browser and under node.ts: its
 // environment, the files around the installation, and its programs.
 import { File, urandom, type Dir, type Programs } from './wasi';
 import { git, esbuild, tailwind, make, type NifSource } from './programs';

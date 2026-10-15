@@ -3,8 +3,15 @@
 // SITE is a site build.py made (target/playground/site), or one of its
 // builds (b/ID). Standard input is read whole first and then ends.
 import { readFile } from 'node:fs/promises';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi';
+import {
+  existsSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  writeFileSync,
+  type Stats,
+} from 'node:fs';
+import { WASI, Dir, File, Network, Exit, untar, mount, bundled, type FsNode } from './wasi';
 import { ENV, prepare, programs } from './setup';
 import { vfs } from './vfs';
 
@@ -15,17 +22,16 @@ const dir = builds.length ? `${site}/b/${builds[0]}` : site;
 const t0 = performance.now();
 let t2 = Infinity;
 const root = new Dir();
-const hostFiles = new Map();
+const hostFiles = new Map<string, string>();
 mount(JSON.parse(await readFile(`${dir}/fs/manifest.json`, 'utf8')), root);
 // MOUNT=VFSDIR:HOSTDIR (comma-separated): a host directory's files, read
 // when first opened.
-import { readdirSync, statSync } from 'node:fs';
 for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
   const [at, host] = pair.split(':');
-  const walk = (dir, rel) => {
-    for (const name of readdirSync(dir)) {
-      const full = `${dir}/${name}`;
-      let stat;
+  const walk = (from: string, rel: string) => {
+    for (const name of readdirSync(from)) {
+      const full = `${from}/${name}`;
+      let stat: Stats;
       try {
         stat = statSync(full);
       } catch {
@@ -34,9 +40,10 @@ for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
       if (stat.isDirectory()) {
         root.mkdirs(`${at}/${rel}${name}`);
         walk(full, `${rel}${name}/`);
-      } else
-        (mount([[`${at.replace(/^\//, '')}/${rel}${name}`, stat.size]], root),
-          hostFiles.set(`${at.replace(/^\//, '')}/${rel}${name}`, full));
+      } else {
+        mount([[`${at.replace(/^\//, '')}/${rel}${name}`, stat.size]], root);
+        hostFiles.set(`${at.replace(/^\//, '')}/${rel}${name}`, full);
+      }
     }
   };
   walk(host, '');
@@ -51,17 +58,17 @@ const boots = process.env.BOOT
 let files = 0;
 for (const boot of boots) files += await untar(await readFile(`${dir}/fs/${boot}.tar.gz`), root);
 let fetched = 0;
-const recorded = [];
+const recorded: string[] = [];
 prepare(root);
 const t1 = performance.now();
 const module = await WebAssembly.compile(await readFile(`${dir}/rotp.wasm`));
-let input = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
+let input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 const wait = new Int32Array(new SharedArrayBuffer(4));
 // Mounted host files, or the site's bundles.
 const fromBundles = bundled(
   (bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)),
 );
-function fetchFile(source, bundle) {
+function fetchFile(source: string, bundle: number): Uint8Array {
   fetched++;
   recorded.push(source);
   if (process.env.SHOW_FETCH) console.error('fetch', source);
@@ -80,9 +87,15 @@ const requests = (process.env.HTTP || '')
     const at = r.indexOf('/');
     return { port: Number(r.slice(0, at)), path: r.slice(at) };
   });
-let current = null;
+let current: {
+  port: number;
+  path: string;
+  response: Uint8Array;
+  done: boolean;
+  t0: number;
+} | null = null;
 let nextId = 1;
-let served = null;
+let served: number | null = null;
 const pump = () => {
   if (process.env.STOP_AFTER && performance.now() - t2 > Number(process.env.STOP_AFTER))
     throw new Exit(0);
@@ -137,7 +150,9 @@ const wasi = new WASI({
   env: {
     ...ENV,
     PWD: process.env.CWD || '/work',
-    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('ROTP_'))),
+    ...(Object.fromEntries(
+      Object.entries(process.env).filter(([k]) => k.startsWith('ROTP_')),
+    ) as Record<string, string>),
   },
   root,
   // TTY=1: the standard streams are an 80x24 terminal that takes raw
@@ -184,7 +199,7 @@ if (process.env.TRACE_WASI) {
 const threaded = WebAssembly.Module.imports(module).some(
   (i) => i.module === 'env' && i.name === 'memory',
 );
-let status;
+let status: number | null;
 if (threaded) {
   const { Worker } = await import('node:worker_threads');
   const { channel, Host } = await import('./threads');
@@ -192,7 +207,7 @@ if (threaded) {
   wasi.memory = memory;
   const chan = channel();
   const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
-  const start = (tid, startArg) =>
+  const start = (tid: number, startArg: number) =>
     new Worker(new URL('./thread-node.mjs', import.meta.url), {
       workerData: { module, memory, chan, slot: tid, names, tid, startArg },
     });
@@ -219,10 +234,11 @@ if (threaded) {
 if (process.env.SNAPSHOT) {
   const fs = await import('node:fs');
   const [at, host] = process.env.SNAPSHOT.split(':');
-  let start = root;
-  for (const part of at.split('/').filter(Boolean)) start = start?.entries.get(part);
-  const walk = (dir, rel) => {
-    for (const [name, node] of dir.entries) {
+  let start: FsNode | undefined = root;
+  for (const part of at.split('/').filter(Boolean))
+    start = (start as Dir | undefined)?.entries.get(part);
+  const walk = (from: Dir, rel: string) => {
+    for (const [name, node] of from.entries) {
       if (node instanceof Dir) walk(node, `${rel}${name}/`);
       else if (node instanceof File && node.written) {
         const path = `${host}/${rel}${name}`;
@@ -241,4 +257,4 @@ if (process.env.RECORD)
 console.error(
   `[${files} files + ${fetched} fetched in ${Math.round(t1 - t0)} ms, compiled in ${Math.round(t2 - t1)} ms, ran ${Math.round(performance.now() - t2)} ms, exit ${status}]`,
 );
-process.exit(status);
+process.exit(status!);
