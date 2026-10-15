@@ -38,7 +38,7 @@ export default defineConfig(({ mode }): UserConfig =>
           rollupOptions: {
             input: {
               worker: runtime('worker.js'),
-              files: runtime('files.js'),
+              files: runtime('files.ts'),
               thread: runtime('thread.ts'),
               sw: runtime('sw.ts'),
             },

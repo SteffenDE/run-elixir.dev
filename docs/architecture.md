@@ -71,7 +71,7 @@ terminal. All of them are the shim's.
   Every worker has its own copy: its project kind's boot images unpacked
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
   on first use (see [build.md](build.md)).
-- **`/work` and `/tmp`** live in `src/runtime/files.js`, a worker that runs no node
+- **`/work` and `/tmp`** live in `src/runtime/files.ts`, a worker that runs no node
   and so is always free to answer. Nodes reach it synchronously: `wasi.ts`
   sends each call on those paths through a SharedArrayBuffer channel and
   waits with `Atomics.wait`. The page reaches it with messages (the IDE's

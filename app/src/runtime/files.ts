@@ -12,8 +12,60 @@
 // With a `store`, what changes below /work is kept (overlay.ts): written
 // a second after it changes, and laid over the template when the files
 // start again.
-import { Dir, File, Symlink, lookup, untar, mount, load, bundled } from './wasi';
+import {
+  Dir,
+  File,
+  Symlink,
+  lookup,
+  untar,
+  mount,
+  load,
+  bundled,
+  type Fetch,
+  type Found,
+  type FsNode,
+} from './wasi';
 import * as overlays from './overlay';
+import type { KeptRecord } from './overlay';
+import type { Entry } from './host';
+
+// This worker's postMessage (a dedicated worker's: the app's DOM library
+// has the page's).
+declare function postMessage(message: unknown, transfer?: Transferable[]): void;
+
+// A node's request (wasi.ts remote): the fields its op takes.
+interface NodeRequest {
+  op: string;
+  path: string;
+  to: string;
+  target: string;
+  follow?: boolean;
+  handle: number;
+  offset: number;
+  length: number;
+  oflags?: number;
+  append: boolean;
+  size: number;
+}
+// What answers it: its fields, or `answer` with `bytes` after it.
+type NodeAnswer = { error?: number; answer?: object; bytes?: Uint8Array; [field: string]: unknown };
+
+// The page's request (host.ts Files) and its reply.
+interface PageRequest {
+  id: number;
+  op: string;
+  path: string;
+  to: string;
+  skip?: string[];
+  data: Uint8Array;
+}
+type PageReply = {
+  id: number;
+  error?: string;
+  data?: Uint8Array;
+  changed?: { path: string; data: Uint8Array }[];
+  [field: string]: unknown;
+};
 
 const E = {
   SUCCESS: 0,
@@ -36,35 +88,36 @@ const now = () => BigInt(Date.now()) * 1000000n;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-let root = null;
-let fetchFile = null;
-const handles = new Map(); // handle -> { node, path, changed }
+// The tree and its lazily fetched files, from 'start' on.
+let root: Dir = null!;
+let fetchFile: Fetch = null!;
+const handles = new Map<number, { node: FsNode; path: string; changed: boolean }>();
 let nextHandle = 1;
-const changed = new Set();
+const changed = new Set<string>();
 let reported = 0;
-const channels = []; // { control: Int32Array, data: Uint8Array }
-let doorbell = null;
+const channels: { control: Int32Array; data: Uint8Array }[] = [];
+let doorbell: Int32Array = null!;
 // The kept changes: { db, version, whiteouts }, and the paths below /work
 // changed since they were last written (true: with everything in them).
-let overlay = null;
-const dirty = new Map();
+let overlay: { db: IDBDatabase; version: string; whiteouts: Set<string> } | null = null;
+const dirty = new Map<string, boolean>();
 // The template's files, as the project started (what 'changes' compares
 // with).
-const templateFiles = new Set();
-let saving = null;
+const templateFiles = new Set<string>();
+let saving: Promise<void> | null = null;
 let saved = 0;
 
 // { node, parent, name } or { error, parent?, name? } for an absolute path:
 // symbolic links on the way followed, a last one only when `follow`.
-function resolve(path, follow = false) {
+function resolve(path: string, follow = false): Found {
   return lookup(root, root, path, follow);
 }
 
-function type(node) {
+function type(node: FsNode): 'dir' | 'link' | 'file' {
   return node instanceof Dir ? 'dir' : node instanceof Symlink ? 'link' : 'file';
 }
 
-function status(node) {
+function status(node: FsNode) {
   return {
     type: type(node),
     size: node instanceof Dir ? 0 : node.size,
@@ -76,7 +129,7 @@ function status(node) {
 // `deep`: everything in it changed too (a directory moved there). It is
 // kept by its path with no symbolic links on the way, so it is laid back
 // where it is whether or not the links are back yet.
-function report(path, deep = false) {
+function report(path: string, deep = false): void {
   changed.add(path);
   if (!overlay) return;
   path = physical(path);
@@ -85,11 +138,11 @@ function report(path, deep = false) {
 
 // An absolute path with its directory's symbolic links resolved (its last
 // name, a link itself, stays).
-function physical(path) {
+function physical(path: string): string {
   const cut = path.lastIndexOf('/');
   const found = resolve(path.slice(0, cut) || '/', true);
   if (!(found.node instanceof Dir)) return path;
-  const names = [];
+  const names: string[] = [];
   for (let dir = found.node; dir.parent; dir = dir.parent) {
     for (const [name, child] of dir.parent.entries) {
       if (child === dir) {
@@ -103,49 +156,58 @@ function physical(path) {
 
 // The records for what changed (overlay.ts), and the directories whose
 // earlier records go.
-function collect(path, node, deep, records, cleared) {
+function collect(
+  path: string,
+  node: FsNode,
+  deep: boolean,
+  records: KeptRecord[],
+  cleared: string[],
+): void {
   if (node instanceof Dir) {
-    const opaque = deep || overlay.whiteouts.has(path);
+    const opaque = deep || overlay!.whiteouts.has(path);
     records.push({ path, kind: 'dir', opaque, mtime: String(node.mtime) });
     if (opaque) cleared.push(path);
-    overlay.whiteouts.delete(path);
+    overlay!.whiteouts.delete(path);
     if (deep)
       for (const [name, child] of node.entries)
         collect(`${path}/${name}`, child, true, records, cleared);
   } else if (node instanceof File) {
     load(node, fetchFile);
     records.push({ path, kind: 'file', data: node.bytes.slice(), mtime: String(node.mtime) });
-    overlay.whiteouts.delete(path);
+    overlay!.whiteouts.delete(path);
   } else if (node instanceof Symlink) {
     records.push({ path, kind: 'link', target: node.target, mtime: String(node.mtime) });
-    overlay.whiteouts.delete(path);
+    overlay!.whiteouts.delete(path);
   }
 }
 
 // Write what changed; one write at a time.
-function persist() {
+function persist(): Promise<void> | null {
   if (saving || !dirty.size) return saving;
-  const records = [];
-  const cleared = [];
+  const records: KeptRecord[] = [];
+  const cleared: string[] = [];
   for (const [path, deep] of [...dirty].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const found = resolve(path);
     if (found.node) {
       try {
         collect(path, found.node, deep, records, cleared);
       } catch (error) {
-        postMessage({ kind: 'warning', message: `${path}: not kept (${error.message})` });
+        postMessage({
+          kind: 'warning',
+          message: `${path}: not kept (${(error as Error).message})`,
+        });
       }
     } else {
       records.push({ path, kind: 'gone' });
       cleared.push(path);
-      overlay.whiteouts.add(path);
+      overlay!.whiteouts.add(path);
     }
   }
   dirty.clear();
   saved = performance.now();
   saving = overlays
-    .save(overlay.db, records, cleared, overlay.version)
-    .catch((error) =>
+    .save(overlay!.db, records, cleared, overlay!.version)
+    .catch((error: Error) =>
       postMessage({ kind: 'warning', message: `changes not kept: ${error.message}` }),
     )
     .finally(() => {
@@ -155,11 +217,11 @@ function persist() {
 }
 
 // Lay the kept changes over the files.
-function apply(records) {
+function apply(records: KeptRecord[]): void {
   for (const record of records) {
     const found = resolve(record.path);
     if (record.kind === 'gone') {
-      if (found.node) found.parent.entries.delete(found.name);
+      if (found.node) found.parent!.entries.delete(found.name!);
     } else if (record.kind === 'dir') {
       const dir =
         record.opaque || !(found.node instanceof Dir)
@@ -178,9 +240,21 @@ function apply(records) {
 
 // One request: { op, ... } and bytes; the answer and its bytes.
 function handle(
-  { op, path, to, target, follow = true, handle: id, offset, length, oflags = 0, append, size },
-  bytes,
-) {
+  {
+    op,
+    path,
+    to,
+    target,
+    follow = true,
+    handle: id,
+    offset,
+    length,
+    oflags = 0,
+    append,
+    size,
+  }: NodeRequest,
+  bytes?: Uint8Array,
+): NodeAnswer {
   switch (op) {
     case 'stat': {
       const found = resolve(path, follow);
@@ -197,7 +271,7 @@ function handle(
         if (!(oflags & OFLAGS.CREAT) || !found.parent) return { error: found.error };
         node = new File();
         node.written = true;
-        found.parent.entries.set(found.name, node);
+        found.parent.entries.set(found.name!, node);
         found.parent.mtime = now();
         created = true;
       }
@@ -227,9 +301,9 @@ function handle(
       const file = entry.node;
       if (!(file instanceof File)) return { error: E.ISDIR };
       const at = append ? file.size : offset;
-      const end = at + bytes.length;
+      const end = at + bytes!.length;
       file.reserve(end);
-      file.data.set(bytes, at);
+      file.data.set(bytes!, at);
       if (end > file.size) file.size = end;
       file.mtime = now();
       file.written = true;
@@ -270,7 +344,7 @@ function handle(
       if (!found.parent) return { error: found.error };
       const dir = new Dir();
       dir.parent = found.parent;
-      found.parent.entries.set(found.name, dir);
+      found.parent.entries.set(found.name!, dir);
       report(path);
       return {};
     }
@@ -279,7 +353,7 @@ function handle(
       if (!found.node) return { error: found.error };
       if (!(found.node instanceof Dir)) return { error: E.NOTDIR };
       if (found.node.entries.size) return { error: E.NOTEMPTY };
-      found.parent.entries.delete(found.name);
+      found.parent!.entries.delete(found.name!);
       report(path);
       return {};
     }
@@ -287,19 +361,19 @@ function handle(
       const found = resolve(path);
       if (!found.node) return { error: found.error };
       if (found.node instanceof Dir) return { error: E.ISDIR };
-      found.parent.entries.delete(found.name);
+      found.parent!.entries.delete(found.name!);
       report(path);
       return {};
     }
     case 'rename': {
       const from = resolve(path);
       if (!from.node) return { error: from.error };
-      const target = resolve(to);
-      if (!target.parent) return { error: target.error };
-      if (target.node instanceof Dir && target.node.entries.size) return { error: E.NOTEMPTY };
-      from.parent.entries.delete(from.name);
-      target.parent.entries.set(target.name, from.node);
-      if (from.node instanceof Dir) from.node.parent = target.parent;
+      const onto = resolve(to);
+      if (!onto.parent) return { error: onto.error };
+      if (onto.node instanceof Dir && onto.node.entries.size) return { error: E.NOTEMPTY };
+      from.parent!.entries.delete(from.name!);
+      onto.parent.entries.set(onto.name!, from.node);
+      if (from.node instanceof Dir) from.node.parent = onto.parent;
       report(path);
       report(to, true);
       return {};
@@ -308,10 +382,10 @@ function handle(
       const from = resolve(path, follow);
       if (!from.node) return { error: from.error };
       if (from.node instanceof Dir) return { error: E.PERM };
-      const target = resolve(to);
-      if (target.node) return { error: E.EXIST };
-      if (!target.parent) return { error: target.error };
-      target.parent.entries.set(target.name, from.node);
+      const onto = resolve(to);
+      if (onto.node) return { error: E.EXIST };
+      if (!onto.parent) return { error: onto.error };
+      onto.parent.entries.set(onto.name!, from.node);
       report(to);
       return {};
     }
@@ -319,7 +393,7 @@ function handle(
       const found = resolve(path);
       if (found.node) return { error: E.EXIST };
       if (!found.parent) return { error: found.error };
-      found.parent.entries.set(found.name, new Symlink(target));
+      found.parent.entries.set(found.name!, new Symlink(target));
       found.parent.mtime = now();
       report(path);
       return {};
@@ -343,11 +417,11 @@ function answer() {
     const total = Atomics.load(channel.control, 1);
     const request = JSON.parse(decoder.decode(channel.data.slice(4, 4 + headerLength)));
     const bytes = channel.data.slice(4 + headerLength, total);
-    let result;
+    let result: NodeAnswer;
     try {
       result = handle(request, bytes);
     } catch (error) {
-      result = { error: E.IO, message: error.message };
+      result = { error: E.IO, message: (error as Error).message };
     }
     const out = result.bytes ?? new Uint8Array(0);
     const header = encoder.encode(JSON.stringify(result.answer ?? result));
@@ -367,7 +441,12 @@ function answer() {
 }
 
 // Every file below `dir` (at `path`), but in directories named in `skip`.
-function walkFiles(dir, path, visit, skip = []) {
+function walkFiles(
+  dir: Dir,
+  path: string,
+  visit: (path: string, node: File) => void,
+  skip: string[] = [],
+): void {
   for (const [name, node] of dir.entries) {
     if (skip.includes(name)) continue;
     if (node instanceof Dir) walkFiles(node, `${path}/${name}`, visit, skip);
@@ -376,13 +455,16 @@ function walkFiles(dir, path, visit, skip = []) {
 }
 
 // The page's requests (host.ts Files): the same filesystem, by message.
-function page({ id, op, path, to, skip = [], data }) {
+function page({ id, op, path, to, skip = [], data }: PageRequest): PageReply {
   // Symbolic links are followed, but by what removes or renames them.
-  const found = path ? resolve(path, !['unlink', 'rmdir', 'remove', 'rename'].includes(op)) : null;
+  // Every request with a path needs it.
+  const found = (
+    path ? resolve(path, !['unlink', 'rmdir', 'remove', 'rename'].includes(op)) : null
+  ) as Found;
   switch (op) {
     case 'list': {
-      const entries = [];
-      const walk = (dir, prefix) => {
+      const entries: Entry[] = [];
+      const walk = (dir: Dir, prefix: string) => {
         for (const [name, node] of dir.entries) {
           if (skip.includes(name)) continue;
           const full = `${prefix}/${name}`;
@@ -399,23 +481,23 @@ function page({ id, op, path, to, skip = [], data }) {
     // directories named in `skip` (builds, dependencies): the files it
     // added or wrote, with their bytes, and the template's it removed.
     case 'changes': {
-      const changed = [];
-      const present = new Set();
+      const files: { path: string; data: Uint8Array }[] = [];
+      const present = new Set<string>();
       walkFiles(
-        resolve('/work').node,
+        resolve('/work').node as Dir,
         '/work',
         (file, node) => {
           present.add(file);
           if (templateFiles.has(file) && !node.written) return;
           load(node, fetchFile);
-          changed.push({ path: file, data: node.bytes.slice() });
+          files.push({ path: file, data: node.bytes.slice() });
         },
         skip,
       );
       const removed = [...templateFiles].filter(
         (file) => !present.has(file) && !file.split('/').some((part) => skip.includes(part)),
       );
-      return { id, changed, removed };
+      return { id, changed: files, removed };
     }
     case 'stat':
       return {
@@ -443,7 +525,7 @@ function page({ id, op, path, to, skip = [], data }) {
       if (!found.node) return { id, error: `${path}: no such file`, code: 'ENOENT' };
       if (found.node instanceof Dir)
         return { id, error: `${path}: is a directory`, code: 'EISDIR' };
-      found.parent.entries.delete(found.name);
+      found.parent!.entries.delete(found.name!);
       report(path);
       return { id };
     case 'rmdir':
@@ -451,7 +533,7 @@ function page({ id, op, path, to, skip = [], data }) {
       if (!(found.node instanceof Dir))
         return { id, error: `${path}: not a directory`, code: 'ENOTDIR' };
       if (found.node.entries.size) return { id, error: `${path}: not empty`, code: 'ENOTEMPTY' };
-      found.parent.entries.delete(found.name);
+      found.parent!.entries.delete(found.name!);
       report(path);
       return { id };
     case 'read': {
@@ -470,7 +552,7 @@ function page({ id, op, path, to, skip = [], data }) {
       } else if (found.parent) {
         const file = new File(data.slice());
         file.written = true;
-        found.parent.entries.set(found.name, file);
+        found.parent.entries.set(found.name!, file);
       } else return { id, error: `${path}: no such directory` };
       report(path);
       return { id };
@@ -481,18 +563,18 @@ function page({ id, op, path, to, skip = [], data }) {
       return { id };
     case 'remove':
       if (!found.node) return { id, error: `${path}: no such file` };
-      found.parent.entries.delete(found.name);
+      found.parent!.entries.delete(found.name!);
       report(path);
       return { id };
     case 'rename': {
-      const result = handle({ op: 'rename', path, to });
+      const result = handle({ op: 'rename', path, to } as NodeRequest);
       return result.error ? { id, error: `${path}: cannot rename` } : { id };
     }
   }
   return { id, error: `${op}: no such request` };
 }
 
-let loop = null;
+let loop: Promise<void> | null = null;
 
 onmessage = async ({ data }) => {
   if (data.kind === 'start') {
@@ -501,7 +583,12 @@ onmessage = async ({ data }) => {
       // directories below /work the project starts with, from the site's
       // files (/work/playground for a Phoenix project); store: the
       // IndexedDB database the project's changes are kept in.
-      const { base, boots = ['boot'], template = [], store = null } = data;
+      const {
+        base,
+        boots = ['boot'],
+        template = [],
+        store = null,
+      }: { base: string; boots?: string[]; template?: string[]; store?: string | null } = data;
       const [images, manifest, version] = await Promise.all([
         Promise.all(
           boots.map((boot) =>
@@ -512,11 +599,11 @@ onmessage = async ({ data }) => {
         fetch(new URL('fs/version', base)).then((r) => (r.ok ? r.text() : '')),
       ]);
       root = new Dir();
-      const shared = (path) =>
+      const shared = (path: string) =>
         `/${path}`.startsWith('/tmp/') ||
         template.some((prefix) => `/${path}/`.startsWith(`${prefix}/`));
       mount(
-        manifest.filter(([path]) => shared(path)),
+        manifest.filter(([path]: [string]) => shared(path)),
         root,
       );
       for (const image of images) await untar(new Uint8Array(image), root, shared);
@@ -536,7 +623,7 @@ onmessage = async ({ data }) => {
           kept = await overlays.load(db);
         }
         apply(kept.records);
-        const whiteouts = new Set(
+        const whiteouts = new Set<string>(
           kept.records.filter((record) => record.kind === 'gone').map((record) => record.path),
         );
         overlay = { db, version: version.trim(), whiteouts };
@@ -553,7 +640,7 @@ onmessage = async ({ data }) => {
       postMessage({ kind: 'ready' });
       loop ??= serve();
     } catch (error) {
-      postMessage({ kind: 'failed', message: error.stack || String(error) });
+      postMessage({ kind: 'failed', message: (error as Error).stack || String(error) });
     }
   } else if (data.kind === 'connect') {
     channels.push({
@@ -571,11 +658,11 @@ onmessage = async ({ data }) => {
     }
     postMessage({ kind: 'reply', id: data.id });
   } else if (data.kind === 'request') {
-    let reply;
+    let reply: PageReply;
     try {
       reply = page(data);
     } catch (error) {
-      reply = { id: data.id, error: error.message };
+      reply = { id: data.id, error: (error as Error).message };
     }
     const transfer = reply.data
       ? [reply.data.buffer]
@@ -585,7 +672,7 @@ onmessage = async ({ data }) => {
 };
 
 // Answer nodes as they ring; let the page's messages in between.
-async function serve() {
+async function serve(): Promise<void> {
   for (;;) {
     const started = performance.now();
     while (performance.now() - started < 20) {
@@ -594,6 +681,6 @@ async function serve() {
       if (Atomics.wait(doorbell, 0, rung, 5) === 'timed-out') break;
     }
     answer();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((wake) => setTimeout(wake, 0));
   }
 }
