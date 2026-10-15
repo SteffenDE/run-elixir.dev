@@ -37,3 +37,11 @@ config :playground, Playground.GitHubOAuth, client_id: "id", client_secret: "sec
 config :playground, Playground.Notifications.WebPush,
   private_key: "4_-XhK1BWn-e0SeiIz91kslpdBDa55zp2csaEP1XGnQ",
   subject: "mailto:test@localhost"
+
+config :playground, Playground.Nif.Agent,
+  api_key: "test",
+  req_http_options: [plug: {Req.Test, Playground.Nif.Agent}]
+
+# A toolchain for builds, without VM artifacts.
+config :playground, Playground.Sandbox,
+  artifacts_dir: Path.expand("../test/support/sandbox", __DIR__)

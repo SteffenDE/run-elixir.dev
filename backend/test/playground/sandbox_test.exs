@@ -19,7 +19,7 @@ defmodule Playground.SandboxTest do
   # The artifacts mix sandbox.setup built, or new ones. Firecracker must be on
   # the PATH, and /dev/kvm usable.
   setup_all do
-    dir = Sandbox.artifacts_dir()
+    dir = Path.expand("../../priv/sandbox", __DIR__)
 
     unless File.exists?(Path.join(dir, "manifest.json")) do
       {:ok, _kernel} = Builder.build_kernel(output_dir: dir)

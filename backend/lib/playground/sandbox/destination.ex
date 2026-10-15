@@ -48,9 +48,9 @@ defmodule Playground.Sandbox.Destination do
   Returns whether a name is one of `allowed`: a name, or `*.domain` for every
   name below that domain.
 
-      iex> allowed?("codeload.github.com", ["github.com", "*.github.com"])
+      iex> Playground.Sandbox.Destination.allowed?("codeload.github.com", ["github.com", "*.github.com"])
       true
-      iex> allowed?("github.com.evil.example", ["github.com"])
+      iex> Playground.Sandbox.Destination.allowed?("github.com.evil.example", ["github.com"])
       false
 
   """

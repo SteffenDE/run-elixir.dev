@@ -3,6 +3,8 @@ defmodule Playground.Sandbox.DestinationTest do
 
   alias Playground.Sandbox.Destination
 
+  doctest Destination
+
   test "denies reserved addresses" do
     for address <- [
           "0.0.0.0",
