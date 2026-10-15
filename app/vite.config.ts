@@ -8,7 +8,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': new URL('./src', import.meta.url).pathname,
-      '@runtime': new URL('../runtime', import.meta.url).pathname,
+      '@runtime': new URL('./src/runtime', import.meta.url).pathname,
     },
   },
   // Absolute: the page is served at every project's path (/ID/).

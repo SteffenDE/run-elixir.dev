@@ -1,5 +1,5 @@
 // Hex for the nodes: Hex fetches from a port the page serves (HEX_MIRROR,
-// HEX_API_URL), and the page fetches for it (runtime/fetcher.js). Hex
+// HEX_API_URL), and the page fetches for it (src/runtime/fetcher.js). Hex
 // checks the registry's signature and each tarball's checksum itself, so
 // whatever serves the repository can delay or fail, not alter.
 //

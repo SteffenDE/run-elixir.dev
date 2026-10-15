@@ -1,4 +1,4 @@
-// The playground runtime's modules (playground/runtime), plain JavaScript.
+// The playground runtime's modules (src/runtime), plain JavaScript.
 declare module '@runtime/host.js' {
   export interface Connection {
     ondata: (bytes: Uint8Array) => void;

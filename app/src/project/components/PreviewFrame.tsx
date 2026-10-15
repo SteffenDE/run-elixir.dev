@@ -30,7 +30,7 @@ interface Props {
 }
 
 // The app in the node, in an iframe the service worker serves
-// (runtime/sw.js), with a path bar.
+// (src/runtime/sw.js), with a path bar.
 export function PreviewFrame({
   running,
   path,

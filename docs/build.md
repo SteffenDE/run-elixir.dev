@@ -134,7 +134,7 @@ The filesystem holds:
    - Results: 272 and 1342 files in the two images (3.8 and 14.5 MB),
      4825 lazy files in 706 bundles.
 
-## The Node harness (`runtime/node.mjs`)
+## The Node harness (`src/runtime/node.mjs`)
 
 `node node.mjs DIR ERL-ARGS…` runs the site's node under Node with the same
 shim, without a browser. It runs bundled, from `target/playground/node`

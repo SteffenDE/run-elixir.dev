@@ -4,7 +4,7 @@ status: live
 last_updated: 2026-10-15
 ---
 
-# The runtime (`playground/runtime`)
+# The runtime (`playground/app/src/runtime`)
 
 The site's runtime: JavaScript modules, which the app's Vite build
 bundles ([build.md](build.md#steps)). The page's parts (`host.js`,

@@ -13,7 +13,7 @@ Dexie, Remix Icon, xterm.js (with its fit and web-links addons), PGlite and
 `tailwindcss`. Versions are exact in `package.json`; `package-lock.json` is
 committed. The layout follows tc's: `src/home`, `src/project` and
 `src/shared`, each with `components/` and `lib/`; imports use `@/` for
-`src/` and `@runtime/` for `playground/runtime`.
+`src/` and `@runtime/` for `src/runtime`.
 
 ```sh
 cd playground/app

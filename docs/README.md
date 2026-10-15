@@ -9,7 +9,7 @@ last_updated: 2026-10-15
 The Elixir Playground runs Rust-OTP (`crates/rotp`), compiled to
 `wasm32-wasip1`, in the browser: OTP 29 and Elixir 1.20 boot in Web Workers
 from an in-memory filesystem. One static site
-(`playground/app` and `playground/runtime`, elixir-playground.steffend.me)
+(`playground/app`, its runtime in `src/runtime`; elixir-playground.steffend.me)
 holds every project:
 
 - **Phoenix project** (`/phoenix`): an IDE around a `phx.new` app. File
@@ -42,7 +42,7 @@ Vite build). See [build.md](build.md).
 | --- | --- |
 | [architecture.md](architecture.md) | The moving parts: page, workers, service worker, shared files, how a request reaches Phoenix. |
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
-| [runtime.md](runtime.md) | `playground/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
+| [runtime.md](runtime.md) | `playground/app/src/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
 | [rotp-wasm.md](rotp-wasm.md) | What Rust-OTP does differently on `wasm32-wasip1`. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [backend.md](backend.md) | `playground/backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |

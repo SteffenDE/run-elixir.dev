@@ -32,7 +32,7 @@ several projects (one tab per project, [projects.md](projects.md)).
 ## The node
 
 A node is one Rust-OTP instance: `rotp.wasm` instantiated in a Web Worker
-(`runtime/worker.js`) with the WASI imports from `runtime/wasi.js`. The node
+(`src/runtime/worker.js`) with the WASI imports from `src/runtime/wasi.js`. The node
 sees an ordinary filesystem, TCP, child processes, a clock, random bytes and a
 terminal. All of them are the shim's.
 
@@ -41,8 +41,8 @@ terminal. All of them are the shim's.
   worker loads `rotp-threads.wasm` (`wasm32-wasip1-threads`) and runs the
   node with as many schedulers as the machine has cores, at most four.
   The worker then runs no WebAssembly: it keeps the WASI state and serves
-  the threads' calls (`runtime/threads.js`), and the page starts a worker
-  for each thread (`runtime/thread.js`), since a worker busy serving could
+  the threads' calls (`src/runtime/threads.js`), and the page starts a worker
+  for each thread (`src/runtime/thread.js`), since a worker busy serving could
   not start them; the page stops them when the node ends. Elsewhere, or
   when `rotp-threads.wasm` does not load, the worker runs `rotp.wasm` with
   one scheduler itself. Chromium before 157 (V8 before 15.7) checks
@@ -71,7 +71,7 @@ terminal. All of them are the shim's.
   Every worker has its own copy: its project kind's boot images unpacked
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
   on first use (see [build.md](build.md)).
-- **`/work` and `/tmp`** live in `runtime/files.js`, a worker that runs no node
+- **`/work` and `/tmp`** live in `src/runtime/files.js`, a worker that runs no node
   and so is always free to answer. Nodes reach it synchronously: `wasi.js`
   sends each call on those paths through a SharedArrayBuffer channel and
   waits with `Atomics.wait`. The page reaches it with messages (the IDE's
@@ -85,7 +85,7 @@ terminal. All of them are the shim's.
 
 ## How a preview request reaches Phoenix
 
-1. The preview iframe asks for `/posts`. The service worker (`runtime/sw.js`)
+1. The preview iframe asks for `/posts`. The service worker (`src/runtime/sw.js`)
    answers only the preview's requests: iframe navigations, and requests
    from clients it has seen to be nested frames. Everything else goes to the
    network directly.
@@ -96,7 +96,7 @@ terminal. All of them are the shim's.
    With a project domain each project has an origin, and so a service
    worker, of its own ([projects.md](projects.md#a-project-domain)). Its
    frames (`registry.html`, `storage.html`) are never a preview.
-3. `runtime/bridge.js` on the page opens a connection to the preview's port
+3. `src/runtime/bridge.js` on the page opens a connection to the preview's port
    (4000, else the lowest port a node serves on; ports a node asked for
    with 0, such as Mix's compile lock's, are no server) of the node that
    listens there. Nodes report their listening ports, and the IDE routes by
@@ -114,7 +114,7 @@ over it as outside the playground.
 ## The database
 
 Postgrex connects to `localhost:5432`. That port is served on the page:
-`runtime/postgres.js` hands whole wire-protocol messages to PGlite's
+`src/runtime/postgres.js` hands whole wire-protocol messages to PGlite's
 `execProtocolRaw`, one connection at a time. PGlite is a single session, so
 the app's pool has one connection. It starts on the first connection, and a
 stored project's lives in IndexedDB (`idb://playground-pg-ID`); a temporary
@@ -126,7 +126,7 @@ The node has no sockets to the internet, and the page reads only what
 CORS allows: hex.pm's API does, repo.hex.pm (the registry and tarballs)
 does not. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
-`runtime/fetcher.js`, which answers each request with a `fetch()`
+`src/runtime/fetcher.js`, which answers each request with a `fetch()`
 (`src/project/lib/hex.ts`):
 
 - `/repo/…` goes to the site's own proxy at `/hex/` (`serve.py`, Caddy in

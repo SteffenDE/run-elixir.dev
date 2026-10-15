@@ -9,7 +9,7 @@ import { defineConfig, type UserConfig } from 'vite';
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness (node.mjs and its threads' thread-node.mjs) into dist-node/
 // instead.
-const runtime = (name: string) => new URL(`../runtime/${name}`, import.meta.url).pathname;
+const runtime = (name: string) => new URL(`./src/runtime/${name}`, import.meta.url).pathname;
 
 export default defineConfig(({ mode }): UserConfig =>
   mode === 'node'

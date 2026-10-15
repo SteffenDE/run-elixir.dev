@@ -1,5 +1,6 @@
 {
   "plugins": ["react", "typescript"],
   "categories": { "correctness": "error", "suspicious": "warn" },
-  "rules": { "react/react-in-jsx-scope": "off" }
+  "rules": { "react/react-in-jsx-scope": "off" },
+  "ignorePatterns": ["src/runtime"]
 }
