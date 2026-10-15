@@ -3,9 +3,11 @@ with the cross-origin isolation SharedArrayBuffer needs, index.html for
 paths that are no file (a project's /ID/), Hex's repository at /hex/
 (repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
 clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
-does in production.
+does in production; and the backend's NIF builds at /api/nif/
+(docs/backend.md), from production's unless --api names another backend
+(http://localhost:4000, say).
 
-    python3 -I playground/runtime/serve.py [PORT] [--domain DOMAIN]
+    python3 -I playground/runtime/serve.py [PORT] [--domain DOMAIN] [--api URL]
 
 With --domain (for example playground.localhost:8082: browsers resolve
 *.localhost to this machine, and with two labels the apex and its
@@ -85,6 +87,28 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
         return True
 
+    # The backend's NIF builds (docs/backend.md): its answers as they are.
+    API = re.compile(r"^/api/nif/[A-Za-z0-9_]+/[A-Za-z0-9_.+-]+(/library\.tar)?$")
+
+    def proxy_api(self):
+        if not self.API.match(self.path.split("?")[0]):
+            return False
+        request = urllib.request.Request(API + self.path, headers={"User-Agent": "playground-serve"})
+        try:
+            upstream = urllib.request.urlopen(request, timeout=60)
+        except urllib.error.HTTPError as error:
+            upstream = error
+        except urllib.error.URLError as error:
+            self.send_error(502, f"backend: {error.reason}")
+            return True
+        data = upstream.read()
+        self.send_response(upstream.status)
+        self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/octet-stream"))
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+        return True
+
     def do_POST(self):
         if not self.proxy_git("POST"):
             self.send_error(405)
@@ -97,7 +121,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-        elif not self.proxy_hex(False) and not self.proxy_git("GET"):
+        elif not self.proxy_hex(False) and not self.proxy_git("GET") and not self.proxy_api():
             super().do_GET()
 
     def do_HEAD(self):
@@ -122,7 +146,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 directory = os.path.join(ROOT, "target", "playground", "site")
 args = sys.argv[1:]
 DOMAIN = args[args.index("--domain") + 1] if "--domain" in args else None
-args = [arg for i, arg in enumerate(args) if arg != "--domain" and (i == 0 or args[i - 1] != "--domain")]
+API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir.dev").rstrip("/")
+args = [arg for i, arg in enumerate(args)
+        if arg not in ("--domain", "--api") and (i == 0 or args[i - 1] not in ("--domain", "--api"))]
 port = int(args[0]) if args else 8080
-print(f"http://localhost:{port}/ serving {directory}")
+print(f"http://localhost:{port}/ serving {directory}, NIF builds from {API}")
 http.server.ThreadingHTTPServer(("", port), functools.partial(Handler, directory=directory)).serve_forever()

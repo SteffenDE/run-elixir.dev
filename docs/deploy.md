@@ -270,8 +270,10 @@ phoenix-playground.steffend.me {
 
 `python3 -I playground/runtime/serve.py [PORT]` serves
 `target/playground/site` with the isolation headers, `no-cache` and the
-`index.html` fallback, and proxies `/hex/` as above. It does not
-compress. With `--domain playground.localhost:PORT` it answers
+`index.html` fallback, and proxies `/hex/` as above, and `/api/nif/` to
+the backend: production's (run-elixir.dev), or the one `--api URL`
+names (`--api http://localhost:4000` for a local `mix phx.server`). It
+does not compress. With `--domain playground.localhost:PORT` it answers
 `playground.json` with that project domain, whatever the build says:
 browsers resolve `*.localhost` to this machine, and with two labels the
 apex and its projects are one site (Chromium takes `localhost` for a
