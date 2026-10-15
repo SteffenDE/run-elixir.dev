@@ -13,6 +13,7 @@ import '@xterm/xterm/css/xterm.css';
 import { cooked } from '@runtime/terminal.js';
 import { interrupt, onOutput, type } from '@/project/lib/playground';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
+import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
 
 export class TerminalHandle {
   private readonly root = document.createElement('div');
@@ -21,6 +22,7 @@ export class TerminalHandle {
   private readonly fit = new FitAddon();
   private resize: ResizeObserver | null = null;
   private unsubscribe: (() => void) | null = null;
+  private readonly unwatchScheme: () => void;
   private opened = false;
 
   constructor(private readonly id: number) {
@@ -33,7 +35,7 @@ export class TerminalHandle {
       // A little smaller on phones, for more columns.
       fontSize: matchMedia('(max-width: 720px)').matches ? 12 : 13,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      theme: { background: '#16141c' },
+      theme: terminalTheme(),
       scrollback: 5000,
     });
     this.terminal.loadAddon(this.fit);
@@ -44,6 +46,9 @@ export class TerminalHandle {
       }),
     );
     this.terminal.registerLinkProvider(linkProvider(this.terminal));
+    this.unwatchScheme = onSchemeChange(() => {
+      this.terminal.options.theme = terminalTheme();
+    });
   }
 
   // The first attach opens the terminal and connects it to its shell.
@@ -78,6 +83,7 @@ export class TerminalHandle {
 
   dispose() {
     this.unsubscribe?.();
+    this.unwatchScheme();
     this.resize?.disconnect();
     this.terminal.dispose();
     this.root.remove();
