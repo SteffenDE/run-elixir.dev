@@ -61,10 +61,32 @@ function status(node) {
   };
 }
 
-// `deep`: everything in it changed too (a directory moved there).
+// `deep`: everything in it changed too (a directory moved there). It is
+// kept by its path with no symbolic links on the way, so it is laid back
+// where it is whether or not the links are back yet.
 function report(path, deep = false) {
   changed.add(path);
-  if (overlay && path.startsWith('/work/')) dirty.set(path, dirty.get(path) || deep);
+  if (!overlay) return;
+  path = physical(path);
+  if (path.startsWith('/work/')) dirty.set(path, dirty.get(path) || deep);
+}
+
+// An absolute path with its directory's symbolic links resolved (its last
+// name, a link itself, stays).
+function physical(path) {
+  const cut = path.lastIndexOf('/');
+  const found = resolve(path.slice(0, cut) || '/', true);
+  if (!(found.node instanceof Dir)) return path;
+  const names = [];
+  for (let dir = found.node; dir.parent; dir = dir.parent) {
+    for (const [name, child] of dir.parent.entries) {
+      if (child === dir) {
+        names.unshift(name);
+        break;
+      }
+    }
+  }
+  return `/${names.join('/')}${path.slice(cut)}`;
 }
 
 // The records for what changed (overlay.js), and the directories whose

@@ -109,18 +109,26 @@ export class Dir {
     this.entries = new Map();
     this.mtime = now();
   }
-  // The directory at a slash-separated path below this one, made as needed
-  // (symbolic links on the way followed: a kept file was recorded by the
-  // path written through one).
-  mkdirs(path) {
+  // The directory at a slash-separated path from this one, made as needed.
+  // Symbolic links on the way are followed, and what a dangling one names
+  // is made too: kept changes are laid back in path order, so a link can
+  // come before its target, and older kept files were recorded by the path
+  // written through one.
+  mkdirs(path, hops = 0) {
     let dir = this;
-    for (const name of path.split('/').filter(Boolean)) {
+    for (const name of path.split('/').filter((p) => p && p !== '.')) {
+      if (name === '..') {
+        dir = dir.parent || dir;
+        continue;
+      }
       let next = dir.entries.get(name);
       if (next instanceof Symlink) {
+        if (hops >= 40) throw new Error(`${path}: too many symbolic links`);
         let top = dir;
         while (top.parent) top = top.parent;
-        next = lookup(top, dir, next.target).node;
-        if (!(next instanceof Dir)) throw new Error(`${path}: ${name} names no directory`);
+        next = (next.target.startsWith('/') ? top : dir).mkdirs(next.target, hops + 1);
+      } else if (next && !(next instanceof Dir)) {
+        throw new Error(`${path}: ${name} names no directory`);
       }
       if (!next) {
         next = new Dir();

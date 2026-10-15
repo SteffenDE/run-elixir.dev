@@ -45,7 +45,9 @@ environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the
   `lstat` and `O_NOFOLLOW` do not); a relative target is read from the
   link's directory, `..` is the physical parent, and 40 links in a row are
   `ELOOP`. The shared files (`files.js`) resolve the same way and keep a
-  link as a record of its own (overlay.js); the page's requests follow
+  link as a record of its own (overlay.js); a change is kept by its path
+  with the links on the way resolved, and laying the records back makes
+  what a dangling link names, as a link can sort before it; the page's requests follow
   links but for removing and renaming. A link and what it names stay on
   one side, the shared directories (`/work`, `/tmp`) or a node's own: a
   path goes to one or the other by its prefix. Mix links a build's `priv`

@@ -6,33 +6,35 @@ test('symbolic links name files and directories, and are kept', async ({ page })
   await prompted(page, 1);
   await run(
     page,
-    `elixir -e 'File.mkdir_p!("data"); File.write!("data/a.txt", "through"); ` +
-      `:ok = File.ln_s("data", "dir_link"); :ok = File.ln_s("data/a.txt", "file_link")'`,
+    `elixir -e 'File.mkdir_p!("tree"); File.write!("tree/a.txt", "through"); ` +
+      `:ok = File.ln_s("tree", "dir_link"); :ok = File.ln_s("tree/a.txt", "file_link")'`,
   );
   const seen = await run(
     page,
     `elixir -e 'IO.inspect({File.read!("dir_link/a.txt"), File.read!("file_link"), ` +
       `File.ls!("dir_link"), File.read_link("dir_link"), File.lstat!("dir_link").type, ` +
       `File.stat!("dir_link").type, File.dir?("dir_link")}); ` +
-      `File.write!("dir_link/b.txt", "written"); IO.inspect(File.read!("data/b.txt"))'`,
+      `File.write!("dir_link/b.txt", "written"); IO.inspect(File.read!("tree/b.txt"))'`,
   );
   expect(seen).toContain(
-    '{"through", "through", ["a.txt"], {:ok, "data"}, :symlink, :directory, true}',
+    '{"through", "through", ["a.txt"], {:ok, "tree"}, :symlink, :directory, true}',
   );
   expect(seen).toContain('"written"');
   // Removing a link leaves what it names.
   await run(page, 'rm file_link');
   expect(await exists(page, '/work/file_link')).toBe(false);
-  expect(await exists(page, '/work/data/a.txt')).toBe(true);
+  expect(await exists(page, '/work/tree/a.txt')).toBe(true);
+  // The link sorts before what it names, as a build's priv link does, and a
+  // file written through it is kept where it is.
   await page.evaluate(() => window.playground.files.flush());
   await page.reload();
   await prompted(page, 1);
   expect(
     await run(
       page,
-      `elixir -e 'IO.inspect({File.read_link("dir_link"), File.read!("dir_link/a.txt")})'`,
+      `elixir -e 'IO.inspect({File.read_link("dir_link"), File.read!("dir_link/a.txt"), File.read!("tree/b.txt")})'`,
     ),
-  ).toContain('{{:ok, "data"}, "through"}');
+  ).toContain('{{:ok, "tree"}, "through", "written"}');
 });
 
 test("a Phoenix project's build links its priv, and Phoenix does not warn", async ({ page }) => {
