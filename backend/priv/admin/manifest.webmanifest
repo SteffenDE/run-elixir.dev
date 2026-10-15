@@ -1,0 +1,9 @@
+{
+  "name": "Playground admin",
+  "short_name": "Playground",
+  "start_url": "/admin/",
+  "scope": "/admin/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#4b275f"
+}

@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playground admin</title>
+  <link rel="manifest" href="/admin/manifest.webmanifest">
+  <style>
+    :root { --fg: #1d1d1f; --muted: #6e6e73; --line: #e5e5ea; --bg: #fff; --accent: #4b275f; }
+    @media (prefers-color-scheme: dark) {
+      :root { --fg: #f5f5f7; --muted: #a1a1a6; --line: #38383a; --bg: #1c1c1e; --accent: #c9a7ec; }
+    }
+    body { font: 15px/1.45 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0 auto; max-width: 960px; padding: 16px; }
+    h1 { font-size: 20px; } h2 { font-size: 16px; margin-top: 28px; }
+    button { font: inherit; padding: 6px 12px; border: 1px solid var(--line); border-radius: 6px; background: none; color: var(--fg); cursor: pointer; }
+    button.primary { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+    .muted { color: var(--muted); }
+    .table { overflow-x: auto; }
+    table { border-collapse: collapse; width: 100%; font-size: 14px; }
+    th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+    td.wrap { white-space: normal; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <h1>Playground admin</h1>
+
+  <h2>Notifications</h2>
+  <p id="push-state" class="muted">Checking this browser…</p>
+  <p>
+    <button class="primary" id="enable">Turn on</button>
+    <button id="disable">Turn off</button>
+    <button id="test">Send a test</button>
+  </p>
+
+  <h2>Recent builds</h2>
+  <div class="table"><table>
+    <thead><tr><th>Package</th><th>Version</th><th>Status</th><th>Updated</th><th>Error</th></tr></thead>
+    <tbody id="builds"></tbody>
+  </table></div>
+  <p class="muted">JSON: <a href="/api/admin/builds">builds</a> · <a href="/api/admin/templates">templates</a> · <a href="/api/admin/setups">setups</a></p>
+
+  <script type="module">
+    const api = async (path, options = {}) => {
+      const response = await fetch(path, {
+        ...options,
+        headers: {"content-type": "application/json", ...(options.headers || {})},
+      })
+      if (!response.ok) throw new Error(`${path}: ${response.status}`)
+      return response.json()
+    }
+
+    const decodeKey = (key) => {
+      const base64 = (key + "=".repeat((4 - key.length % 4) % 4)).replace(/-/g, "+").replace(/_/g, "/")
+      return Uint8Array.from(atob(base64), (c) => c.charCodeAt(0))
+    }
+
+    const state = document.querySelector("#push-state")
+    const supported = "serviceWorker" in navigator && "PushManager" in window && "Notification" in window
+    const registration = async () => {
+      await navigator.serviceWorker.register("/admin/sw.js", {scope: "/admin/"})
+      return navigator.serviceWorker.ready
+    }
+
+    const deviceName = () => {
+      const ua = navigator.userAgent
+      const device = /iPhone/.test(ua) ? "iPhone" : /iPad/.test(ua) ? "iPad" : /Android/.test(ua) ? "Android" :
+        /Macintosh/.test(ua) ? "Mac" : /Windows/.test(ua) ? "Windows" : /Linux/.test(ua) ? "Linux" : "Browser"
+      const browser = /Edg\//.test(ua) ? "Edge" : /Firefox\//.test(ua) ? "Firefox" : /Chrome\//.test(ua) ? "Chrome" :
+        /Safari\//.test(ua) ? "Safari" : null
+      return browser ? `${browser} on ${device}` : device
+    }
+
+    const report = async () => {
+      if (!supported) return state.textContent = "This browser can't receive notifications (on an iPhone, add this page to the home screen first)."
+      if (Notification.permission === "denied") return state.textContent = "Notifications are blocked for this site."
+      const {public_key, subscriptions} = await api("/api/admin/push")
+      if (!public_key) return state.textContent = "No VAPID key is configured (PLAYGROUND_VAPID_PRIVATE_KEY)."
+      const subscription = await (await registration()).pushManager.getSubscription()
+      const on = subscription && subscriptions.some((s) => s.endpoint === subscription.endpoint)
+      state.textContent = `${on ? "On" : "Off"} for this browser. ${subscriptions.length} device(s) subscribed.`
+    }
+
+    document.querySelector("#enable").onclick = async () => {
+      if (await Notification.requestPermission() !== "granted") return report()
+      const {public_key} = await api("/api/admin/push")
+      const {pushManager} = await registration()
+      let subscription = await pushManager.getSubscription()
+      subscription ||= await pushManager.subscribe({userVisibleOnly: true, applicationServerKey: decodeKey(public_key)})
+      await api("/api/admin/push/subscriptions", {method: "POST", body: JSON.stringify({...subscription.toJSON(), device: deviceName()})})
+      report()
+    }
+
+    document.querySelector("#disable").onclick = async () => {
+      const subscription = await (await registration()).pushManager.getSubscription()
+      if (subscription) {
+        await subscription.unsubscribe()
+        await api("/api/admin/push/subscriptions", {method: "DELETE", body: JSON.stringify({endpoint: subscription.endpoint})})
+      }
+      report()
+    }
+
+    document.querySelector("#test").onclick = () => api("/api/admin/push/test", {method: "POST"})
+
+    const cell = (text, wrap) => {
+      const td = document.createElement("td")
+      td.textContent = text ?? ""
+      if (wrap) td.className = "wrap"
+      return td
+    }
+
+    report().catch((error) => state.textContent = error.message)
+
+    const {builds} = await api("/api/admin/builds")
+    document.querySelector("#builds").replaceChildren(...builds.slice(0, 50).map((b) => {
+      const tr = document.createElement("tr")
+      const link = document.createElement("a")
+      link.href = `/api/admin/builds/${b.id}`
+      link.textContent = b.package
+      const name = document.createElement("td")
+      name.append(link)
+      tr.append(name, cell(b.version), cell(b.status), cell(new Date(b.updated_at).toLocaleString()), cell(b.error, true))
+      return tr
+    }))
+  </script>
+</body>
+</html>
