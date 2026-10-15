@@ -1,14 +1,17 @@
 // rotp.wasm under wasi.js in Node, as the browser runs it:
-//   node node.mjs DIR [erl args...] < input
-// DIR is a site build.py made (target/playground/elixir). Standard
-// input is read whole first and then ends.
+//   node node.mjs SITE [erl args...] < input
+// SITE is a site build.py made (target/playground/site), or one of its
+// builds (b/ID). Standard input is read whole first and then ends.
 import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi.js';
 import { ENV, prepare, programs } from './setup.js';
 import { vfs } from './vfs.js';
 
-const [dir, ...args] = process.argv.slice(2);
+const [site, ...args] = process.argv.slice(2);
+// A versioned site's build (b/ID/, build.py), or a flat one.
+const builds = existsSync(`${site}/fs`) ? [] : readdirSync(`${site}/b`);
+const dir = builds.length ? `${site}/b/${builds[0]}` : site;
 const t0 = performance.now();
 let t2 = Infinity;
 const root = new Dir();

@@ -26,6 +26,13 @@ app, at /work/playground.
 - playground.json: the project domain, PLAYGROUND_DOMAIN in the build's
   environment (none: projects are paths, /ID/).
 
+Built flat, the site is then versioned: what keeps its name across builds
+but the pages, the service worker and playground.json (the runtime's
+JavaScript, rotp*.wasm, fs/, nif/) moves to b/ID/, ID a digest of it, and
+each page names its build in <meta name="playground-build"> (the app's
+src/shared/lib/build.ts). A page loaded before a deploy keeps loading its
+own build's files while the server still has them.
+
 The template is generated once into target/playground-cache with the
 native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
 deps fetched and compiled, assets built.
@@ -315,10 +322,58 @@ def page(out):
         json.dump({"domain": os.environ.get("PLAYGROUND_DOMAIN") or None}, f)
 
 
+# What stays at the site's root, by name: the pages, the service worker
+# (its scope is /), the site's configuration, the content-hashed Vite
+# assets, and the builds.
+ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "sw.js", "playground.json",
+              "_playground", "b"}
+
+
+def unversion(out):
+    """A versioned site laid flat again, to build over."""
+    builds = os.path.join(out, "b")
+    if not os.path.isdir(builds):
+        return
+    for build in os.listdir(builds):
+        for name in os.listdir(os.path.join(builds, build)):
+            shutil.rmtree(os.path.join(out, name), ignore_errors=True)
+            os.rename(os.path.join(builds, build, name), os.path.join(out, name))
+    shutil.rmtree(builds)
+
+
+def version(out):
+    """The flat site's build files into b/ID/, and ID into each page."""
+    names = sorted(name for name in os.listdir(out) if name not in ROOT_NAMES)
+    digest = hashlib.sha256()
+    for name in names:
+        top = os.path.join(out, name)
+        paths = [top] if os.path.isfile(top) else sorted(
+            os.path.join(directory, file) for directory, _, files in os.walk(top) for file in files)
+        for path in paths:
+            digest.update(os.path.relpath(path, out).encode() + b"\0")
+            with open(path, "rb") as f:
+                digest.update(f.read())
+    build = digest.hexdigest()[:16]
+    os.makedirs(os.path.join(out, "b", build))
+    for name in names:
+        os.rename(os.path.join(out, name), os.path.join(out, "b", build, name))
+    for name in os.listdir(out):
+        if name.endswith(".html"):
+            path = os.path.join(out, name)
+            with open(path) as f:
+                text = f.read()
+            assert "<head>" in text, path
+            with open(path, "w") as f:
+                f.write(text.replace("<head>", f'<head>\n    <meta name="playground-build" content="{build}" />', 1))
+    return build
+
+
 def main():
     out = os.path.join(ROOT, "target", "playground", "site")
     if sys.argv[1:] == ["app"]:
+        unversion(out)
         page(out)
+        print(f"{out}: build {version(out)}")
         return
     shutil.rmtree(out, ignore_errors=True)
     page(out)
@@ -399,6 +454,7 @@ def main():
           f"rotp-threads.wasm {mb(os.path.join(out, 'rotp-threads.wasm'))}; " + "; ".join(
         f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"
         for boot in RECORD) + f"; {len(lazy)} lazy files in {bundles} bundles")
+    print(f"{out}: build {version(out)}")
 
 
 # A lazily fetched bundle holds files of one directory, up to this many

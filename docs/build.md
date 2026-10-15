@@ -33,18 +33,32 @@ existing site, without the recording runs (seconds instead of a minute).
 
 ```
 target/playground/site/
-  index.html, preview.html   the app's Vite build (assets in _playground/)
-  wasi.js worker.js …        runtime/*.js, served as they are
-  rotp.wasm                  stripped, 3.1 MB
-  rotp-threads.wasm          the same for wasm32-wasip1-threads, 3.1 MB
-  fs/boot.tar.gz             what IEx reads first (3.8 MB)
-  fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it (14.5 MB)
-  fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
-  fs/bundles/N.tar           those files, uncompressed tars of ≤ 512 KB
-  fs/templates.json          each template's id (its files, without its build) and label
-  fs/version                 a digest of fs/, which kept project changes note
-  nif/NAME-VERSION.tar       a package's NIF library built to WebAssembly (its priv)
+  index.html, preview.html,  the app's Vite build (assets in _playground/), each
+  registry.html, storage.html  naming its build: <meta name="playground-build">
+  sw.js                      the service worker, at the root for its scope /
+  playground.json            the project domain, if any
+  _playground/               the Vite assets, content-hashed
+  b/ID/                      the build, ID a digest of what is in it:
+    wasi.js worker.js …        runtime/*.js but sw.js, served as they are
+    rotp.wasm                  stripped, 3.1 MB
+    rotp-threads.wasm          the same for wasm32-wasip1-threads, 3.1 MB
+    fs/boot.tar.gz             what IEx reads first (3.8 MB)
+    fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it (14.5 MB)
+    fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
+    fs/bundles/N.tar           those files, uncompressed tars of ≤ 512 KB
+    fs/templates.json          each template's id (its files, without its build) and label
+    fs/version                 a digest of fs/, which kept project changes note
+    nif/NAME-VERSION.tar       a package's NIF library built to WebAssembly (its priv)
 ```
+
+The build's files keep their names from one build to the next, so they
+live under a path of their own (`b/ID/`), which the page reads from its
+`<meta>` (`app/src/shared/lib/build.ts`): a page loaded before a deploy
+keeps loading its own build, never a newer `rotp.wasm` with its older
+filesystem, for as long as the server keeps the older build
+([deploy.md](deploy.md)). `build.py` builds flat and moves the build
+there last; `build.py app` lays it flat again first. The Node harness
+takes the site or one build.
 
 Every project unpacks `boot.tar.gz`; a Phoenix project also unpacks
 `boot-phoenix.tar.gz`. The manifest lists the second image's files too, so

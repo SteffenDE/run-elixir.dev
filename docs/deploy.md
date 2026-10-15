@@ -43,12 +43,17 @@ rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
   compressed in transit. `fs/boot.tar.gz` is gzipped already. Caddy does not
   compress `application/x-tar` or `application/wasm` by default.
 - **Caching.**
-  - `_playground/` (the IDE's Vite assets) is content-hashed and can be
-    cached for good.
-  - `rotp.wasm`, `fs/`, the runtime's `*.js` and `index.html` keep their
-    names across builds, so they should revalidate (ETag or Last-Modified,
-    which Caddy's file_server sends). Otherwise a browser may mix an old
-    `rotp.wasm` with a new filesystem.
+  - `_playground/` (the IDE's Vite assets) is content-hashed, and `b/ID/`
+    (the runtime's JavaScript, `rotp*.wasm`, `fs/`, `nif/`) is named by a
+    digest of its contents ([build.md](build.md#what-the-site-is)): both
+    can be cached for good.
+  - The pages (`index.html`, `preview.html`, `registry.html`,
+    `storage.html`), `sw.js` and `playground.json` keep their names, so they
+    should revalidate (ETag or Last-Modified, which Caddy's file_server
+    sends). A page names its build, so it never mixes an older build's
+    files with a newer one's.
+  - Keep the previous build's `b/ID/` for a while after a deploy: a tab
+    opened before it keeps loading from there.
 - **Projects outlive deploys.** They are kept in the browser, over the
   template of the site that made them; a new build changes `fs/version`,
   and a project's next start drops its template build records
@@ -78,6 +83,7 @@ the apex and a project's origin frame each other's pages (`registry.html`,
 		Cross-Origin-Resource-Policy same-site
 	}
 	header /_playground/* Cache-Control "public, max-age=31536000, immutable"
+	header /b/* Cache-Control "public, max-age=31536000, immutable"
 	header /sw.js Cache-Control no-cache
 	# Never application/gzip: PGlite takes a gzip Content-Encoding for its
 	# extension archives' own gzip and does not unpack them ("File is
