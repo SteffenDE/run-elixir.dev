@@ -26,17 +26,28 @@ for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
     for (const name of readdirSync(dir)) {
       const full = `${dir}/${name}`;
       let stat;
-      try { stat = statSync(full); } catch { continue; }
-      if (stat.isDirectory()) { root.mkdirs(`${at}/${rel}${name}`); walk(full, `${rel}${name}/`); }
-      else mount([[`${at.replace(/^\//, '')}/${rel}${name}`, stat.size]], root), hostFiles.set(`${at.replace(/^\//, '')}/${rel}${name}`, full);
+      try {
+        stat = statSync(full);
+      } catch {
+        continue;
+      }
+      if (stat.isDirectory()) {
+        root.mkdirs(`${at}/${rel}${name}`);
+        walk(full, `${rel}${name}/`);
+      } else
+        (mount([[`${at.replace(/^\//, '')}/${rel}${name}`, stat.size]], root),
+          hostFiles.set(`${at.replace(/^\//, '')}/${rel}${name}`, full));
     }
   };
   walk(host, '');
 }
 // BOOT=NAME,...: the boot images (fs/NAME.tar.gz) to unpack, by default
 // every one the site has.
-const boots = process.env.BOOT ? process.env.BOOT.split(',')
-  : readdirSync(`${dir}/fs`).filter((name) => /^boot.*\.tar\.gz$/.test(name)).map((name) => name.slice(0, -7));
+const boots = process.env.BOOT
+  ? process.env.BOOT.split(',')
+  : readdirSync(`${dir}/fs`)
+      .filter((name) => /^boot.*\.tar\.gz$/.test(name))
+      .map((name) => name.slice(0, -7));
 let files = 0;
 for (const boot of boots) files += await untar(await readFile(`${dir}/fs/${boot}.tar.gz`), root);
 let fetched = 0;
@@ -47,7 +58,9 @@ const module = await WebAssembly.compile(await readFile(`${dir}/rotp.wasm`));
 let input = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 const wait = new Int32Array(new SharedArrayBuffer(4));
 // Mounted host files, or the site's bundles.
-const fromBundles = bundled((bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)));
+const fromBundles = bundled(
+  (bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)),
+);
 function fetchFile(source, bundle) {
   fetched++;
   recorded.push(source);
@@ -60,24 +73,32 @@ function fetchFile(source, bundle) {
 // (ms): interrupt the node then (a server never halts by itself).
 // STOP_SERVED (ms): interrupt it that long after the last response.
 const network = new Network();
-const requests = (process.env.HTTP || '').split(',').filter(Boolean).map((r) => {
-  const at = r.indexOf('/');
-  return { port: Number(r.slice(0, at)), path: r.slice(at) };
-});
+const requests = (process.env.HTTP || '')
+  .split(',')
+  .filter(Boolean)
+  .map((r) => {
+    const at = r.indexOf('/');
+    return { port: Number(r.slice(0, at)), path: r.slice(at) };
+  });
 let current = null;
 let nextId = 1;
 let served = null;
 const pump = () => {
-  if (process.env.STOP_AFTER && performance.now() - t2 > Number(process.env.STOP_AFTER)) throw new Exit(0);
-  if (served !== null && performance.now() - served > Number(process.env.STOP_SERVED)) throw new Exit(0);
+  if (process.env.STOP_AFTER && performance.now() - t2 > Number(process.env.STOP_AFTER))
+    throw new Exit(0);
+  if (served !== null && performance.now() - served > Number(process.env.STOP_SERVED))
+    throw new Exit(0);
   if (current) {
     if (!current.done) return;
     const text = new TextDecoder().decode(current.response);
-    console.error(`[GET ${current.path}: ${text.split('\r\n')[0]} (${current.response.length} bytes, ${Math.round(performance.now() - current.t0)} ms)]`);
+    console.error(
+      `[GET ${current.path}: ${text.split('\r\n')[0]} (${current.response.length} bytes, ${Math.round(performance.now() - current.t0)} ms)]`,
+    );
     // HTTP_HEADERS=1: the response's headers too.
     if (process.env.HTTP_HEADERS) console.error(text.slice(0, text.indexOf('\r\n\r\n')));
     // HTTP_BODY=FILE: the last response's body.
-    if (process.env.HTTP_BODY) writeFileSync(process.env.HTTP_BODY, current.response.subarray(text.indexOf('\r\n\r\n') + 4));
+    if (process.env.HTTP_BODY)
+      writeFileSync(process.env.HTTP_BODY, current.response.subarray(text.indexOf('\r\n\r\n') + 4));
     current = null;
     if (!requests.length && process.env.STOP_SERVED) served = performance.now();
   }
@@ -94,22 +115,38 @@ const pump = () => {
       joined.set(bytes, request.response.length);
       request.response = joined;
     },
-    end: () => { request.done = true; },
-    close: () => { request.done = true; },
+    end: () => {
+      request.done = true;
+    },
+    close: () => {
+      request.done = true;
+    },
     open() {},
   };
   network.accepted(id, next.port);
-  network.data(id, new TextEncoder().encode(`GET ${next.path} HTTP/1.1\r\nhost: localhost:${next.port}\r\nconnection: close\r\n\r\n`));
+  network.data(
+    id,
+    new TextEncoder().encode(
+      `GET ${next.path} HTTP/1.1\r\nhost: localhost:${next.port}\r\nconnection: close\r\n\r\n`,
+    ),
+  );
   current = request;
 };
 const wasi = new WASI({
   args: ['erl', ...args],
-  env: { ...ENV, PWD: process.env.CWD || '/work', ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('ROTP_'))) },
+  env: {
+    ...ENV,
+    PWD: process.env.CWD || '/work',
+    ...Object.fromEntries(Object.entries(process.env).filter(([k]) => k.startsWith('ROTP_'))),
+  },
   root,
   // TTY=1: the standard streams are an 80x24 terminal that takes raw
   // input; its mode changes go to standard error.
   ...(process.env.TTY
-    ? { tty: true, terminal: { mode: (mode) => console.error(`[tty ${mode}]`), size: () => [80, 24] } }
+    ? {
+        tty: true,
+        terminal: { mode: (mode) => console.error(`[tty ${mode}]`), size: () => [80, 24] },
+      }
     : {}),
   // NO_EOF=1: once read, standard input waits instead of ending (IEx
   // halts at its end).
@@ -144,7 +181,9 @@ if (process.env.TRACE_WASI) {
 // A threaded node (rotp.wasm for wasm32-wasip1-threads, which imports its
 // memory) runs its threads in workers on a shared memory, and this thread
 // serves their WASI calls (threads.js); otherwise the node runs here.
-const threaded = WebAssembly.Module.imports(module).some((i) => i.module === 'env' && i.name === 'memory');
+const threaded = WebAssembly.Module.imports(module).some(
+  (i) => i.module === 'env' && i.name === 'memory',
+);
 let status;
 if (threaded) {
   const { Worker } = await import('node:worker_threads');
@@ -197,6 +236,9 @@ if (process.env.SNAPSHOT) {
   if (start instanceof Dir) walk(start, '');
 }
 // RECORD=FILE: the files fetched, one per line.
-if (process.env.RECORD) (await import('node:fs')).writeFileSync(process.env.RECORD, recorded.join('\n'));
-console.error(`[${files} files + ${fetched} fetched in ${Math.round(t1 - t0)} ms, compiled in ${Math.round(t2 - t1)} ms, ran ${Math.round(performance.now() - t2)} ms, exit ${status}]`);
+if (process.env.RECORD)
+  (await import('node:fs')).writeFileSync(process.env.RECORD, recorded.join('\n'));
+console.error(
+  `[${files} files + ${fetched} fetched in ${Math.round(t1 - t0)} ms, compiled in ${Math.round(t2 - t1)} ms, ran ${Math.round(performance.now() - t2)} ms, exit ${status}]`,
+);
 process.exit(status);

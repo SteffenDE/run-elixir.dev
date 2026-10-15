@@ -22,7 +22,10 @@ const ENOSYS = 52;
 
 function wasiFor(module, wasi) {
   const missing = WebAssembly.Module.imports(module)
-    .filter(({ module: name, kind, name: fn }) => name === 'wasi_snapshot_preview1' && kind === 'function' && !(fn in wasi))
+    .filter(
+      ({ module: name, kind, name: fn }) =>
+        name === 'wasi_snapshot_preview1' && kind === 'function' && !(fn in wasi),
+    )
     .map(({ name }) => [name, () => ENOSYS]);
   return missing.length ? { ...wasi, ...Object.fromEntries(missing) } : wasi;
 }
@@ -68,7 +71,9 @@ export class Nifs {
     try {
       return this.within(instance, () => {
         const { memory, beamos_nif_input, beamos_nif_run, beamos_nif_output } = instance.exports;
-        new Uint8Array(memory.buffer, beamos_nif_input(request.length) >>> 0, request.length).set(request);
+        new Uint8Array(memory.buffer, beamos_nif_input(request.length) >>> 0, request.length).set(
+          request,
+        );
         const size = beamos_nif_run(request.length);
         return new Uint8Array(memory.buffer, beamos_nif_output() >>> 0, size >>> 0).slice();
       });
@@ -76,7 +81,8 @@ export class Nifs {
       // A trap or an abort leaves the library unusable.
       this.instances.delete(id);
       if (error instanceof Exit) return failure(`the NIF library exited (${error.code})`);
-      if (error instanceof WebAssembly.RuntimeError) return failure(`the NIF library crashed: ${error.message}`);
+      if (error instanceof WebAssembly.RuntimeError)
+        return failure(`the NIF library crashed: ${error.message}`);
       throw error;
     }
   }

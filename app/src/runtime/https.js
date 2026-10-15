@@ -13,10 +13,28 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 // What fetch() must not be given, or sets itself.
-const SKIP_REQUEST = new Set(['host', 'connection', 'content-length', 'transfer-encoding', 'keep-alive',
-  'upgrade', 'te', 'trailer', 'accept-encoding', 'user-agent', 'cookie', 'proxy-connection', 'expect']);
-const SKIP_RESPONSE = new Set(['content-encoding', 'content-length', 'transfer-encoding', 'connection',
-  'keep-alive']);
+const SKIP_REQUEST = new Set([
+  'host',
+  'connection',
+  'content-length',
+  'transfer-encoding',
+  'keep-alive',
+  'upgrade',
+  'te',
+  'trailer',
+  'accept-encoding',
+  'user-agent',
+  'cookie',
+  'proxy-connection',
+  'expect',
+]);
+const SKIP_RESPONSE = new Set([
+  'content-encoding',
+  'content-length',
+  'transfer-encoding',
+  'connection',
+  'keep-alive',
+]);
 
 function indexOf(bytes, pattern, from = 0) {
   outer: for (let i = from; i + pattern.length <= bytes.length; i++) {
@@ -87,7 +105,8 @@ export function httpsByFetch({ onrequest = () => {} } = {}) {
       const headers = [];
       for (const line of lines.slice(1)) {
         const colon = line.indexOf(':');
-        if (colon > 0) headers.push([line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()]);
+        if (colon > 0)
+          headers.push([line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()]);
       }
       const header = (name) => headers.find(([key]) => key === name)?.[1];
       let body = buffer.subarray(end + 4);
@@ -120,9 +139,13 @@ export function httpsByFetch({ onrequest = () => {} } = {}) {
           redirect: 'follow',
         });
       } catch (error) {
-        return failed(connection, 502, 'Bad Gateway',
+        return failed(
+          connection,
+          502,
+          'Bad Gateway',
           `playground: ${method} ${url} failed in the browser (${error.message}); ` +
-          'the site may not allow cross-origin requests\n');
+            'the site may not allow cross-origin requests\n',
+        );
       }
       const kept = [];
       response.headers.forEach((value, name) => {

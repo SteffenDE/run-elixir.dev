@@ -7,9 +7,24 @@
 import { Nifs } from './nif.js';
 
 const E = {
-  SUCCESS: 0, ACCES: 2, ADDRINUSE: 3, AGAIN: 6, CONNREFUSED: 14, BADF: 8, EXIST: 20, INVAL: 28, IO: 29,
-  ISDIR: 31, LOOP: 32, NOENT: 44, NOSYS: 52, NOTDIR: 54, NOTEMPTY: 55, NOTSUP: 58,
-  PERM: 63, SPIPE: 70,
+  SUCCESS: 0,
+  ACCES: 2,
+  ADDRINUSE: 3,
+  AGAIN: 6,
+  CONNREFUSED: 14,
+  BADF: 8,
+  EXIST: 20,
+  INVAL: 28,
+  IO: 29,
+  ISDIR: 31,
+  LOOP: 32,
+  NOENT: 44,
+  NOSYS: 52,
+  NOTDIR: 54,
+  NOTEMPTY: 55,
+  NOTSUP: 58,
+  PERM: 63,
+  SPIPE: 70,
 };
 const FILETYPE = { CHAR: 2, DIR: 3, REG: 4, SYMLINK: 7 };
 // path_open's and path_filestat_get's dirflags: follow a last symbolic link.
@@ -20,8 +35,13 @@ const FDFLAGS = { APPEND: 1 };
 // WebAssembly passes an i32 to JavaScript signed, so a pointer into a
 // memory past 2 GiB arrives negative. Every i32 of WASI preview 1 is
 // unsigned (fds, flags, pointers, lengths): take them as such.
-const unsigned = (functions) => Object.fromEntries(Object.entries(functions).map(([name, f]) =>
-  [name, (...args) => f(...args.map((a) => (typeof a === 'number' ? a >>> 0 : a)))]));
+const unsigned = (functions) =>
+  Object.fromEntries(
+    Object.entries(functions).map(([name, f]) => [
+      name,
+      (...args) => f(...args.map((a) => (typeof a === 'number' ? a >>> 0 : a))),
+    ]),
+  );
 
 export class Exit extends Error {
   constructor(code) {
@@ -189,7 +209,8 @@ export function lookup(root, start, path, follow = true, hops = 0) {
       dir = found.node;
       continue;
     }
-    if (last) return node ? { node, parent: dir, name: part } : { error: E.NOENT, parent: dir, name: part };
+    if (last)
+      return node ? { node, parent: dir, name: part } : { error: E.NOENT, parent: dir, name: part };
     if (!node) return { error: E.NOENT };
     dir = node;
   }
@@ -208,7 +229,8 @@ export class Device {
 export const urandom = () =>
   new Device((count) => {
     const bytes = new Uint8Array(count);
-    for (let at = 0; at < count; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
+    for (let at = 0; at < count; at += 65536)
+      crypto.getRandomValues(bytes.subarray(at, at + 65536));
     return bytes;
   });
 
@@ -221,7 +243,12 @@ class Endpoint {
     this.peer = peer; // { send(bytes), end(), close() }
   }
   take(max) {
-    const out = new Uint8Array(Math.min(max, this.inbox.reduce((n, c) => n + c.length, 0)));
+    const out = new Uint8Array(
+      Math.min(
+        max,
+        this.inbox.reduce((n, c) => n + c.length, 0),
+      ),
+    );
     let at = 0;
     while (at < out.length) {
       const chunk = this.inbox[0];
@@ -265,7 +292,9 @@ export class Network {
   // not asked for (Mix's lock listens so; a web server names its port).
   listen(port) {
     const ephemeral = port === 0;
-    if (ephemeral) do port = nextEphemeral(); while (this.listeners.has(port));
+    if (ephemeral)
+      do port = nextEphemeral();
+      while (this.listeners.has(port));
     if (this.listeners.has(port)) return null;
     const queue = [];
     this.listeners.set(port, queue);
@@ -280,7 +309,10 @@ export class Network {
     const endpoint = new Endpoint({
       send: (bytes) => r.send(id, bytes),
       end: () => r.end(id),
-      close: () => { this.endpoints.delete(id); r.close(id); },
+      close: () => {
+        this.endpoints.delete(id);
+        r.close(id);
+      },
     });
     this.endpoints.set(id, endpoint);
     this.waiting.set(id, endpoint);
@@ -295,13 +327,21 @@ export class Network {
       let mine;
       const theirs = new Endpoint({
         send: (bytes) => mine.inbox.push(bytes),
-        end: () => { mine.eof = true; },
-        close: () => { mine.eof = true; },
+        end: () => {
+          mine.eof = true;
+        },
+        close: () => {
+          mine.eof = true;
+        },
       });
       mine = new Endpoint({
         send: (bytes) => theirs.inbox.push(bytes),
-        end: () => { theirs.eof = true; },
-        close: () => { theirs.eof = true; },
+        end: () => {
+          theirs.eof = true;
+        },
+        close: () => {
+          theirs.eof = true;
+        },
       });
       this.waiting.set(id, theirs);
       queue.push({ id, ip: '127.0.0.1', port: nextEphemeral() });
@@ -313,7 +353,10 @@ export class Network {
     const endpoint = new Endpoint({
       send: (bytes) => r.send(id, bytes),
       end: () => r.end(id),
-      close: () => { this.endpoints.delete(id); r.close(id); },
+      close: () => {
+        this.endpoints.delete(id);
+        r.close(id);
+      },
     });
     this.endpoints.set(id, endpoint);
     r.open(id, port);
@@ -328,7 +371,10 @@ export class Network {
     const endpoint = new Endpoint({
       send: (bytes) => r.send(id, bytes),
       end: () => r.end(id),
-      close: () => { this.endpoints.delete(id); r.close(id); },
+      close: () => {
+        this.endpoints.delete(id);
+        r.close(id);
+      },
     });
     this.endpoints.set(id, endpoint);
     r.open(id, port, host);
@@ -373,7 +419,7 @@ export function* entries(tar) {
     return new TextDecoder().decode(tar.subarray(from, end));
   };
   let longName = null;
-  for (let at = 0; at + 512 <= tar.length; ) {
+  for (let at = 0; at + 512 <= tar.length;) {
     if (tar[at] === 0) break;
     let name = text(at, 100);
     const prefix = text(at + 345, 155);
@@ -443,7 +489,11 @@ const SHARED_CHUNK = 512 * 1024;
 
 // A node's WASI file type, and a shared node's by files.js's name for it.
 function fileType(node) {
-  return node instanceof Dir ? FILETYPE.DIR : node instanceof Symlink ? FILETYPE.SYMLINK : FILETYPE.REG;
+  return node instanceof Dir
+    ? FILETYPE.DIR
+    : node instanceof Symlink
+      ? FILETYPE.SYMLINK
+      : FILETYPE.REG;
 }
 function sharedType(type) {
   return type === 'dir' ? FILETYPE.DIR : type === 'link' ? FILETYPE.SYMLINK : FILETYPE.REG;
@@ -463,7 +513,23 @@ export class WASI {
   // holds, reached with call(request, bytes) (sharedClient).
   // terminal: { mode('raw' | 'cooked'), size(): [columns, rows] }, the
   // terminal the node may set to raw input (/.tty, tty.rs).
-  constructor({ args, env, root, stdin, stdout, stderr, sleep, tty = false, terminal = null, network = new Network(), pump = () => {}, fetch, programs = {}, onchange = () => {}, shared = null }) {
+  constructor({
+    args,
+    env,
+    root,
+    stdin,
+    stdout,
+    stderr,
+    sleep,
+    tty = false,
+    terminal = null,
+    network = new Network(),
+    pump = () => {},
+    fetch,
+    programs = {},
+    onchange = () => {},
+    shared = null,
+  }) {
     this.shared = shared;
     this.terminal = terminal;
     this.onchange = onchange;
@@ -565,13 +631,16 @@ export class WASI {
     const argc = Number(fields[2]);
     const args = fields.slice(3, 3 + argc);
     const envc = Number(fields[3 + argc]);
-    const env = Object.fromEntries(fields.slice(4 + argc, 4 + argc + envc).map((v) => {
-      const at = v.indexOf('=');
-      return [v.slice(0, at), v.slice(at + 1)];
-    }));
+    const env = Object.fromEntries(
+      fields.slice(4 + argc, 4 + argc + envc).map((v) => {
+        const at = v.indexOf('=');
+        return [v.slice(0, at), v.slice(at + 1)];
+      }),
+    );
     // By base name, or its first part: _build/esbuild-linux-x64 is esbuild.
     const base = program.split('/').pop();
-    const run = this.programs[base] ?? this.programs[base.split('-')[0]] ?? this.programs['*']?.(base);
+    const run =
+      this.programs[base] ?? this.programs[base.split('-')[0]] ?? this.programs['*']?.(base);
     if (!run) return E.NOENT;
     const process = new Process();
     entry.process = process;
@@ -626,8 +695,10 @@ export class WASI {
       }
     };
     return {
-      fd_pread: (fd, iovs, count, offset, ptr) => at(fd, offset, () => io.fd_read(fd, iovs, count, ptr)),
-      fd_pwrite: (fd, iovs, count, offset, ptr) => at(fd, offset, () => io.fd_write(fd, iovs, count, ptr)),
+      fd_pread: (fd, iovs, count, offset, ptr) =>
+        at(fd, offset, () => io.fd_read(fd, iovs, count, ptr)),
+      fd_pwrite: (fd, iovs, count, offset, ptr) =>
+        at(fd, offset, () => io.fd_write(fd, iovs, count, ptr)),
       fd_tell(fd, ptr) {
         const file = holder(fd);
         if (typeof file === 'number') return file;
@@ -653,20 +724,43 @@ export class WASI {
     return {
       path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr) {
         const target = path(fd, pathPtr, pathLen);
-        if (!self.isShared(target)) return local.path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr);
-        const opened = ask({ op: 'open', path: target, oflags, follow: !!(dirflags & LOOKUP_SYMLINKS) });
+        if (!self.isShared(target))
+          return local.path_open(
+            fd,
+            dirflags,
+            pathPtr,
+            pathLen,
+            oflags,
+            base,
+            inheriting,
+            fdflags,
+            fdPtr,
+          );
+        const opened = ask({
+          op: 'open',
+          path: target,
+          oflags,
+          follow: !!(dirflags & LOOKUP_SYMLINKS),
+        });
         if (opened.error) return opened.error;
         const id = self.next++;
         self.fds.set(id, {
           path: target,
-          remote: { handle: opened.handle, position: 0, append: !!(fdflags & FDFLAGS.APPEND), dir: opened.type === 'dir', listing: null },
+          remote: {
+            handle: opened.handle,
+            position: 0,
+            append: !!(fdflags & FDFLAGS.APPEND),
+            dir: opened.type === 'dir',
+            listing: null,
+          },
         });
         self.view().setUint32(fdPtr, id, true);
         return E.SUCCESS;
       },
       path_filestat_get(fd, flags, pathPtr, pathLen, ptr) {
         const target = path(fd, pathPtr, pathLen);
-        if (!self.isShared(target)) return local.path_filestat_get(fd, flags, pathPtr, pathLen, ptr);
+        if (!self.isShared(target))
+          return local.path_filestat_get(fd, flags, pathPtr, pathLen, ptr);
         const status = ask({ op: 'stat', path: target, follow: !!(flags & LOOKUP_SYMLINKS) });
         if (status.error) return status.error;
         self.sharedFilestat(ptr, status);
@@ -674,12 +768,17 @@ export class WASI {
       },
       path_symlink(targetPtr, targetLen, fd, pathPtr, pathLen) {
         const at = path(fd, pathPtr, pathLen);
-        if (!self.isShared(at)) return local.path_symlink(targetPtr, targetLen, fd, pathPtr, pathLen);
-        return ask({ op: 'symlink', path: at, target: self.string(targetPtr, targetLen) }).error ?? E.SUCCESS;
+        if (!self.isShared(at))
+          return local.path_symlink(targetPtr, targetLen, fd, pathPtr, pathLen);
+        return (
+          ask({ op: 'symlink', path: at, target: self.string(targetPtr, targetLen) }).error ??
+          E.SUCCESS
+        );
       },
       path_readlink(fd, pathPtr, pathLen, buf, bufLen, usedPtr) {
         const at = path(fd, pathPtr, pathLen);
-        if (!self.isShared(at)) return local.path_readlink(fd, pathPtr, pathLen, buf, bufLen, usedPtr);
+        if (!self.isShared(at))
+          return local.path_readlink(fd, pathPtr, pathLen, buf, bufLen, usedPtr);
         const answer = ask({ op: 'readlink', path: at });
         if (answer.error) return answer.error;
         const target = new TextEncoder().encode(answer.target).subarray(0, bufLen);
@@ -693,16 +792,21 @@ export class WASI {
       path_rename(fd, oldPtr, oldLen, fd2, newPtr, newLen) {
         const from = path(fd, oldPtr, oldLen);
         const to = path(fd2, newPtr, newLen);
-        if (!self.isShared(from) && !self.isShared(to)) return local.path_rename(fd, oldPtr, oldLen, fd2, newPtr, newLen);
+        if (!self.isShared(from) && !self.isShared(to))
+          return local.path_rename(fd, oldPtr, oldLen, fd2, newPtr, newLen);
         if (self.isShared(from) !== self.isShared(to)) return 75; // EXDEV
         return ask({ op: 'rename', path: from, to }).error ?? E.SUCCESS;
       },
       path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen) {
         const from = path(fd, oldPtr, oldLen);
         const to = path(fd2, newPtr, newLen);
-        if (!self.isShared(from) && !self.isShared(to)) return local.path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen);
+        if (!self.isShared(from) && !self.isShared(to))
+          return local.path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen);
         if (self.isShared(from) !== self.isShared(to)) return 75; // EXDEV
-        return ask({ op: 'link', path: from, to, follow: !!(flags & LOOKUP_SYMLINKS) }).error ?? E.SUCCESS;
+        return (
+          ask({ op: 'link', path: from, to, follow: !!(flags & LOOKUP_SYMLINKS) }).error ??
+          E.SUCCESS
+        );
       },
       fd_read(fd, iovs, count, nreadPtr) {
         const remote = remoteOf(fd);
@@ -713,7 +817,12 @@ export class WASI {
           let filled = 0;
           while (filled < len) {
             const want = Math.min(len - filled, SHARED_CHUNK);
-            const { answer, bytes } = call({ op: 'read', handle: remote.handle, offset: remote.position, length: want });
+            const { answer, bytes } = call({
+              op: 'read',
+              handle: remote.handle,
+              offset: remote.position,
+              length: want,
+            });
             if (answer.error) return answer.error;
             self.bytes(ptr + filled, bytes.length).set(bytes);
             filled += bytes.length;
@@ -733,7 +842,15 @@ export class WASI {
         for (const [ptr, len] of self.iovecs(iovs, count)) {
           for (let at = 0; at < len; at += SHARED_CHUNK) {
             const bytes = self.bytes(ptr + at, Math.min(SHARED_CHUNK, len - at)).slice();
-            const answer = ask({ op: 'write', handle: remote.handle, offset: remote.position, append: remote.append }, bytes);
+            const answer = ask(
+              {
+                op: 'write',
+                handle: remote.handle,
+                offset: remote.position,
+                append: remote.append,
+              },
+              bytes,
+            );
             if (answer.error) return answer.error;
             remote.position = answer.position;
           }
@@ -765,7 +882,9 @@ export class WASI {
       fd_filestat_set_size(fd, size) {
         const remote = remoteOf(fd);
         if (!remote) return local.fd_filestat_set_size(fd, size);
-        return ask({ op: 'truncate', handle: remote.handle, size: Number(size) }).error ?? E.SUCCESS;
+        return (
+          ask({ op: 'truncate', handle: remote.handle, size: Number(size) }).error ?? E.SUCCESS
+        );
       },
       fd_allocate(fd, offset, length) {
         const remote = remoteOf(fd);
@@ -829,7 +948,11 @@ export class WASI {
       sizes(countPtr, sizePtr) {
         const v = self.view();
         v.setUint32(countPtr, items.length, true);
-        v.setUint32(sizePtr, items.reduce((n, s) => n + new TextEncoder().encode(s).length + 1, 0), true);
+        v.setUint32(
+          sizePtr,
+          items.reduce((n, s) => n + new TextEncoder().encode(s).length + 1, 0),
+          true,
+        );
         return ok;
       },
       get(ptrs, buf) {
@@ -925,11 +1048,16 @@ export class WASI {
         const entry = self.fds.get(fd);
         if (!entry) return E.BADF;
         const v = self.view();
-        const type = entry.stream ? FILETYPE.CHAR : entry.node instanceof Dir ? FILETYPE.DIR : FILETYPE.REG;
+        const type = entry.stream
+          ? FILETYPE.CHAR
+          : entry.node instanceof Dir
+            ? FILETYPE.DIR
+            : FILETYPE.REG;
         v.setUint8(ptr, type);
         v.setUint16(ptr + 2, entry.append ? FDFLAGS.APPEND : 0, true);
         // wasi-libc's isatty: a character device that cannot seek or tell.
-        const rights = entry.stream && self.tty ? ~(4n | 32n) & 0xffffffffffffffffn : 0xffffffffffffffffn;
+        const rights =
+          entry.stream && self.tty ? ~(4n | 32n) & 0xffffffffffffffffn : 0xffffffffffffffffn;
         v.setBigUint64(ptr + 8, rights, true);
         v.setBigUint64(ptr + 16, rights, true);
         return ok;
@@ -963,7 +1091,11 @@ export class WASI {
         // A process's size is its exit status + 1 once it has exited.
         if (entry.spawn) {
           const status = entry.process?.status;
-          self.filestat(ptr, { ino: 0n, size: status === null || status === undefined ? 0 : status + 1, mtime: now() });
+          self.filestat(ptr, {
+            ino: 0n,
+            size: status === null || status === undefined ? 0 : status + 1,
+            mtime: now(),
+          });
           return ok;
         }
         // A listener's size is its port (wasm_net.rs).
@@ -1178,7 +1310,10 @@ export class WASI {
           if (!self.terminal) return E.NOENT;
           if (path === '.tty/mode') entry = { terminal: true, node: new File() };
           else if (path === '.tty/size') {
-            entry = { node: new File(new TextEncoder().encode(self.terminal.size().join(' '))), position: 0 };
+            entry = {
+              node: new File(new TextEncoder().encode(self.terminal.size().join(' '))),
+              position: 0,
+            };
           } else return E.NOENT;
           const opened = self.next++;
           self.fds.set(opened, entry);
@@ -1219,7 +1354,11 @@ export class WASI {
           self.view().setUint32(fdPtr, opened, true);
           return ok;
         }
-        const found = self.resolve(fd, self.string(pathPtr, pathLen), !!(dirflags & LOOKUP_SYMLINKS));
+        const found = self.resolve(
+          fd,
+          self.string(pathPtr, pathLen),
+          !!(dirflags & LOOKUP_SYMLINKS),
+        );
         let node = found.node;
         let changed = false;
         if (node && oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return E.EXIST;
@@ -1245,8 +1384,13 @@ export class WASI {
           changed = true;
         }
         const opened = self.next++;
-        self.fds.set(opened, { node, position: 0, append: !!(fdflags & FDFLAGS.APPEND),
-          path: self.absolute(fd, self.string(pathPtr, pathLen)), changed });
+        self.fds.set(opened, {
+          node,
+          position: 0,
+          append: !!(fdflags & FDFLAGS.APPEND),
+          path: self.absolute(fd, self.string(pathPtr, pathLen)),
+          changed,
+        });
         self.view().setUint32(fdPtr, opened, true);
         return ok;
       },

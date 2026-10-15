@@ -80,7 +80,8 @@ export class Host {
       try {
         if (call === SPAWN) {
           const tid = this.nextTid++;
-          if (tid >= this.chan.threads) throw new Error(`a node has at most ${this.chan.threads} threads`);
+          if (tid >= this.chan.threads)
+            throw new Error(`a node has at most ${this.chan.threads} threads`);
           this.spawn(tid, args[0]);
           words[4] = tid;
         } else {
@@ -109,7 +110,9 @@ export class Host {
       case RETURNED:
         return end[1];
       case FAILED:
-        throw new Error(new TextDecoder().decode(new Uint8Array(this.chan.end, 16, end[1]).slice()));
+        throw new Error(
+          new TextDecoder().decode(new Uint8Array(this.chan.end, 16, end[1]).slice()),
+        );
       default:
         return null;
     }
@@ -152,7 +155,8 @@ export function threadImports({ memory, chan, slot, names }) {
     random_get(ptr, len) {
       // getRandomValues takes no view of shared memory: fill a copy.
       const bytes = new Uint8Array(len >>> 0);
-      for (let at = 0; at < bytes.length; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536));
+      for (let at = 0; at < bytes.length; at += 65536)
+        crypto.getRandomValues(bytes.subarray(at, at + 65536));
       new Uint8Array(memory.buffer, ptr >>> 0, bytes.length).set(bytes);
       return 0;
     },

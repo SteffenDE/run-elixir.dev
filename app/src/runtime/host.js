@@ -5,7 +5,17 @@
 // (the worker sleeps on its write count, so a frame wakes it):
 // [kind u8][id u32][length u32][payload]. The worker answers with
 // messages.
-export const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8, RESIZE: 9 };
+export const FRAME = {
+  INPUT: 0,
+  OPEN: 1,
+  DATA: 2,
+  END: 3,
+  CLOSE: 4,
+  INTERRUPT: 5,
+  OUTPUT: 7,
+  EXIT: 8,
+  RESIZE: 9,
+};
 const CHANNEL = 1 << 20;
 
 // A module worker from a blob that imports the runtime's script: Firefox
@@ -22,7 +32,14 @@ function worker(name, base) {
 export class Files {
   // boots, template, store: what files.js starts with (its 'start').
   // onwarning(message): a change that was not kept.
-  constructor({ base = './', boots = ['boot'], template = [], store = null, onchange = () => {}, onwarning = () => {} } = {}) {
+  constructor({
+    base = './',
+    boots = ['boot'],
+    template = [],
+    store = null,
+    onchange = () => {},
+    onwarning = () => {},
+  } = {}) {
     this.doorbell = new SharedArrayBuffer(4);
     this.requests = new Map();
     this.next = 0;
@@ -36,12 +53,20 @@ export class Files {
         else if (data.kind === 'reply') {
           const request = this.requests.get(data.id);
           this.requests.delete(data.id);
-          if (data.error) request?.reject(Object.assign(new Error(data.error), { code: data.code }));
+          if (data.error)
+            request?.reject(Object.assign(new Error(data.error), { code: data.code }));
           else request?.resolve(data);
         }
       };
     });
-    this.worker.postMessage({ kind: 'start', base: new URL(base, location.href).href, doorbell: this.doorbell, boots, template, store });
+    this.worker.postMessage({
+      kind: 'start',
+      base: new URL(base, location.href).href,
+      doorbell: this.doorbell,
+      boots,
+      template,
+      store,
+    });
   }
 
   // A node's channel (wasi.js sharedClient).
@@ -87,7 +112,11 @@ export class Files {
     return this.ask({ op: 'read', path }).then((r) => r.data);
   }
   write(path, data) {
-    return this.ask({ op: 'write', path, data: typeof data === 'string' ? new TextEncoder().encode(data) : data }).then(() => {});
+    return this.ask({
+      op: 'write',
+      path,
+      data: typeof data === 'string' ? new TextEncoder().encode(data) : data,
+    }).then(() => {});
   }
   mkdir(path) {
     return this.ask({ op: 'mkdir', path }).then(() => {});
@@ -152,7 +181,19 @@ export class Node {
   // make waits for the backend to build a package's NIF library (status
   // queued, running or setting_up), or stopped waiting (succeeded, failed,
   // unsupported, interrupted).
-  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, https = null, programs = {}, files = null, onlistening = () => {}, onterminal = () => {}, onnif = () => {} }) {
+  constructor({
+    base = './',
+    onoutput = () => {},
+    onstatus = () => {},
+    onexit = () => {},
+    serve = {},
+    https = null,
+    programs = {},
+    files = null,
+    onlistening = () => {},
+    onterminal = () => {},
+    onnif = () => {},
+  }) {
     this.https = https;
     this.files = files;
     this.listening = new Set();
@@ -183,11 +224,11 @@ export class Node {
         if (data.on && !data.ephemeral) this.serving.add(data.port);
         else this.serving.delete(data.port);
         onlistening(data.port, data.on);
-      }
-      else if (data.kind === 'spawn') this.spawn(data);
+      } else if (data.kind === 'spawn') this.spawn(data);
       else if (data.kind === 'thread') {
         const thread = worker('thread.js', base);
-        thread.onerror = (event) => onstatus(`failed: ${event.message || 'a thread did not start'}`);
+        thread.onerror = (event) =>
+          onstatus(`failed: ${event.message || 'a thread did not start'}`);
         thread.postMessage(data.start);
         if (!this.threads.has(data.node)) this.threads.set(data.node, []);
         this.threads.get(data.node).push(thread);
@@ -198,7 +239,8 @@ export class Node {
       }
     };
     // A worker that does not load (or throws outside its own handler).
-    this.worker.onerror = (event) => onstatus(`failed: ${event.message || 'the worker did not start'}`);
+    this.worker.onerror = (event) =>
+      onstatus(`failed: ${event.message || 'the worker did not start'}`);
   }
 
   // shell: a shell (true), or one command: erl's { args, env }, or
@@ -208,8 +250,20 @@ export class Node {
   // boots: the boot images to unpack (worker.js).
   start({ shell = false, args, command, env = {}, initial = [], cwd, boots } = {}) {
     this.channel = this.files?.connect() ?? null;
-    this.worker.postMessage({ shared: this.shared, files: this.channel, shell, args, command, env, initial, cwd, boots,
-      ports: Object.keys(this.serve).map(Number), https: Boolean(this.https), pagePrograms: Object.keys(this.programs) });
+    this.worker.postMessage({
+      shared: this.shared,
+      files: this.channel,
+      shell,
+      args,
+      command,
+      env,
+      initial,
+      cwd,
+      boots,
+      ports: Object.keys(this.serve).map(Number),
+      https: Boolean(this.https),
+      pagePrograms: Object.keys(this.programs),
+    });
   }
 
   // The node's files: its Files.
@@ -238,7 +292,8 @@ export class Node {
       write: (data) => {
         if (exited) return;
         const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-        for (let at = 0; at < bytes.length; at += CHUNK) this.frame(FRAME.OUTPUT, id, bytes.subarray(at, at + CHUNK));
+        for (let at = 0; at < bytes.length; at += CHUNK)
+          this.frame(FRAME.OUTPUT, id, bytes.subarray(at, at + CHUNK));
       },
       exit: (code = 0) => {
         if (exited) return;
@@ -320,7 +375,10 @@ export class Node {
     while (this.pending.length) {
       const frame = this.pending[0];
       if (RING - (written - Atomics.load(this.control, 1)) < frame.length) {
-        this.retry ??= setTimeout(() => { this.retry = null; this.flush(); }, 2);
+        this.retry ??= setTimeout(() => {
+          this.retry = null;
+          this.flush();
+        }, 2);
         break;
       }
       for (const byte of frame) this.ring[written++ % RING] = byte;

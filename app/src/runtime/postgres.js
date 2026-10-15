@@ -51,7 +51,11 @@ export function postgres(database) {
         at += m.length;
       }
       queue = queue
-        .then(async () => (terminate && batch.length === 5 ? new Uint8Array(0) : (await database()).execProtocolRaw(batch)))
+        .then(async () =>
+          terminate && batch.length === 5
+            ? new Uint8Array(0)
+            : (await database()).execProtocolRaw(batch),
+        )
         .then((out) => {
           if (out.length) connection.write(out);
           if (terminate) connection.close();

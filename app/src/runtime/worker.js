@@ -13,7 +13,17 @@ import { ENV, prepare, programs } from './setup.js';
 import { channel as threadChannel, Host } from './threads.js';
 import { vfs } from './vfs.js';
 
-const FRAME = { INPUT: 0, OPEN: 1, DATA: 2, END: 3, CLOSE: 4, INTERRUPT: 5, OUTPUT: 7, EXIT: 8, RESIZE: 9 };
+const FRAME = {
+  INPUT: 0,
+  OPEN: 1,
+  DATA: 2,
+  END: 3,
+  CLOSE: 4,
+  INTERRUPT: 5,
+  OUTPUT: 7,
+  EXIT: 8,
+  RESIZE: 9,
+};
 const RING = 1 << 20;
 const SHARED = ['/work', '/tmp'];
 const say = (kind, payload) => postMessage({ kind, payload });
@@ -83,8 +93,7 @@ class Channel {
       else if (kind === FRAME.RESIZE) {
         const view = new DataView(payload.buffer);
         this.size = [view.getUint16(0, true), view.getUint16(2, true)];
-      }
-      else if (kind === FRAME.OPEN) {
+      } else if (kind === FRAME.OPEN) {
         if (!net || !net.accepted(id, (payload[0] << 8) | payload[1])) {
           postMessage({ kind: 'net', op: 'refused', id });
         }
@@ -183,8 +192,19 @@ function join(cwd, path) {
 // escript's (bin/escript; a script's %%! flags are not read). The Hex
 // esbuild and tailwind packages run the page's programs (their :path,
 // unless a project's config sets one), so no project downloads them.
-const ELIXIR = ['-noshell', '-elixir_root', '/rotp/lib', '-pa', '/rotp/lib/elixir/ebin',
-  '-esbuild', 'path', '<<"/usr/bin/esbuild">>', '-tailwind', 'path', '<<"/usr/bin/tailwind">>'];
+const ELIXIR = [
+  '-noshell',
+  '-elixir_root',
+  '/rotp/lib',
+  '-pa',
+  '/rotp/lib/elixir/ebin',
+  '-esbuild',
+  'path',
+  '<<"/usr/bin/esbuild">>',
+  '-tailwind',
+  'path',
+  '<<"/usr/bin/tailwind">>',
+];
 function command(name, args) {
   switch (name) {
     case 'erl':
@@ -195,12 +215,23 @@ function command(name, args) {
       return [...ELIXIR, '-s', 'elixir', 'start_cli', '-extra', '/rotp/bin/mix', ...args];
     case 'iex': {
       // iex -S mix ARGS runs Mix's script under IEx.
-      const rest = args[0] === '-S' && args[1] === 'mix' ? ['/rotp/bin/mix', ...args.slice(2)] : args;
+      const rest =
+        args[0] === '-S' && args[1] === 'mix' ? ['/rotp/bin/mix', ...args.slice(2)] : args;
       return [...ELIXIR, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
     }
     case 'escript':
       if (!args.length) return null;
-      return ['+B', '-noshell', '-boot', '/rotp/bin/no_dot_erlang', '-run', 'escript', 'start', '-extra', ...args];
+      return [
+        '+B',
+        '-noshell',
+        '-boot',
+        '/rotp/bin/no_dot_erlang',
+        '-run',
+        'escript',
+        'start',
+        '-extra',
+        ...args,
+      ];
   }
   return null;
 }
@@ -234,7 +265,11 @@ function runThreaded(wasi, module, memory, pump) {
   const chan = threadChannel();
   const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
   const start = (tid, startArg) =>
-    postMessage({ kind: 'thread', node, start: { module, memory, chan, slot: tid, names, tid, startArg } });
+    postMessage({
+      kind: 'thread',
+      node,
+      start: { module, memory, chan, slot: tid, names, tid, startArg },
+    });
   const host = new Host(wasi, chan, { spawn: start });
   start(0, 0);
   try {
@@ -265,7 +300,8 @@ function get(url, binary = true) {
 }
 
 // A tar (ustar), and not the page a site answers a path it lacks with.
-const isTar = (bytes) => bytes?.length > 262 && new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
+const isTar = (bytes) =>
+  bytes?.length > 262 && new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
 
 // The site's own build of a package's NIF library, or null.
 function siteNif(name, version) {
@@ -305,7 +341,11 @@ function backendNif(channel, name, version, say) {
       return `the playground's build of ${name} ${version} did not download (${status})`;
     }
     if (code !== 202) {
-      const error = answer?.error ?? (code ? `the playground's backend answered ${code}` : "the playground's backend could not be reached");
+      const error =
+        answer?.error ??
+        (code
+          ? `the playground's backend answered ${code}`
+          : "the playground's backend could not be reached");
       // A site without a backend answers its page: no build, as before.
       if (code === 200 || (code === 404 && !answer)) return null;
       tell(answer?.status ?? 'failed', error);
@@ -330,7 +370,22 @@ function backendNif(channel, name, version, say) {
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
 // commands' files (build.py). command: one command by name, as the shell
 // runs it (['mix', 'deps.get']), in place of erl's `args`.
-onmessage = async ({ data: { shared, files, shell, args, command: named, env, ports, https = false, initial = [], pagePrograms = [], cwd: start = '/work', boots = ['boot'] } }) => {
+onmessage = async ({
+  data: {
+    shared,
+    files,
+    shell,
+    args,
+    command: named,
+    env,
+    ports,
+    https = false,
+    initial = [],
+    pagePrograms = [],
+    cwd: start = '/work',
+    boots = ['boot'],
+  },
+}) => {
   try {
     say('status', 'Loading OTP and Elixir…');
     // The threaded build where shared memory is; the single-threaded one
@@ -338,19 +393,29 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
     const compile = (name) => WebAssembly.compileStreaming(fetch(site(name)));
     const threaded = sharedMemory() !== null;
     const [images, manifest, [module, threads]] = await Promise.all([
-      Promise.all(boots.map((boot) => fetch(site(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer()))),
+      Promise.all(
+        boots.map((boot) => fetch(site(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
+      ),
       fetch(site('fs/manifest.json')).then((r) => r.json()),
       threaded
-        ? compile('rotp-threads.wasm').then((m) => [m, true], () => compile('rotp.wasm').then((m) => [m, false]))
+        ? compile('rotp-threads.wasm').then(
+            (m) => [m, true],
+            () => compile('rotp.wasm').then((m) => [m, false]),
+          )
         : compile('rotp.wasm').then((m) => [m, false]),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path) => !files || !SHARED.some((prefix) => `/${path}`.startsWith(`${prefix}/`));
     const root = new Dir();
-    mount(manifest.filter(([path]) => local(path)), root);
+    mount(
+      manifest.filter(([path]) => local(path)),
+      root,
+    );
     for (const image of images) await untar(new Uint8Array(image), root, local);
     prepare(root);
-    const sharedFs = files ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) } : null;
+    const sharedFs = files
+      ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
+      : null;
     const channel = new Channel(shared);
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
     const fetchFile = bundled((bundle) => {
@@ -365,7 +430,8 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
     // A package's NIF library built to WebAssembly (programs.js make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
     // origin, which may have to build it first: docs/backend.md).
-    const nif = (name, version, say) => siteNif(name, version) ?? backendNif(channel, name, version, say);
+    const nif = (name, version, say) =>
+      siteNif(name, version) ?? backendNif(channel, name, version, say);
 
     // One node, until it halts or is interrupted.
     const run = async (argv, cwd) => {
@@ -376,7 +442,8 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         send: (id, payload) => postMessage({ kind: 'net', op: 'data', id, payload }),
         end: (id) => postMessage({ kind: 'net', op: 'end', id }),
         close: (id) => postMessage({ kind: 'net', op: 'close', id }),
-        listening: (port, on, ephemeral = false) => postMessage({ kind: 'listening', port, on, ephemeral }),
+        listening: (port, on, ephemeral = false) =>
+          postMessage({ kind: 'listening', port, on, ephemeral }),
       });
       channel.network = network;
       channel.interrupted = false;
@@ -424,7 +491,8 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         channel.interrupted = false;
         channel.mode(false);
         channel.network = null;
-        for (const port of network.listeners.keys()) postMessage({ kind: 'listening', port, on: false });
+        for (const port of network.listeners.keys())
+          postMessage({ kind: 'listening', port, on: false });
         for (const id of network.endpoints.keys()) postMessage({ kind: 'net', op: 'close', id });
       }
     };
@@ -505,7 +573,10 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
                 const entries = (fs.list(full) ?? [])
                   .filter((e) => all || !e.name.startsWith('.'))
                   .sort((a, b) => a.name.localeCompare(b.name));
-                text(entries.map((e) => (e.dir ? `\x1b[1;34m${e.name}\x1b[0m` : e.name)).join('  ') + (entries.length ? '\n' : ''));
+                text(
+                  entries.map((e) => (e.dir ? `\x1b[1;34m${e.name}\x1b[0m` : e.name)).join('  ') +
+                    (entries.length ? '\n' : ''),
+                );
               } else text(path + '\n');
             }
             break;
@@ -531,7 +602,8 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
               const full = join(cwd, path);
               const status = fs.stat(full);
               if (!status) text(`rm: ${path}: no such file or directory\n`);
-              else if (status.dir && !rest.some((a) => /^-r|^-rf|^-fr/.test(a))) text(`rm: ${path}: is a directory\n`);
+              else if (status.dir && !rest.some((a) => /^-r|^-rf|^-fr/.test(a)))
+                text(`rm: ${path}: is a directory\n`);
               else fs.remove(full);
             }
             break;

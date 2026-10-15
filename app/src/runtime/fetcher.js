@@ -21,7 +21,11 @@ function indexOf(bytes, pattern) {
 }
 
 function respond(connection, status, reason, headers, body) {
-  const lines = [`HTTP/1.1 ${status} ${reason}`, `content-length: ${body.length}`, 'connection: close'];
+  const lines = [
+    `HTTP/1.1 ${status} ${reason}`,
+    `content-length: ${body.length}`,
+    'connection: close',
+  ];
   for (const [name, value] of headers) lines.push(`${name}: ${value}`);
   connection.write(new TextEncoder().encode(lines.join('\r\n') + '\r\n\r\n'));
   if (body.length) connection.write(body);
@@ -29,13 +33,19 @@ function respond(connection, status, reason, headers, body) {
 }
 
 // cache: a Cache Storage name, or null.
-export function fetcher({ route, keep = () => false, cache = 'playground-fetch', onrequest = () => {} }) {
+export function fetcher({
+  route,
+  keep = () => false,
+  cache = 'playground-fetch',
+  onrequest = () => {},
+}) {
   async function get(url, method) {
     const store = cache && keep(url) && (await caches.open(cache).catch(() => null));
     const kept = store && (await store.match(url));
     if (kept) return kept;
     const response = await fetch(url, { method, credentials: 'omit' });
-    if (store && method === 'GET' && response.ok) await store.put(url, response.clone()).catch(() => {});
+    if (store && method === 'GET' && response.ok)
+      await store.put(url, response.clone()).catch(() => {});
     return response;
   }
 
@@ -55,12 +65,19 @@ export function fetcher({ route, keep = () => false, cache = 'playground-fetch',
       const url = ['GET', 'HEAD'].includes(method) ? await route(path) : null;
       onrequest(method, path, url);
       if (!url) {
-        respond(connection, 404, 'Not Found', [['content-type', 'text/plain']], new TextEncoder().encode(`${path}: not here\n`));
+        respond(
+          connection,
+          404,
+          'Not Found',
+          [['content-type', 'text/plain']],
+          new TextEncoder().encode(`${path}: not here\n`),
+        );
         return;
       }
       try {
         const response = await get(url, method);
-        const body = method === 'HEAD' ? new Uint8Array(0) : new Uint8Array(await response.arrayBuffer());
+        const body =
+          method === 'HEAD' ? new Uint8Array(0) : new Uint8Array(await response.arrayBuffer());
         const headers = [];
         for (const name of ['content-type', 'etag', 'last-modified', 'cache-control']) {
           const value = response.headers.get(name);
@@ -68,7 +85,13 @@ export function fetcher({ route, keep = () => false, cache = 'playground-fetch',
         }
         respond(connection, response.status, response.statusText || 'OK', headers, body);
       } catch (error) {
-        respond(connection, 502, 'Bad Gateway', [['content-type', 'text/plain']], new TextEncoder().encode(`${url}: ${error.message}\n`));
+        respond(
+          connection,
+          502,
+          'Bad Gateway',
+          [['content-type', 'text/plain']],
+          new TextEncoder().encode(`${url}: ${error.message}\n`),
+        );
       }
     };
   };

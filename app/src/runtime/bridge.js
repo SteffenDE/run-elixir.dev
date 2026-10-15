@@ -29,7 +29,11 @@ function webSocketShim() {
       this.port.onmessage = ({ data }) => this.receive(data);
       const target = new URL(this.url);
       navigator.serviceWorker.controller.postMessage(
-        { kind: 'websocket', path: target.pathname + target.search, protocols: [].concat(protocols) },
+        {
+          kind: 'websocket',
+          path: target.pathname + target.search,
+          protocols: [].concat(protocols),
+        },
         [channel.port2],
       );
     }
@@ -45,21 +49,33 @@ function webSocketShim() {
         this.emit(new Event('open'));
       } else if (data.message !== undefined) {
         let message = data.message;
-        if (typeof message !== 'string' && this.binaryType === 'blob') message = new Blob([message]);
+        if (typeof message !== 'string' && this.binaryType === 'blob')
+          message = new Blob([message]);
         this.emit(new MessageEvent('message', { data: message, origin: new URL(this.url).origin }));
       } else if (data.close) {
         if (this.readyState === 3) return;
         this.readyState = 3;
         if (!data.close.clean) this.emit(new Event('error'));
-        this.emit(new CloseEvent('close', { code: data.close.code, reason: data.close.reason, wasClean: data.close.clean }));
+        this.emit(
+          new CloseEvent('close', {
+            code: data.close.code,
+            reason: data.close.reason,
+            wasClean: data.close.clean,
+          }),
+        );
         this.port.close();
       }
     }
     send(data) {
-      if (this.readyState === 0) throw new DOMException('Still in CONNECTING state.', 'InvalidStateError');
+      if (this.readyState === 0)
+        throw new DOMException('Still in CONNECTING state.', 'InvalidStateError');
       if (this.readyState !== 1) return;
-      if (data instanceof Blob) data.arrayBuffer().then((buffer) => this.port.postMessage({ send: buffer }));
-      else if (ArrayBuffer.isView(data)) this.port.postMessage({ send: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) });
+      if (data instanceof Blob)
+        data.arrayBuffer().then((buffer) => this.port.postMessage({ send: buffer }));
+      else if (ArrayBuffer.isView(data))
+        this.port.postMessage({
+          send: data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength),
+        });
       else this.port.postMessage({ send: data instanceof ArrayBuffer ? data : String(data) });
     }
     close(code = 1000, reason = '') {
@@ -129,8 +145,15 @@ export class Bridge {
   websocket({ path, protocols }, port) {
     const connection = this.node.connect(this.port);
     const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
-    const lines = [`GET ${path} HTTP/1.1`, `host: localhost:${this.port}`, 'upgrade: websocket', 'connection: Upgrade',
-      `sec-websocket-key: ${key}`, 'sec-websocket-version: 13', `origin: http://localhost:${this.port}`];
+    const lines = [
+      `GET ${path} HTTP/1.1`,
+      `host: localhost:${this.port}`,
+      'upgrade: websocket',
+      'connection: Upgrade',
+      `sec-websocket-key: ${key}`,
+      'sec-websocket-version: 13',
+      `origin: http://localhost:${this.port}`,
+    ];
     if (protocols.length) lines.push(`sec-websocket-protocol: ${protocols.join(', ')}`);
     const cookie = this.cookieHeader();
     if (cookie) lines.push(cookie);
@@ -152,9 +175,23 @@ export class Bridge {
     const frame = (opcode, payload) => {
       const mask = crypto.getRandomValues(new Uint8Array(4));
       const length = payload.length;
-      const head = length < 126 ? [0x80 | opcode, 0x80 | length]
-        : length < 65536 ? [0x80 | opcode, 0x80 | 126, length >> 8, length & 255]
-          : [0x80 | opcode, 0x80 | 127, 0, 0, 0, 0, (length >>> 24) & 255, (length >> 16) & 255, (length >> 8) & 255, length & 255];
+      const head =
+        length < 126
+          ? [0x80 | opcode, 0x80 | length]
+          : length < 65536
+            ? [0x80 | opcode, 0x80 | 126, length >> 8, length & 255]
+            : [
+                0x80 | opcode,
+                0x80 | 127,
+                0,
+                0,
+                0,
+                0,
+                (length >>> 24) & 255,
+                (length >> 16) & 255,
+                (length >> 8) & 255,
+                length & 255,
+              ];
       const bytes = new Uint8Array(head.length + 4 + length);
       bytes.set(head);
       bytes.set(mask, head.length);
@@ -205,7 +242,9 @@ export class Bridge {
         if (!fin) continue;
         const whole = concat(fragments);
         fragments = [];
-        port.postMessage({ message: fragmentType === 1 ? new TextDecoder().decode(whole) : whole.buffer });
+        port.postMessage({
+          message: fragmentType === 1 ? new TextDecoder().decode(whole) : whole.buffer,
+        });
       }
     };
     connection.ondata = (bytes) => {
@@ -213,7 +252,12 @@ export class Bridge {
       if (!open) {
         let split = -1;
         for (let i = 0; i + 3 < buffer.length; i++) {
-          if (buffer[i] === 13 && buffer[i + 1] === 10 && buffer[i + 2] === 13 && buffer[i + 3] === 10) {
+          if (
+            buffer[i] === 13 &&
+            buffer[i + 1] === 10 &&
+            buffer[i + 2] === 13 &&
+            buffer[i + 3] === 10
+          ) {
             split = i;
             break;
           }
@@ -229,7 +273,11 @@ export class Bridge {
           const [name, ...value] = line.split(':');
           if (name.trim().toLowerCase() === 'set-cookie') this.remember(value.join(':').trim());
         }
-        const protocol = head.find((line) => /^sec-websocket-protocol:/i.test(line))?.split(':')[1].trim() ?? '';
+        const protocol =
+          head
+            .find((line) => /^sec-websocket-protocol:/i.test(line))
+            ?.split(':')[1]
+            .trim() ?? '';
         open = true;
         port.postMessage({ open: protocol });
       }
@@ -254,17 +302,26 @@ export class Bridge {
   // Tell the service worker who this page is: { kind: 'host' | 'preview', key }.
   static async announce(message) {
     if (!navigator.serviceWorker.controller) {
-      await new Promise((resolve) => navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }));
+      await new Promise((resolve) =>
+        navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }),
+      );
     }
     navigator.serviceWorker.controller.postMessage(message);
-    navigator.serviceWorker.addEventListener('controllerchange', () => navigator.serviceWorker.controller?.postMessage(message));
+    navigator.serviceWorker.addEventListener('controllerchange', () =>
+      navigator.serviceWorker.controller?.postMessage(message),
+    );
   }
 
   request({ method, path, headers, body }) {
     return new Promise((resolve) => {
-      const lines = [`${method} ${path} HTTP/1.1`, `host: localhost:${this.port}`, 'connection: close'];
+      const lines = [
+        `${method} ${path} HTTP/1.1`,
+        `host: localhost:${this.port}`,
+        'connection: close',
+      ];
       for (const [name, value] of headers) {
-        if (!['host', 'connection', 'cookie', 'accept-encoding', 'content-length'].includes(name)) lines.push(`${name}: ${value}`);
+        if (!['host', 'connection', 'cookie', 'accept-encoding', 'content-length'].includes(name))
+          lines.push(`${name}: ${value}`);
       }
       const cookie = this.cookieHeader();
       if (cookie) lines.push(cookie);
@@ -277,8 +334,14 @@ export class Bridge {
         if (done) return;
         done = true;
         if (refused || !chunks.length) {
-          resolve({ status: 502, reason: 'Bad Gateway', headers: [['content-type', 'text/html']],
-            body: new TextEncoder().encode('<meta http-equiv="refresh" content="2"><p style="font-family:system-ui">Waiting for the Phoenix server to start…</p>') });
+          resolve({
+            status: 502,
+            reason: 'Bad Gateway',
+            headers: [['content-type', 'text/html']],
+            body: new TextEncoder().encode(
+              '<meta http-equiv="refresh" content="2"><p style="font-family:system-ui">Waiting for the Phoenix server to start…</p>',
+            ),
+          });
           return;
         }
         resolve(this.parse(concat(chunks)));
@@ -302,9 +365,15 @@ export class Bridge {
         break;
       }
     }
-    const head = new TextDecoder('latin1').decode(raw.subarray(0, split < 0 ? raw.length : split)).split('\r\n');
+    const head = new TextDecoder('latin1')
+      .decode(raw.subarray(0, split < 0 ? raw.length : split))
+      .split('\r\n');
     let body = split < 0 ? new Uint8Array(0) : raw.slice(split + 4);
-    const [, status, reason] = head[0].match(/^HTTP\/1\.[01] (\d+) ?(.*)$/) || [null, '502', 'Bad Gateway'];
+    const [, status, reason] = head[0].match(/^HTTP\/1\.[01] (\d+) ?(.*)$/) || [
+      null,
+      '502',
+      'Bad Gateway',
+    ];
     const headers = [];
     for (const line of head.slice(1)) {
       const at = line.indexOf(':');
@@ -314,12 +383,14 @@ export class Bridge {
       if (name === 'set-cookie') this.remember(value);
       headers.push([name, value]);
     }
-    if (headers.some(([n, v]) => n === 'transfer-encoding' && /chunked/i.test(v))) body = dechunk(body);
+    if (headers.some(([n, v]) => n === 'transfer-encoding' && /chunked/i.test(v)))
+      body = dechunk(body);
     const type = headers.find(([n]) => n === 'content-type')?.[1] ?? '';
     if (type.startsWith('text/html')) {
       const html = new TextDecoder().decode(body);
       const at = html.search(/<head[^>]*>/i);
-      const injected = at < 0 ? WEBSOCKET + html : html.replace(/<head[^>]*>/i, (m) => m + WEBSOCKET);
+      const injected =
+        at < 0 ? WEBSOCKET + html : html.replace(/<head[^>]*>/i, (m) => m + WEBSOCKET);
       body = new TextEncoder().encode(injected);
     }
     return { status: Number(status), reason, headers, body };
@@ -333,8 +404,10 @@ export class Bridge {
     const flags = attributes.map((a) => a.trim().split('=')[0].toLowerCase());
     const expired = attributes.some((a) => {
       const [key, v] = a.trim().split('=');
-      return (key.toLowerCase() === 'max-age' && Number(v) <= 0)
-        || (key.toLowerCase() === 'expires' && Date.parse(v) < Date.now());
+      return (
+        (key.toLowerCase() === 'max-age' && Number(v) <= 0) ||
+        (key.toLowerCase() === 'expires' && Date.parse(v) < Date.now())
+      );
     });
     if (flags.includes('httponly') || typeof document === 'undefined') {
       if (expired) this.cookies.delete(name);

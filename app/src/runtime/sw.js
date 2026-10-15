@@ -40,15 +40,20 @@ function database() {
 
 function load() {
   loading ??= database()
-    .then((db) => new Promise((resolve) => {
-      const request = db.transaction('clients').objectStore('clients').get('routes');
-      request.onsuccess = () => {
-        for (const [id, key] of request.result?.keys ?? []) if (!keys.has(id)) keys.set(id, key);
-        for (const [key, id] of request.result?.hosts ?? []) if (!hosts.has(key)) hosts.set(key, id);
-        resolve();
-      };
-      request.onerror = () => resolve();
-    }))
+    .then(
+      (db) =>
+        new Promise((resolve) => {
+          const request = db.transaction('clients').objectStore('clients').get('routes');
+          request.onsuccess = () => {
+            for (const [id, key] of request.result?.keys ?? [])
+              if (!keys.has(id)) keys.set(id, key);
+            for (const [key, id] of request.result?.hosts ?? [])
+              if (!hosts.has(key)) hosts.set(key, id);
+            resolve();
+          };
+          request.onerror = () => resolve();
+        }),
+    )
     .catch(() => {});
   return loading;
 }
@@ -61,11 +66,16 @@ function save() {
     .then(async () => {
       saving = null;
       if (keys.size > 256) {
-        const live = new Set((await self.clients.matchAll({ includeUncontrolled: true })).map((c) => c.id));
-        for (const id of [...keys.keys()].slice(0, keys.size - 128)) if (!live.has(id)) keys.delete(id);
+        const live = new Set(
+          (await self.clients.matchAll({ includeUncontrolled: true })).map((c) => c.id),
+        );
+        for (const id of [...keys.keys()].slice(0, keys.size - 128))
+          if (!live.has(id)) keys.delete(id);
       }
       const db = await database();
-      db.transaction('clients', 'readwrite').objectStore('clients').put({ keys: [...keys], hosts: [...hosts] }, 'routes');
+      db.transaction('clients', 'readwrite')
+        .objectStore('clients')
+        .put({ keys: [...keys], hosts: [...hosts] }, 'routes');
     })
     .catch(() => {});
 }
@@ -146,7 +156,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(app(event, true));
   } else if (event.clientId && nested.get(event.clientId) !== false) {
     // A client seen for the first time: decided once, here.
-    event.respondWith(isApp(event.clientId).then((yes) => (yes ? app(event, false) : fetch(request))));
+    event.respondWith(
+      isApp(event.clientId).then((yes) => (yes ? app(event, false) : fetch(request))),
+    );
   }
 });
 
@@ -171,9 +183,19 @@ async function app(event, navigation) {
   const url = new URL(request.url);
   const body = ['GET', 'HEAD'].includes(request.method) ? null : await request.arrayBuffer();
   const channel = new MessageChannel();
-  const reply = new Promise((resolve) => { channel.port1.onmessage = (e) => resolve(e.data); });
-  page.postMessage({ kind: 'http', method: request.method, path: url.pathname + url.search,
-    headers: [...request.headers], body }, [channel.port2]);
+  const reply = new Promise((resolve) => {
+    channel.port1.onmessage = (e) => resolve(e.data);
+  });
+  page.postMessage(
+    {
+      kind: 'http',
+      method: request.method,
+      path: url.pathname + url.search,
+      headers: [...request.headers],
+      body,
+    },
+    [channel.port2],
+  );
   const response = await reply;
   const location = response.headers.find(([name]) => name === 'location');
   if (response.status >= 300 && response.status < 400 && location && request.mode !== 'navigate') {
@@ -182,5 +204,9 @@ async function app(event, navigation) {
   const headers = new Headers(response.headers.filter(([name]) => !HOP.includes(name)));
   for (const [name, value] of Object.entries(ISOLATION)) headers.set(name, value);
   const empty = request.method === 'HEAD' || [101, 204, 205, 304].includes(response.status);
-  return new Response(empty ? null : response.body, { status: response.status, statusText: response.reason, headers });
+  return new Response(empty ? null : response.body, {
+    status: response.status,
+    statusText: response.reason,
+    headers,
+  });
 }

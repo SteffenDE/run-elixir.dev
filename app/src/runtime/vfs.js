@@ -88,7 +88,10 @@ export function vfs(root, fetch, shared = null) {
         const opened = ask({ op: 'open', path, oflags: CREATE }).answer;
         if (opened.error) return false;
         for (let at = 0; at < bytes.length; at += 512 * 1024)
-          ask({ op: 'write', handle: opened.handle, offset: at }, bytes.subarray(at, at + 512 * 1024));
+          ask(
+            { op: 'write', handle: opened.handle, offset: at },
+            bytes.subarray(at, at + 512 * 1024),
+          );
         ask({ op: 'close', handle: opened.handle });
         return true;
       }
