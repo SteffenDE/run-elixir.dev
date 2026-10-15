@@ -46,6 +46,6 @@ Vite build). See [build.md](build.md).
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |
 | [ide.md](ide.md) | The app (`playground/app`): home page, the project IDE, Tailwind on the page, the preview, terminals and their links. |
-| [deploy.md](deploy.md) | Serving the site: headers, routes, compression, caching (Caddy). |
+| [deploy.md](deploy.md) | Deploying (the deploy branch, releases on the server, rollback) and serving the site: headers, routes, compression, caching (Caddy). |
 | [testing.md](testing.md) | The Playwright tests and the Node harness. |
 | [status.md](status.md) | What works, known gaps, and what comes next. |

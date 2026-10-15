@@ -1,0 +1,175 @@
+#!/bin/bash
+# The server's side of the playground's deploys (deploy.md). As the
+# forced command of the deploy key (authorized_keys: command=…,restrict)
+# it takes, from SSH_ORIGINAL_COMMAND:
+#
+#   rsync --server …        an upload, through rrsync, into releases/ only
+#   prepare RID BUILD       releases/RID.partial, seeded from the live release
+#   activate RID            check it, make it live, check the site, purge
+#   rollback                the release before the live one, live again
+#   status                  the live release and its build
+#
+# Run by hand, the same as arguments. Its configuration is
+# /etc/playground-deploy.env (PLAYGROUND_DEPLOY_CONFIG):
+#
+#   SITE=/srv/playground/run-elixir   releases/ and current, Caddy's root
+#   DOMAIN=run-elixir.dev             checked in playground.json and served
+#   CHECK_RESOLVE=127.0.0.1           where the check reaches the origin
+#                                     (empty: no check)
+#   KEEP_RELEASES=5 KEEP_BUILDS=3     releases kept; builds (b/ID) carried
+#   CF_ZONE_ID=… CF_API_TOKEN=…       Cloudflare, to purge the pages (a token
+#                                     with Zone → Cache Purge only)
+set -euo pipefail
+CONFIG=${PLAYGROUND_DEPLOY_CONFIG:-/etc/playground-deploy.env}
+# shellcheck source=/dev/null
+[ -r "$CONFIG" ] && . "$CONFIG"
+: "${SITE:?SITE is not configured ($CONFIG)}"
+DOMAIN=${DOMAIN:-}
+CHECK_RESOLVE=${CHECK_RESOLVE-127.0.0.1}
+KEEP_RELEASES=${KEEP_RELEASES:-5}
+KEEP_BUILDS=${KEEP_BUILDS:-3}
+RELEASES=$SITE/releases
+# The pages and what keeps its name; everything else is under b/ID.
+PAGES=(index.html preview.html registry.html storage.html sw.js playground.json)
+
+die() {
+  echo "playground-deploy: $*" >&2
+  exit 1
+}
+
+build_of() {
+  sed -n 's/.*<meta name="playground-build" content="\([0-9a-f]*\)".*/\1/p' "$1/index.html" 2>/dev/null | head -n 1
+}
+
+valid_rid() { [[ $1 =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7,40}$ ]] || die "not a release: $1"; }
+valid_build() { [[ $1 =~ ^[0-9a-f]{16}$ ]] || die "not a build: $1"; }
+
+# Releases, newest first.
+releases() {
+  find "$RELEASES" -mindepth 1 -maxdepth 1 -type d ! -name '*.partial' -printf '%f\n' | sort -r
+}
+
+live() { readlink "$SITE/current" 2>/dev/null | sed 's|^releases/||'; }
+
+# Atomically: current names releases/$1.
+swap() {
+  ln -sfn "releases/$1" "$SITE/current.new"
+  mv -T "$SITE/current.new" "$SITE/current"
+}
+
+prepare() {
+  local rid=$1 build=$2 old partial
+  valid_rid "$rid"
+  valid_build "$build"
+  partial=$RELEASES/$rid.partial
+  rm -rf "$partial"
+  mkdir -p "$partial"
+  if [ -d "$SITE/current/" ]; then
+    cp -al "$SITE/current/." "$partial/"
+    old=$(build_of "$SITE/current")
+    if [ -n "$old" ] && [ -d "$partial/b/$old" ] && [ ! -e "$partial/b/$build" ]; then
+      cp -al "$partial/b/$old" "$partial/b/$build"
+    fi
+  fi
+}
+
+# The site as served: the pages' isolation headers, this build named, its
+# WebAssembly, and the service worker revalidated.
+check() {
+  local build=$1 base page headers
+  [ -n "$DOMAIN" ] && [ -n "$CHECK_RESOLVE" ] || return 0
+  base=https://$DOMAIN
+  local curl=(curl -fsS --max-time 30 --resolve "$DOMAIN:443:$CHECK_RESOLVE")
+  page=$(mktemp)
+  trap 'rm -f "$page"' RETURN
+  headers=$("${curl[@]}" -D - -o "$page" "$base/") || { echo "check: / failed" >&2; return 1; }
+  grep -qi '^cross-origin-opener-policy: same-origin' <<<"$headers" || { echo "check: no COOP" >&2; return 1; }
+  grep -qi '^cross-origin-embedder-policy: require-corp' <<<"$headers" || { echo "check: no COEP" >&2; return 1; }
+  grep -q "content=\"$build\"" "$page" || { echo "check: / is not build $build" >&2; return 1; }
+  "${curl[@]}" -o /dev/null -w '%{content_type}\n' "$base/b/$build/rotp.wasm" | grep -q '^application/wasm' ||
+    { echo "check: b/$build/rotp.wasm is not served as WebAssembly" >&2; return 1; }
+  "${curl[@]}" -o /dev/null -D - "$base/sw.js" | grep -qi '^cache-control: no-cache' ||
+    { echo "check: sw.js is not no-cache" >&2; return 1; }
+}
+
+# The pages keep their names: drop the edge's copies (b/ and _playground/
+# are new names each build). Project origins' pages are not cached by
+# Cloudflare by default (HTML, JSON; sw.js is no-cache).
+purge() {
+  [ -n "${CF_ZONE_ID:-}" ] && [ -n "${CF_API_TOKEN:-}" ] && [ -n "$DOMAIN" ] || return 0
+  local files=("\"https://$DOMAIN/\"") page answer
+  for page in "${PAGES[@]}"; do files+=("\"https://$DOMAIN/$page\""); done
+  answer=$(curl -sS --max-time 30 -X POST "https://api.cloudflare.com/client/v4/zones/$CF_ZONE_ID/purge_cache" \
+    -H "Authorization: Bearer $CF_API_TOKEN" -H 'Content-Type: application/json' \
+    --data "{\"files\":[$(IFS=,; echo "${files[*]}")]}") || true
+  grep -q '"success": *true' <<<"$answer" || echo "playground-deploy: warning: Cloudflare purge failed: $answer" >&2
+}
+
+activate() {
+  local rid=$1 partial release build previous keep name page
+  valid_rid "$rid"
+  partial=$RELEASES/$rid.partial
+  release=$RELEASES/$rid
+  [ -d "$partial" ] || die "no upload for $rid"
+  build=$(build_of "$partial")
+  [ -n "$build" ] || die "$rid: index.html names no build"
+  for page in "${PAGES[@]}" "b/$build/rotp.wasm" "b/$build/worker.js" "b/$build/fs/manifest.json" "b/$build/fs/version"; do
+    [ -s "$partial/$page" ] || die "$rid: $page is missing"
+  done
+  if [ -n "$DOMAIN" ]; then
+    grep -q "\"domain\": *\"$DOMAIN\"" "$partial/playground.json" || die "$rid: playground.json does not name $DOMAIN"
+  fi
+  # The builds of the newest releases, this one's first, stay.
+  keep=$({ echo "$build"; for name in $(releases); do build_of "$RELEASES/$name"; done; } | awk 'NF && !seen[$0]++' | head -n "$KEEP_BUILDS")
+  for name in "$partial"/b/*/; do
+    name=$(basename "$name")
+    grep -qx "$name" <<<"$keep" || rm -rf "${partial:?}/b/$name"
+  done
+  mv "$partial" "$release"
+  previous=$(live || true)
+  swap "$rid"
+  if ! check "$build"; then
+    [ -n "$previous" ] && swap "$previous"
+    die "$rid failed its check; live again: ${previous:-nothing}"
+  fi
+  purge
+  # Old releases go, and failed uploads; never the live one.
+  for name in $(releases | tail -n +"$((KEEP_RELEASES + 1))"); do
+    [ "$name" = "$rid" ] || rm -rf "${RELEASES:?}/$name"
+  done
+  find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name '*.partial' -mmin +60 -exec rm -rf {} +
+  echo "live: $rid (build $build)"
+}
+
+rollback() {
+  local current before
+  current=$(live) || die "nothing is live"
+  before=$(releases | grep -A1 -x "$current" | sed -n 2p)
+  [ -n "$before" ] || die "no release before $current"
+  swap "$before"
+  check "$(build_of "$RELEASES/$before")" || echo "playground-deploy: warning: $before failed its check" >&2
+  purge
+  echo "live: $before (build $(build_of "$RELEASES/$before"))"
+}
+
+if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
+  case $SSH_ORIGINAL_COMMAND in
+    "rsync --server "*)
+      mkdir -p "$RELEASES"
+      exec rrsync -wo "$RELEASES"
+      ;;
+  esac
+  read -r -a words <<<"$SSH_ORIGINAL_COMMAND"
+else
+  words=("$@")
+fi
+mkdir -p "$RELEASES"
+exec 9>"$SITE/.deploy.lock"
+flock -w 600 9 || die "another deploy holds the lock"
+case "${words[0]:-} ${#words[@]}" in
+  "prepare 3") prepare "${words[1]}" "${words[2]}" ;;
+  "activate 2") activate "${words[1]}" ;;
+  "rollback 1") rollback ;;
+  "status 1") echo "live: $(live) (build $(build_of "$SITE/current"))" ;;
+  *) die "unknown command: ${words[*]:-}" ;;
+esac

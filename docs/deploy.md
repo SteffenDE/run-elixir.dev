@@ -1,18 +1,95 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Deploying the site
 
-The site is static. Build it, then copy `target/playground/site/` to the
-server:
+The site is static. A push to the `deploy` branch builds it on a
+Forgejo runner and makes it live on the server as a new release
+(`.forgejo/workflows/deploy.yml`, `playground/deploy/`):
+
+1. **Build** (`build-site.sh`): the native Rust-OTP install, the NIF
+   libraries, then the site, with `PLAYGROUND_DOMAIN` from the
+   repository's variables.
+2. **Upload** (`upload.sh SITE user@host`): the server seeds
+   `releases/RID.partial` with the live release's files, hard-linked, and
+   this build's `b/ID/` with the live build's; rsync then sends what
+   differs by checksum and deletes what is gone. A changed file is a new
+   file (rsync renames it into place), so the live release is never
+   written to.
+3. **Activate** (`playground-deploy activate RID`, on the server): the
+   release must hold the pages, its build's `rotp.wasm`, `worker.js` and
+   `fs/`, and a `playground.json` naming `DOMAIN`. It keeps the builds of
+   the newest `KEEP_BUILDS` releases (`b/ID/`, for pages loaded before),
+   then `current` is pointed at it in one rename. The site is checked as
+   served (the isolation headers, the page naming this build, its
+   `rotp.wasm` as WebAssembly, `sw.js` no-cache); if that fails, the
+   previous release is live again and the deploy fails. Then Cloudflare
+   drops its copies of the pages, and releases beyond `KEEP_RELEASES` go.
+
+`playground-deploy rollback` makes the release before the live one live
+again; `status` names the live one. Both also work over the deploy key
+(`ssh user@host rollback`).
+
+Deploying by hand from a machine with the key is the same:
 
 ```sh
-PLAYGROUND_DOMAIN=run-elixir.dev python3 -I playground/runtime/build.py
-rsync -a --delete target/playground/site/ server:/srv/elixir-playground/
+PLAYGROUND_DOMAIN=run-elixir.dev playground/deploy/build-site.sh
+playground/deploy/upload.sh target/playground/site deploy@server
 ```
+
+### The server
+
+- A user that owns the site's directory, such as `deploy` and
+  `/srv/playground/run-elixir` (Caddy's user reads it), with `rsync` and
+  `rrsync` (rsync 3.2.4 or later) installed.
+- `playground/deploy/server/playground-deploy` at
+  `/usr/local/bin/playground-deploy`, and `/etc/playground-deploy.env`
+  (the script's header lists every setting):
+
+  ```sh
+  SITE=/srv/playground/run-elixir
+  DOMAIN=run-elixir.dev
+  CF_ZONE_ID=…
+  CF_API_TOKEN=…   # a token with Zone → Cache Purge on the zone, only
+  ```
+
+- In the user's `~/.ssh/authorized_keys`, the CI's key limited to that
+  script, which lets it upload into `releases/` (through `rrsync -wo`),
+  prepare, activate, roll back and ask, and nothing else:
+
+  ```
+  command="/usr/local/bin/playground-deploy",restrict ssh-ed25519 AAAA… forgejo-deploy
+  ```
+
+- Caddy's `root` is `SITE/current` (below). It resolves the link on each
+  request, so a release goes live at once and whole.
+
+### The runner
+
+A self-hosted Forgejo runner with the label `beamos-build` and the host
+executor (`beamos-build:host`): the build runs Docker itself
+(`sudo -n docker`, or `DOCKER`) and needs the repository's toolchain on the
+runner's user: Rust (rustup, which adds the wasm targets
+`rust-toolchain.toml` names), mise with the configured Erlang and Elixir,
+Python 3, git and network access. It builds in a checkout of its own that
+it keeps (`DEPLOY_BUILD_DIR`, default `~/beamos-deploy`), so `target/`
+stays warm between deploys.
+
+The repository's variables are `DEPLOY_TARGET` (`deploy@server`),
+`PLAYGROUND_DOMAIN` and optionally `DEPLOY_BUILD_DIR`; its secrets are
+`DEPLOY_SSH_KEY` (the private key) and `DEPLOY_KNOWN_HOSTS` (the server's
+`ssh-keyscan` line).
+
+### Cloudflare
+
+The pages are HTML and JSON, which Cloudflare does not cache unless told
+to, and `sw.js` is no-cache; `b/` and `_playground/` are new names with
+each build and cached for good. So nothing needs purging for a deploy to
+be seen; the purge of the apex's pages is a safety net for a cache rule
+that caches more.
 
 ## What the server must do
 
@@ -132,7 +209,7 @@ the apex and a project's origin frame each other's pages (`registry.html`,
 }
 
 elixir-playground.steffend.me {
-	root * /srv/elixir-playground
+	root * /srv/playground/elixir-playground/current
 	import playground
 }
 
@@ -142,7 +219,7 @@ run-elixir.dev, *.run-elixir.dev {
 	tls {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
-	root * /srv/run-elixir
+	root * /srv/playground/run-elixir/current
 	import playground
 }
 
