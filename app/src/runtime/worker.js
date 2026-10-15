@@ -1,4 +1,4 @@
-// A playground node in a Web Worker: rotp.wasm over wasi.js, as one
+// A playground node in a Web Worker: rotp.wasm over wasi.ts, as one
 // command or under a small shell. host.ts is the page's side: frames come
 // in through its SharedArrayBuffer ring (the worker sleeps on the ring's
 // write count, so a frame wakes it) and everything goes back as messages.

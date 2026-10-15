@@ -6,6 +6,13 @@
 
 import { Nifs } from './nif';
 
+// WASI preview 1's integers: i32 (unsigned, see `unsigned`) and i64.
+type I32 = number;
+type I64 = bigint;
+// An import as the instance calls it.
+export type Syscall = (...args: (number | bigint)[]) => number;
+export type Imports = { wasi_snapshot_preview1: Record<string, Syscall> };
+
 const E = {
   SUCCESS: 0,
   ACCES: 2,
@@ -35,16 +42,19 @@ const FDFLAGS = { APPEND: 1 };
 // WebAssembly passes an i32 to JavaScript signed, so a pointer into a
 // memory past 2 GiB arrives negative. Every i32 of WASI preview 1 is
 // unsigned (fds, flags, pointers, lengths): take them as such.
-const unsigned = (functions) =>
+const unsigned = (functions: object): Record<string, Syscall> =>
   Object.fromEntries(
-    Object.entries(functions).map(([name, f]) => [
+    Object.entries(functions as Record<string, Syscall>).map(([name, f]) => [
       name,
-      (...args) => f(...args.map((a) => (typeof a === 'number' ? a >>> 0 : a))),
+      (...args: (number | bigint)[]) =>
+        f(...args.map((a) => (typeof a === 'number' ? a >>> 0 : a))),
     ]),
   );
 
 export class Exit extends Error {
-  constructor(code) {
+  declare code: number;
+
+  constructor(code: number) {
     super(`exit ${code}`);
     this.code = code;
   }
@@ -55,27 +65,36 @@ const now = () => BigInt(Date.now()) * 1000000n;
 
 // A file; `written` once the node has written it (node.mjs's SNAPSHOT).
 export class File {
-  constructor(data = new Uint8Array(0)) {
+  declare ino: bigint;
+  declare data: Uint8Array;
+  declare size: number;
+  declare mtime: bigint;
+  // Mounted: where its bytes are fetched from, until they are.
+  declare source?: string | null;
+  declare bundle?: number;
+  declare written?: boolean;
+
+  constructor(data: Uint8Array = new Uint8Array(0)) {
     this.ino = BigInt(inodes++);
     this.data = data;
     this.size = data.length;
     this.mtime = now();
   }
   // Room for `size` bytes, keeping what is there.
-  reserve(size) {
+  reserve(size: number): void {
     if (size > this.data.length) {
       const grown = new Uint8Array(Math.max(size, this.data.length * 2, 4096));
       grown.set(this.data.subarray(0, this.size));
       this.data = grown;
     }
   }
-  truncate(size) {
+  truncate(size: number): void {
     this.reserve(size);
     if (size > this.size) this.data.fill(0, this.size, size);
     this.size = size;
     this.mtime = now();
   }
-  get bytes() {
+  get bytes(): Uint8Array {
     return this.data.subarray(0, this.size);
   }
 }
@@ -84,7 +103,10 @@ export class File {
 // fetched by WASI's fetch(source, bundle) when first opened; `bundle`
 // names the tar in the site's fs/bundles/ that holds the file. mtime:
 // seconds since the epoch (Mix compares sources and manifests).
-export function mount(manifest, root) {
+export type Manifest = [path: string, size: number, mtime: number, bundle: number][];
+export type Fetch = (source: string, bundle: number) => Uint8Array;
+
+export function mount(manifest: Manifest, root: Dir): void {
   for (const [path, size, mtime, bundle] of manifest) {
     const file = root.put(path, new File());
     file.size = size;
@@ -94,10 +116,11 @@ export function mount(manifest, root) {
   }
 }
 
-// A mounted file's bytes, fetched once.
-export function load(node, fetch) {
+// A mounted file's bytes, fetched once (any node: only a mounted file
+// has a source).
+export function load(node: Partial<File>, fetch: Fetch): void {
   if (node.source) {
-    node.data = fetch(node.source, node.bundle);
+    node.data = fetch(node.source, node.bundle!);
     node.size = node.data.length;
     node.source = null;
   }
@@ -106,9 +129,9 @@ export function load(node, fetch) {
 // fetch(source, bundle) over bundles: get(bundle) is the bundle's tar,
 // synchronously. Each bundle is fetched once; its other files wait in
 // memory until they are opened.
-export function bundled(get) {
-  const waiting = new Map();
-  const loaded = new Set();
+export function bundled(get: (bundle: number) => Uint8Array): Fetch {
+  const waiting = new Map<string, Uint8Array>();
+  const loaded = new Set<number>();
   return (source, bundle) => {
     if (!waiting.has(source) && !loaded.has(bundle)) {
       loaded.add(bundle);
@@ -123,7 +146,15 @@ export function bundled(get) {
   };
 }
 
+// What a tree holds.
+export type FsNode = File | Dir | Symlink | Device;
+
 export class Dir {
+  declare ino: bigint;
+  declare entries: Map<string, FsNode>;
+  declare mtime: bigint;
+  declare parent?: Dir;
+
   constructor() {
     this.ino = BigInt(inodes++);
     this.entries = new Map();
@@ -134,8 +165,9 @@ export class Dir {
   // is made too: kept changes are laid back in path order, so a link can
   // come before its target, and older kept files were recorded by the path
   // written through one.
-  mkdirs(path, hops = 0) {
-    let dir = this;
+  mkdirs(path: string, hops = 0): Dir {
+    // oxlint-disable-next-line typescript/no-this-alias -- the walk starts here.
+    let dir: Dir = this;
     for (const name of path.split('/').filter((p) => p && p !== '.')) {
       if (name === '..') {
         dir = dir.parent || dir;
@@ -155,13 +187,13 @@ export class Dir {
         next.parent = dir;
         dir.entries.set(name, next);
       }
-      dir = next;
+      dir = next as Dir;
     }
     return dir;
   }
-  put(path, node) {
+  put<T extends FsNode>(path: string, node: T): T {
     const parts = path.split('/').filter(Boolean);
-    const name = parts.pop();
+    const name = parts.pop()!;
     const dir = this.mkdirs(parts.join('/'));
     if (node instanceof Dir) node.parent = dir;
     dir.entries.set(name, node);
@@ -172,12 +204,16 @@ export class Dir {
 // A symbolic link: its target, a path read when a lookup passes it
 // (relative to the link's directory).
 export class Symlink {
-  constructor(target) {
+  declare ino: bigint;
+  declare target: string;
+  declare mtime: bigint;
+
+  constructor(target: string) {
     this.ino = BigInt(inodes++);
     this.target = target;
     this.mtime = now();
   }
-  get size() {
+  get size(): number {
     return new TextEncoder().encode(this.target).length;
   }
 }
@@ -186,8 +222,12 @@ export class Symlink {
 // { node, parent, name }, or { error, parent?, name? } with where it would
 // go. Symbolic links met on the way are followed, a last one only when
 // `follow`; `..` is the physical parent, as POSIX resolves it.
-export function lookup(root, start, path, follow = true, hops = 0) {
-  let dir = path.startsWith('/') ? root : start;
+export type Found =
+  | { node: FsNode; parent?: Dir; name?: string; error?: undefined }
+  | { node?: undefined; error: number; parent?: Dir; name?: string };
+
+export function lookup(root: Dir, start: Dir, path: string, follow = true, hops = 0): Found {
+  let dir: FsNode = path.startsWith('/') ? root : start;
   const parts = path.split('/').filter((p) => p && p !== '.');
   for (let i = 0; i < parts.length; i++) {
     if (!(dir instanceof Dir)) return { error: E.NOTDIR };
@@ -219,7 +259,12 @@ export function lookup(root, start, path, follow = true, hops = 0) {
 
 // A file whose reads are made as they happen (/dev/urandom).
 export class Device {
-  constructor(read) {
+  declare ino: bigint;
+  declare read: (count: number) => Uint8Array;
+  declare size: number;
+  declare mtime: bigint;
+
+  constructor(read: (count: number) => Uint8Array) {
     this.ino = BigInt(inodes++);
     this.read = read;
     this.size = 0;
@@ -236,13 +281,23 @@ export const urandom = () =>
 
 // One end of a connection, as the node sees it: what the peer sent
 // (inbox), whether the peer has ended, and how to reach the peer.
+interface Peer {
+  send(bytes: Uint8Array): void;
+  end(): void;
+  close(): void;
+}
+
 class Endpoint {
-  constructor(peer) {
+  declare inbox: Uint8Array[];
+  declare eof: boolean;
+  declare peer: Peer;
+
+  constructor(peer: Peer) {
     this.inbox = [];
     this.eof = false;
     this.peer = peer; // { send(bytes), end(), close() }
   }
-  take(max) {
+  take(max: number): Uint8Array {
     const out = new Uint8Array(
       Math.min(
         max,
@@ -267,7 +322,7 @@ class Endpoint {
 // not get the port an earlier one had (Mix's lock files name the port of
 // their holder, and a node that finds its own port there waits on itself).
 let ephemeralPort = 49152 + Math.floor(Math.random() * 16384);
-function nextEphemeral() {
+function nextEphemeral(): number {
   const port = ephemeralPort;
   ephemeralPort = ephemeralPort >= 65535 ? 49152 : ephemeralPort + 1;
   return port;
@@ -279,8 +334,31 @@ function nextEphemeral() {
 // remote.ports; send/end/close by id; listening(port, bool) as the node
 // starts and stops listening). Ids the node makes are even; the
 // page's are odd.
+export interface Remote {
+  ports: number[];
+  https?: boolean;
+  open(id: number, port: number, host?: string): void;
+  send(id: number, bytes: Uint8Array): void;
+  end(id: number): void;
+  close(id: number): void;
+  listening?(port: number, on: boolean, ephemeral?: boolean): void;
+}
+
+// A connection waiting on a listener: its id and the peer's address.
+interface Waiting {
+  id: number;
+  ip: string;
+  port: number;
+}
+
 export class Network {
-  constructor(remote = { ports: [], open() {}, send() {}, end() {}, close() {} }) {
+  declare remote: Remote;
+  declare listeners: Map<number, Waiting[]>;
+  declare waiting: Map<number, Endpoint>;
+  declare endpoints: Map<number, Endpoint>;
+  declare next: number;
+
+  constructor(remote: Remote = { ports: [], open() {}, send() {}, end() {}, close() {} }) {
     this.remote = remote;
     this.listeners = new Map(); // port -> [{ id, ip, port }]
     this.waiting = new Map(); // id -> Endpoint, until accepted
@@ -290,19 +368,19 @@ export class Network {
   // A listener's queue, on `port` or (0) a free one: { queue, port }.
   // listening(port, true, ephemeral): ephemeral when the port was given,
   // not asked for (Mix's lock listens so; a web server names its port).
-  listen(port) {
+  listen(port: number): { queue: Waiting[]; port: number } | null {
     const ephemeral = port === 0;
     if (ephemeral)
       do port = nextEphemeral();
       while (this.listeners.has(port));
     if (this.listeners.has(port)) return null;
-    const queue = [];
+    const queue: Waiting[] = [];
     this.listeners.set(port, queue);
     this.remote.listening?.(port, true, ephemeral);
     return { queue, port };
   }
   // A connection to the node's listener on `port` from the page.
-  accepted(id, port) {
+  accepted(id: number, port: number): boolean {
     const queue = this.listeners.get(port);
     if (!queue) return false;
     const r = this.remote;
@@ -320,11 +398,11 @@ export class Network {
     return true;
   }
   // The node connects: to itself, or to the page.
-  connect(port) {
+  connect(port: number): Endpoint | null {
     const queue = this.listeners.get(port);
     if (queue) {
       const id = (this.next += 2);
-      let mine;
+      let mine: Endpoint;
       const theirs = new Endpoint({
         send: (bytes) => mine.inbox.push(bytes),
         end: () => {
@@ -364,7 +442,7 @@ export class Network {
   }
   // HTTPS to `host` the page carries (/.net/https/NAME/PORT): a connection
   // to the page, if it offers it (remote.https).
-  https(host, port) {
+  https(host: string, port: number): Endpoint | null {
     if (!this.remote.https) return null;
     const id = (this.next += 2);
     const r = this.remote;
@@ -381,10 +459,10 @@ export class Network {
     return endpoint;
   }
   // From the page: data for, or the end of, connection `id`.
-  data(id, bytes) {
+  data(id: number, bytes: Uint8Array): void {
     this.endpoints.get(id)?.inbox.push(bytes);
   }
-  ended(id) {
+  ended(id: number): void {
     const endpoint = this.endpoints.get(id);
     if (endpoint) endpoint.eof = true;
   }
@@ -394,6 +472,14 @@ export class Network {
 // what it wrote, whether its output has ended, its exit status, and its
 // input.
 export class Process {
+  declare output: Uint8Array[];
+  declare ended: boolean;
+  declare status: number | null;
+  declare input: Uint8Array[];
+  declare closed: boolean;
+  // The node closed its port.
+  declare onclose?: () => void;
+
   constructor() {
     this.output = [];
     this.ended = false;
@@ -401,10 +487,10 @@ export class Process {
     this.input = [];
     this.closed = false;
   }
-  write(bytes) {
+  write(bytes: string | Uint8Array): void {
     this.output.push(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes);
   }
-  exit(status) {
+  exit(status: number): void {
     this.ended = true;
     this.status = status;
   }
@@ -412,13 +498,20 @@ export class Process {
 
 // The entries of a tar (ustar, as Python's tarfile writes it): name,
 // type ('0' file, '5' directory), body and mtime (ns).
-export function* entries(tar) {
-  const text = (from, length) => {
+export interface TarEntry {
+  name: string;
+  type: string;
+  body: Uint8Array;
+  mtime: bigint;
+}
+
+export function* entries(tar: Uint8Array): Generator<TarEntry> {
+  const text = (from: number, length: number) => {
     let end = from;
     while (end < from + length && tar[end] !== 0) end++;
     return new TextDecoder().decode(tar.subarray(from, end));
   };
-  let longName = null;
+  let longName: string | null = null;
   for (let at = 0; at + 512 <= tar.length;) {
     if (tar[at] === 0) break;
     let name = text(at, 100);
@@ -440,7 +533,11 @@ export function* entries(tar) {
 
 // A gzipped tar into `root`: the number of files.
 // keep(name): whether a file or directory belongs in `root`.
-export async function untar(gzipped, root, keep = () => true) {
+export async function untar(
+  gzipped: Uint8Array<ArrayBuffer>,
+  root: Dir,
+  keep: (name: string) => boolean = () => true,
+): Promise<number> {
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'));
   const tar = new Uint8Array(await new Response(stream).arrayBuffer());
   let count = 0;
@@ -457,7 +554,20 @@ export async function untar(gzipped, root, keep = () => true) {
 
 // A node's synchronous channel to the shared filesystem (files.js): send a
 // request and its bytes, wait for the answer.
-export function sharedClient(doorbell, channel) {
+// files.js's answer: an errno in `error`, or what the request asked for.
+// oxlint-disable-next-line typescript/no-explicit-any -- each op's own.
+export type SharedAnswer = { error?: number; [field: string]: any };
+export type SharedCall = (
+  request: Record<string, unknown>,
+  bytes?: Uint8Array,
+) => { answer: SharedAnswer; bytes: Uint8Array };
+// Paths another worker holds (files.js), and the way to it.
+export interface Shared {
+  prefixes: string[];
+  call: SharedCall;
+}
+
+export function sharedClient(doorbell: SharedArrayBuffer, channel: SharedArrayBuffer): SharedCall {
   const bell = new Int32Array(doorbell);
   const control = new Int32Array(channel, 0, 2);
   const data = new Uint8Array(channel, 8);
@@ -488,18 +598,183 @@ export function sharedClient(doorbell, channel) {
 const SHARED_CHUNK = 512 * 1024;
 
 // A node's WASI file type, and a shared node's by files.js's name for it.
-function fileType(node) {
+function fileType(node: object): number {
   return node instanceof Dir
     ? FILETYPE.DIR
     : node instanceof Symlink
       ? FILETYPE.SYMLINK
       : FILETYPE.REG;
 }
-function sharedType(type) {
+function sharedType(type: string): number {
   return type === 'dir' ? FILETYPE.DIR : type === 'link' ? FILETYPE.SYMLINK : FILETYPE.REG;
 }
 
+// What filestat writes: a node, or the like of one.
+type Stat = { ino: bigint; size?: number; mtime: bigint };
+
+// A shared file open in the node (files.js's handle).
+interface SharedFile {
+  handle: number;
+  position: number;
+  append: boolean;
+  dir: boolean;
+  listing: [name: string, type: string, ino: number][] | null;
+}
+
+// An open descriptor: a node of the tree, a standard stream, a shared file,
+// or one of the host's files (/.proc/spawn, /.tty, /.nif, /.net), by what
+// it holds.
+interface Descriptor {
+  node?: FsNode;
+  position?: number;
+  append?: boolean;
+  preopen?: string;
+  path?: string;
+  changed?: boolean;
+  stream?: boolean;
+  remote?: SharedFile;
+  spawn?: boolean;
+  process?: Process | null;
+  terminal?: boolean;
+  nif?: string;
+  request?: Uint8Array[];
+  answer?: Uint8Array | null;
+  listener?: Waiting[];
+  port?: number;
+  endpoint?: Endpoint;
+}
+
+// A program the node may spawn (wasm_proc.rs).
+export interface ProgramContext {
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+  root: Dir;
+}
+export type Program = (process: Process, context: ProgramContext) => void;
+// '*': a program for any other name, or none.
+export type Programs = Record<string, Program> & { '*'?: (name: string) => Program | undefined };
+
+// The terminal the node may set to raw input (/.tty).
+export interface Terminal {
+  mode(mode: string): void;
+  size(): number[];
+}
+
+export interface WasiOptions {
+  args: string[];
+  env: Record<string, string>;
+  root: Dir;
+  stdin(max: number): Uint8Array | null;
+  stdout(bytes: Uint8Array): void;
+  stderr(bytes: Uint8Array): void;
+  sleep(ms: number): void;
+  tty?: boolean;
+  terminal?: Terminal | null;
+  network?: Network;
+  pump?: () => void;
+  fetch: Fetch;
+  programs?: Programs;
+  onchange?: (path: string) => void;
+  shared?: Shared | null;
+}
+
+// The calls of WASI preview 1 this shim has, as the instance makes them.
+interface Preview1 {
+  args_sizes_get(countPtr: I32, sizePtr: I32): number;
+  args_get(ptrs: I32, buf: I32): number;
+  environ_sizes_get(countPtr: I32, sizePtr: I32): number;
+  environ_get(ptrs: I32, buf: I32): number;
+  clock_res_get(id: I32, ptr: I32): number;
+  clock_time_get(id: I32, precision: I64, ptr: I32): number;
+  random_get(ptr: I32, len: I32): number;
+  proc_exit(code: I32): never;
+  proc_raise(signal: I32): never;
+  sched_yield(): number;
+  poll_oneoff(inPtr: I32, outPtr: I32, count: I32, eventsPtr: I32): number;
+  fd_prestat_get(fd: I32, ptr: I32): number;
+  fd_prestat_dir_name(fd: I32, ptr: I32, len: I32): number;
+  fd_fdstat_get(fd: I32, ptr: I32): number;
+  fd_fdstat_set_flags(fd: I32, flags: I32): number;
+  fd_close(fd: I32): number;
+  fd_sync(fd: I32): number;
+  fd_datasync(fd: I32): number;
+  fd_advise(fd: I32, offset: I64, len: I64, advice: I32): number;
+  fd_fdstat_set_rights(fd: I32, base: I64, inheriting: I64): number;
+  fd_filestat_get(fd: I32, ptr: I32): number;
+  fd_filestat_set_size(fd: I32, size: I64): number;
+  fd_allocate(fd: I32, offset: I64, length: I64): number;
+  fd_filestat_set_times(fd: I32, atim: I64, mtim: I64, flags: I32): number;
+  path_filestat_set_times(
+    fd: I32,
+    flags: I32,
+    pathPtr: I32,
+    pathLen: I32,
+    atim: I64,
+    mtim: I64,
+    fstflags: I32,
+  ): number;
+  fd_read(fd: I32, iovs: I32, count: I32, nreadPtr: I32): number;
+  fd_write(fd: I32, iovs: I32, count: I32, nwrittenPtr: I32): number;
+  fd_pread(fd: I32, iovs: I32, count: I32, offset: I64, nreadPtr: I32): number;
+  fd_pwrite(fd: I32, iovs: I32, count: I32, offset: I64, nwrittenPtr: I32): number;
+  fd_tell(fd: I32, ptr: I32): number;
+  fd_seek(fd: I32, offset: I64, whence: I32, ptr: I32): number;
+  fd_readdir(fd: I32, buf: I32, len: I32, cookie: I64, usedPtr: I32): number;
+  path_open(
+    fd: I32,
+    dirflags: I32,
+    pathPtr: I32,
+    pathLen: I32,
+    oflags: I32,
+    base: I64,
+    inheriting: I64,
+    fdflags: I32,
+    fdPtr: I32,
+  ): number;
+  path_filestat_get(fd: I32, flags: I32, pathPtr: I32, pathLen: I32, ptr: I32): number;
+  path_create_directory(fd: I32, pathPtr: I32, pathLen: I32): number;
+  path_remove_directory(fd: I32, pathPtr: I32, pathLen: I32): number;
+  path_unlink_file(fd: I32, pathPtr: I32, pathLen: I32): number;
+  path_rename(fd: I32, oldPtr: I32, oldLen: I32, fd2: I32, newPtr: I32, newLen: I32): number;
+  path_link(
+    fd: I32,
+    flags: I32,
+    oldPtr: I32,
+    oldLen: I32,
+    fd2: I32,
+    newPtr: I32,
+    newLen: I32,
+  ): number;
+  path_symlink(targetPtr: I32, targetLen: I32, fd: I32, pathPtr: I32, pathLen: I32): number;
+  path_readlink(fd: I32, pathPtr: I32, pathLen: I32, buf: I32, bufLen: I32, usedPtr: I32): number;
+  sock_accept(fd: I32, flags: I32, fdPtr: I32): number;
+  sock_shutdown(fd: I32, how: I32): number;
+}
+type Local = Omit<Preview1, 'fd_pread' | 'fd_pwrite' | 'fd_tell'>;
+
 export class WASI {
+  declare shared: Shared | null;
+  declare terminal: Terminal | null;
+  declare onchange: (path: string) => void;
+  declare fetch: Fetch;
+  declare programs: Programs;
+  declare tty: boolean;
+  declare network: Network;
+  declare pump: () => void;
+  declare args: string[];
+  declare env: string[];
+  declare root: Dir;
+  declare stdin: (max: number) => Uint8Array | null;
+  declare out: Record<number, (bytes: Uint8Array) => void>;
+  declare sleep: (ms: number) => void;
+  declare fds: Map<number, Descriptor>;
+  declare next: number;
+  // The memory the calls work on: the node's, or a NIF library's (nif.ts).
+  declare memory: WebAssembly.Memory | null;
+  declare nifs: Nifs;
+  declare imports: Imports;
+
   // { args, env, root: Dir, stdin(), stdout(bytes), stderr(bytes),
   // sleep(ms), tty }: with tty, the standard streams are terminals.
   // network: a Network; pump(): take in what the page sent, before reads.
@@ -529,7 +804,7 @@ export class WASI {
     programs = {},
     onchange = () => {},
     shared = null,
-  }) {
+  }: WasiOptions) {
     this.shared = shared;
     this.terminal = terminal;
     this.onchange = onchange;
@@ -545,7 +820,7 @@ export class WASI {
     this.out = { 1: stdout, 2: stderr };
     this.sleep = sleep;
     // fd -> { node, position, append, preopen }
-    this.fds = new Map([
+    this.fds = new Map<number, Descriptor>([
       [0, { stream: true }],
       [1, { stream: true }],
       [2, { stream: true }],
@@ -559,10 +834,11 @@ export class WASI {
     this.imports = { wasi_snapshot_preview1: unsigned({ ...io, ...this.positioned(io) }) };
   }
 
-  start(instance) {
-    this.memory = instance.exports.memory;
+  start(instance: WebAssembly.Instance): number {
+    this.memory = instance.exports.memory as WebAssembly.Memory;
     try {
-      instance.exports._start();
+      // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a program's start.
+      (instance.exports._start as () => void)();
       return 0;
     } catch (error) {
       if (error instanceof Exit) return error.code;
@@ -570,21 +846,21 @@ export class WASI {
     }
   }
 
-  view() {
-    return new DataView(this.memory.buffer);
+  view(): DataView {
+    return new DataView(this.memory!.buffer);
   }
-  bytes(ptr, len) {
-    return new Uint8Array(this.memory.buffer, ptr, len);
+  bytes(ptr: number, len: number): Uint8Array {
+    return new Uint8Array(this.memory!.buffer, ptr, len);
   }
-  string(ptr, len) {
+  string(ptr: number, len: number): string {
     // A copy: TextDecoder takes no view of a shared memory (threads.js).
     return new TextDecoder().decode(this.bytes(ptr, len).slice());
   }
 
   // The absolute path of `path` below directory fd `fd`.
-  absolute(fd, path) {
+  absolute(fd: number, path: string): string {
     const base = path.startsWith('/') ? '' : (this.fds.get(fd)?.path ?? '');
-    const out = [];
+    const out: string[] = [];
     for (const part of `${base}/${path}`.split('/')) {
       if (part === '..') out.pop();
       else if (part && part !== '.') out.push(part);
@@ -595,29 +871,29 @@ export class WASI {
   // The node at `path` below directory fd `fd`: { node } or { error },
   // with the parent and last name for creating or removing it. A last
   // symbolic link is followed only when `follow`.
-  resolve(fd, path, follow = false) {
+  resolve(fd: number, path: string, follow = false): Found {
     const base = this.fds.get(fd);
     if (!base || !(base.node instanceof Dir)) return { error: E.BADF };
     return lookup(this.root, base.node, path, follow);
   }
 
-  filestat(ptr, node) {
+  filestat(ptr: number, node: Stat | null | undefined): void {
     const v = this.view();
     const dir = node instanceof Dir;
     v.setBigUint64(ptr, 1n, true);
     v.setBigUint64(ptr + 8, node ? node.ino : 0n, true);
     v.setUint8(ptr + 16, node ? fileType(node) : FILETYPE.CHAR);
     v.setBigUint64(ptr + 24, 1n, true);
-    v.setBigUint64(ptr + 32, BigInt(node && !dir ? node.size : 0), true);
+    v.setBigUint64(ptr + 32, BigInt(node && !dir ? node.size! : 0), true);
     const time = node ? node.mtime : now();
     v.setBigUint64(ptr + 40, time, true);
     v.setBigUint64(ptr + 48, time, true);
     v.setBigUint64(ptr + 56, time, true);
   }
 
-  iovecs(iovs, count) {
+  iovecs(iovs: number, count: number): [ptr: number, len: number][] {
     const v = this.view();
-    const list = [];
+    const list: [number, number][] = [];
     for (let i = 0; i < count; i++) {
       list.push([v.getUint32(iovs + 8 * i, true), v.getUint32(iovs + 8 * i + 4, true)]);
     }
@@ -625,7 +901,7 @@ export class WASI {
   }
 
   // A spawn request (wasm_proc.rs): run the program it names.
-  spawn(entry, bytes) {
+  spawn(entry: Descriptor, bytes: Uint8Array): number | null {
     const fields = new TextDecoder().decode(bytes.slice()).split('\0');
     const [program, cwd] = fields;
     const argc = Number(fields[2]);
@@ -638,7 +914,7 @@ export class WASI {
       }),
     );
     // By base name, or its first part: _build/esbuild-linux-x64 is esbuild.
-    const base = program.split('/').pop();
+    const base = program.split('/').pop()!;
     const run =
       this.programs[base] ?? this.programs[base.split('-')[0]] ?? this.programs['*']?.(base);
     if (!run) return E.NOENT;
@@ -647,18 +923,18 @@ export class WASI {
     try {
       run(process, { args, cwd: cwd || env.PWD || '/', env, root: this.root });
     } catch (error) {
-      process.write(`${program}: ${error.message}\n`);
+      process.write(`${program}: ${(error as Error).message}\n`);
       process.exit(1);
     }
     return null;
   }
 
-  isShared(path) {
-    return this.shared.prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
+  isShared(path: string): boolean {
+    return this.shared!.prefixes.some((prefix) => path === prefix || path.startsWith(`${prefix}/`));
   }
 
   // A filestat for a shared node (files.js status).
-  sharedFilestat(ptr, { type, size, ino, mtime }) {
+  sharedFilestat(ptr: number, { type, size, ino, mtime }: SharedAnswer): void {
     const v = this.view();
     v.setBigUint64(ptr, 2n, true);
     v.setBigUint64(ptr + 8, BigInt(ino), true);
@@ -675,15 +951,16 @@ export class WASI {
   // files take them alike: the descriptor's position is set for the call
   // and kept (a write at an offset does not append). Streams, ports and
   // the like have no position (ESPIPE).
-  positioned(io) {
+  positioned(io: Local): Pick<Preview1, 'fd_pread' | 'fd_pwrite' | 'fd_tell'> {
+    // oxlint-disable-next-line typescript/no-this-alias -- the calls' own `this` is not the shim.
     const self = this;
-    const holder = (fd) => {
+    const holder = (fd: number) => {
       const entry = self.fds.get(fd);
       if (!entry) return E.BADF;
       const file = entry.remote ?? (entry.node instanceof File ? entry : null);
       return file && !entry.nif ? file : E.SPIPE;
     };
-    const at = (fd, offset, run) => {
+    const at = (fd: number, offset: bigint, run: () => number) => {
       const file = holder(fd);
       if (typeof file === 'number') return file;
       const [position, append] = [file.position, file.append];
@@ -702,7 +979,7 @@ export class WASI {
       fd_tell(fd, ptr) {
         const file = holder(fd);
         if (typeof file === 'number') return file;
-        self.view().setBigUint64(ptr, BigInt(file.position), true);
+        self.view().setBigUint64(ptr, BigInt(file.position!), true);
         return E.SUCCESS;
       },
     };
@@ -710,17 +987,21 @@ export class WASI {
 
   // The WASI calls on shared paths and their descriptors, in front of the
   // local ones (`local`), which take everything else.
-  remote(local) {
+  remote(local: Local): Partial<Local> {
+    // oxlint-disable-next-line typescript/no-this-alias -- the calls' own `this` is not the shim.
     const self = this;
-    const call = (request, bytes) => self.shared.call(request, bytes);
-    const ask = (request, bytes) => call(request, bytes).answer;
-    const path = (fd, ptr, len) => self.absolute(fd, self.string(ptr, len));
-    const remoteOf = (fd) => self.fds.get(fd)?.remote;
-    const simple = (op, name) => (fd, ptr, len) => {
-      const target = path(fd, ptr, len);
-      if (!self.isShared(target)) return local[name](fd, ptr, len);
-      return ask({ op, path: target }).error ?? E.SUCCESS;
-    };
+    const call: SharedCall = (request, bytes) => self.shared!.call(request, bytes);
+    const ask = (request: Record<string, unknown>, bytes?: Uint8Array) =>
+      call(request, bytes).answer;
+    const path = (fd: number, ptr: number, len: number) => self.absolute(fd, self.string(ptr, len));
+    const remoteOf = (fd: number) => self.fds.get(fd)?.remote;
+    const simple =
+      (op: string, name: 'path_create_directory' | 'path_remove_directory' | 'path_unlink_file') =>
+      (fd: number, ptr: number, len: number) => {
+        const target = path(fd, ptr, len);
+        if (!self.isShared(target)) return local[name](fd, ptr, len);
+        return ask({ op, path: target }).error ?? E.SUCCESS;
+      };
     return {
       path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr) {
         const target = path(fd, pathPtr, pathLen);
@@ -915,8 +1196,8 @@ export class WASI {
           remote.listing = answer.entries;
         }
         let used = 0;
-        for (let i = Number(cookie); i < remote.listing.length && used < len; i++) {
-          const [name, type, ino] = remote.listing[i];
+        for (let i = Number(cookie); i < remote.listing!.length && used < len; i++) {
+          const [name, type, ino] = remote.listing![i];
           const encoded = new TextEncoder().encode(name);
           const record = new Uint8Array(24 + encoded.length);
           const h = new DataView(record.buffer);
@@ -941,11 +1222,12 @@ export class WASI {
     };
   }
 
-  functions() {
+  functions(): Local {
+    // oxlint-disable-next-line typescript/no-this-alias -- the calls' own `this` is not the shim.
     const self = this;
     const ok = E.SUCCESS;
-    const list = (items) => ({
-      sizes(countPtr, sizePtr) {
+    const list = (items: string[]) => ({
+      sizes(countPtr: number, sizePtr: number) {
         const v = self.view();
         v.setUint32(countPtr, items.length, true);
         v.setUint32(
@@ -955,7 +1237,7 @@ export class WASI {
         );
         return ok;
       },
-      get(ptrs, buf) {
+      get(ptrs: number, buf: number) {
         const v = self.view();
         let at = buf;
         items.forEach((item, i) => {
@@ -1065,13 +1347,13 @@ export class WASI {
       fd_fdstat_set_flags: () => ok,
       fd_close(fd) {
         if (!self.fds.has(fd) || fd < 3) return fd < 3 ? ok : E.BADF;
-        const entry = self.fds.get(fd);
+        const entry = self.fds.get(fd)!;
         if (entry.endpoint) entry.endpoint.peer.close();
         if (entry.listener) {
-          self.network.listeners.delete(entry.port);
-          self.network.remote.listening?.(entry.port, false);
+          self.network.listeners.delete(entry.port!);
+          self.network.remote.listening?.(entry.port!, false);
         }
-        if (entry.changed) self.onchange(entry.path);
+        if (entry.changed) self.onchange(entry.path!);
         // The port closed: a program still running is told (onclose).
         if (entry.process) {
           entry.process.closed = true;
@@ -1100,7 +1382,7 @@ export class WASI {
         }
         // A listener's size is its port (wasm_net.rs).
         if (entry.listener) {
-          self.filestat(ptr, { ino: 0n, size: entry.port, mtime: now() });
+          self.filestat(ptr, { ino: 0n, size: entry.port!, mtime: now() });
           return ok;
         }
         self.filestat(ptr, entry.stream ? null : entry.node);
@@ -1143,20 +1425,20 @@ export class WASI {
         let total = 0;
         const net = entry.endpoint || entry.listener;
         if (entry.nif) {
-          // A NIF library's answer (nif.js), once the request is in.
+          // A NIF library's answer (nif.ts), once the request is in.
           if (!entry.answer) {
-            const request = new Uint8Array(entry.request.reduce((n, part) => n + part.length, 0));
+            const request = new Uint8Array(entry.request!.reduce((n, part) => n + part.length, 0));
             let at = 0;
-            for (const part of entry.request) {
+            for (const part of entry.request!) {
               request.set(part, at);
               at += part.length;
             }
             entry.answer = self.nifs.answer(entry.nif, request);
           }
           for (const [ptr, len] of self.iovecs(iovs, count)) {
-            const part = entry.answer.subarray(entry.position, entry.position + len);
+            const part = entry.answer.subarray(entry.position!, entry.position! + len);
             self.bytes(ptr, part.length).set(part);
-            entry.position += part.length;
+            entry.position! += part.length;
             total += part.length;
             if (part.length < len) break;
           }
@@ -1176,16 +1458,16 @@ export class WASI {
           }
         } else if (net) {
           const [ptr, len] = self.iovecs(iovs, count)[0] || [0, 0];
-          let bytes;
+          let bytes: Uint8Array;
           if (entry.listener) {
             const next = entry.listener.shift();
             if (!next) return E.AGAIN;
             bytes = new TextEncoder().encode(`${next.id} ${next.ip} ${next.port}`);
           } else {
-            if (!entry.endpoint.inbox.length) {
-              if (entry.endpoint.eof) bytes = new Uint8Array(0);
+            if (!entry.endpoint!.inbox.length) {
+              if (entry.endpoint!.eof) bytes = new Uint8Array(0);
               else return E.AGAIN;
-            } else bytes = entry.endpoint.take(len);
+            } else bytes = entry.endpoint!.take(len);
           }
           self.bytes(ptr, bytes.length).set(bytes.subarray(0, len));
           total = Math.min(len, bytes.length);
@@ -1209,9 +1491,9 @@ export class WASI {
           const file = entry.node;
           if (!(file instanceof File)) return E.ISDIR;
           for (const [ptr, len] of self.iovecs(iovs, count)) {
-            const part = file.bytes.subarray(entry.position, entry.position + len);
+            const part = file.bytes.subarray(entry.position!, entry.position! + len);
             self.bytes(ptr, part.length).set(part);
-            entry.position += part.length;
+            entry.position! += part.length;
             total += part.length;
             if (part.length < len) break;
           }
@@ -1226,14 +1508,14 @@ export class WASI {
         for (const [ptr, len] of self.iovecs(iovs, count)) {
           const bytes = self.bytes(ptr, len);
           if (entry.nif) {
-            entry.request.push(bytes.slice());
+            entry.request!.push(bytes.slice());
           } else if (entry.terminal) {
-            self.terminal.mode(new TextDecoder().decode(bytes.slice()).trim());
+            self.terminal!.mode(new TextDecoder().decode(bytes.slice()).trim());
           } else if (entry.spawn && !entry.process) {
             const error = self.spawn(entry, bytes);
             if (error) return error;
           } else if (entry.spawn) {
-            entry.process.input.push(bytes.slice());
+            entry.process!.input.push(bytes.slice());
           } else if (entry.endpoint) {
             entry.endpoint.peer.send(bytes.slice());
           } else if (entry.stream) {
@@ -1243,7 +1525,7 @@ export class WASI {
             const file = entry.node;
             if (!(file instanceof File)) return E.ISDIR;
             if (entry.append) entry.position = file.size;
-            const end = entry.position + len;
+            const end = entry.position! + len;
             file.reserve(end);
             file.data.set(bytes, entry.position);
             if (end > file.size) file.size = end;
@@ -1306,7 +1588,7 @@ export class WASI {
         // The terminal: writing `raw` or `cooked` to /.tty/mode sets its
         // input mode; /.tty/size reads as `COLUMNS ROWS`.
         if (path.startsWith('.tty/')) {
-          let entry;
+          let entry: Descriptor;
           if (!self.terminal) return E.NOENT;
           if (path === '.tty/mode') entry = { terminal: true, node: new File() };
           else if (path === '.tty/size') {
@@ -1320,7 +1602,7 @@ export class WASI {
           self.view().setUint32(fdPtr, opened, true);
           return ok;
         }
-        // A NIF library: /.nif/new loads one, /.nif/ID calls it (nif.js).
+        // A NIF library: /.nif/new loads one, /.nif/ID calls it (nif.ts).
         if (path.startsWith('.nif/')) {
           const opened = self.next++;
           self.fds.set(opened, { nif: path.slice(5), request: [], answer: null, position: 0 });
@@ -1330,7 +1612,7 @@ export class WASI {
         if (path.startsWith('.net/')) {
           const [, op, a, b] = path.split('/');
           const net = self.network;
-          let entry;
+          let entry: Descriptor;
           if (op === 'listen') {
             const listening = net.listen(Number(b));
             if (!listening) return E.ADDRINUSE;
@@ -1365,11 +1647,11 @@ export class WASI {
         // O_NOFOLLOW on a symbolic link.
         if (node instanceof Symlink) return E.LOOP;
         if (!node) {
-          if (!(oflags & OFLAGS.CREAT) || !found.parent) return found.error;
+          if (!(oflags & OFLAGS.CREAT) || !found.parent) return found.error!;
           node = new File();
           node.written = true;
           changed = true;
-          found.parent.entries.set(found.name, node);
+          found.parent.entries.set(found.name!, node);
           found.parent.mtime = now();
         }
         if (oflags & OFLAGS.DIRECTORY && !(node instanceof Dir)) return E.NOTDIR;
@@ -1406,7 +1688,7 @@ export class WASI {
         if (!found.parent) return found.error;
         const dir = new Dir();
         dir.parent = found.parent;
-        found.parent.entries.set(found.name, dir);
+        found.parent.entries.set(found.name!, dir);
         self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;
       },
@@ -1415,7 +1697,7 @@ export class WASI {
         if (!found.node) return found.error;
         if (!(found.node instanceof Dir)) return E.NOTDIR;
         if (found.node.entries.size) return E.NOTEMPTY;
-        found.parent.entries.delete(found.name);
+        found.parent!.entries.delete(found.name!);
         self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;
       },
@@ -1423,7 +1705,7 @@ export class WASI {
         const found = self.resolve(fd, self.string(pathPtr, pathLen));
         if (!found.node) return found.error;
         if (found.node instanceof Dir) return E.ISDIR;
-        found.parent.entries.delete(found.name);
+        found.parent!.entries.delete(found.name!);
         self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;
       },
@@ -1431,10 +1713,10 @@ export class WASI {
         const from = self.resolve(fd, self.string(oldPtr, oldLen));
         if (!from.node) return from.error;
         const to = self.resolve(fd2, self.string(newPtr, newLen));
-        if (!to.parent) return to.error;
+        if (!to.parent) return to.error!;
         if (to.node instanceof Dir && to.node.entries.size) return E.NOTEMPTY;
-        from.parent.entries.delete(from.name);
-        to.parent.entries.set(to.name, from.node);
+        from.parent!.entries.delete(from.name!);
+        to.parent.entries.set(to.name!, from.node);
         if (from.node instanceof Dir) from.node.parent = to.parent;
         self.onchange(self.absolute(fd, self.string(oldPtr, oldLen)));
         self.onchange(self.absolute(fd2, self.string(newPtr, newLen)));
@@ -1448,7 +1730,7 @@ export class WASI {
         const to = self.resolve(fd2, self.string(newPtr, newLen));
         if (to.node) return E.EXIST;
         if (!to.parent) return to.error;
-        to.parent.entries.set(to.name, from.node);
+        to.parent.entries.set(to.name!, from.node);
         self.onchange(self.absolute(fd2, self.string(newPtr, newLen)));
         return ok;
       },
@@ -1456,7 +1738,7 @@ export class WASI {
         const found = self.resolve(fd, self.string(pathPtr, pathLen));
         if (found.node) return E.EXIST;
         if (!found.parent) return found.error;
-        found.parent.entries.set(found.name, new Symlink(self.string(targetPtr, targetLen)));
+        found.parent.entries.set(found.name!, new Symlink(self.string(targetPtr, targetLen)));
         found.parent.mtime = now();
         self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
         return ok;

@@ -1,4 +1,4 @@
-// rotp.wasm under wasi.js in Node, as the browser runs it:
+// rotp.wasm under wasi.ts in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
 // SITE is a site build.py made (target/playground/site), or one of its
 // builds (b/ID). Standard input is read whole first and then ends.

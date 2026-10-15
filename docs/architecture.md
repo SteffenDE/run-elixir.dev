@@ -14,7 +14,7 @@ several projects (one tab per project, [projects.md](projects.md)).
 ```
  project page (React IDE, playground/app)
  ├─ host.ts Node ──────────────► worker.js  (one per shell / terminal tab)
- │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi.js
+ │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi.ts
  │    messages back                            its own /rotp, /dev, /usr
  ├─ host.ts Files ─────────────► files.js   (one; runs no node)
  │    messages                                 /work and /tmp, shared;
@@ -32,7 +32,7 @@ several projects (one tab per project, [projects.md](projects.md)).
 ## The node
 
 A node is one Rust-OTP instance: `rotp.wasm` instantiated in a Web Worker
-(`src/runtime/worker.js`) with the WASI imports from `src/runtime/wasi.js`. The node
+(`src/runtime/worker.js`) with the WASI imports from `src/runtime/wasi.ts`. The node
 sees an ordinary filesystem, TCP, child processes, a clock, random bytes and a
 terminal. All of them are the shim's.
 
@@ -72,7 +72,7 @@ terminal. All of them are the shim's.
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
   on first use (see [build.md](build.md)).
 - **`/work` and `/tmp`** live in `src/runtime/files.js`, a worker that runs no node
-  and so is always free to answer. Nodes reach it synchronously: `wasi.js`
+  and so is always free to answer. Nodes reach it synchronously: `wasi.ts`
   sends each call on those paths through a SharedArrayBuffer channel and
   waits with `Atomics.wait`. The page reaches it with messages (the IDE's
   tree and editor), and hears every change from it. What one shell writes,

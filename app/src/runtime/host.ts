@@ -55,7 +55,7 @@ export interface FileSystem {
   rmdir(path: string): Promise<void>;
 }
 
-// A node's way to the shared files (wasi.js sharedClient).
+// A node's way to the shared files (wasi.ts sharedClient).
 export interface FilesChannel {
   doorbell: SharedArrayBuffer;
   channel: SharedArrayBuffer;
@@ -113,7 +113,7 @@ export class Files implements FileSystem {
     });
   }
 
-  // A node's channel (wasi.js sharedClient).
+  // A node's channel (wasi.ts sharedClient).
   connect(): FilesChannel {
     const channel = new SharedArrayBuffer(8 + CHANNEL);
     this.worker.postMessage({ kind: 'connect', channel });

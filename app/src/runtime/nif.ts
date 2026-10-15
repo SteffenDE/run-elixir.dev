@@ -3,10 +3,19 @@
 // the node, with its own memory. The node's WASI serves them too: while a
 // library runs, the WASI calls work on its memory, so it reads the node's
 // files and environment and writes to its terminal.
-import { Exit } from './wasi';
+import { Exit, type Syscall, type WASI } from './wasi';
+
+// What a library exports (playground/nif's erl_nif).
+interface Library {
+  memory: WebAssembly.Memory;
+  _initialize?: () => void;
+  beamos_nif_input(length: number): number;
+  beamos_nif_run(length: number): number;
+  beamos_nif_output(): number;
+}
 
 // {error, Reason} as an external term, Reason a binary.
-function failure(message) {
+function failure(message: string): Uint8Array {
   const text = new TextEncoder().encode(message);
   const out = new Uint8Array(15 + text.length);
   out.set([131, 104, 2, 119, 5, ...new TextEncoder().encode('error'), 109]);
@@ -16,31 +25,38 @@ function failure(message) {
 }
 
 // The node's WASI for a library, with the functions it imports that
-// wasi.js lacks answering ENOSYS: such a library loads, and only a call
+// wasi.ts lacks answering ENOSYS: such a library loads, and only a call
 // that needs one fails.
 const ENOSYS = 52;
 
-function wasiFor(module, wasi) {
+function wasiFor(
+  module: WebAssembly.Module,
+  wasi: Record<string, Syscall>,
+): Record<string, Syscall> {
   const missing = WebAssembly.Module.imports(module)
     .filter(
       ({ module: name, kind, name: fn }) =>
         name === 'wasi_snapshot_preview1' && kind === 'function' && !(fn in wasi),
     )
-    .map(({ name }) => [name, () => ENOSYS]);
+    .map(({ name }): [string, Syscall] => [name, () => ENOSYS]);
   return missing.length ? { ...wasi, ...Object.fromEntries(missing) } : wasi;
 }
 
 export class Nifs {
-  constructor(wasi) {
+  declare wasi: WASI;
+  declare instances: Map<number, WebAssembly.Instance>;
+  declare next: number;
+
+  constructor(wasi: WASI) {
     this.wasi = wasi;
     this.instances = new Map();
     this.next = 1;
   }
 
   // While `run` runs, the node's WASI works on the library's memory.
-  within(instance, run) {
+  within<T>(instance: WebAssembly.Instance, run: () => T): T {
     const saved = this.wasi.memory;
-    this.wasi.memory = instance.exports.memory;
+    this.wasi.memory = instance.exports.memory as WebAssembly.Memory;
     try {
       return run();
     } finally {
@@ -49,28 +65,30 @@ export class Nifs {
   }
 
   // /.nif/new: the request is a library's bytes, the answer its id.
-  create(bytes) {
+  create(bytes: Uint8Array<ArrayBuffer>): Uint8Array {
     try {
       const module = new WebAssembly.Module(bytes);
       const instance = new WebAssembly.Instance(module, {
         wasi_snapshot_preview1: wasiFor(module, this.wasi.imports.wasi_snapshot_preview1),
       });
-      this.within(instance, () => instance.exports._initialize?.());
+      // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a library's start.
+      this.within(instance, () => (instance.exports as unknown as Library)._initialize?.());
       const id = this.next++;
       this.instances.set(id, instance);
       return new TextEncoder().encode(String(id));
     } catch (error) {
-      return new TextEncoder().encode(`error ${error.message}`);
+      return new TextEncoder().encode(`error ${(error as Error).message}`);
     }
   }
 
   // /.nif/ID: a request (an external term) to the library, its answer.
-  call(id, request) {
+  call(id: number, request: Uint8Array): Uint8Array {
     const instance = this.instances.get(id);
     if (!instance) return failure('no such NIF library');
     try {
       return this.within(instance, () => {
-        const { memory, beamos_nif_input, beamos_nif_run, beamos_nif_output } = instance.exports;
+        const { memory, beamos_nif_input, beamos_nif_run, beamos_nif_output } =
+          instance.exports as unknown as Library;
         new Uint8Array(memory.buffer, beamos_nif_input(request.length) >>> 0, request.length).set(
           request,
         );
@@ -88,7 +106,7 @@ export class Nifs {
   }
 
   // An open /.nif file's answer, once its request is in.
-  answer(target, request) {
+  answer(target: string, request: Uint8Array<ArrayBuffer>): Uint8Array {
     return target === 'new' ? this.create(request) : this.call(Number(target), request);
   }
 }

@@ -158,13 +158,13 @@ The GitHub OAuth app's callback is
 
 The site still ships its own builds of four packages (`nif/`, from
 build.py), and `make` takes those first. They match the page by
-construction: built with the same erl_nif layer as its `nif.js`, in the
+construction: built with the same erl_nif layer as its `nif.ts`, in the
 same versioned build (`b/ID/`). The backend builds with the layer its
 root disk has, and a request does not say which one the page expects; a
 change to `beamos_nif.c` would let them drift apart. The plan, so that the
 backend is the only source:
 
-1. **A layer version in the request.** `beamos_nif.c` and `nif.js` carry
+1. **A layer version in the request.** `beamos_nif.c` and `nif.ts` carry
    a version number for their protocol (the exports, the terms they
    exchange); `make` asks `/api/nif/NAME/VERSION?abi=N`, and the backend
    answers a mismatch with an error saying so, never with a library the

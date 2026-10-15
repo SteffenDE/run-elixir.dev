@@ -3,7 +3,7 @@
 // them through this one, so what a shell writes, the server in another
 // sees; the page reads and writes them here too, and hears what changed.
 //
-// A node asks synchronously (wasi.js shared): each has a channel, a
+// A node asks synchronously (wasi.ts shared): each has a channel, a
 // SharedArrayBuffer whose control[0] is 0 when idle, 1 with a request in
 // it, 2 with the answer; it rings the shared doorbell and waits on
 // control[0]. Requests and answers are a JSON header and bytes:

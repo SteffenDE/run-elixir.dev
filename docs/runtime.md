@@ -15,14 +15,14 @@ site's root. `node.mjs` is bundled for Node.
 
 | File | Runs in | Role |
 | --- | --- | --- |
-| `wasi.js` | worker, Node | WASI preview 1 for `rotp.wasm`: the in-memory filesystem, lazy files, `/dev/urandom`, TCP (`Network`), programs, and the client for shared files. |
+| `wasi.ts` | worker, Node | WASI preview 1 for `rotp.wasm`: the in-memory filesystem, lazy files, `/dev/urandom`, TCP (`Network`), programs, and the client for shared files. |
 | `worker.js` | worker | A node: boots `rotp.wasm`, runs one command or the shell, pumps the page's frames. |
 | `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host.ts` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
 | `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
 | `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
-| `nif.js` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
+| `nif.ts` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
@@ -32,14 +32,14 @@ site's root. `node.mjs` is bundled for Node.
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
 
-## WASI (`wasi.js`)
+## WASI (`wasi.ts`)
 
 `rotp.wasm` imports 33 functions from `wasi_snapshot_preview1`: args,
 environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the
 `path_*` calls, and `sock_accept` and `sock_shutdown`, which are refused.
 `new WASI({...}).imports` provides them, and the rest of preview 1 for NIF
 libraries ([nif.md](nif.md)) but `fd_renumber`, `sock_recv` and
-`sock_send` (a library importing one gets ENOSYS from `nif.js`):
+`sock_send` (a library importing one gets ENOSYS from `nif.ts`):
 `fd_pread`, `fd_pwrite` and `fd_tell` on top of the descriptor's
 position (kept by the call; a write at an offset does not append),
 `fd_allocate`, `clock_res_get` (1 µs), `proc_raise` (the program ends,
@@ -138,7 +138,7 @@ the answer, then 0.
 | `/.nif/new` | A library's bytes. | Its id, or `error WHY`. |
 | `/.nif/ID` | An external term for the library. | The library's external term, or `{error, Why}` once it trapped or exited (it is gone then). |
 
-`nif.js` (`Nifs`) instantiates each library with the node's own WASI
+`nif.ts` (`Nifs`) instantiates each library with the node's own WASI
 imports and runs it synchronously, in the node's worker. While a library
 runs, the WASI calls work on its memory instead of the node's: it sees
 the node's files, environment and terminal.
