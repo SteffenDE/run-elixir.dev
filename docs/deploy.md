@@ -40,46 +40,69 @@ PLAYGROUND_DOMAIN=run-elixir.dev playground/deploy/build-site.sh
 playground/deploy/upload.sh target/playground/site deploy@server
 ```
 
-### The server
+### Setting it up: `setup.sh`
 
-- A user that owns the site's directory, such as `deploy` and
-  `/srv/playground/run-elixir` (Caddy's user reads it), with `rsync` and
-  `rrsync` (rsync 3.2.4 or later) installed.
-- `playground/deploy/server/playground-deploy` at
-  `/usr/local/bin/playground-deploy`, and `/etc/playground-deploy.env`
-  (the script's header lists every setting):
+On the production machine (Debian or Ubuntu, with KVM), from a clone of
+the repository:
 
-  ```sh
-  SITE=/srv/playground/run-elixir
-  DOMAIN=run-elixir.dev
-  CF_ZONE_ID=…
-  CF_API_TOKEN=…   # a token with Zone → Cache Purge on the zone, only
+```sh
+sudo playground/deploy/setup.sh
+```
+
+It asks for the project domain, the site's directory, Forgejo's URL
+(from the clone's remote) and a runner registration token (Settings →
+Actions → Runners), and the runner VM's size; or takes them from the
+environment (`DOMAIN`, `SITE`, `FORGEJO_URL`, `FORGEJO_TOKEN`,
+`RUNNER_CPUS`, `RUNNER_MEMORY`, `RUNNER_DISK`, `RUNNER_SSH_PORT`). It
+installs what is missing (QEMU, `cloud-localds`, rsync and rrsync), then:
+
+- **The deploy side.** The user `deploy`, `SITE` (`releases/`, and
+  `current` once a release is live) owned by it, `playground-deploy` at
+  `/usr/local/bin`, and `/etc/playground-deploy.env` (`SITE`, `DOMAIN`;
+  add `CF_ZONE_ID` and `CF_API_TOKEN`, a token with Zone → Cache Purge
+  only, for the purge; the script's header lists every setting).
+- **The deploy key,** made in `/var/lib/playground-runner/deploy_key` and
+  in `deploy`'s `authorized_keys` limited to that script, which lets it
+  upload into `releases/` (through `rrsync -wo`), prepare, activate, roll
+  back and ask, and nothing else:
+
+  ```
+  command="/usr/local/bin/playground-deploy",restrict ssh-ed25519 AAAA… playground-runner-deploy
   ```
 
-- In the user's `~/.ssh/authorized_keys`, the CI's key limited to that
-  script, which lets it upload into `releases/` (through `rrsync -wo`),
-  prepare, activate, roll back and ask, and nothing else:
+- **The runner VM,** the systemd service `playground-runner`: QEMU with
+  KVM, Ubuntu 24.04's cloud image (checked against its `SHA256SUMS`) under
+  a qcow2 disk of `RUNNER_DISK`, and user-mode networking, so the host's
+  network is not changed. Its first boot (cloud-init) runs
+  `runner/provision.sh`: Docker, rustup with the wasm targets, mise with the
+  repository's Erlang and Elixir, and forgejo-runner (13.2.0, checked
+  against its digest) registered with the label `beamos-build:host` and
+  running as a service. The VM reaches this machine's sshd at `10.0.2.2`,
+  as ssh's host `playground-prod`, with the deploy key and this machine's
+  host key. Stopping the service powers the VM off (ACPI).
 
-  ```
-  command="/usr/local/bin/playground-deploy",restrict ssh-ed25519 AAAA… forgejo-deploy
-  ```
+Run again, it keeps its settings and keys and updates the rest: the
+script, the unit, and (over ssh to the running VM) the provisioning. A
+`FORGEJO_TOKEN` given then registers a runner whose registration failed.
+The VM's console is `/var/lib/playground-runner/console.log`; its shell:
 
-- Caddy's `root` is `SITE/current` (below). It resolves the link on each
-  request, so a release goes live at once and whole.
+```sh
+sudo ssh -i /var/lib/playground-runner/admin_key -p 2222 runner@127.0.0.1
+```
 
-### The runner
+Then point Caddy's `root` at `SITE/current` (below; it resolves the link
+on each request, so a release goes live at once and whole), and set the
+repository's variable `PLAYGROUND_DOMAIN`.
 
-A self-hosted Forgejo runner with the label `beamos-build` and the host
-executor (`beamos-build:host`): the build runs Docker itself
-(`sudo -n docker`, or `DOCKER`) and needs the repository's toolchain on the
-runner's user: Rust (rustup, which adds the wasm targets
-`rust-toolchain.toml` names), mise with the configured Erlang and Elixir,
-Python 3, git and network access. It builds in a checkout of its own that
-it keeps (`DEPLOY_BUILD_DIR`, default `~/beamos-deploy`), so `target/`
-stays warm between deploys.
+### The runner elsewhere
 
-The repository's variables are `DEPLOY_TARGET` (`deploy@server`),
-`PLAYGROUND_DOMAIN` and optionally `DEPLOY_BUILD_DIR`; its secrets are
+Another runner needs the label `beamos-build` with the host executor
+(`beamos-build:host`): the build runs Docker itself (`sudo -n docker`, or
+`DOCKER`) and needs the repository's toolchain on the runner's user, as
+`runner/provision.sh` installs it. It builds in a checkout of its own
+that it keeps (`DEPLOY_BUILD_DIR`, default `~/beamos-deploy`), so
+`target/` stays warm between deploys. It reaches the server through the
+repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 `DEPLOY_SSH_KEY` (the private key) and `DEPLOY_KNOWN_HOSTS` (the server's
 `ssh-keyscan` line).
 
