@@ -533,7 +533,11 @@ defmodule Playground.Nif.Agent do
 
     - nifcc compiles for wasm32-wasip1 and links a reactor with the layer where \
     a Makefile asks for a shared library; it ignores -shared, -fPIC and \
-    dynamic lookup flags. C++ has WebAssembly exceptions.
+    dynamic lookup flags. C++ has WebAssembly exceptions; setjmp/longjmp \
+    work in C and C++. wasi-libc's emulations are on (nifcc defines \
+    _WASI_EMULATED_SIGNAL, _MMAN, _PROCESS_CLOCKS and _GETPID and links \
+    them): signal()/raise(), anonymous or read-only mmap(), clock(), \
+    times() and getpid() work.
     - wasi-sdk is at /opt/wasi-sdk (clang, llvm-ar at /opt/wasi-sdk/bin), its \
     CMake toolchain at /opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake. Libraries \
     a package builds itself (with CMake, autotools, ...) must be built for \
@@ -541,9 +545,9 @@ defmodule Playground.Nif.Agent do
     ninja, autotools, pkg-config, python3, git, curl, erl and elixir.
     - The layer has one thread: no enif_thread_create (it fails), no dirty \
     schedulers (dirty NIFs run in the call), no enif_select, no ports. WASI \
-    has no signals, processes or getrusage: disable such code with defines \
-    where the package allows it (-D_WASI_EMULATED_SIGNAL, the package's own \
-    switches).
+    has no processes (fork, exec), getrusage, sockets or writable shared \
+    mmap: disable such code with the package's own switches or defines. \
+    Files work (the project's), including pread/pwrite.
     - Fix things with the recipe (variables, defines, steps before make, files \
     written over in $SRC), not by giving up on the package's own build where \
     it can work.
