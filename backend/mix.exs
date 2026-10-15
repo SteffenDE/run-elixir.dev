@@ -47,7 +47,11 @@ defmodule Playground.MixProject do
       {:telemetry_poller, "~> 1.0"},
       {:jason, "~> 1.2"},
       {:dns_cluster, "~> 0.2.0"},
-      {:bandit, "~> 1.5"}
+      {:bandit, "~> 1.5"},
+      {:oban, "~> 2.24"},
+      {:hex_core, "~> 0.19"},
+      {:req, "~> 0.8-rc"},
+      {:req_llm, "~> 1.25"}
     ]
   end
 
@@ -59,11 +63,24 @@ defmodule Playground.MixProject do
   # See the documentation for `Mix` for more info on aliases.
   defp aliases do
     [
-      setup: ["deps.get", "ecto.setup"],
+      setup: ["deps.get", "ecto.setup", "sandbox.setup"],
       "ecto.setup": ["ecto.create", "ecto.migrate", "run priv/repo/seeds.exs"],
       "ecto.reset": ["ecto.drop", "ecto.setup"],
       test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"],
-      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"]
+      precommit: ["compile --warnings-as-errors", "deps.unlock --unused", "format", "test"],
+      "sandbox.setup": &sandbox_setup/1
     ]
+  end
+
+  defp sandbox_setup(_) do
+    Mix.Task.run("compile")
+
+    with {:ok, _kernel} <- Playground.Sandbox.Builder.build_kernel(),
+         {:ok, _rootfs} <- Playground.Sandbox.Builder.build_rootfs(),
+         {:ok, _netd} <- Playground.Sandbox.Builder.build_netd() do
+      :ok
+    else
+      {:error, reason} -> Mix.raise("Building the sandbox failed: #{inspect(reason)}")
+    end
   end
 end

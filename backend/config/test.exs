@@ -29,3 +29,11 @@ config :phoenix, :plug_init_mode, :runtime
 # Sort query params output of verified routes for robust url comparisons
 config :phoenix,
   sort_verified_routes_query_params: true
+
+config :playground, Oban, testing: :manual
+config :playground, data_dir: Path.expand("../tmp/test-data", __DIR__)
+config :playground, Playground.GitHubOAuth, client_id: "id", client_secret: "secret"
+
+config :playground, Playground.Notifications.WebPush,
+  private_key: "4_-XhK1BWn-e0SeiIz91kslpdBDa55zp2csaEP1XGnQ",
+  subject: "mailto:test@localhost"

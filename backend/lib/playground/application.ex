@@ -12,8 +12,8 @@ defmodule Playground.Application do
       Playground.Repo,
       {DNSCluster, query: Application.get_env(:playground, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Playground.PubSub},
-      # Start a worker by calling: Playground.Worker.start_link(arg)
-      # {Playground.Worker, arg},
+      {DynamicSupervisor, name: Playground.Sandbox.Supervisor, strategy: :one_for_one},
+      {Oban, Application.fetch_env!(:playground, Oban)},
       # Start to serve requests, typically the last entry
       PlaygroundWeb.Endpoint
     ]

@@ -11,6 +11,30 @@ config :playground,
   ecto_repos: [Playground.Repo],
   generators: [timestamp_type: :utc_datetime]
 
+# Builds boot a VM each, and setups run an LLM that boots VMs too, so both
+# run one at a time.
+config :playground, Oban,
+  engine: Oban.Engines.Basic,
+  notifier: Oban.Notifiers.PG,
+  queues: [builds: 1, setups: 1, notifications: 5],
+  lifeline: [rescue_after: {2, :hours}],
+  pruner: [max_age: {7, :days}],
+  repo: Playground.Repo
+
+# Failed builds and new templates are notified, see Playground.Notifications.
+config :playground, Playground.Notifications, backends: [Playground.Notifications.WebPush]
+
+# The agent that writes templates, see Playground.Nif.Agent. The API key is
+# set in runtime.exs.
+config :playground, Playground.Nif.Agent,
+  model: "openai:gpt-6-luna",
+  reasoning_effort: "high",
+  budget_usd: 2.0
+
+# See Playground.Nif. Packages with fewer downloads than this get no agent
+# session unless an admin requests their build.
+config :playground, Playground.Nif, daily_budget_usd: 20.0, setup_min_downloads: 10_000
+
 # Configure the endpoint
 config :playground, PlaygroundWeb.Endpoint,
   url: [host: "localhost"],

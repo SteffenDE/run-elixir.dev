@@ -1,0 +1,102 @@
+#!/bin/sh
+# The init process of a sandbox VM. It receives one job from the host, runs it,
+# reports its exit status and powers off. Its own output goes to the console,
+# which the host keeps as the system log.
+set -eu
+
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+# Powering off is the only way this script ends, whether the job ran or not.
+# The kernel panics if init exits, so wait for the power off to happen. It
+# happens in the background and takes the root disk away, so waiting can't run
+# any program. Instead, the shell reads from a pipe nobody writes to.
+#
+# Firecracker only exits when an x86 guest resets, so the guest reboots
+# instead of powering off.
+sysrq=b
+
+power_off() {
+  echo "$sysrq" >/proc/sysrq-trigger
+  read -r _ <>/run/power-off
+}
+
+trap power_off EXIT
+
+# The kernel has already mounted devtmpfs on /dev.
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t tmpfs -o mode=0755 tmpfs /run
+mkfifo /run/power-off
+mount -t tmpfs tmpfs /tmp
+mount -t tmpfs tmpfs /workspace
+
+ip link set lo up
+
+# The host describes the VM's network on the kernel command line, when it has
+# one: sandbox.net=<address>/<prefix>,<gateway>,<name server>
+read -r cmdline </proc/cmdline
+
+net=
+
+for argument in $cmdline; do
+  case "$argument" in
+    sandbox.net=*) net="${argument#sandbox.net=}" ;;
+  esac
+done
+
+# The host is reached over vsock, see sandbox-vsock. The ports the host listens
+# on are listed in Playground.Sandbox.Firecracker.
+if [ -n "$net" ]; then
+  /usr/lib/sandbox/sandbox-vsock net 6 eth0
+
+  address="${net%%,*}"
+  gateway="${net#*,}"
+  gateway="${gateway%%,*}"
+  nameserver="${net##*,}"
+
+  ip link set eth0 up
+  ip address add "$address" dev eth0
+  ip route add default via "$gateway"
+  echo "nameserver $nameserver" >/run/resolv.conf
+fi
+
+# The job script only gets its input and output channels as inherited
+# descriptors, and must not be able to open any channel itself. The control
+# channel is written on descriptor 3 and read on descriptor 7.
+mkdir -m 0700 /run/sandbox
+/usr/lib/sandbox/sandbox-vsock channels /run/sandbox \
+  control:1:both stdout:2:out stderr:3:out input:4:in
+
+exec 3>/run/sandbox/control.out 7</run/sandbox/control.in
+
+echo SANDBOX_READY >&3
+
+IFS=' ' read -r message marker script <&7
+
+if [ "$message" != SANDBOX_JOB ] || [ -z "$marker" ] || [ -z "$script" ]; then
+  echo "sandbox-init: unexpected message: $message" >&2
+  exit 1
+fi
+
+printf '%s\n' "$script" | base64 -d >/run/job
+
+exec 4>/run/sandbox/stdout 5>/run/sandbox/stderr 6</run/sandbox/input
+
+status=0
+sh /run/job 3>&- 7<&- || status=$?
+
+# Rebooting discards output the VMM hasn't passed on to the host yet. So every
+# output channel ends with the marker the host sent, and the host says when it
+# has read them all.
+printf '%s' "$marker" >&4
+printf '%s' "$marker" >&5
+exec 4>&- 5>&- 6<&-
+
+# The job script creates this file right before it runs the command, so without
+# it, preparing the job failed.
+if [ -e /run/job-started ]; then
+  echo "SANDBOX_EXIT $status" >&3
+else
+  echo "SANDBOX_SETUP_FAILED $status" >&3
+fi
+read -r _shutdown <&7 || true

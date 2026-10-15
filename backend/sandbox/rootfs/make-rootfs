@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+rootfs="$1"
+output="$2"
+filesystem="$(mktemp)"
+disk="$output/rootfs.raw"
+
+# Leave a quarter of free space plus 64 MiB, rounded up to whole MiB.
+used_kib="$(du -sk "$rootfs" | cut -f1)"
+size_mib="$(((used_kib + used_kib / 4 + 65536 + 1023) / 1024))"
+
+# Inode tables and the journal are initialised now, rather than lazily by the
+# guest kernel on every boot.
+truncate -s "${size_mib}M" "$filesystem"
+mke2fs -q -t ext4 -E lazy_itable_init=0,lazy_journal_init=0 -d "$rootfs" "$filesystem"
+
+# One partition, with 1 MiB before it for the primary GPT and 1 MiB after it
+# for the backup. The kernel mounts it as root by the UUID sfdisk picks.
+mkdir -p "$output"
+truncate -s "$((size_mib + 2))M" "$disk"
+printf 'label: gpt\nstart=1MiB, size=%sMiB, type=linux\n' "$size_mib" | sfdisk --quiet "$disk"
+dd if="$filesystem" of="$disk" bs=1M seek=1 conv=notrunc,sparse status=none
+rm "$filesystem"
+
+printf '{"partition_uuid": "%s", "toolchain": "%s"}\n' \
+  "$(sfdisk --part-uuid "$disk" 1)" "$(cat "$rootfs/nif/toolchain")" >"$output/manifest.json"

@@ -1,0 +1,37 @@
+#!/bin/sh
+set -eu
+
+case "$1" in
+  arm64)
+    arch=arm64
+    target=Image
+    image=arch/arm64/boot/Image
+    ;;
+
+  amd64)
+    arch=x86_64
+    target=bzImage
+    image=arch/x86/boot/bzImage
+    ;;
+
+  *)
+    echo "unsupported kernel architecture: $1" >&2
+    exit 1
+    ;;
+esac
+
+cd /build/linux
+
+make ARCH="$arch" defconfig
+scripts/kconfig/merge_config.sh -m .config /configs/common.config "/configs/$1.config"
+make ARCH="$arch" olddefconfig
+make ARCH="$arch" -j"$(nproc)" "$target"
+
+mkdir -p /output
+cp "$image" /output/kernel
+cp .config /output/kernel.config
+
+# Firecracker only boots an uncompressed ELF kernel on x86.
+if [ "$1" = amd64 ]; then
+  cp vmlinux /output/vmlinux
+fi

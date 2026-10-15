@@ -23,6 +23,40 @@ end
 config :playground, PlaygroundWeb.Endpoint,
   http: [port: String.to_integer(System.get_env("PORT", "4000"))]
 
+# docker-compose.yml passes these on empty when .env leaves them out.
+env = fn name -> if (value = System.get_env(name, "")) != "", do: value end
+
+if dir = env.("PLAYGROUND_DATA_DIR"), do: config(:playground, :data_dir, dir)
+
+if api_key = env.("OPENAI_API_KEY") do
+  config :playground, Playground.Nif.Agent, api_key: api_key
+end
+
+if model = env.("NIF_AGENT_MODEL"), do: config(:playground, Playground.Nif.Agent, model: model)
+
+if budget = env.("NIF_DAILY_BUDGET_USD") do
+  config :playground, Playground.Nif, daily_budget_usd: String.to_float(budget)
+end
+
+if admin_url = env.("ADMIN_URL"), do: config(:playground, Playground.Nif, admin_url: admin_url)
+
+# Admins sign in with GitHub, see PlaygroundWeb.AdminAuth.
+if client_id = env.("GITHUB_CLIENT_ID") do
+  config :playground, Playground.GitHubOAuth,
+    client_id: client_id,
+    client_secret: env.("GITHUB_CLIENT_SECRET")
+end
+
+if logins = env.("ADMIN_GITHUB_LOGINS") do
+  config :playground, :admin_logins, String.split(logins, ~r/[\s,]+/, trim: true)
+end
+
+if private_key = env.("PLAYGROUND_VAPID_PRIVATE_KEY") do
+  config :playground, Playground.Notifications.WebPush,
+    private_key: private_key,
+    subject: env.("PLAYGROUND_VAPID_SUBJECT") || env.("ADMIN_URL") || "https://localhost"
+end
+
 if config_env() == :prod do
   database_url =
     System.get_env("DATABASE_URL") ||
