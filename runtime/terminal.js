@@ -1,11 +1,12 @@
 // A cooked terminal over xterm.js, as a tty driver gives one: echo, line
 // editing (left, right, backspace), history (up, down) and pastes; the
-// node gets whole lines. Ctrl+C interrupts the node.
-export function cooked(term, node) {
+// node gets whole lines. Ctrl+C interrupts the node. `typed`: lines the
+// shell ran before the terminal opened, as if typed here (the history).
+export function cooked(term, node, typed = []) {
   let line = '';
   let cursor = 0;
-  const history = [];
-  let recalled = 0;
+  const history = typed.filter((text) => text.trim());
+  let recalled = history.length;
   const redraw = (next, at = next.length) => {
     term.write('\b'.repeat(cursor) + next + ' '.repeat(Math.max(0, line.length - next.length)));
     term.write('\b'.repeat(Math.max(line.length, next.length) - at));

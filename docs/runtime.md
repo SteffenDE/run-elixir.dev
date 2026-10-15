@@ -20,7 +20,7 @@ bundled), because the workers import them by URL.
 | `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.js` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
-| `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history, pastes, Ctrl+C. |
+| `terminal.js` | page | A cooked line discipline over xterm.js: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C. Tab and other control keys are dropped. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
 | `https.js` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.js` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |

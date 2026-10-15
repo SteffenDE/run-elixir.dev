@@ -11,7 +11,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { cooked } from '@runtime/terminal.js';
-import { interrupt, onOutput, type } from '@/project/lib/playground';
+import { initialLines, interrupt, onOutput, type } from '@/project/lib/playground';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
 import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
 
@@ -60,10 +60,14 @@ export class TerminalHandle {
       if (width && height) this.fit.fit();
     });
     this.resize.observe(this.container);
-    cooked(this.terminal, {
-      input: (text) => type(this.id, text),
-      interrupt: () => interrupt(this.id),
-    });
+    cooked(
+      this.terminal,
+      {
+        input: (text) => type(this.id, text),
+        interrupt: () => interrupt(this.id),
+      },
+      initialLines(this.id),
+    );
     this.unsubscribe = onOutput(this.id, (text) => this.terminal.write(text));
   }
 

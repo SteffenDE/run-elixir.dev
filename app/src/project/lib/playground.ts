@@ -48,6 +48,8 @@ interface Session {
   node: Node;
   backlog: string;
   listeners: Set<Output>;
+  // The command lines it ran first, as if typed.
+  initial: string[];
 }
 
 const sessions = new Map<number, Session>();
@@ -194,6 +196,11 @@ export function type(id: number, text: string): void {
   sessions.get(id)?.node.input(text);
 }
 
+// The command lines shell `id` ran first, for its terminal's history.
+export function initialLines(id: number): string[] {
+  return sessions.get(id)?.initial ?? [];
+}
+
 export function interrupt(id: number): void {
   sessions.get(id)?.node.interrupt();
 }
@@ -302,6 +309,7 @@ export function openTerminal(initial: string[] = []): number {
     node: null as unknown as Node,
     backlog: '',
     listeners: new Set(),
+    initial,
   };
   session.node = new Node({
     base: BUILD,

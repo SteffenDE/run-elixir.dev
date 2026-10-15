@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { clickTerminalText, newProject, newShell, serverRunning } from './helpers';
+import { clickTerminalText, newProject, newShell, prompted, serverRunning } from './helpers';
 
 // How far the visible terminal's screen stays inside its panel (both
 // non-negative when it fits).
@@ -47,4 +47,23 @@ test('source locations open in the editor, addresses in the preview', async ({ p
   await expect(page.locator('.editor-scroll')).toContainText('scope "/", PlaygroundWeb do');
   await clickTerminalText(page, 'localhost:4000/missing');
   await expect(page.locator('.preview-bar input')).toHaveValue('/missing');
+});
+
+test('the first terminal keeps the server command in its history', async ({ page }) => {
+  await newProject(page, 'phoenix');
+  await serverRunning(page);
+  await page.locator('.terminal-host:not([hidden]) .xterm').click();
+  await page.keyboard.press('Control+c');
+  await prompted(page, 2);
+  await page.keyboard.press('ArrowUp');
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        [...document.querySelectorAll('.terminal-host:not([hidden]) .xterm-rows > div')]
+          .map((row) => row.textContent?.trimEnd() ?? '')
+          .filter(Boolean)
+          .at(-1),
+      ),
+    )
+    .toMatch(/\$ iex -S mix phx\.server$/);
 });

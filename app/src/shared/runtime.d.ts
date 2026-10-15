@@ -121,6 +121,7 @@ declare module '@runtime/terminal.js' {
   export function cooked(
     term: { write(data: string): void; onData(listener: (data: string) => void): unknown },
     node: { input(text: string): void; interrupt(): void },
+    typed?: string[],
   ): void;
 }
 declare module '@runtime/https.js' {

@@ -154,6 +154,9 @@ attaches to whichever panel shows it.
   - `localhost:PORT/path` (and `127.0.0.1`, `0.0.0.0`), with or without
     `http://`, opens in the preview;
   - other web links open in a new tab.
+- **History.** A terminal's history (up, down) starts with the lines its
+  shell ran before it opened, so the first tab's `iex -S mix phx.server`
+  is one up after Ctrl+C.
 - **The first tab** runs what the kind starts with and can't be closed. In
   a Phoenix project it is "Server"; "Restart server" interrupts it and
   types `cd /work/playground` and `iex -S mix phx.server` again.
