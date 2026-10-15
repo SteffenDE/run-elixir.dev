@@ -8,10 +8,41 @@
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node. With `files`, /work and /tmp are files.js's, which every
 // shell (each in its own worker) and the page share.
-import { WASI, Dir, Exit, Network, untar, mount, bundled, sharedClient } from './wasi';
+import {
+  WASI,
+  Dir,
+  Exit,
+  Network,
+  untar,
+  mount,
+  bundled,
+  sharedClient,
+  type Manifest,
+  type Process,
+  type Program,
+  type Shared,
+} from './wasi';
 import { ENV, prepare, programs } from './setup';
 import { channel as threadChannel, Host } from './threads';
 import { vfs } from './vfs';
+import type { NifSource } from './programs';
+import type { FilesChannel } from './host';
+
+// What the page starts a node with (host.ts Node.start).
+interface Start {
+  shared: SharedArrayBuffer;
+  files: FilesChannel | null;
+  shell: boolean;
+  args?: string[];
+  command?: string[];
+  env: Record<string, string>;
+  ports: number[];
+  https?: boolean;
+  initial?: string[];
+  pagePrograms?: string[];
+  cwd?: string;
+  boots?: string[];
+}
 
 const FRAME = {
   INPUT: 0,
@@ -26,8 +57,8 @@ const FRAME = {
 };
 const RING = 1 << 20;
 const SHARED = ['/work', '/tmp'];
-const say = (kind, payload) => postMessage({ kind, payload });
-const text = (string) => say('out', new TextEncoder().encode(string));
+const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
+const text = (string: string) => say('out', new TextEncoder().encode(string));
 
 class Interrupted extends Error {}
 
@@ -35,13 +66,13 @@ class Interrupted extends Error {}
 // site for an absolute one. Through a variable: Vite takes
 // new URL('…', import.meta.url) with the path written out for an asset of
 // the bundle.
-const site = (path) => new URL(path, import.meta.url);
+const site = (path: string) => new URL(path, import.meta.url);
 
 // A threaded node's memory: shared, and as large as it may grow here (a
 // shared memory reserves its maximum up front, which a phone may not
 // have room for), or null where there is no shared memory: the node then
 // runs single-threaded (rotp.wasm).
-function sharedMemory() {
+function sharedMemory(): WebAssembly.Memory | null {
   if (!globalThis.crossOriginIsolated) return null;
   for (const maximum of [65536, 32768, 16384]) {
     try {
@@ -59,7 +90,16 @@ let nodes = 0;
 
 // The page's frames: input, connections, interrupts, page programs.
 class Channel {
-  constructor(shared) {
+  declare control: Int32Array;
+  declare ring: Uint8Array;
+  declare input: Uint8Array[];
+  declare network: Network | null;
+  declare interrupted: boolean;
+  declare size: number[];
+  declare raw: boolean;
+  declare processes: Map<number, Process>;
+
+  constructor(shared: SharedArrayBuffer) {
     this.control = new Int32Array(shared, 0, 2);
     this.ring = new Uint8Array(shared, 8, RING);
     this.input = [];
@@ -72,12 +112,12 @@ class Channel {
     // Programs the page runs (host.ts programs), by id.
     this.processes = new Map();
   }
-  bytes(from, count) {
+  bytes(from: number, count: number): Uint8Array {
     const out = new Uint8Array(count);
     for (let i = 0; i < count; i++) out[i] = this.ring[(from + i) % RING];
     return out;
   }
-  pump() {
+  pump(): void {
     const written = Atomics.load(this.control, 0);
     let read = Atomics.load(this.control, 1);
     while (read !== written) {
@@ -107,11 +147,11 @@ class Channel {
     Atomics.store(this.control, 1, read);
   }
   // Until a frame comes or `ms` pass.
-  sleep(ms) {
+  sleep(ms: number): void {
     Atomics.wait(this.control, 0, Atomics.load(this.control, 1), ms);
   }
-  take(max) {
-    const out = [];
+  take(max: number): Uint8Array {
+    const out: Uint8Array[] = [];
     let count = 0;
     while (this.input.length && count < max) {
       const chunk = this.input[0];
@@ -131,13 +171,13 @@ class Channel {
   }
   // The node set the terminal to raw input (IEx's line editing) or back:
   // the page passes keys through instead of editing lines.
-  mode(raw) {
+  mode(raw: boolean): void {
     if (raw === this.raw) return;
     this.raw = raw;
     postMessage({ kind: 'tty', raw });
   }
   // A line typed at the shell (blocking).
-  line() {
+  line(): string | null {
     for (;;) {
       this.pump();
       if (this.interrupted) {
@@ -158,14 +198,14 @@ class Channel {
 }
 
 // Words, with '' and "" quoting.
-function words(line) {
-  const out = [];
-  let word = null;
-  let quote = null;
+function words(line: string): string[] {
+  const out: string[] = [];
+  let word: string | null = null;
+  let quote: string | null = null;
   for (const c of line) {
     if (quote) {
       if (c === quote) quote = null;
-      else word += c;
+      else word! += c;
     } else if (c === '"' || c === "'") {
       quote = c;
       word ??= '';
@@ -178,9 +218,9 @@ function words(line) {
   return out;
 }
 
-function join(cwd, path) {
+function join(cwd: string, path: string): string {
   const parts = (path.startsWith('/') ? path : `${cwd}/${path}`).split('/');
-  const out = [];
+  const out: string[] = [];
   for (const part of parts) {
     if (part === '..') out.pop();
     else if (part && part !== '.') out.push(part);
@@ -205,7 +245,7 @@ const ELIXIR = [
   'path',
   '<<"/usr/bin/tailwind">>',
 ];
-function command(name, args) {
+function command(name: string, args: string[]): string[] | null {
   switch (name) {
     case 'erl':
       return args;
@@ -244,7 +284,7 @@ Ctrl+C stops what is running.
 // A program the page runs (host.ts programs): its output and exit come back
 // as frames; it is told when the node closes its port.
 let processes = 0;
-function onPage(channel, name) {
+function onPage(channel: Channel, name: string): Program {
   return (process, { args, cwd, env }) => {
     const id = (processes += 1);
     channel.processes.set(id, process);
@@ -259,12 +299,17 @@ function onPage(channel, name) {
 // A threaded node: the page runs its threads in workers (host.ts), which
 // this worker serves WASI calls for until the node ends; then the page
 // stops them.
-function runThreaded(wasi, module, memory, pump) {
+function runThreaded(
+  wasi: WASI,
+  module: WebAssembly.Module,
+  memory: WebAssembly.Memory,
+  pump: () => void,
+): number {
   wasi.memory = memory;
   const node = ++nodes;
   const chan = threadChannel();
   const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
-  const start = (tid, startArg) =>
+  const start = (tid: number, startArg: number) =>
     postMessage({
       kind: 'thread',
       node,
@@ -287,7 +332,9 @@ function runThreaded(wasi, module, memory, pump) {
 }
 
 // GET url, synchronously: [status, bytes] (status 0 when it failed).
-function get(url, binary = true) {
+function get(url: string | URL): [number, Uint8Array | null];
+function get(url: string | URL, binary: false): [number, string | null];
+function get(url: string | URL, binary = true): [number, Uint8Array | string | null] {
   const request = new XMLHttpRequest();
   request.open('GET', url, false);
   if (binary) request.responseType = 'arraybuffer';
@@ -300,17 +347,18 @@ function get(url, binary = true) {
 }
 
 // A tar (ustar), and not the page a site answers a path it lacks with.
-const isTar = (bytes) =>
-  bytes?.length > 262 && new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
+const isTar = (bytes: Uint8Array | null): bytes is Uint8Array =>
+  (bytes?.length as number) > 262 &&
+  new TextDecoder().decode(bytes!.subarray(257, 262)) === 'ustar';
 
 // The site's own build of a package's NIF library, or null.
-function siteNif(name, version) {
+function siteNif(name: string, version: string): Uint8Array | null {
   const [status, tar] = get(site(`nif/${name}-${version}.tar`));
   return status === 200 && isTar(tar) ? tar : null;
 }
 
 // What a backend build's status means, for the terminal.
-const NIF_STATUS = {
+const NIF_STATUS: Record<string, string> = {
   queued: 'waiting for a build machine',
   running: 'building in a VM',
   setting_up: 'no recipe builds it yet: an agent is working one out (this can take minutes)',
@@ -320,20 +368,26 @@ const NIF_STATUS = {
 // or failed, every 2 s, telling the terminal (say) and the page (a 'nif'
 // message: { name, version, status, error }) when its status changes.
 // Ctrl-C stops waiting (the node stops as it would). A tar, or why not.
-function backendNif(channel, name, version, say) {
+function backendNif(
+  channel: Channel,
+  name: string,
+  version: string,
+  report: (text: string) => void,
+): Uint8Array | string | null {
   const api = site(`/api/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
-  const tell = (status, error = null) => postMessage({ kind: 'nif', name, version, status, error });
-  let last = null;
+  const tell = (status: string | undefined, error: string | null = null) =>
+    postMessage({ kind: 'nif', name, version, status, error });
+  let last: string | null | undefined = null;
   for (;;) {
-    const [code, text] = get(api, false);
-    let answer = null;
+    const [code, body] = get(api, false);
+    let answer: { url?: string; error?: string; status?: string } | null = null;
     try {
-      answer = JSON.parse(text);
+      answer = JSON.parse(body as string);
     } catch {}
     if (code === 200 && answer?.url) {
       const [status, tar] = get(new URL(answer.url, api));
       if (status === 200 && isTar(tar)) {
-        if (last) say(`${name} ${version} is built`);
+        if (last) report(`${name} ${version} is built`);
         tell('succeeded');
         return tar;
       }
@@ -353,7 +407,7 @@ function backendNif(channel, name, version, say) {
     }
     if (answer?.status !== last) {
       last = answer?.status;
-      say(`${name} ${version}: ${NIF_STATUS[last] ?? last}…`);
+      report(`${name} ${version}: ${NIF_STATUS[last as string] ?? last}…`);
       tell(last);
     }
     for (let waited = 0; waited < 2000; waited += 200) {
@@ -385,27 +439,28 @@ onmessage = async ({
     cwd: start = '/work',
     boots = ['boot'],
   },
-}) => {
+}: MessageEvent<Start>) => {
   try {
     say('status', 'Loading OTP and Elixir…');
     // The threaded build where shared memory is; the single-threaded one
     // otherwise, or when the threaded one does not load.
-    const compile = (name) => WebAssembly.compileStreaming(fetch(site(name)));
+    const compile = (name: string) => WebAssembly.compileStreaming(fetch(site(name)));
     const threaded = sharedMemory() !== null;
     const [images, manifest, [module, threads]] = await Promise.all([
       Promise.all(
         boots.map((boot) => fetch(site(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
       ),
-      fetch(site('fs/manifest.json')).then((r) => r.json()),
+      fetch(site('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
       threaded
         ? compile('rotp-threads.wasm').then(
-            (m) => [m, true],
-            () => compile('rotp.wasm').then((m) => [m, false]),
+            (m) => [m, true] as const,
+            () => compile('rotp.wasm').then((m) => [m, false] as const),
           )
-        : compile('rotp.wasm').then((m) => [m, false]),
+        : compile('rotp.wasm').then((m) => [m, false] as const),
     ]);
     // What files.js holds stays out of this worker's tree.
-    const local = (path) => !files || !SHARED.some((prefix) => `/${path}`.startsWith(`${prefix}/`));
+    const local = (path: string) =>
+      !files || !SHARED.some((prefix) => `/${path}`.startsWith(`${prefix}/`));
     const root = new Dir();
     mount(
       manifest.filter(([path]) => local(path)),
@@ -413,7 +468,7 @@ onmessage = async ({
     );
     for (const image of images) await untar(new Uint8Array(image), root, local);
     prepare(root);
-    const sharedFs = files
+    const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
       : null;
     const channel = new Channel(shared);
@@ -430,11 +485,11 @@ onmessage = async ({
     // A package's NIF library built to WebAssembly (programs.ts make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
     // origin, which may have to build it first: docs/backend.md).
-    const nif = (name, version, say) =>
-      siteNif(name, version) ?? backendNif(channel, name, version, say);
+    const nif: NifSource = (name, version, report) =>
+      siteNif(name, version) ?? backendNif(channel, name, version, report);
 
     // One node, until it halts or is interrupted.
-    const run = async (argv, cwd) => {
+    const run = async (argv: string[], cwd: string): Promise<number> => {
       const network = new Network({
         ports,
         https,
@@ -501,7 +556,7 @@ onmessage = async ({
     if (!shell) {
       const argv = named ? command(named[0], named.slice(1)) : args;
       if (!argv) {
-        text(`${named[0]}: command not found\n`);
+        text(`${named![0]}: command not found\n`);
         say('exit', 127);
         return;
       }
@@ -513,16 +568,16 @@ onmessage = async ({
     for (;;) {
       text(`\x1b[1;35m${cwd.replace(/^\/work/, '~')}\x1b[0m $ `);
       // The page's first commands run as if typed.
-      let line;
+      let line: string | null;
       if (initial.length) {
-        line = initial.shift();
+        line = initial.shift()!;
         text(line + '\n');
       } else line = channel.line();
       // A line ending in \ goes on in the next one, as in sh.
       while (line !== null && line.endsWith('\\')) {
-        let more;
+        let more: string | null;
         if (initial.length) {
-          more = initial.shift();
+          more = initial.shift()!;
           text(`> ${more}\n`);
         } else {
           text('> ');
@@ -611,10 +666,10 @@ onmessage = async ({
             text(`${name}: command not found (try help)\n`);
         }
       } catch (error) {
-        text(`${name}: ${error.message}\n`);
+        text(`${name}: ${(error as Error).message}\n`);
       }
     }
   } catch (error) {
-    say('status', `failed: ${error.stack || error}`);
+    say('status', `failed: ${(error as Error).stack || error}`);
   }
 };
