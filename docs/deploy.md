@@ -253,7 +253,7 @@ run-elixir.dev, *.run-elixir.dev {
 }
 
 # The backend's admin.
-run-elixir-admin.steffend.me {
+run-elixir.steffend.me {
 	reverse_proxy 127.0.0.1:4000
 }
 

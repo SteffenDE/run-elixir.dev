@@ -10,7 +10,7 @@ The site is static; the backend is what it can't be: a Phoenix API app
 (`mix phx.new --no-html --no-assets`, app `:playground`) that builds NIF
 libraries to WebAssembly on request, and later relays collaboration
 ([projects.md](projects.md#plans), not started). It runs at
-run-elixir-admin.steffend.me for its admin, and answers the playground's
+run-elixir.steffend.me for its admin, and answers the playground's
 pages at `/api/nif/` on run-elixir.dev and its project origins, where
 `/socket` is kept for collaboration.
 
@@ -146,7 +146,7 @@ has both). Caddy's `handle` blocks are exclusive, so these never reach the
 static site's fallback.
 
 The GitHub OAuth app's callback is
-`https://run-elixir-admin.steffend.me/auth/github/callback`.
+`https://run-elixir.steffend.me/auth/github/callback`.
 
 ## Not yet
 
