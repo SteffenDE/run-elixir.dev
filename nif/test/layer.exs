@@ -7,6 +7,7 @@ defmodule Layer do
   def echo(_), do: :erlang.nif_error(:not_loaded)
   def touch(_), do: :erlang.nif_error(:not_loaded)
   def advise(_), do: :erlang.nif_error(:not_loaded)
+  def extras(_), do: :erlang.nif_error(:not_loaded)
 end
 
 counter = Layer.new(41)
@@ -20,3 +21,4 @@ IO.inspect(try(do: Layer.new(:x), rescue: (e -> e)), label: "badarg")
 IO.inspect(try(do: Layer.bump(make_ref()), rescue: (e -> e)), label: "not a counter")
 IO.inspect(Layer.touch(~c"/tmp/layer-touched"), label: "touch")
 IO.inspect(Layer.advise(~c"/tmp/layer-touched"), label: "advise")
+IO.inspect(Layer.extras(~c"/tmp/layer-extras"), label: "extras")

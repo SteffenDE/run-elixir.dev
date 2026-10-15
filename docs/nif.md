@@ -120,6 +120,14 @@ WebAssembly exceptions (`-fwasm-exceptions`, libunwind) in their new
 encoding (`try_table`): wasi-sdk's libc++ has that one, and Chromium and
 WebKit refuse a module that mixes it with the legacy one clang still makes
 by default. So C++ NIFs need Chrome 137, Firefox 131 or Safari 18.4.
+`setjmp` and `longjmp` work in C and C++ on the same exceptions
+(`-mllvm -wasm-enable-sjlj`, libsetjmp; C gets `-mexception-handling`).
+wasi-libc's emulations are on: `nifcc` defines `_WASI_EMULATED_SIGNAL`,
+`_MMAN`, `_PROCESS_CLOCKS` and `_GETPID` and links their libraries, so
+`signal()`/`raise()` (handlers run in the library; an unhandled signal
+ends the call, as `proc_raise`), anonymous and read-only `mmap()`,
+`clock()`/`times()` and `getpid()` compile and link; a library takes only
+what it uses.
 
 A package's recipe in `PACKAGES` gives its make targets, its `make_env`
 per version, Hex packages whose directories it names (`headers`, such as
@@ -138,7 +146,12 @@ A library that does not link names the `enif_` functions the layer lacks.
 bumped and given back, a message from `enif_send`, a map with an unsigned
 64-bit value, a term with a pid, a reference, a bitstring, bignums, a map
 and a fun echoed unchanged, and `badarg` for a bad argument and for a
-reference that is no resource.
+reference that is no resource. Then what C libraries ask of WASI and
+wasi-libc: a file's times set by path (SQLite does; exqlite failed to
+load without it), `posix_fadvise`, `longjmp` back to a `setjmp`, a
+signal handled, anonymous `mmap`, `getpid` and `clock`, `pwrite` then
+`pread` keeping the position (`fd_tell`), `fd_allocate`, `fd_datasync`
+and `clock_res_get`.
 
 | Package | Library |
 | --- | --- |

@@ -5,11 +5,20 @@
 # and dynamic lookup mean nothing here and are left out. C++ has
 # exceptions: WebAssembly's new ones (try_table, exnref), as wasi-sdk's
 # libc++ has them, since browsers but Firefox refuse a module that mixes
-# them with the legacy ones clang still makes by default.
+# them with the legacy ones clang still makes by default. setjmp and
+# longjmp work in C and C++, on the same exceptions (libsetjmp).
+#
+# wasi-libc's emulations are on: signal() and raise(), mmap() of memory
+# and read-only files, clock() and times(), getpid(). Their headers need
+# the _WASI_EMULATED_* defines, given here, and their libraries are
+# linked; a library takes only what it uses.
 set -e
+sjlj="-mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=false"
+emulated="-D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_GETPID"
+libraries="-lsetjmp -lwasi-emulated-signal -lwasi-emulated-mman -lwasi-emulated-process-clocks -lwasi-emulated-getpid"
 case $(basename "$0") in
-  *++) compiler=${NIF_CXX:-/opt/wasi-sdk/bin/clang++}; exceptions="-fwasm-exceptions -mllvm -wasm-use-legacy-eh=false"; unwind=-lunwind ;;
-  *) compiler=${NIF_CC:-/opt/wasi-sdk/bin/clang}; exceptions=; unwind= ;;
+  *++) compiler=${NIF_CXX:-/opt/wasi-sdk/bin/clang++}; exceptions="-fwasm-exceptions $sjlj"; unwind=-lunwind ;;
+  *) compiler=${NIF_CC:-/opt/wasi-sdk/bin/clang}; exceptions="-mexception-handling $sjlj"; unwind= ;;
 esac
 layer=${NIF_LAYER:-/nif/lib/beamos_nif.o}
 link=1
@@ -26,6 +35,6 @@ for arg do
   set -- "$@" "$arg"
 done
 if [ "$link" = 1 ]; then
-  exec "$compiler" $exceptions -mexec-model=reactor -Wl,-z,stack-size=1048576 "$@" "$layer" $unwind
+  exec "$compiler" $exceptions $emulated -mexec-model=reactor -Wl,-z,stack-size=1048576 "$@" "$layer" $libraries $unwind
 fi
-exec "$compiler" $exceptions "$@"
+exec "$compiler" $exceptions $emulated "$@"

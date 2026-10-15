@@ -489,7 +489,8 @@ export class WASI {
     this.memory = null;
     this.nifs = new Nifs(this);
     const functions = this.functions();
-    this.imports = { wasi_snapshot_preview1: unsigned(shared ? { ...functions, ...this.remote(functions) } : functions) };
+    const io = shared ? { ...functions, ...this.remote(functions) } : functions;
+    this.imports = { wasi_snapshot_preview1: unsigned({ ...io, ...this.positioned(io) }) };
   }
 
   start(instance) {
@@ -598,6 +599,42 @@ export class WASI {
     v.setBigUint64(ptr + 40, BigInt(mtime), true);
     v.setBigUint64(ptr + 48, BigInt(mtime), true);
     v.setBigUint64(ptr + 56, BigInt(mtime), true);
+  }
+
+  // Reads and writes at an offset (pread, pwrite) and the position
+  // (fd_tell), on top of `io`'s fd_read and fd_write, so local and shared
+  // files take them alike: the descriptor's position is set for the call
+  // and kept (a write at an offset does not append). Streams, ports and
+  // the like have no position (ESPIPE).
+  positioned(io) {
+    const self = this;
+    const holder = (fd) => {
+      const entry = self.fds.get(fd);
+      if (!entry) return E.BADF;
+      const file = entry.remote ?? (entry.node instanceof File ? entry : null);
+      return file && !entry.nif ? file : E.SPIPE;
+    };
+    const at = (fd, offset, run) => {
+      const file = holder(fd);
+      if (typeof file === 'number') return file;
+      const [position, append] = [file.position, file.append];
+      Object.assign(file, { position: Number(offset), append: false });
+      try {
+        return run();
+      } finally {
+        Object.assign(file, { position, append });
+      }
+    };
+    return {
+      fd_pread: (fd, iovs, count, offset, ptr) => at(fd, offset, () => io.fd_read(fd, iovs, count, ptr)),
+      fd_pwrite: (fd, iovs, count, offset, ptr) => at(fd, offset, () => io.fd_write(fd, iovs, count, ptr)),
+      fd_tell(fd, ptr) {
+        const file = holder(fd);
+        if (typeof file === 'number') return file;
+        self.view().setBigUint64(ptr, BigInt(file.position), true);
+        return E.SUCCESS;
+      },
+    };
   }
 
   // The WASI calls on shared paths and their descriptors, in front of the
@@ -730,6 +767,15 @@ export class WASI {
         if (!remote) return local.fd_filestat_set_size(fd, size);
         return ask({ op: 'truncate', handle: remote.handle, size: Number(size) }).error ?? E.SUCCESS;
       },
+      fd_allocate(fd, offset, length) {
+        const remote = remoteOf(fd);
+        if (!remote) return local.fd_allocate(fd, offset, length);
+        const status = ask({ op: 'fstat', handle: remote.handle });
+        if (status.error) return status.error;
+        const end = Number(offset + length);
+        if (end <= status.size) return E.SUCCESS;
+        return ask({ op: 'truncate', handle: remote.handle, size: end }).error ?? E.SUCCESS;
+      },
       fd_fdstat_get(fd, ptr) {
         const remote = remoteOf(fd);
         if (!remote) return local.fd_fdstat_get(fd, ptr);
@@ -806,6 +852,12 @@ export class WASI {
       args_get: (p, b) => args.get(p, b),
       environ_sizes_get: (c, s) => env.sizes(c, s),
       environ_get: (p, b) => env.get(p, b),
+      // Every clock counts in nanoseconds; performance.now() is coarser in
+      // browsers, so 1 µs is the honest resolution.
+      clock_res_get(_id, ptr) {
+        self.view().setBigUint64(ptr, 1000n, true);
+        return ok;
+      },
       clock_time_get(id, _precision, ptr) {
         // The scheduler reads the clock between slices: interrupts land.
         self.pump();
@@ -824,6 +876,11 @@ export class WASI {
       },
       proc_exit(code) {
         throw new Exit(code);
+      },
+      // raise() (wasi-libc's emulated signals): the program ends as an
+      // uncaught signal ends it, 128 + its number.
+      proc_raise(signal) {
+        throw new Exit(128 + signal);
       },
       sched_yield: () => ok,
       poll_oneoff(inPtr, outPtr, count, eventsPtr) {
@@ -896,6 +953,10 @@ export class WASI {
         return ok;
       },
       fd_sync: () => ok,
+      fd_datasync: () => ok,
+      // Hints and rights: nothing to do.
+      fd_advise: () => ok,
+      fd_fdstat_set_rights: () => ok,
       fd_filestat_get(fd, ptr) {
         const entry = self.fds.get(fd);
         if (!entry) return E.BADF;
@@ -926,6 +987,17 @@ export class WASI {
         if (!entry || !(entry.node instanceof File)) return E.BADF;
         entry.node.truncate(Number(size));
         entry.changed = true;
+        return ok;
+      },
+      // posix_fallocate: the file at least offset + length long.
+      fd_allocate(fd, offset, length) {
+        const entry = self.fds.get(fd);
+        if (!entry || !(entry.node instanceof File)) return entry ? E.SPIPE : E.BADF;
+        const end = Number(offset + length);
+        if (end > entry.node.size) {
+          entry.node.truncate(end);
+          entry.changed = true;
+        }
         return ok;
       },
       // Files keep their own times (written ones are now): setting them

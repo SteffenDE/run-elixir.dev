@@ -33,7 +33,15 @@ bundled), because the workers import them by URL.
 `rotp.wasm` imports 33 functions from `wasi_snapshot_preview1`: args,
 environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the
 `path_*` calls, and `sock_accept` and `sock_shutdown`, which are refused.
-`new WASI({...}).imports` provides them:
+`new WASI({...}).imports` provides them, and the rest of preview 1 for NIF
+libraries ([nif.md](nif.md)) but `fd_renumber`, `sock_recv` and
+`sock_send` (a library importing one gets ENOSYS from `nif.js`):
+`fd_pread`, `fd_pwrite` and `fd_tell` on top of the descriptor's
+position (kept by the call; a write at an offset does not append),
+`fd_allocate`, `clock_res_get` (1 µs), `proc_raise` (the program ends,
+128 + the signal), and `fd_datasync`, `fd_advise`,
+`fd_fdstat_set_rights` and the `*_filestat_set_times` calls, which do
+nothing:
 
 - **Filesystem.** `Dir`, `File` and `Symlink` objects under one preopen,
   `/`. wasi-libc turns every path into one relative to it. Hard links are
@@ -138,8 +146,9 @@ With `shared: { prefixes, call }`, the calls on paths under the prefixes
 `path_open`, `path_filestat_get`, `path_create_directory`,
 `path_remove_directory`, `path_unlink_file`, `path_rename`, `path_link`,
 and `fd_read`, `fd_write`, `fd_seek`, `fd_filestat_get`,
-`fd_filestat_set_size`, `fd_fdstat_get`, `fd_readdir` and `fd_close` on what
-they opened. A rename or link between a shared and a local path is EXDEV.
+`fd_filestat_set_size`, `fd_allocate`, `fd_fdstat_get`, `fd_readdir` and
+`fd_close` on what they opened (and so `fd_pread`, `fd_pwrite` and
+`fd_tell`). A rename or link between a shared and a local path is EXDEV.
 Reads and writes move at most 512 KB per call.
 
 `sharedClient(doorbell, channel)` is `call`. The channel is a

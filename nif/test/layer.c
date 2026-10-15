@@ -5,6 +5,13 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <utime.h>
+#include <setjmp.h>
+#include <signal.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <wasi/api.h>
 
 static ErlNifResourceType *COUNTER;
 
@@ -57,8 +64,8 @@ static ERL_NIF_TERM touch(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
     return utime(path, NULL) == 0 ? enif_make_atom(env, "ok") : enif_make_int(env, errno);
 }
 
-// posix_fadvise (WASI's fd_advise, which the node's WASI lacks): what it
-// returns.
+// posix_fadvise (WASI's fd_advise, a hint the node takes and ignores):
+// what it returns.
 static ERL_NIF_TERM advise(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
     char path[256];
     if (!enif_get_string(env, argv[0], path, sizeof path, ERL_NIF_LATIN1)) return enif_make_badarg(env);
@@ -69,12 +76,72 @@ static ERL_NIF_TERM advise(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) 
     return enif_make_int(env, result);
 }
 
+static jmp_buf jump;
+static volatile sig_atomic_t signalled;
+
+static void jump_back(int value) { longjmp(jump, value); }
+static void on_signal(int signal) { signalled = signal == SIGUSR1; }
+
+// What wasi-libc emulates and the node's WASI gives a library, in a tuple:
+// setjmp/longjmp's value, a signal handled, anonymous mmap, getpid,
+// clock, pwrite then pread (and the position they keep), fd_allocate's
+// size, fd_datasync, clock_res_get.
+static ERL_NIF_TERM extras(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]) {
+    char path[256];
+    if (!enif_get_string(env, argv[0], path, sizeof path, ERL_NIF_LATIN1)) return enif_make_badarg(env);
+
+    volatile int jumped = setjmp(jump);
+    if (jumped == 0) jump_back(42);
+
+    signal(SIGUSR1, on_signal);
+    raise(SIGUSR1);
+
+    int *mapped = mmap(NULL, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    int mapped_ok = mapped != MAP_FAILED;
+    if (mapped_ok) {
+        mapped[100] = 7;
+        mapped_ok = mapped[100];
+        munmap(mapped, 4096);
+    }
+
+    int fd = open(path, O_RDWR | O_CREAT | O_TRUNC, 0644);
+    if (fd < 0) return enif_make_int(env, errno);
+    write(fd, "hello world", 11);
+    pwrite(fd, "WASI!", 5, 6);
+    char read_back[12] = {0};
+    pread(fd, read_back, 11, 0);
+    __wasi_filesize_t position = 0;
+    if (__wasi_fd_tell(fd, &position) != 0) position = 0;
+    int allocated = __wasi_fd_allocate(fd, 0, 100);
+    struct stat status;
+    fstat(fd, &status);
+    int datasync = __wasi_fd_datasync(fd);
+    close(fd);
+    __wasi_timestamp_t resolution = 0;
+    if (__wasi_clock_res_get(__WASI_CLOCKID_MONOTONIC, &resolution) != 0) resolution = 0;
+
+    ERL_NIF_TERM items[] = {
+        enif_make_int(env, jumped),
+        enif_make_int(env, signalled),
+        enif_make_int(env, mapped_ok),
+        enif_make_atom(env, getpid() > 0 ? "true" : "false"),
+        enif_make_atom(env, clock() >= 0 ? "true" : "false"),
+        enif_make_string(env, read_back, ERL_NIF_LATIN1),
+        enif_make_int(env, (int)position),
+        enif_make_int(env, allocated == 0 ? (int)status.st_size : -allocated),
+        enif_make_int(env, datasync),
+        enif_make_atom(env, resolution > 0 ? "true" : "false"),
+    };
+    return enif_make_tuple_from_array(env, items, 10);
+}
+
 static ErlNifFunc funcs[] = {
     {"new", 1, new_counter},
     {"bump", 1, bump},
     {"echo", 1, echo},
     {"touch", 1, touch},
     {"advise", 1, advise},
+    {"extras", 1, extras},
 };
 
 ERL_NIF_INIT(Elixir.Layer, funcs, load, NULL, NULL, NULL)

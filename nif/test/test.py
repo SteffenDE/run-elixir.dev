@@ -27,7 +27,8 @@ echo: true
 badarg: %ArgumentError{message: "argument error"}
 not a counter: %ArgumentError{message: "argument error"}
 touch: :ok
-advise: 52
+advise: 0
+extras: {42, 1, 7, true, true, ~c"hello WASI!", 11, 100, 0, true}
 """
 
 
