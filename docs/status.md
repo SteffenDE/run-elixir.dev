@@ -25,6 +25,18 @@ last_updated: 2026-10-15
   project, its `make` unpacking the library, and its NIFs run in the
   node's worker (fetched, built and used in about 13–16 s in each
   browser).
+- **The backend** ([backend.md](backend.md), run-elixir.steffend.me,
+  deployed with docker compose on anubis): builds a Hex release's NIF
+  library on request (`/api/nif/`) in a Firecracker VM, from a template
+  for its package (build.py's four recipes are the seeds; each builds
+  the same library as build.py, lazy_html in 24 s), or, without one, from
+  a template an agent (OpenAI, through ReqLLM) writes and that later
+  versions reuse. Failures and new templates are notified (Web Push);
+  admins sign in with GitHub. A version the site has not built is asked
+  of it by `make`, which waits while it builds; the page says so in a
+  dialog. Tested with the API stubbed (Chromium); bcrypt_elixir and
+  argon2_elixir built through production. No real agent session has run
+  yet.
 - **Several schedulers** (`rotp-threads.wasm`, `min(4,
   hardwareConcurrency)`; [architecture.md](architecture.md)): Ecto's
   `deps.compile` about 1.9× faster than one scheduler in each browser
@@ -87,10 +99,14 @@ last_updated: 2026-10-15
   changes would quiet it and could drive live reload, now that its socket
   has a WebSocket.
 - **NIFs** load only as WebAssembly built for the playground
-  ([nif.md](nif.md)): bcrypt_elixir 3.3.2, argon2_elixir 4.1.3,
-  picosat_elixir 0.2.3 and lazy_html 0.1.13 so far.
-  Other packages' (and versions') `make` fails, and a module whose on_load
-  loads a native library stays unloaded, as on ERTS without the library.
+  ([nif.md](nif.md)): the site has bcrypt_elixir 3.3.2, argon2_elixir
+  4.1.3, picosat_elixir 0.2.3 and lazy_html 0.1.13; the backend builds
+  other versions and packages, as far as a template or its agent can.
+  When neither can, `make` fails, and a module whose on_load loads a
+  native library stays unloaded, as on ERTS without the library. The
+  backend's library is built with its own toolchain, which the request
+  does not check against the page's yet (plan in
+  [backend.md](backend.md#plan-one-source-of-nif-builds)).
   Resources live as long as their library (the node does not report
   collected references); NIF threads, `enif_select` and monitors are
   missing; rustler_precompiled packages still try to download.
@@ -151,9 +167,11 @@ last_updated: 2026-10-15
 1. `mix phx.new` with prebuilt deps and a Hex cache; with bcrypt_elixir
    built, `phx.gen.auth` with its default hashing library.
 2. More NIF packages ([nif.md](nif.md)): exqlite; Rustler
-   NIFs (rustler_precompiled). `make` fetching builds from the backend
-   ([backend.md](backend.md)), which builds releases the site has not.
-   The template's test build prebuilt, so `mix test` starts at once.
+   NIFs (rustler_precompiled). The backend as the one source of NIF
+   builds, the request naming the page's layer
+   ([backend.md](backend.md#plan-one-source-of-nif-builds)); a first real
+   agent session. The template's test build prebuilt, so `mix test`
+   starts at once.
 3. `ecto.migrate`'s pruned `eex` after a new dependency.
 4. Routing a node's connection to another node's listener (Mix's locks).
 5. A gate job for the playground tests; a persistent browser context per

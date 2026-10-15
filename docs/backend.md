@@ -154,6 +154,31 @@ fallback.
 The GitHub OAuth app's callback is
 `https://run-elixir.steffend.me/auth/github/callback`.
 
+## Plan: one source of NIF builds
+
+The site still ships its own builds of four packages (`nif/`, from
+build.py), and `make` takes those first. They match the page by
+construction: built with the same erl_nif layer as its `nif.js`, in the
+same versioned build (`b/ID/`). The backend builds with the layer its
+root disk has, and a request does not say which one the page expects; a
+change to `beamos_nif.c` would let them drift apart. The plan, so that the
+backend is the only source:
+
+1. **A layer version in the request.** `beamos_nif.c` and `nif.js` carry
+   a version number for their protocol (the exports, the terms they
+   exchange); `make` asks `/api/nif/NAME/VERSION?abi=N`, and the backend
+   answers a mismatch with an error saying so, never with a library the
+   page can't load (it can only build with its current layer).
+2. **One deploy for a layer change:** the site, and the backend's root
+   disk built anew (`sandbox/build`), from the same commit.
+3. **Then no `nif/` on the site.** build.py builds the layer only (for
+   `test/test.py` and the Node harness); the browser tests use the
+   backend (production through `serve.py`, or stubbed); the four recipes
+   live on as the backend's seed templates.
+
+The cost: a NIF package needs the backend, so working on the playground
+locally needs the network or a local backend (`serve.py --api`).
+
 ## Not yet
 
 - Rustler packages: a toolchain for `wasm32-wasip1` in the guest and a
