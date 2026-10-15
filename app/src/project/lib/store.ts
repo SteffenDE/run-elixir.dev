@@ -1,3 +1,4 @@
+import type { NifBuild } from '@runtime/host.js';
 import { create } from 'zustand';
 
 // The project's files, in the node's filesystem.
@@ -23,8 +24,21 @@ export interface Tab {
   jump: number;
 }
 
+// A NIF library make waits for the backend to build (NifBuildDialog), from
+// when it started waiting.
+export interface NifWait extends NifBuild {
+  since: number;
+}
+
 interface State {
   status: string;
+  // The NIF build make waits for, or the last one that did not end well;
+  // null once it is built or hidden. A hidden one shows again only when it
+  // fails (nifHidden names it).
+  nifBuild: NifWait | null;
+  nifHidden: string | null;
+  setNifBuild(build: NifBuild): void;
+  dismissNifBuild(): void;
   // Why the project could not start (StartError shows it), if it could not.
   startError: string | null;
   ready: boolean;
@@ -77,6 +91,26 @@ interface State {
 
 export const useStore = create<State>((set) => ({
   status: 'Starting…',
+  nifBuild: null,
+  nifHidden: null,
+  setNifBuild: (build) =>
+    set((state) => {
+      if (build.status === 'succeeded' || build.status === 'interrupted') return { nifBuild: null };
+      const key = `${build.name} ${build.version}`;
+      const pending = ['queued', 'running', 'setting_up'].includes(build.status);
+      if (pending && state.nifHidden === key) return {};
+      const current = state.nifBuild;
+      const same = current && `${current.name} ${current.version}` === key;
+      return {
+        nifBuild: { ...build, since: same ? current.since : Date.now() },
+        nifHidden: pending ? state.nifHidden : null,
+      };
+    }),
+  dismissNifBuild: () =>
+    set((state) => ({
+      nifBuild: null,
+      nifHidden: state.nifBuild ? `${state.nifBuild.name} ${state.nifBuild.version}` : null,
+    })),
   startError: null,
   ready: false,
   previewPort: null,

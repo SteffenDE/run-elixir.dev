@@ -245,6 +245,82 @@ function runThreaded(wasi, module, memory, pump) {
   }
 }
 
+// GET url, synchronously: [status, bytes] (status 0 when it failed).
+function get(url, binary = true) {
+  const request = new XMLHttpRequest();
+  request.open('GET', url, false);
+  if (binary) request.responseType = 'arraybuffer';
+  try {
+    request.send();
+  } catch {
+    return [0, null];
+  }
+  return [request.status, binary ? new Uint8Array(request.response) : request.responseText];
+}
+
+// A tar (ustar), and not the page a site answers a path it lacks with.
+const isTar = (bytes) => bytes?.length > 262 && new TextDecoder().decode(bytes.subarray(257, 262)) === 'ustar';
+
+// The site's own build of a package's NIF library, or null.
+function siteNif(name, version) {
+  const [status, tar] = get(new URL(`nif/${name}-${version}.tar`, import.meta.url));
+  return status === 200 && isTar(tar) ? tar : null;
+}
+
+// What a backend build's status means, for the terminal.
+const NIF_STATUS = {
+  queued: 'waiting for a build machine',
+  running: 'building in a VM',
+  setting_up: 'no recipe builds it yet: an agent is working one out (this can take minutes)',
+};
+
+// The backend's build of a package's NIF library: asks until it is built
+// or failed, every 2 s, telling the terminal (say) and the page (a 'nif'
+// message: { name, version, status, error }) when its status changes.
+// Ctrl-C stops waiting (the node stops as it would). A tar, or why not.
+function backendNif(channel, name, version, say) {
+  const api = new URL(`/api/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, import.meta.url);
+  const tell = (status, error = null) => postMessage({ kind: 'nif', name, version, status, error });
+  let last = null;
+  for (;;) {
+    const [code, text] = get(api, false);
+    let answer = null;
+    try {
+      answer = JSON.parse(text);
+    } catch {}
+    if (code === 200 && answer?.url) {
+      const [status, tar] = get(new URL(answer.url, api));
+      if (status === 200 && isTar(tar)) {
+        if (last) say(`${name} ${version} is built`);
+        tell('succeeded');
+        return tar;
+      }
+      tell('failed', `the library did not download (${status})`);
+      return `the playground's build of ${name} ${version} did not download (${status})`;
+    }
+    if (code !== 202) {
+      const error = answer?.error ?? (code ? `the playground's backend answered ${code}` : "the playground's backend could not be reached");
+      // A site without a backend answers its page: no build, as before.
+      if (code === 200 || (code === 404 && !answer)) return null;
+      tell(answer?.status ?? 'failed', error);
+      return `${name} ${version} could not be built for the playground: ${error}`;
+    }
+    if (answer?.status !== last) {
+      last = answer?.status;
+      say(`${name} ${version}: ${NIF_STATUS[last] ?? last}…`);
+      tell(last);
+    }
+    for (let waited = 0; waited < 2000; waited += 200) {
+      channel.sleep(200);
+      channel.pump();
+      if (channel.interrupted) {
+        tell('interrupted');
+        return `stopped waiting for ${name} ${version}'s build`;
+      }
+    }
+  }
+}
+
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
 // commands' files (build.py). command: one command by name, as the shell
 // runs it (['mix', 'deps.get']), in place of erl's `args`.
@@ -280,19 +356,10 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
       return new Uint8Array(request.response);
     });
     const fs = vfs(root, fetchFile, sharedFs);
-    // A package's NIF library built to WebAssembly (nif/NAME-VERSION.tar),
-    // if the answer is a tar: a site answers a path it does not have with
-    // its page (status 200), which make read as one and failed on.
-    const nif = (name, version) => {
-      const request = new XMLHttpRequest();
-      request.open('GET', new URL(`nif/${name}-${version}.tar`, import.meta.url), false);
-      request.responseType = 'arraybuffer';
-      request.send();
-      if (request.status !== 200) return null;
-      const tar = new Uint8Array(request.response);
-      const magic = new TextDecoder().decode(tar.subarray(257, 262));
-      return magic === 'ustar' ? tar : null;
-    };
+    // A package's NIF library built to WebAssembly (programs.js make): the
+    // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
+    // origin, which may have to build it first: docs/backend.md).
+    const nif = (name, version, say) => siteNif(name, version) ?? backendNif(channel, name, version, say);
 
     // One node, until it halts or is interrupted.
     const run = async (argv, cwd) => {

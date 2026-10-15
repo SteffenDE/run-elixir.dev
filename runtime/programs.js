@@ -80,19 +80,22 @@ export function tailwind(process, { args }) {
 }
 
 // make, as elixir_make runs it to build a Hex package's native code: the
-// package's NIF library built to WebAssembly (playground/nif), fetched
-// from the site, into the app's priv directory (MIX_APP_PATH). nif(name,
-// version): that build's tar (priv/...), or null when the site has none.
+// package's NIF library built to WebAssembly (playground/nif), from the site
+// or the playground's backend, into the app's priv directory (MIX_APP_PATH).
+// nif(name, version, say): that build's tar (priv/...), a string saying why
+// there is none, or null when nothing has one; say(text) tells the terminal
+// how a build it waits for is getting on.
 export const make = (fs, nif) => (process, { args, cwd, env }) => {
   if (args.length && args.every((target) => target === 'clean')) return process.exit(0);
   const metadata = fs.readText(`${cwd}/hex_metadata.config`) ?? '';
   const field = (key) => metadata.match(new RegExp(`\\{<<"${key}">>,\\s*<<"([^"]*)">>\\}`))?.[1];
   const [name, version] = [field('name'), field('version')];
   const app = env.MIX_APP_PATH;
-  const tar = name && version && app ? nif(name, version) : null;
-  if (!tar) {
+  const say = (text) => process.write(`make: ${text}\n`);
+  const tar = name && version && app ? nif(name, version, say) : null;
+  if (!(tar instanceof Uint8Array)) {
     const what = name ? `${name} ${version}` : cwd;
-    process.write(`make: there is no WebAssembly build of ${what}'s native code in the playground\n`);
+    say(typeof tar === 'string' ? tar : `there is no WebAssembly build of ${what}'s native code in the playground`);
     return process.exit(2);
   }
   for (const entry of entries(tar)) {

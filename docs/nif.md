@@ -61,10 +61,19 @@ list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
    `TARGET_ABI` make its target `wasm32-unknown-wasi`, which no package
    lists, so it builds instead of downloading an x86_64 Linux library). The
    playground's `make` (`runtime/programs.js`) reads the package's name and
-   version from its `hex_metadata.config`, fetches the site's
-   `nif/NAME-VERSION.tar` and unpacks it into `MIX_APP_PATH`, so
-   `priv/bcrypt_nif.so` is where the Makefile would have put it. Without a
-   build it fails (status 2) and says so; `make clean` does nothing.
+   version from its `hex_metadata.config` and unpacks that version's
+   library into `MIX_APP_PATH`, so `priv/bcrypt_nif.so` is where the
+   Makefile would have put it: the site's `nif/NAME-VERSION.tar` when it
+   has one, else the backend's ([backend.md](backend.md)), asked for at
+   `/api/nif/NAME/VERSION` on the page's origin (`worker.js`). While the
+   backend builds it (`queued`, `running`, or `setting_up` while an agent
+   writes a recipe), `make` asks again every 2 s, and the page shows a
+   dialog with the status (a `nif` message, `NifBuildDialog`) that can be
+   hidden; the node reads `make`'s own lines on what happened once it
+   returns. Ctrl-C stops waiting, and the node with it. When the backend
+   could not build it, or there is no backend (a page answers), `make`
+   fails (status 2) and says why, as does the dialog; `make clean` does
+   nothing.
 2. **Stubs.** The installation's `compile` runs one more pass before the
    backend (`BeamOS.Nif.core_pass/2`): in a module that calls
    `erlang:load_nif`, every function (but `module_info`, `__info__` and

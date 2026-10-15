@@ -17,7 +17,7 @@ bundled), because the workers import them by URL.
 | `overlay.js` | worker | A project's kept changes in IndexedDB. |
 | `host.js` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
 | `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
-| `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
+| `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.js` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.js` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
@@ -208,6 +208,7 @@ the shell with `initial` commands typed first, or one command (erl's
 | `net` | Connection traffic: `open`, `data`, `end`, `close` and `refused`, by id. |
 | `listening` | The node started or stopped listening on a port (`ephemeral`: one it asked for with 0). `Node.listening` holds every port, `Node.serving` the named ones. |
 | `spawn`, `kill` | Start a page program, or tell it its port closed. |
+| `nif` | `make` waits for the backend to build a package's NIF library, or stopped waiting: `{ name, version, status, error }` (`onnif`; [nif.md](nif.md#in-the-node)). |
 
 `https: (connection, { host, port }) => …` answers the node's
 `/.net/https` connections; the playground's is `https.js`'s

@@ -978,6 +978,20 @@ button {
   margin-top: 16px;
 }
 
+.nif-build p {
+  margin: 0 0 8px;
+  line-height: 1.5;
+}
+
+.nif-build-pending {
+  color: inherit;
+}
+
+.nif-build-meta {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 .start-error-actions a.button {
   color: inherit;
   text-decoration: none;

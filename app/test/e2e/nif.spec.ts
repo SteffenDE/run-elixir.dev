@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, prompted, readText, run, writeText } from './helpers';
+import { newProject, output, prompted, readText, run, writeText } from './helpers';
 
 test('a NIF package (bcrypt_elixir) builds from the site and hashes', async ({ page }) => {
   test.setTimeout(900_000);
@@ -70,4 +72,87 @@ test('argon2_elixir hashes with its lanes in turn, and picosat_elixir solves', a
   );
   expect(used).toContain('built to WebAssembly for the playground');
   expect(used).toContain('{"$argon2id$", true, false, {:ok, [-1, 2]}, {:error, :unsatisfiable}}');
+});
+
+// Versions the site has not built come from the backend (/api/nif/,
+// docs/backend.md), stubbed here: the node's worker asks through the
+// service worker, whose requests only Chromium lets a context route.
+const SITE_BCRYPT = '../../target/playground/nif/packages/bcrypt_elixir-3.3.2.tar';
+
+async function bcryptProject(page: Page, version: string): Promise<void> {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mix new demo');
+  const mix = await readText(page, '/work/demo/mix.exs');
+  await writeText(
+    page,
+    '/work/demo/mix.exs',
+    mix.replace(/defp deps do\n\s*\[/, `defp deps do\n    [{:bcrypt_elixir, "${version}"},`),
+  );
+  await run(page, 'cd demo');
+  expect(await run(page, 'mix deps.get')).toContain(`bcrypt_elixir ${version}`);
+}
+
+test('a version the site has not built waits for the backend, saying so', async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', "only Chromium routes a service worker's requests");
+  test.setTimeout(900_000);
+  // Queued, then set up by the agent until the test has seen that, then built.
+  let asked = 0;
+  let seen = false;
+  await context.route('**/api/nif/bcrypt_elixir/3.3.1', (route) => {
+    asked += 1;
+    const status = asked === 1 ? 'queued' : seen ? 'succeeded' : 'setting_up';
+    const url = '/api/nif/bcrypt_elixir/3.3.1/library.tar';
+    return route.fulfill({
+      status: status === 'succeeded' ? 200 : 202,
+      json: { package: 'bcrypt_elixir', version: '3.3.1', status, ...(seen && { url }) },
+    });
+  });
+  await context.route('**/api/nif/bcrypt_elixir/3.3.1/library.tar', (route) =>
+    route.fulfill({ body: readFileSync(SITE_BCRYPT), contentType: 'application/x-tar' }),
+  );
+  await bcryptProject(page, '3.3.1');
+
+  const ran = run(
+    page,
+    `mix run -e 'h = Bcrypt.hash_pwd_salt("hello", log_rounds: 4); IO.inspect(Bcrypt.verify_pass("hello", h))'`,
+  );
+  // While make waits, only the dialog says so: the node reads its output
+  // once it returns.
+  const dialog = page.getByRole('dialog', { name: "Building bcrypt_elixir 3.3.1's native code" });
+  await expect(dialog).toContainText('an agent is working one out');
+  seen = true;
+  const used = await ran;
+  await expect(dialog).toBeHidden();
+  expect(used).toContain('bcrypt_elixir 3.3.1: no recipe builds it yet');
+  expect(used).toContain('bcrypt_elixir 3.3.1 is built');
+  expect(used).toMatch(/built to WebAssembly for the playground[\s\S]*true/);
+});
+
+test('a build the backend could not make says why, and make fails', async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', "only Chromium routes a service worker's requests");
+  test.setTimeout(900_000);
+  await context.route('**/api/nif/bcrypt_elixir/3.3.0', (route) =>
+    route.fulfill({
+      status: 422,
+      json: { package: 'bcrypt_elixir', version: '3.3.0', status: 'failed', error: 'it broke' },
+    }),
+  );
+  await bcryptProject(page, '3.3.0');
+  const compiled = await run(page, 'mix compile');
+  expect(compiled).toContain('bcrypt_elixir 3.3.0 could not be built for the playground: it broke');
+  const dialog = page.getByRole('dialog', {
+    name: "bcrypt_elixir 3.3.0's native code could not be built",
+  });
+  await expect(dialog).toContainText('it broke');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
 });

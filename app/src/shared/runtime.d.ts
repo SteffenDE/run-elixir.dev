@@ -63,6 +63,21 @@ declare module '@runtime/host.js' {
     exit(code?: number): void;
     onkill: (() => void) | null;
   }
+  // make waiting for the backend to build a package's NIF library
+  // (host.js onnif).
+  export interface NifBuild {
+    name: string;
+    version: string;
+    status:
+      | 'queued'
+      | 'running'
+      | 'setting_up'
+      | 'succeeded'
+      | 'failed'
+      | 'unsupported'
+      | 'interrupted';
+    error: string | null;
+  }
   export class Node {
     constructor(options: {
       base?: string;
@@ -72,6 +87,7 @@ declare module '@runtime/host.js' {
       onexit?: (code: number) => void;
       onlistening?: (port: number, on: boolean) => void;
       onterminal?: (raw: boolean) => void;
+      onnif?: (build: NifBuild) => void;
       serve?: Record<number, (connection: Connection) => void>;
       https?: ((connection: Connection, target: { host: string; port: number }) => void) | null;
       programs?: Record<

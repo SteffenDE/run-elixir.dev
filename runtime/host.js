@@ -148,8 +148,11 @@ export class Node {
   // the node may spawn that run on the page (they may be async):
   // process.write(text | bytes), process.exit(code), process.onkill.
   // onterminal(raw): the node set its terminal to raw input (keys go to
-  // it as typed) or back to lines.
-  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, https = null, programs = {}, files = null, onlistening = () => {}, onterminal = () => {} }) {
+  // it as typed) or back to lines. onnif({ name, version, status, error }):
+  // make waits for the backend to build a package's NIF library (status
+  // queued, running or setting_up), or stopped waiting (succeeded, failed,
+  // unsupported, interrupted).
+  constructor({ base = './', onoutput = () => {}, onstatus = () => {}, onexit = () => {}, serve = {}, https = null, programs = {}, files = null, onlistening = () => {}, onterminal = () => {}, onnif = () => {} }) {
     this.https = https;
     this.files = files;
     this.listening = new Set();
@@ -172,6 +175,7 @@ export class Node {
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
       else if (data.kind === 'tty') onterminal(data.raw);
+      else if (data.kind === 'nif') onnif(data);
       else if (data.kind === 'net') this.network(data);
       else if (data.kind === 'listening') {
         if (data.on) this.listening.add(data.port);

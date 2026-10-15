@@ -14,6 +14,7 @@ import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { NifBuildDialog } from '@/project/components/NifBuildDialog';
 import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
@@ -160,6 +161,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
       </header>
       <TemplateNotice project={project} />
       <StartError />
+      <NifBuildDialog />
       {narrow ? (
         <NarrowWorkspace
           phoenix={kind === 'phoenix'}

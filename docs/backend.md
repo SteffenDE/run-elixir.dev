@@ -25,7 +25,8 @@ GET /api/nif/PACKAGE/VERSION/library.tar  → the app's priv files (ustar)
 ```
 
 The first request for a Hex release queues its build (`Playground.Nif`);
-the page asks again while it is `queued`, `running` or `setting_up`. The
+the playground's `make` asks again while it is `queued`, `running` or
+`setting_up`, and the page shows the status ([nif.md](nif.md#in-the-node)). The
 archive is what [nif.md](nif.md)'s build.py makes, `priv/NAME.so` holding
 WebAssembly, for `make` to unpack into the app's directory. Responses carry
 `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy:
@@ -155,9 +156,6 @@ The GitHub OAuth app's callback is
 
 ## Not yet
 
-- The playground's `make` still fetches only the site's own builds
-  (`nif/NAME-VERSION.tar`); it should ask `/api/nif/` for others and wait
-  while they build.
 - Rustler packages: a toolchain for `wasm32-wasip1` in the guest and a
   layer for Rust NIFs.
 - Rate limits on `/api/nif/` beyond the agent's budget and the downloads

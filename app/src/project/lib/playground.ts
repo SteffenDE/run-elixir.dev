@@ -12,7 +12,7 @@ import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
-import { Files, Node } from '@runtime/host.js';
+import { Files, Node, type NifBuild } from '@runtime/host.js';
 import { BUILD } from '@/shared/lib/build';
 import { Bridge } from '@runtime/bridge.js';
 import { postgres } from '@runtime/postgres.js';
@@ -277,6 +277,8 @@ function database(): Promise<PGlite> {
 function nodeServices() {
   return {
     serve: { 5432: postgres(database), [HEX_PORT]: hex },
+    // make waiting for the backend to build a NIF library (NifBuildDialog).
+    onnif: (build: NifBuild) => useStore.getState().setNifBuild(build),
     // The node's HTTPS (ssl to a host name), by the page's fetch().
     https: httpsByFetch(),
     programs: {
