@@ -1,7 +1,8 @@
 // What every playground node gets, in the browser and under node.mjs: its
 // environment, the files around the installation, and its programs.
-import { File, urandom } from './wasi';
-import { git, esbuild, tailwind, make } from './programs';
+import { File, urandom, type Dir, type Programs } from './wasi';
+import { git, esbuild, tailwind, make, type NifSource } from './programs';
+import type { Vfs } from './vfs';
 
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
 // so Hex tool wrappers take their Linux paths; the esbuild and tailwind
@@ -18,7 +19,7 @@ export const ENV = {
   ROTP_OS_TYPE: 'linux',
   ROTP_SYSTEM_ARCHITECTURE: 'x86_64-pc-linux-gnu',
   // cc_precompiler's target (lazy_html's): Rust-OTP's own on WebAssembly,
-  // which no package lists, so elixir_make runs make (programs.js) rather
+  // which no package lists, so elixir_make runs make (programs.ts) rather
   // than downloading the x86_64 Linux build.
   TARGET_ARCH: 'wasm32',
   TARGET_OS: 'unknown',
@@ -30,7 +31,7 @@ export const ENV = {
 
 // The node's own tree around the installation (/work and /tmp may be
 // shared: files.js).
-export function prepare(root) {
+export function prepare(root: Dir): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
   root.put('dev/urandom', urandom());
@@ -51,9 +52,9 @@ export function prepare(root) {
     root.put(`usr/bin/${name}`, new File());
 }
 
-// fs: the node's files (vfs.js); nif(name, version): a package's NIF
+// fs: the node's files (vfs.ts); nif(name, version): a package's NIF
 // library build (make), or null.
-export const programs = (fs, nif = () => null) => ({
+export const programs = (fs: Vfs, nif: NifSource = () => null): Programs => ({
   git: git(fs),
   esbuild,
   tailwind,

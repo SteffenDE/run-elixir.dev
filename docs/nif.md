@@ -60,7 +60,7 @@ list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
    cc_precompiler too: the node's `TARGET_ARCH`, `TARGET_OS` and
    `TARGET_ABI` make its target `wasm32-unknown-wasi`, which no package
    lists, so it builds instead of downloading an x86_64 Linux library). The
-   playground's `make` (`src/runtime/programs.js`) reads the package's name and
+   playground's `make` (`src/runtime/programs.ts`) reads the package's name and
    version from its `hex_metadata.config` and unpacks that version's
    library into `MIX_APP_PATH`, so `priv/bcrypt_nif.so` is where the
    Makefile would have put it: the site's `nif/NAME-VERSION.tar` when it

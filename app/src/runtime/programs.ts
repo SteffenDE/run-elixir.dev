@@ -1,21 +1,30 @@
-import { entries } from './wasi';
+import { entries, type Process, type Program, type ProgramContext } from './wasi';
+import type { Vfs } from './vfs';
+
+// A package's NIF library build for make: its tar, why there is none, or
+// null.
+export type NifSource = (
+  name: string,
+  version: string,
+  say: (text: string) => void,
+) => Uint8Array | string | null;
 
 // Programs a playground node can run (open_port, System.cmd), in place of
 // the OS's. Each gets its Process (write, exit) and { args, cwd, env }.
-// fs: vfs.js's files (readText).
+// fs: vfs.ts's files (readText).
 // git, as far as Mix asks a checked-out dependency (Mix.SCM.Git's
 // lock_status): its origin and its revision, from .git.
 export const git =
-  (fs) =>
+  (fs: Vfs): Program =>
   (process, { args, cwd }) => {
     let gitDir = '.git';
-    const rest = [];
+    const rest: string[] = [];
     for (const arg of args) {
       if (arg.startsWith('--git-dir=')) gitDir = arg.slice('--git-dir='.length);
       else rest.push(arg);
     }
     const dir = gitDir.startsWith('/') ? gitDir : `${cwd}/${gitDir}`;
-    const read = (path) => fs.readText(path);
+    const read = (path: string) => fs.readText(path);
     const [command, ...more] = rest;
     if (command === '--version') {
       process.write('git version 2.47.0 (playground)\n');
@@ -26,7 +35,7 @@ export const git =
       const [section, ...keys] = more[0].split('.');
       const key = keys.pop();
       const subsection = keys.join('.');
-      let current = null;
+      let current: string | null = null;
       for (const line of config.split('\n')) {
         const header = line.match(/^\s*\[([^\s\]]+)(?:\s+"([^"]*)")?\]/);
         if (header) current = `${header[1]}.${header[2] ?? ''}`;
@@ -67,7 +76,7 @@ export const git =
 export const ESBUILD_VERSION = '0.25.4';
 export const TAILWIND_VERSION = '4.3.3';
 
-export function esbuild(process, { args }) {
+export function esbuild(process: Process, { args }: ProgramContext): void {
   if (args[0] === '--version') {
     process.write(ESBUILD_VERSION + '\n');
     return process.exit(0);
@@ -76,7 +85,7 @@ export function esbuild(process, { args }) {
   process.exit(1);
 }
 
-export function tailwind(process, { args }) {
+export function tailwind(process: Process, { args }: ProgramContext): void {
   if (args[0] === '--help') {
     process.write(`\u2248 tailwindcss v${TAILWIND_VERSION}\n`);
     return process.exit(0);
@@ -92,14 +101,15 @@ export function tailwind(process, { args }) {
 // there is none, or null when nothing has one; say(text) tells the terminal
 // how a build it waits for is getting on.
 export const make =
-  (fs, nif) =>
+  (fs: Vfs, nif: NifSource): Program =>
   (process, { args, cwd, env }) => {
     if (args.length && args.every((target) => target === 'clean')) return process.exit(0);
     const metadata = fs.readText(`${cwd}/hex_metadata.config`) ?? '';
-    const field = (key) => metadata.match(new RegExp(`\\{<<"${key}">>,\\s*<<"([^"]*)">>\\}`))?.[1];
+    const field = (key: string) =>
+      metadata.match(new RegExp(`\\{<<"${key}">>,\\s*<<"([^"]*)">>\\}`))?.[1];
     const [name, version] = [field('name'), field('version')];
     const app = env.MIX_APP_PATH;
-    const say = (text) => process.write(`make: ${text}\n`);
+    const say = (text: string) => process.write(`make: ${text}\n`);
     const tar = name && version && app ? nif(name, version, say) : null;
     if (!(tar instanceof Uint8Array)) {
       const what = name ? `${name} ${version}` : cwd;

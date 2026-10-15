@@ -20,10 +20,10 @@ site's root. `node.mjs` is bundled for Node.
 | `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host.ts` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
-| `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
-| `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
+| `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
+| `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
-| `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
+| `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |

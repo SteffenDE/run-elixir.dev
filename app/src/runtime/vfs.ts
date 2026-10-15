@@ -1,22 +1,34 @@
-// Files for code beside the node (the shell's builtins, programs.js): the
+// Files for code beside the node (the shell's builtins, programs.ts): the
 // worker's own tree, and the shared directories through their channel
 // (sharedClient), as one.
-import { Dir, File, load, lookup as find } from './wasi';
+import { Dir, File, load, lookup as find, type Fetch, type FsNode, type Shared } from './wasi';
 
 const CREATE = 1 | 8; // OFLAGS CREAT | TRUNC
 
 // The node at `path`, symbolic links followed, or null.
-function lookup(root, path) {
+function lookup(root: Dir, path: string): FsNode | null {
   return find(root, root, path).node ?? null;
 }
 
 // root: the worker's tree; fetch: its lazily fetched files; shared:
 // { prefixes, call } or null.
-export function vfs(root, fetch, shared = null) {
-  const remote = (path) => shared?.prefixes.some((p) => path === p || path.startsWith(`${p}/`));
-  const ask = (request, bytes) => shared.call(request, bytes);
+export interface Vfs {
+  stat(path: string): { dir: boolean } | null;
+  list(path: string): { name: string; dir: boolean }[] | null;
+  read(path: string): Uint8Array | null;
+  readText(path: string): string | null;
+  mkdir(path: string): void;
+  write(path: string, bytes: Uint8Array): boolean;
+  remove(path: string): void;
+}
+
+export function vfs(root: Dir, fetch: Fetch, shared: Shared | null = null): Vfs {
+  const remote = (path: string) =>
+    shared?.prefixes.some((p) => path === p || path.startsWith(`${p}/`));
+  const ask = (request: Record<string, unknown>, bytes?: Uint8Array) =>
+    shared!.call(request, bytes);
   const decoder = new TextDecoder();
-  const api = {
+  const api: Vfs = {
     // { dir } or null.
     stat(path) {
       if (remote(path)) {
@@ -34,7 +46,7 @@ export function vfs(root, fetch, shared = null) {
         const { entries = [] } = ask({ op: 'readdir', handle: opened.handle }).answer;
         ask({ op: 'close', handle: opened.handle });
         // A symbolic link counts as a file here (remove unlinks it).
-        return entries.map(([name, type]) => ({ name, dir: type === 'dir' }));
+        return entries.map(([name, type]: [string, string]) => ({ name, dir: type === 'dir' }));
       }
       const node = lookup(root, path);
       if (!(node instanceof Dir)) return null;
@@ -45,7 +57,7 @@ export function vfs(root, fetch, shared = null) {
       if (remote(path)) {
         const opened = ask({ op: 'open', path }).answer;
         if (opened.error || opened.type === 'dir') return null;
-        const chunks = [];
+        const chunks: Uint8Array[] = [];
         let offset = 0;
         for (;;) {
           const { bytes } = ask({ op: 'read', handle: opened.handle, offset, length: 512 * 1024 });
@@ -111,7 +123,7 @@ export function vfs(root, fetch, shared = null) {
         return;
       }
       const parent = lookup(root, path.slice(0, path.lastIndexOf('/')) || '/');
-      parent?.entries?.delete(path.slice(path.lastIndexOf('/') + 1));
+      (parent as Dir | null)?.entries?.delete(path.slice(path.lastIndexOf('/') + 1));
     },
   };
   return api;

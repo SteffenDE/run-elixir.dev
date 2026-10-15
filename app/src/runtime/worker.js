@@ -427,7 +427,7 @@ onmessage = async ({
       return new Uint8Array(request.response);
     });
     const fs = vfs(root, fetchFile, sharedFs);
-    // A package's NIF library built to WebAssembly (programs.js make): the
+    // A package's NIF library built to WebAssembly (programs.ts make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
     // origin, which may have to build it first: docs/backend.md).
     const nif = (name, version, say) =>
