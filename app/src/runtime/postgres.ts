@@ -1,14 +1,21 @@
-// Postgres for the node: a connection Postgrex makes to the page (host.js
+// Postgres for the node: a connection Postgrex makes to the page (host.ts
 // serve) carries the wire protocol to PGlite. Messages go to
 // execProtocolRaw whole and in order, one connection at a time (PGlite is
 // one session, which is why the app's pool has one connection).
 // database(): the PGlite, a promise; asked for on the first message.
-export function postgres(database) {
-  let queue = Promise.resolve();
+import type { Connection } from './host';
+
+// What the handler needs of PGlite.
+export interface Database {
+  execProtocolRaw(message: Uint8Array): Promise<Uint8Array>;
+}
+
+export function postgres(database: () => Promise<Database>): (connection: Connection) => void {
+  let queue: Promise<unknown> = Promise.resolve();
   return (connection) => {
     let buffer = new Uint8Array(0);
     let started = false;
-    const take = (count) => {
+    const take = (count: number) => {
       const out = buffer.slice(0, count);
       buffer = buffer.slice(count);
       return out;
@@ -18,7 +25,7 @@ export function postgres(database) {
       joined.set(buffer);
       joined.set(bytes, buffer.length);
       buffer = joined;
-      const messages = [];
+      const messages: Uint8Array[] = [];
       let terminate = false;
       for (;;) {
         const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);

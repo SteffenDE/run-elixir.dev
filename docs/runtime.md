@@ -7,7 +7,7 @@ last_updated: 2026-10-15
 # The runtime (`playground/app/src/runtime`)
 
 The site's runtime: JavaScript modules, which the app's Vite build
-bundles ([build.md](build.md#steps)). The page's parts (`host.js`,
+bundles ([build.md](build.md#steps)). The page's parts (`host.ts`,
 `bridge.js`, …) go into the app. The scripts that load by URL go into the
 build as entries of their own, under their names: `worker.js`, `files.js`
 and `thread.js` (what they share in `chunks/`), and `sw.js`, at the
@@ -18,18 +18,18 @@ site's root. `node.mjs` is bundled for Node.
 | `wasi.js` | worker, Node | WASI preview 1 for `rotp.wasm`: the in-memory filesystem, lazy files, `/dev/urandom`, TCP (`Network`), programs, and the client for shared files. |
 | `worker.js` | worker | A node: boots `rotp.wasm`, runs one command or the shell, pumps the page's frames. |
 | `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
-| `overlay.js` | worker | A project's kept changes in IndexedDB. |
-| `host.js` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
+| `overlay.ts` | worker | A project's kept changes in IndexedDB. |
+| `host.ts` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
 | `setup.js` | worker, Node | What every node gets: environment, files around the installation, programs. |
 | `programs.js` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.js` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.js` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
-| `terminal.js` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
+| `terminal.ts` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
-| `https.js` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
+| `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.js` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
-| `postgres.js` | page | Postgres wire protocol to PGlite. |
-| `fetcher.js` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
+| `postgres.ts` | page | Postgres wire protocol to PGlite. |
+| `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
 
 ## WASI (`wasi.js`)
@@ -57,7 +57,7 @@ nothing:
   `lstat` and `O_NOFOLLOW` do not); a relative target is read from the
   link's directory, `..` is the physical parent, and 40 links in a row are
   `ELOOP`. The shared files (`files.js`) resolve the same way and keep a
-  link as a record of its own (overlay.js); a change is kept by its path
+  link as a record of its own (overlay.ts); a change is kept by its path
   with the links on the way resolved, and laying the records back makes
   what a dangling link names, as a link can sort before it; the page's requests follow
   links but for removing and renaming. A link and what it names stay on
@@ -179,12 +179,12 @@ at most every 200 ms.
 (`boots`), the directories below `/work` the project starts with
 (`template`, from the manifest and the images), and `store`, the IndexedDB
 database of the project's changes. With a store, `files.js` lays the kept
-records over the template (`overlay.js`), and writes the changed paths
+records over the template (`overlay.ts`), and writes the changed paths
 below `/work` a second after they change, in one transaction
 ([projects.md](projects.md#what-is-kept)). A write that fails is reported
 to the page as `{ kind: 'warning', message }`.
 
-## Page and node (`host.js`, `worker.js`)
+## Page and node (`host.ts`, `worker.js`)
 
 `new Node({ base, files, serve, programs, onoutput, onstatus, onexit,
 onlistening })` starts a worker. It is a blob module that imports
@@ -224,7 +224,7 @@ the shell with `initial` commands typed first, or one command (erl's
 | `nif` | `make` waits for the backend to build a package's NIF library, or stopped waiting: `{ name, version, status, error }` (`onnif`; [nif.md](nif.md#in-the-node)). |
 
 `https: (connection, { host, port }) => …` answers the node's
-`/.net/https` connections; the playground's is `https.js`'s
+`/.net/https` connections; the playground's is `https.ts`'s
 `httpsByFetch()`. It reads requests with a body (Content-Length or
 chunked) and answers each with `fetch()`: the browser does TLS, checks the
 certificate, follows redirects, decompresses, and leaves out request
@@ -294,7 +294,7 @@ client frames masked, fragments joined, pings answered with pongs, close
 answered. The port carries `{ send }`/`{ close }` in and
 `{ open }`/`{ message }`/`{ close }` out.
 
-## Postgres (`postgres.js`)
+## Postgres (`postgres.ts`)
 
 `postgres(database)` is a connection handler for `serve`; `database()`
 gives the PGlite (a promise), asked for on the first message. It buffers bytes into

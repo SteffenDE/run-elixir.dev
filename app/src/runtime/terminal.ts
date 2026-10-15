@@ -4,19 +4,33 @@
 // line editing does): keys go to the node as typed, and it echoes. Ctrl+C
 // interrupts the node in both. `typed`: lines the shell ran before the
 // terminal opened, as if typed here (the history). raw(on) switches.
-export function lineDiscipline(term, node, typed = []) {
+// What the line discipline needs of xterm.js's Terminal and of a Node.
+export interface Term {
+  write(data: string): void;
+  onData(listener: (data: string) => void): unknown;
+}
+export interface Typist {
+  input(text: string): void;
+  interrupt(): void;
+}
+
+export function lineDiscipline(
+  term: Term,
+  node: Typist,
+  typed: string[] = [],
+): { raw(on: boolean): void } {
   let line = '';
   let cursor = 0;
   const history = typed.filter((text) => text.trim());
   let recalled = history.length;
   let raw = false;
-  const redraw = (next, at = next.length) => {
+  const redraw = (next: string, at = next.length) => {
     term.write('\b'.repeat(cursor) + next + ' '.repeat(Math.max(0, line.length - next.length)));
     term.write('\b'.repeat(Math.max(line.length, next.length) - at));
     line = next;
     cursor = at;
   };
-  const enter = (text) => {
+  const enter = (text: string) => {
     if (text.trim()) history.push(text);
     recalled = history.length;
     node.input(text + '\n');
@@ -53,10 +67,11 @@ export function lineDiscipline(term, node, typed = []) {
       cursor = 0;
       node.interrupt();
     } else if (!data.startsWith('\x1b')) {
+      // oxlint-disable-next-line no-control-regex -- control keys, but newlines.
       const text = data.replace(/\r\n?/g, '\n').replace(/[\x00-\x09\x0b-\x1f]/g, '');
       if (text.includes('\n')) {
         const lines = (line.slice(0, cursor) + text + line.slice(cursor)).split('\n');
-        const last = lines.pop();
+        const last = lines.pop()!;
         term.write(text.replace(/\n/g, '\r\n'));
         for (const each of lines) enter(each);
         line = last;
@@ -68,7 +83,7 @@ export function lineDiscipline(term, node, typed = []) {
   });
   return {
     // A line being typed goes to the node to edit, off the screen here.
-    raw(on) {
+    raw(on: boolean) {
       if (on === raw) return;
       raw = on;
       if (raw && line) {

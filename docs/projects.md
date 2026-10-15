@@ -101,7 +101,7 @@ Three IndexedDB databases, all named after the project's id
 | Database | Holds | Written by |
 | --- | --- | --- |
 | `playground` (Dexie), table `projects` | id, name, kind, created and opened times | the page |
-| `playground-files-ID` | what changed below `/work` | `files.js` (`src/runtime/overlay.js`) |
+| `playground-files-ID` | what changed below `/work` | `files.js` (`src/runtime/overlay.ts`) |
 | `/pglite/playground-pg-ID` | the project's Postgres | PGlite (`idb://playground-pg-ID`) |
 
 ### Files: an overlay over the template

@@ -118,7 +118,7 @@ last_updated: 2026-10-15
   ([interpreter.md](../../docs/design/interpreter.md#where-it-stands-2026-10-15)).
 - **git in the shell:** only what Mix asks (`git` is a program, not a shell
   command yet); no pushes.
-- **HTTPS from a node** goes by the page's `fetch()` (`https.js`): only
+- **HTTPS from a node** goes by the page's `fetch()` (`https.ts`): only
   to sites that send CORS headers (hex.pm's API does; most others do not:
   502), HTTP/1.1 only, one request per connection, without the headers
   the browser sets itself. Other protocols over TLS have no route. A relay

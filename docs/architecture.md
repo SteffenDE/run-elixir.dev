@@ -13,18 +13,18 @@ several projects (one tab per project, [projects.md](projects.md)).
 
 ```
  project page (React IDE, playground/app)
- ├─ host.js Node ──────────────► worker.js  (one per shell / terminal tab)
+ ├─ host.ts Node ──────────────► worker.js  (one per shell / terminal tab)
  │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi.js
  │    messages back                            its own /rotp, /dev, /usr
- ├─ host.js Files ─────────────► files.js   (one; runs no node)
+ ├─ host.ts Files ─────────────► files.js   (one; runs no node)
  │    messages                                 /work and /tmp, shared;
  │                                             keeps /work's changes in
- │                                             IndexedDB (overlay.js)
+ │                                             IndexedDB (overlay.ts)
  │                   worker.js ═══════════════► files.js
  │                   synchronous calls (SharedArrayBuffer + Atomics.wait)
  ├─ bridge.js ◄──── sw.js (service worker) ◄─── preview <iframe> (the app)
  │                  routes by project key       or a popped-out window
- ├─ postgres.js ─── PGlite (Postgres in WebAssembly; IndexedDB)
+ ├─ postgres.ts ─── PGlite (Postgres in WebAssembly; IndexedDB)
  └─ page programs: tailwind, git, and sh and rebar3 (programs/node.ts),
                     which start a node of their own
 ```
@@ -114,7 +114,7 @@ over it as outside the playground.
 ## The database
 
 Postgrex connects to `localhost:5432`. That port is served on the page:
-`src/runtime/postgres.js` hands whole wire-protocol messages to PGlite's
+`src/runtime/postgres.ts` hands whole wire-protocol messages to PGlite's
 `execProtocolRaw`, one connection at a time. PGlite is a single session, so
 the app's pool has one connection. It starts on the first connection, and a
 stored project's lives in IndexedDB (`idb://playground-pg-ID`); a temporary
@@ -126,7 +126,7 @@ The node has no sockets to the internet, and the page reads only what
 CORS allows: hex.pm's API does, repo.hex.pm (the registry and tarballs)
 does not. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
-`src/runtime/fetcher.js`, which answers each request with a `fetch()`
+`src/runtime/fetcher.ts`, which answers each request with a `fetch()`
 (`src/project/lib/hex.ts`):
 
 - `/repo/…` goes to the site's own proxy at `/hex/` (`serve.py`, Caddy in

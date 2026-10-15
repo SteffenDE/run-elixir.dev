@@ -15,30 +15,74 @@ export const FRAME = {
   OUTPUT: 7,
   EXIT: 8,
   RESIZE: 9,
-};
+} as const;
 const CHANNEL = 1 << 20;
 
 // A module worker from a blob that imports the runtime's script: Firefox
 // does not start a worker from a page its service worker controls; a blob
 // worker takes the page's cross-origin isolation in both.
-function worker(name, base) {
+function worker(name: string, base: string): Worker {
   const script = new URL(name, new URL(base, location.href)).href;
   const blob = new Blob([`import ${JSON.stringify(script)};`], { type: 'text/javascript' });
   return new Worker(URL.createObjectURL(blob), { type: 'module' });
 }
 
+// A path below a directory, and whether it is one (Files.list).
+export interface Entry {
+  path: string;
+  dir: boolean;
+}
+
+export interface Stat {
+  type: 'file' | 'dir';
+  size: number;
+  mtime: number;
+  ino: number;
+}
+
+// The shared filesystem's operations (files.js through Files).
+export interface FileSystem {
+  list(path: string, skip?: string[]): Promise<Entry[]>;
+  read(path: string): Promise<Uint8Array>;
+  write(path: string, data: string | Uint8Array): Promise<void>;
+  mkdir(path: string): Promise<void>;
+  remove(path: string): Promise<void>;
+  rename(path: string, to: string): Promise<void>;
+  stat(path: string): Promise<'file' | 'dir' | null>;
+  lstat(path: string): Promise<Stat>;
+  readdir(path: string): Promise<string[]>;
+  unlink(path: string): Promise<void>;
+  rmdir(path: string): Promise<void>;
+}
+
+// A node's way to the shared files (wasi.js sharedClient).
+export interface FilesChannel {
+  doorbell: SharedArrayBuffer;
+  channel: SharedArrayBuffer;
+}
+
+// What files.js answers a request with: its fields, by request.
+// oxlint-disable-next-line typescript/no-explicit-any -- each op's own.
+type Reply = Record<string, any>;
+
 // The shared filesystem (files.js): /work and /tmp, which every node and
 // the page see. onchange(paths): what changed in it.
-export class Files {
+export class Files implements FileSystem {
+  doorbell: SharedArrayBuffer;
+  requests: Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>;
+  next: number;
+  worker: Worker;
+  ready: Promise<void>;
+
   // boots, template, store: what files.js starts with (its 'start').
   // onwarning(message): a change that was not kept.
   constructor({
     base = './',
     boots = ['boot'],
-    template = [],
-    store = null,
-    onchange = () => {},
-    onwarning = () => {},
+    template = [] as string[],
+    store = null as string | null,
+    onchange = (_paths: string[]) => {},
+    onwarning = (_message: string) => {},
   } = {}) {
     this.doorbell = new SharedArrayBuffer(4);
     this.requests = new Map();
@@ -70,105 +114,194 @@ export class Files {
   }
 
   // A node's channel (wasi.js sharedClient).
-  connect() {
+  connect(): FilesChannel {
     const channel = new SharedArrayBuffer(8 + CHANNEL);
     this.worker.postMessage({ kind: 'connect', channel });
     return { doorbell: this.doorbell, channel };
   }
-  disconnect({ channel }) {
+  disconnect({ channel }: FilesChannel): void {
     this.worker.postMessage({ kind: 'disconnect', channel });
   }
 
-  ask(request) {
+  ask(request: { op: string } & Record<string, unknown>): Promise<Reply> {
     return new Promise((resolve, reject) => {
       const id = ++this.next;
       this.requests.set(id, { resolve, reject });
       this.worker.postMessage({ kind: 'request', id, ...request });
     });
   }
-  list(path, skip = []) {
+  list(path: string, skip: string[] = []): Promise<Entry[]> {
     return this.ask({ op: 'list', path, skip }).then((r) => r.entries);
   }
   // 'file', 'dir', or null when there is nothing at `path`.
-  stat(path) {
+  stat(path: string): Promise<'file' | 'dir' | null> {
     return this.ask({ op: 'stat', path }).then((r) => r.type);
   }
   // In POSIX's shape, failing with its codes (ENOENT, ENOTDIR, ENOTEMPTY):
   // { type, size, mtime (ms), ino }; the names in a directory; removing a
   // file, an empty directory.
-  lstat(path) {
-    return this.ask({ op: 'lstat', path });
+  lstat(path: string): Promise<Stat> {
+    return this.ask({ op: 'lstat', path }) as Promise<Stat>;
   }
-  readdir(path) {
+  readdir(path: string): Promise<string[]> {
     return this.ask({ op: 'readdir', path }).then((r) => r.names);
   }
-  unlink(path) {
+  unlink(path: string): Promise<void> {
     return this.ask({ op: 'unlink', path }).then(() => {});
   }
-  rmdir(path) {
+  rmdir(path: string): Promise<void> {
     return this.ask({ op: 'rmdir', path }).then(() => {});
   }
-  read(path) {
+  read(path: string): Promise<Uint8Array> {
     return this.ask({ op: 'read', path }).then((r) => r.data);
   }
-  write(path, data) {
+  write(path: string, data: string | Uint8Array): Promise<void> {
     return this.ask({
       op: 'write',
       path,
       data: typeof data === 'string' ? new TextEncoder().encode(data) : data,
     }).then(() => {});
   }
-  mkdir(path) {
+  mkdir(path: string): Promise<void> {
     return this.ask({ op: 'mkdir', path }).then(() => {});
   }
-  remove(path) {
+  remove(path: string): Promise<void> {
     return this.ask({ op: 'remove', path }).then(() => {});
   }
-  rename(path, to) {
+  rename(path: string, to: string): Promise<void> {
     return this.ask({ op: 'rename', path, to }).then(() => {});
   }
   // What the project changed below /work over its template, but in
   // directories named in `skip`: { changed: [{ path, data }], removed }.
-  changes(skip = []) {
+  changes(
+    skip: string[] = [],
+  ): Promise<{ changed: { path: string; data: Uint8Array }[]; removed: string[] }> {
     return this.ask({ op: 'changes', skip }).then(({ changed, removed }) => ({ changed, removed }));
   }
   // Keep everything changed so far (a store's).
-  flush() {
+  flush(): Promise<void> {
     return this.ask({ op: 'flush' }).then(() => {});
   }
 }
 export const RING = 1 << 20;
 const CHUNK = 1 << 16;
 
+// Why a connection closed: the peer closed it, or (connecting) nothing
+// listened.
+export type CloseReason = 'close' | 'refused';
+
 // A connection between the page and the node.
-class Connection {
-  constructor(node, id) {
+export class Connection {
+  node: Node;
+  id: number;
+  ondata: (bytes: Uint8Array) => void;
+  onend: () => void;
+  onclose: (why?: CloseReason) => void;
+
+  constructor(node: Node, id: number) {
     this.node = node;
     this.id = id;
     this.ondata = () => {};
     this.onend = () => {};
     this.onclose = () => {};
   }
-  write(bytes) {
+  write(bytes: Uint8Array): void {
     for (let at = 0; at < bytes.length; at += CHUNK) {
       this.node.frame(FRAME.DATA, this.id, bytes.subarray(at, at + CHUNK));
     }
   }
-  end() {
+  end(): void {
     this.node.frame(FRAME.END, this.id);
   }
-  close() {
+  close(): void {
     this.node.frame(FRAME.CLOSE, this.id);
     this.node.connections.delete(this.id);
   }
 }
 
+// A program the node started that runs on the page.
+export interface PageProcess {
+  write(data: string | Uint8Array): void;
+  exit(code?: number): void;
+  onkill: (() => void) | null;
+}
+
+export type PageProgram = (
+  process: PageProcess,
+  context: { args: string[]; cwd: string; env: Record<string, string>; fs: FileSystem },
+) => void | Promise<void>;
+
+// make waiting for the backend to build a package's NIF library (onnif).
+export interface NifBuild {
+  name: string;
+  version: string;
+  status:
+    | 'queued'
+    | 'running'
+    | 'setting_up'
+    | 'succeeded'
+    | 'failed'
+    | 'unsupported'
+    | 'interrupted';
+  error: string | null;
+}
+
+export type Https = (connection: Connection, target: { host: string; port: number }) => void;
+
+// What the node's worker tells the page (worker.js).
+type NetMessage = {
+  kind: 'net';
+  op: 'open' | 'data' | 'end' | 'close' | 'refused';
+  id: number;
+  port?: number;
+  host?: string;
+  payload?: Uint8Array;
+};
+type SpawnMessage = {
+  kind: 'spawn';
+  id: number;
+  name: string;
+  args: string[];
+  cwd: string;
+  env: Record<string, string>;
+};
+type NodeMessage =
+  | { kind: 'out'; payload: Uint8Array }
+  | { kind: 'status'; payload: string }
+  | { kind: 'exit'; payload: number }
+  | { kind: 'tty'; raw: boolean }
+  | ({ kind: 'nif' } & NifBuild)
+  | NetMessage
+  | { kind: 'listening'; port: number; on: boolean; ephemeral: boolean }
+  | SpawnMessage
+  | { kind: 'thread'; node: number; start: unknown }
+  | { kind: 'threads-end'; node: number }
+  | { kind: 'kill'; id: number };
+
 export class Node {
+  https: Https | null;
+  files: Files | null;
+  listening: Set<number>;
+  serving: Set<number>;
+  programs: Record<string, PageProgram>;
+  running: Map<number, PageProcess>;
+  shared: SharedArrayBuffer;
+  control: Int32Array;
+  ring: Uint8Array;
+  pending: Uint8Array[];
+  connections: Map<number, Connection>;
+  next: number;
+  serve: Record<number, (connection: Connection) => void>;
+  threads: Map<number, Worker[]>;
+  worker: Worker;
+  channel: FilesChannel | null = null;
+  retry: ReturnType<typeof setTimeout> | null = null;
+
   // base: where the site's runtime files are; onoutput(bytes),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
   // ports the node may connect to on the page; https: (connection,
   // { host, port }) => ..., HTTPS the page carries for the node
-  // (/.net/https, https.js), or null; files: a Files the node
+  // (/.net/https, https.ts), or null; files: a Files the node
   // shares /work and /tmp with; onlistening(port, on): the node started or
   // stopped listening on a port. `listening` holds every port it listens
   // on; `serving` only those it named (a server's, not an ephemeral port
@@ -183,16 +316,16 @@ export class Node {
   // unsupported, interrupted).
   constructor({
     base = './',
-    onoutput = () => {},
-    onstatus = () => {},
-    onexit = () => {},
-    serve = {},
-    https = null,
-    programs = {},
-    files = null,
-    onlistening = () => {},
-    onterminal = () => {},
-    onnif = () => {},
+    onoutput = (_bytes: Uint8Array) => {},
+    onstatus = (_text: string) => {},
+    onexit = (_code: number) => {},
+    serve = {} as Record<number, (connection: Connection) => void>,
+    https = null as Https | null,
+    programs = {} as Record<string, PageProgram>,
+    files = null as Files | null,
+    onlistening = (_port: number, _on: boolean) => {},
+    onterminal = (_raw: boolean) => {},
+    onnif = (_build: NifBuild) => {},
   }) {
     this.https = https;
     this.files = files;
@@ -211,7 +344,7 @@ export class Node {
     // the page starts, since a worker busy serving them could not.
     this.threads = new Map();
     this.worker = worker('worker.js', base);
-    this.worker.onmessage = ({ data }) => {
+    this.worker.onmessage = ({ data }: MessageEvent<NodeMessage>) => {
       if (data.kind === 'out') onoutput(data.payload);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
@@ -231,7 +364,7 @@ export class Node {
           onstatus(`failed: ${event.message || 'a thread did not start'}`);
         thread.postMessage(data.start);
         if (!this.threads.has(data.node)) this.threads.set(data.node, []);
-        this.threads.get(data.node).push(thread);
+        this.threads.get(data.node)!.push(thread);
       } else if (data.kind === 'threads-end') this.stopThreads(data.node);
       else if (data.kind === 'kill') {
         this.running.get(data.id)?.onkill?.();
@@ -248,7 +381,23 @@ export class Node {
   // initial: command lines the shell runs first, as if typed.
   // cwd: where the shell starts.
   // boots: the boot images to unpack (worker.js).
-  start({ shell = false, args, command, env = {}, initial = [], cwd, boots } = {}) {
+  start({
+    shell = false,
+    args,
+    command,
+    env = {},
+    initial = [],
+    cwd,
+    boots,
+  }: {
+    shell?: boolean;
+    args?: string[];
+    command?: string[];
+    env?: Record<string, string>;
+    initial?: string[];
+    cwd?: string;
+    boots?: string[];
+  } = {}): void {
     this.channel = this.files?.connect() ?? null;
     this.worker.postMessage({
       shared: this.shared,
@@ -267,27 +416,27 @@ export class Node {
   }
 
   // The node's files: its Files.
-  get fs() {
+  get fs(): Files | null {
     return this.files;
   }
 
   // Stop a threaded node's threads.
-  stopThreads(node) {
+  stopThreads(node: number): void {
     for (const thread of this.threads.get(node) ?? []) thread.terminate();
     this.threads.delete(node);
   }
 
   // Stop the node and its worker.
-  stop() {
+  stop(): void {
     for (const node of [...this.threads.keys()]) this.stopThreads(node);
     this.worker.terminate();
-    if (this.channel) this.files.disconnect(this.channel);
+    if (this.channel) this.files!.disconnect(this.channel);
   }
 
   // A program the node started (worker.js onPage).
-  spawn({ id, name, args, cwd, env }) {
+  spawn({ id, name, args, cwd, env }: SpawnMessage): void {
     let exited = false;
-    const process = {
+    const process: PageProcess = {
       onkill: null,
       write: (data) => {
         if (exited) return;
@@ -304,21 +453,22 @@ export class Node {
     };
     this.running.set(id, process);
     Promise.resolve()
-      .then(() => this.programs[name](process, { args, cwd, env, fs: this.fs }))
+      // Page programs come with shared files.
+      .then(() => this.programs[name](process, { args, cwd, env, fs: this.fs! }))
       .catch((error) => {
         process.write(`${name}: ${error.message}\n`);
         process.exit(1);
       });
   }
 
-  input(text) {
+  input(text: string): void {
     this.frame(FRAME.INPUT, 0, new TextEncoder().encode(text));
   }
-  interrupt() {
+  interrupt(): void {
     this.frame(FRAME.INTERRUPT, 0);
   }
   // The terminal's size, which the node reads from /.tty/size.
-  resize(columns, rows) {
+  resize(columns: number, rows: number): void {
     const payload = new Uint8Array(4);
     const view = new DataView(payload.buffer);
     view.setUint16(0, columns, true);
@@ -327,7 +477,7 @@ export class Node {
   }
 
   // A connection to the node's listener on `port`.
-  connect(port) {
+  connect(port: number): Connection {
     const id = (this.next += 2);
     const connection = new Connection(this, id);
     this.connections.set(id, connection);
@@ -335,22 +485,22 @@ export class Node {
     return connection;
   }
 
-  network({ op, id, port, host, payload }) {
+  network({ op, id, port, host, payload }: NetMessage): void {
     let connection = this.connections.get(id);
     if (op === 'open') {
       connection = new Connection(this, id);
       this.connections.set(id, connection);
       if (host !== undefined) {
-        if (this.https) this.https(connection, { host, port });
+        if (this.https) this.https(connection, { host, port: port! });
         else connection.close();
         return;
       }
-      const handler = this.serve[port];
+      const handler = this.serve[port!];
       if (handler) handler(connection);
       else connection.close();
     } else if (!connection) {
       return;
-    } else if (op === 'data') connection.ondata(payload);
+    } else if (op === 'data') connection.ondata(payload!);
     else if (op === 'end') connection.onend();
     else if (op === 'close' || op === 'refused') {
       this.connections.delete(id);
@@ -358,7 +508,7 @@ export class Node {
     }
   }
 
-  frame(kind, id, payload = new Uint8Array(0)) {
+  frame(kind: number, id: number, payload: Uint8Array = new Uint8Array(0)): void {
     const frame = new Uint8Array(9 + payload.length);
     const view = new DataView(frame.buffer);
     view.setUint8(0, kind);
@@ -370,7 +520,7 @@ export class Node {
   }
 
   // Frames go in whole, in order, as the ring has room.
-  flush() {
+  flush(): void {
     let written = Atomics.load(this.control, 0);
     while (this.pending.length) {
       const frame = this.pending[0];

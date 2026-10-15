@@ -6,7 +6,7 @@ export const test = base.extend<{ page: Page }>({
     const errors: string[] = [];
     page.on('pageerror', (error) => {
       // WebKit also reports a fetch() that CORS blocks as an uncaught error
-      // (no stack), though the page catches its rejection (https.js).
+      // (no stack), though the page catches its rejection (https.ts).
       if (`${error.name}:${error.message}`.includes('due to access control checks')) return;
       errors.push(error.stack || `${error.name}: ${error.message}`);
     });

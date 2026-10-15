@@ -69,7 +69,7 @@ Chromium's 34 in about 2.7; Firefox's and WebKit's take about as long each
 cross-origin isolated, has no SharedArrayBuffer, and the playground starts
 nothing. So `serve.py`, the deployment and the service worker send
 `require-corp`. WebKit also reports a `fetch()` that CORS blocks as an
-uncaught page error, though `https.js` catches it; the fixture leaves that
+uncaught page error, though `https.ts` catches it; the fixture leaves that
 one out. `tree` fails a focus check under heavy load (four workers and all
 three browsers), in Chromium too, and passes alone.
 

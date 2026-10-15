@@ -9,7 +9,7 @@ import indexCss from 'tailwindcss/index.css?raw';
 import preflightCss from 'tailwindcss/preflight.css?raw';
 import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
-import type { FileSystem as Files } from '@runtime/host.js';
+import type { FileSystem as Files } from '@runtime/host';
 import { SyncFiles, evaluate, made, path, withFaults } from './modules';
 import { type Watcher, watchers } from './watch';
 

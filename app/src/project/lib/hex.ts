@@ -1,5 +1,5 @@
 // Hex for the nodes: Hex fetches from a port the page serves (HEX_MIRROR,
-// HEX_API_URL), and the page fetches for it (src/runtime/fetcher.js). Hex
+// HEX_API_URL), and the page fetches for it (src/runtime/fetcher.ts). Hex
 // checks the registry's signature and each tarball's checksum itself, so
 // whatever serves the repository can delay or fail, not alter.
 //
@@ -7,7 +7,7 @@
 //   proxy at /hex/ (serve.py, Caddy: docs/deploy.md), else a public mirror
 //   that sends CORS headers.
 // - The API (hex.pm sends CORS headers): directly.
-import { fetcher } from '@runtime/fetcher.js';
+import { fetcher } from '@runtime/fetcher';
 
 export const HEX_PORT = 49180;
 const MIRROR = 'https://hexpm.upyun.com';

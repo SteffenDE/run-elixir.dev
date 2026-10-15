@@ -14,14 +14,21 @@
 // in path order, so a directory comes before what is in it.
 const VERSION = 1;
 
-function request(r) {
+// A record; mtimes are nanoseconds, as decimal strings.
+export type KeptRecord =
+  | { path: string; kind: 'file'; data: Uint8Array; mtime: string }
+  | { path: string; kind: 'dir'; opaque: boolean; mtime: string }
+  | { path: string; kind: 'link'; target: string; mtime: string }
+  | { path: string; kind: 'gone' };
+
+function request<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
   });
 }
 
-function done(transaction) {
+function done(transaction: IDBTransaction): Promise<void> {
   return new Promise((resolve, reject) => {
     transaction.oncomplete = () => resolve();
     transaction.onerror = () => reject(transaction.error);
@@ -29,7 +36,7 @@ function done(transaction) {
   });
 }
 
-export async function open(name) {
+export async function open(name: string): Promise<IDBDatabase> {
   const opening = indexedDB.open(name, VERSION);
   opening.onupgradeneeded = () => {
     opening.result.createObjectStore('files', { keyPath: 'path' });
@@ -39,11 +46,13 @@ export async function open(name) {
 }
 
 // Every record, in path order, and the site version they were made over.
-export async function load(db) {
+export async function load(
+  db: IDBDatabase,
+): Promise<{ records: KeptRecord[]; version: string | null }> {
   const transaction = db.transaction(['files', 'meta'], 'readonly');
   const [records, version] = await Promise.all([
-    request(transaction.objectStore('files').getAll()),
-    request(transaction.objectStore('meta').get('version')),
+    request(transaction.objectStore('files').getAll() as IDBRequest<KeptRecord[]>),
+    request(transaction.objectStore('meta').get('version') as IDBRequest<string | undefined>),
   ]);
   return { records, version: version ?? null };
 }
@@ -51,7 +60,12 @@ export async function load(db) {
 // Store `records` (each replaces its path's), drop the records below each
 // of `cleared` (a directory replaced or gone takes its contents with it),
 // and note the site version.
-export async function save(db, records, cleared, version) {
+export async function save(
+  db: IDBDatabase,
+  records: KeptRecord[],
+  cleared: Iterable<string>,
+  version: string | null,
+): Promise<void> {
   const transaction = db.transaction(['files', 'meta'], 'readwrite');
   const files = transaction.objectStore('files');
   for (const path of cleared) files.delete(IDBKeyRange.bound(`${path}/`, `${path}/￿`));
@@ -62,7 +76,7 @@ export async function save(db, records, cleared, version) {
 
 // Drop every record below `prefix` (a template's _build after the site
 // changed).
-export async function drop(db, prefix) {
+export async function drop(db: IDBDatabase, prefix: string): Promise<void> {
   const transaction = db.transaction(['files'], 'readwrite');
   transaction.objectStore('files').delete(IDBKeyRange.bound(`${prefix}/`, `${prefix}/￿`));
   return done(transaction);

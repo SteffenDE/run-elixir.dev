@@ -8,6 +8,8 @@
 // headers the site does not expose, follows redirects itself, and
 // decompresses: the answer is chunked, without Content-Encoding. A
 // connection carries one request and closes after its answer.
+import type { Connection, Https } from './host';
+
 const HEAD_END = [13, 10, 13, 10];
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
@@ -36,7 +38,7 @@ const SKIP_RESPONSE = new Set([
   'keep-alive',
 ]);
 
-function indexOf(bytes, pattern, from = 0) {
+function indexOf(bytes: Uint8Array, pattern: number[], from = 0): number {
   outer: for (let i = from; i + pattern.length <= bytes.length; i++) {
     for (let j = 0; j < pattern.length; j++) if (bytes[i + j] !== pattern[j]) continue outer;
     return i;
@@ -44,7 +46,7 @@ function indexOf(bytes, pattern, from = 0) {
   return -1;
 }
 
-function concat(a, b) {
+function concat(a: Uint8Array, b: Uint8Array): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(a.length + b.length);
   out.set(a);
   out.set(b, a.length);
@@ -52,8 +54,8 @@ function concat(a, b) {
 }
 
 // A chunked body's bytes, or null until it is all there.
-function dechunk(bytes) {
-  const parts = [];
+function dechunk(bytes: Uint8Array): Uint8Array<ArrayBuffer> | null {
+  const parts: Uint8Array[] = [];
   let at = 0;
   for (;;) {
     const line = indexOf(bytes, [13, 10], at);
@@ -61,14 +63,20 @@ function dechunk(bytes) {
     const size = parseInt(decoder.decode(bytes.subarray(at, line)).split(';')[0], 16);
     if (Number.isNaN(size)) throw new Error('bad chunk size');
     at = line + 2;
-    if (size === 0) return parts.reduce(concat, new Uint8Array(0));
+    if (size === 0) return parts.reduce<Uint8Array<ArrayBuffer>>(concat, new Uint8Array(0));
     if (at + size + 2 > bytes.length) return null;
     parts.push(bytes.subarray(at, at + size));
     at += size + 2;
   }
 }
 
-function head(connection, status, reason, headers, chunked) {
+function head(
+  connection: Connection,
+  status: number,
+  reason: string,
+  headers: [string, string][],
+  chunked: boolean,
+): void {
   const lines = [`HTTP/1.1 ${status} ${reason}`, 'connection: close'];
   if (chunked) lines.push('transfer-encoding: chunked');
   else lines.push('content-length: 0');
@@ -76,22 +84,22 @@ function head(connection, status, reason, headers, chunked) {
   connection.write(encoder.encode(lines.join('\r\n') + '\r\n\r\n'));
 }
 
-function chunk(connection, bytes) {
+function chunk(connection: Connection, bytes: Uint8Array): void {
   if (!bytes.length) return;
   connection.write(encoder.encode(`${bytes.length.toString(16)}\r\n`));
   connection.write(bytes);
   connection.write(encoder.encode('\r\n'));
 }
 
-function failed(connection, status, reason, text) {
+function failed(connection: Connection, status: number, reason: string, text: string): void {
   head(connection, status, reason, [['content-type', 'text/plain']], true);
   chunk(connection, encoder.encode(text));
   connection.write(encoder.encode('0\r\n\r\n'));
   connection.end();
 }
 
-// (connection, { host, port }): a handler for host.js's `https` option.
-export function httpsByFetch({ onrequest = () => {} } = {}) {
+// (connection, { host, port }): a handler for host.ts's `https` option.
+export function httpsByFetch({ onrequest = (_method: string, _url: string) => {} } = {}): Https {
   return (connection, { host, port }) => {
     let buffer = new Uint8Array(0);
     let answered = false;
@@ -102,13 +110,13 @@ export function httpsByFetch({ onrequest = () => {} } = {}) {
       if (end < 0) return;
       const lines = decoder.decode(buffer.subarray(0, end)).split('\r\n');
       const [method, target] = lines[0].split(' ');
-      const headers = [];
+      const headers: [string, string][] = [];
       for (const line of lines.slice(1)) {
         const colon = line.indexOf(':');
         if (colon > 0)
           headers.push([line.slice(0, colon).trim().toLowerCase(), line.slice(colon + 1).trim()]);
       }
-      const header = (name) => headers.find(([key]) => key === name)?.[1];
+      const header = (name: string) => headers.find(([key]) => key === name)?.[1];
       let body = buffer.subarray(end + 4);
       if (header('transfer-encoding')?.toLowerCase().includes('chunked')) {
         let whole;
@@ -129,7 +137,7 @@ export function httpsByFetch({ onrequest = () => {} } = {}) {
       const path = target.replace(/^https?:\/\/[^/]+/, '');
       const url = `https://${host}${port === 443 ? '' : `:${port}`}${path}`;
       onrequest(method, url);
-      let response;
+      let response: Response;
       try {
         response = await fetch(url, {
           method,
@@ -143,11 +151,11 @@ export function httpsByFetch({ onrequest = () => {} } = {}) {
           connection,
           502,
           'Bad Gateway',
-          `playground: ${method} ${url} failed in the browser (${error.message}); ` +
+          `playground: ${method} ${url} failed in the browser (${(error as Error).message}); ` +
             'the site may not allow cross-origin requests\n',
         );
       }
-      const kept = [];
+      const kept: [string, string][] = [];
       response.headers.forEach((value, name) => {
         if (!SKIP_RESPONSE.has(name)) kept.push([name, value]);
       });
@@ -155,7 +163,7 @@ export function httpsByFetch({ onrequest = () => {} } = {}) {
       head(connection, response.status, response.statusText || 'OK', kept, !empty);
       if (!empty) {
         try {
-          const reader = response.body.getReader();
+          const reader = response.body!.getReader();
           for (;;) {
             const { done, value } = await reader.read();
             if (done) break;

@@ -9,7 +9,7 @@
 // control[0]. Requests and answers are a JSON header and bytes:
 // [header length u32][header][bytes]. The page asks with messages.
 //
-// With a `store`, what changes below /work is kept (overlay.js): written
+// With a `store`, what changes below /work is kept (overlay.ts): written
 // a second after it changes, and laid over the template when the files
 // start again.
 import { Dir, File, Symlink, lookup, untar, mount, load, bundled } from './wasi';
@@ -101,7 +101,7 @@ function physical(path) {
   return `/${names.join('/')}${path.slice(cut)}`;
 }
 
-// The records for what changed (overlay.js), and the directories whose
+// The records for what changed (overlay.ts), and the directories whose
 // earlier records go.
 function collect(path, node, deep, records, cleared) {
   if (node instanceof Dir) {
@@ -375,7 +375,7 @@ function walkFiles(dir, path, visit, skip = []) {
   }
 }
 
-// The page's requests (host.js Files): the same filesystem, by message.
+// The page's requests (host.ts Files): the same filesystem, by message.
 function page({ id, op, path, to, skip = [], data }) {
   // Symbolic links are followed, but by what removes or renames them.
   const found = path ? resolve(path, !['unlink', 'rmdir', 'remove', 'rename'].includes(op)) : null;

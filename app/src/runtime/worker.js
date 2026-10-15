@@ -1,5 +1,5 @@
 // A playground node in a Web Worker: rotp.wasm over wasi.js, as one
-// command or under a small shell. host.js is the page's side: frames come
+// command or under a small shell. host.ts is the page's side: frames come
 // in through its SharedArrayBuffer ring (the worker sleeps on the ring's
 // write count, so a frame wakes it) and everything goes back as messages.
 //
@@ -69,7 +69,7 @@ class Channel {
     // raw input.
     this.size = [80, 24];
     this.raw = false;
-    // Programs the page runs (host.js programs), by id.
+    // Programs the page runs (host.ts programs), by id.
     this.processes = new Map();
   }
   bytes(from, count) {
@@ -241,7 +241,7 @@ cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
 `;
 
-// A program the page runs (host.js programs): its output and exit come back
+// A program the page runs (host.ts programs): its output and exit come back
 // as frames; it is told when the node closes its port.
 let processes = 0;
 function onPage(channel, name) {
@@ -256,7 +256,7 @@ function onPage(channel, name) {
   };
 }
 
-// A threaded node: the page runs its threads in workers (host.js), which
+// A threaded node: the page runs its threads in workers (host.ts), which
 // this worker serves WASI calls for until the node ends; then the page
 // stops them.
 function runThreaded(wasi, module, memory, pump) {

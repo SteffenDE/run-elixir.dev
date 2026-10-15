@@ -2,5 +2,5 @@
   "plugins": ["react", "typescript"],
   "categories": { "correctness": "error", "suspicious": "warn" },
   "rules": { "react/react-in-jsx-scope": "off" },
-  "ignorePatterns": ["src/runtime"]
+  "ignorePatterns": ["src/runtime/*.js", "src/runtime/*.mjs"]
 }
