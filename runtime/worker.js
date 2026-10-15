@@ -21,6 +21,12 @@ const text = (string) => say('out', new TextEncoder().encode(string));
 
 class Interrupted extends Error {}
 
+// A path in the build this worker came from (b/ID/, build.py), or on the
+// site for an absolute one. Through a variable: Vite takes
+// new URL('…', import.meta.url) with the path written out for an asset of
+// the bundle.
+const site = (path) => new URL(path, import.meta.url);
+
 // A threaded node's memory: shared, and as large as it may grow here (a
 // shared memory reserves its maximum up front, which a phone may not
 // have room for), or null where there is no shared memory: the node then
@@ -263,7 +269,7 @@ const isTar = (bytes) => bytes?.length > 262 && new TextDecoder().decode(bytes.s
 
 // The site's own build of a package's NIF library, or null.
 function siteNif(name, version) {
-  const [status, tar] = get(new URL(`nif/${name}-${version}.tar`, import.meta.url));
+  const [status, tar] = get(site(`nif/${name}-${version}.tar`));
   return status === 200 && isTar(tar) ? tar : null;
 }
 
@@ -279,7 +285,7 @@ const NIF_STATUS = {
 // message: { name, version, status, error }) when its status changes.
 // Ctrl-C stops waiting (the node stops as it would). A tar, or why not.
 function backendNif(channel, name, version, say) {
-  const api = new URL(`/api/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}`, import.meta.url);
+  const api = site(`/api/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
   const tell = (status, error = null) => postMessage({ kind: 'nif', name, version, status, error });
   let last = null;
   for (;;) {
@@ -329,11 +335,11 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
     say('status', 'Loading OTP and Elixir…');
     // The threaded build where shared memory is; the single-threaded one
     // otherwise, or when the threaded one does not load.
-    const compile = (name) => WebAssembly.compileStreaming(fetch(new URL(name, import.meta.url)));
+    const compile = (name) => WebAssembly.compileStreaming(fetch(site(name)));
     const threaded = sharedMemory() !== null;
     const [images, manifest, [module, threads]] = await Promise.all([
-      Promise.all(boots.map((boot) => fetch(new URL(`fs/${boot}.tar.gz`, import.meta.url)).then((r) => r.arrayBuffer()))),
-      fetch(new URL('fs/manifest.json', import.meta.url)).then((r) => r.json()),
+      Promise.all(boots.map((boot) => fetch(site(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer()))),
+      fetch(site('fs/manifest.json')).then((r) => r.json()),
       threaded
         ? compile('rotp-threads.wasm').then((m) => [m, true], () => compile('rotp.wasm').then((m) => [m, false]))
         : compile('rotp.wasm').then((m) => [m, false]),
@@ -349,7 +355,7 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
     const fetchFile = bundled((bundle) => {
       const request = new XMLHttpRequest();
-      request.open('GET', new URL(`fs/bundles/${bundle}.tar`, import.meta.url), false);
+      request.open('GET', site(`fs/bundles/${bundle}.tar`), false);
       request.responseType = 'arraybuffer';
       request.send();
       if (request.status !== 200) throw new Error(`bundle ${bundle}: ${request.status}`);
