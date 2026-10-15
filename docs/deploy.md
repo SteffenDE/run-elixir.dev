@@ -244,7 +244,17 @@ run-elixir.dev, *.run-elixir.dev {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
 	root * /srv/playground/run-elixir/current
+	# The backend (backend.md): NIF builds, and /socket for collaboration.
+	@backend path /api/nif/* /socket /socket/*
+	handle @backend {
+		reverse_proxy 127.0.0.1:4000
+	}
 	import playground
+}
+
+# The backend's admin.
+run-elixir-admin.steffend.me {
+	reverse_proxy 127.0.0.1:4000
 }
 
 # The former Phoenix playground: a new Phoenix project.

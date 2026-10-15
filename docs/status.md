@@ -151,9 +151,9 @@ last_updated: 2026-10-15
 1. `mix phx.new` with prebuilt deps and a Hex cache; with bcrypt_elixir
    built, `phx.gen.auth` with its default hashing library.
 2. More NIF packages ([nif.md](nif.md)): exqlite; Rustler
-   NIFs (rustler_precompiled); a build service for releases the site has
-   not built yet. The template's test build prebuilt, so `mix test`
-   starts at once.
+   NIFs (rustler_precompiled). `make` fetching builds from the backend
+   ([backend.md](backend.md)), which builds releases the site has not.
+   The template's test build prebuilt, so `mix test` starts at once.
 3. `ecto.migrate`'s pruned `eex` after a new dependency.
 4. Routing a node's connection to another node's listener (Mix's locks).
 5. A gate job for the playground tests; a persistent browser context per

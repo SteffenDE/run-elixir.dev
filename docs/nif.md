@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # NIFs (`playground/nif`)
@@ -142,7 +142,8 @@ reference that is no resource.
 - Rustler: rustler_precompiled downloads its build (its target is the
   node's `x86_64-pc-linux-gnu`); Rust NIFs need a recipe that builds the
   crate for `wasm32-wasip1` against the layer.
-- A build service for versions the site has not built (planned: Firecracker
-  VMs behind an API), and the template's test build prebuilt, so a
-  Phoenix project's first `mix test` does not compile for minutes.
+- `make` asking the backend ([backend.md](backend.md)) for versions the
+  site has not built, which builds them in Firecracker VMs from templates
+  (these recipes are its seeds); and the template's test build prebuilt,
+  so a Phoenix project's first `mix test` does not compile for minutes.
 - Native Rust-OTP could run the same builds under a WebAssembly engine.
