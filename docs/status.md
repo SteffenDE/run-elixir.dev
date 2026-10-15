@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Status
@@ -18,11 +18,22 @@ last_updated: 2026-10-14
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
   compiled and used in about 20 s in Chromium and Firefox).
 - **NIFs built to WebAssembly** ([nif.md](nif.md)): a package the site
-  has a build of (bcrypt_elixir 3.3.2; lazy_html 0.1.13, C++ with
-  exceptions, which the Phoenix template's tests use) compiles in a
+  has a build of (bcrypt_elixir 3.3.2, argon2_elixir 4.1.3, picosat_elixir
+  0.2.3; lazy_html 0.1.13, C++ with exceptions, which the Phoenix
+  template's tests use) compiles in a
   project, its `make` unpacking the library, and its NIFs run in the
   node's worker (fetched, built and used in about 13–16 s in each
   browser).
+- **Several schedulers** (`rotp-threads.wasm`, `min(4,
+  hardwareConcurrency)`; [architecture.md](architecture.md)): Ecto's
+  `deps.compile` about 1.9× faster than one scheduler in each browser
+  (Chromium 24.1 s). Without cross-origin isolation's shared memory a node
+  runs one scheduler from `rotp.wasm`.
+- **An Ash app** (`mix igniter.new … --install ash,ash_phoenix,
+  ash_postgres,ash_authentication,ash_authentication_phoenix,ash_admin
+  --auth-strategy magic_link --setup --yes`): 2299 s in Chromium on a
+  12-core AMD machine with four schedulers, BEAM `+S 4` 314 s
+  ([log](../../docs/log/2026-10-15.md#playground-the-ash-app)).
 - **git dependencies.** Through the page and the site's proxy: heroicons
   as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
   again from the lock.
@@ -70,7 +81,8 @@ last_updated: 2026-10-14
   changes would quiet it and could drive live reload, now that its socket
   has a WebSocket.
 - **NIFs** load only as WebAssembly built for the playground
-  ([nif.md](nif.md)): bcrypt_elixir 3.3.2 and lazy_html 0.1.13 so far.
+  ([nif.md](nif.md)): bcrypt_elixir 3.3.2, argon2_elixir 4.1.3,
+  picosat_elixir 0.2.3 and lazy_html 0.1.13 so far.
   Other packages' (and versions') `make` fails, and a module whose on_load
   loads a native library stays unloaded, as on ERTS without the library.
   Resources live as long as their library (the node does not report
@@ -80,10 +92,9 @@ last_updated: 2026-10-14
   with them. `priv` and colocated assets are copies.
 
 **In the playground**
-- **`mix phx.new`** in the playground is untested beyond the archive being
-  there: Hex and git dependencies work, but compiling a new app's deps in
-  WebAssembly takes minutes on one scheduler. The plans: prebuilt deps for
-  phx.new's default lock, and several schedulers (wasm32-wasip1-threads).
+- **Compiling is about 7× BEAM** (the Ash app above), most of it the
+  interpreter: a new app's deps take minutes. The plans: prebuilt deps,
+  and a faster interpreter ([log](../../docs/log/2026-10-15.md#open)).
 - **git in the shell:** only what Mix asks (`git` is a program, not a shell
   command yet); no pushes.
 - **HTTPS from a node** goes by the page's `fetch()` (`https.js`): only
@@ -134,7 +145,7 @@ last_updated: 2026-10-14
 
 1. `mix phx.new` with prebuilt deps and a Hex cache; with bcrypt_elixir
    built, `phx.gen.auth` with its default hashing library.
-2. More NIF packages ([nif.md](nif.md)): exqlite, argon2_elixir; Rustler
+2. More NIF packages ([nif.md](nif.md)): exqlite; Rustler
    NIFs (rustler_precompiled); a build service for releases the site has
    not built yet. The template's test build prebuilt, so `mix test`
    starts at once.
@@ -147,4 +158,4 @@ last_updated: 2026-10-14
    (allow-listed hosts, TLS in the node), as an API-only Phoenix app the
    collaboration relay can grow from.
 8. Collaboration ([projects.md](projects.md#plans)).
-9. Several schedulers (wasm32-wasip1-threads).
+9. Compile speed: within 3–4× of BEAM on the Ash app (now about 7×).
