@@ -26,3 +26,5 @@ erl_crash.dump
 playground-*.tar
 
 /priv/sandbox/
+/data/
+/.env

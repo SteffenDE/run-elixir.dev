@@ -1,0 +1,64 @@
+# Runs the playground's backend and its database on one machine, which
+# must have KVM (builds run in Firecracker VMs):
+#
+#     cp .env.example .env    # and fill it in
+#     docker compose up --build -d
+#
+# The app listens on 127.0.0.1:${PORT:-4000} and redirects to HTTPS unless
+# the request says it came over HTTPS: Caddy in front terminates TLS (see
+# playground/docs/backend.md). Migrations and the seed templates run when
+# the app starts. (After SCA's.)
+
+services:
+  db:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: playground
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: playground
+    volumes:
+      - ./data/db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username", "playground", "--dbname", "playground"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build:
+      context: .
+      # The erl_nif layer and OTP's headers, which the sandbox's root disk
+      # is built with, from the repository.
+      additional_contexts:
+        nif: ../nif
+        otp: ../../third_party/otp/erts/emulator/beam
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${PORT:-4000}:4000"
+    environment:
+      DATABASE_URL: ecto://playground:${POSTGRES_PASSWORD}@db/playground
+      SECRET_KEY_BASE: ${SECRET_KEY_BASE:?set SECRET_KEY_BASE in .env}
+      PHX_HOST: ${PHX_HOST:?set PHX_HOST in .env}
+      ADMIN_URL: https://${PHX_HOST}
+      GITHUB_CLIENT_ID: ${GITHUB_CLIENT_ID:?set GITHUB_CLIENT_ID in .env}
+      GITHUB_CLIENT_SECRET: ${GITHUB_CLIENT_SECRET:?set GITHUB_CLIENT_SECRET in .env}
+      ADMIN_GITHUB_LOGINS: ${ADMIN_GITHUB_LOGINS:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      NIF_AGENT_MODEL: ${NIF_AGENT_MODEL:-}
+      NIF_DAILY_BUDGET_USD: ${NIF_DAILY_BUDGET_USD:-}
+      PLAYGROUND_VAPID_PRIVATE_KEY: ${PLAYGROUND_VAPID_PRIVATE_KEY:-}
+      PLAYGROUND_VAPID_SUBJECT: ${PLAYGROUND_VAPID_SUBJECT:-}
+    # Builds run in Firecracker VMs, with KVM. The container runs as nobody,
+    # which needs the group that owns /dev/kvm on the host.
+    devices:
+      - /dev/kvm:/dev/kvm
+    group_add:
+      - ${KVM_GID:?set KVM_GID in .env, see getent group kvm}
+    volumes:
+      # Hex tarballs and built libraries (PLAYGROUND_DATA_DIR). Owned by
+      # nobody (65534): sudo chown 65534 data/playground
+      - ./data/playground:/var/lib/playground

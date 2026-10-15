@@ -1,0 +1,7 @@
+#!/bin/sh
+set -eu
+
+cd -P -- "$(dirname -- "$0")"
+./playground eval Playground.Release.migrate
+./playground eval Playground.Release.seed
+PHX_SERVER=true exec ./playground start
