@@ -7,6 +7,7 @@
 //                                         replaced one that was removed,
 //                                         so the template's entries in it
 //                                         stay gone
+//   { path, kind: 'link', target, mtime } a symbolic link
 //   { path, kind: 'gone' }                removed (a whiteout)
 //
 // and `meta` the site version the records were made over. Records apply

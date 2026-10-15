@@ -8,10 +8,12 @@ import { Nifs } from './nif.js';
 
 const E = {
   SUCCESS: 0, ACCES: 2, ADDRINUSE: 3, AGAIN: 6, CONNREFUSED: 14, BADF: 8, EXIST: 20, INVAL: 28, IO: 29,
-  ISDIR: 31, NOENT: 44, NOSYS: 52, NOTDIR: 54, NOTEMPTY: 55, NOTSUP: 58,
+  ISDIR: 31, LOOP: 32, NOENT: 44, NOSYS: 52, NOTDIR: 54, NOTEMPTY: 55, NOTSUP: 58,
   PERM: 63, SPIPE: 70,
 };
-const FILETYPE = { CHAR: 2, DIR: 3, REG: 4 };
+const FILETYPE = { CHAR: 2, DIR: 3, REG: 4, SYMLINK: 7 };
+// path_open's and path_filestat_get's dirflags: follow a last symbolic link.
+const LOOKUP_SYMLINKS = 1;
 const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
 const FDFLAGS = { APPEND: 1 };
 
@@ -107,11 +109,19 @@ export class Dir {
     this.entries = new Map();
     this.mtime = now();
   }
-  // The directory at a slash-separated path below this one, made as needed.
+  // The directory at a slash-separated path below this one, made as needed
+  // (symbolic links on the way followed: a kept file was recorded by the
+  // path written through one).
   mkdirs(path) {
     let dir = this;
     for (const name of path.split('/').filter(Boolean)) {
       let next = dir.entries.get(name);
+      if (next instanceof Symlink) {
+        let top = dir;
+        while (top.parent) top = top.parent;
+        next = lookup(top, dir, next.target).node;
+        if (!(next instanceof Dir)) throw new Error(`${path}: ${name} names no directory`);
+      }
       if (!next) {
         next = new Dir();
         next.parent = dir;
@@ -129,6 +139,53 @@ export class Dir {
     dir.entries.set(name, node);
     return node;
   }
+}
+
+// A symbolic link: its target, a path read when a lookup passes it
+// (relative to the link's directory).
+export class Symlink {
+  constructor(target) {
+    this.ino = BigInt(inodes++);
+    this.target = target;
+    this.mtime = now();
+  }
+  get size() {
+    return new TextEncoder().encode(this.target).length;
+  }
+}
+
+// The node at `path` from directory `start` (from `root` when absolute):
+// { node, parent, name }, or { error, parent?, name? } with where it would
+// go. Symbolic links met on the way are followed, a last one only when
+// `follow`; `..` is the physical parent, as POSIX resolves it.
+export function lookup(root, start, path, follow = true, hops = 0) {
+  let dir = path.startsWith('/') ? root : start;
+  const parts = path.split('/').filter((p) => p && p !== '.');
+  for (let i = 0; i < parts.length; i++) {
+    if (!(dir instanceof Dir)) return { error: E.NOTDIR };
+    const part = parts[i];
+    const last = i === parts.length - 1;
+    if (part === '..') {
+      dir = dir.parent || dir;
+      if (last) return { node: dir };
+      continue;
+    }
+    const node = dir.entries.get(part);
+    if (node instanceof Symlink && (!last || follow)) {
+      if (hops >= 40) return { error: E.LOOP };
+      const found = lookup(root, dir, node.target, true, hops + 1);
+      // The last one: what it names, or where that would go (a file
+      // created through a dangling link is made at its target).
+      if (last) return found;
+      if (!found.node) return { error: found.error };
+      dir = found.node;
+      continue;
+    }
+    if (last) return node ? { node, parent: dir, name: part } : { error: E.NOENT, parent: dir, name: part };
+    if (!node) return { error: E.NOENT };
+    dir = node;
+  }
+  return { node: dir };
 }
 
 // A file whose reads are made as they happen (/dev/urandom).
@@ -376,6 +433,14 @@ export function sharedClient(doorbell, channel) {
 // room for headers).
 const SHARED_CHUNK = 512 * 1024;
 
+// A node's WASI file type, and a shared node's by files.js's name for it.
+function fileType(node) {
+  return node instanceof Dir ? FILETYPE.DIR : node instanceof Symlink ? FILETYPE.SYMLINK : FILETYPE.REG;
+}
+function sharedType(type) {
+  return type === 'dir' ? FILETYPE.DIR : type === 'link' ? FILETYPE.SYMLINK : FILETYPE.REG;
+}
+
 export class WASI {
   // { args, env, root: Dir, stdin(), stdout(bytes), stderr(bytes),
   // sleep(ms), tty }: with tty, the standard streams are terminals.
@@ -450,33 +515,12 @@ export class WASI {
   }
 
   // The node at `path` below directory fd `fd`: { node } or { error },
-  // with the parent and last name for creating or removing it.
-  resolve(fd, path) {
+  // with the parent and last name for creating or removing it. A last
+  // symbolic link is followed only when `follow`.
+  resolve(fd, path, follow = false) {
     const base = this.fds.get(fd);
     if (!base || !(base.node instanceof Dir)) return { error: E.BADF };
-    let dir = path.startsWith('/') ? this.root : base.node;
-    const parts = path.split('/').filter((p) => p && p !== '.');
-    let name = null;
-    let parent = null;
-    for (let i = 0; i < parts.length; i++) {
-      if (!(dir instanceof Dir)) return { error: E.NOTDIR };
-      const part = parts[i];
-      if (part === '..') {
-        dir = dir.parent || dir;
-        if (i === parts.length - 1) return { node: dir };
-        continue;
-      }
-      if (i === parts.length - 1) {
-        parent = dir;
-        name = part;
-        const node = dir.entries.get(part);
-        return node ? { node, parent, name } : { error: E.NOENT, parent, name };
-      }
-      const next = dir.entries.get(part);
-      if (!next) return { error: E.NOENT };
-      dir = next;
-    }
-    return { node: dir };
+    return lookup(this.root, base.node, path, follow);
   }
 
   filestat(ptr, node) {
@@ -484,7 +528,7 @@ export class WASI {
     const dir = node instanceof Dir;
     v.setBigUint64(ptr, 1n, true);
     v.setBigUint64(ptr + 8, node ? node.ino : 0n, true);
-    v.setUint8(ptr + 16, node ? (dir ? FILETYPE.DIR : FILETYPE.REG) : FILETYPE.CHAR);
+    v.setUint8(ptr + 16, node ? fileType(node) : FILETYPE.CHAR);
     v.setBigUint64(ptr + 24, 1n, true);
     v.setBigUint64(ptr + 32, BigInt(node && !dir ? node.size : 0), true);
     const time = node ? node.mtime : now();
@@ -537,7 +581,7 @@ export class WASI {
     const v = this.view();
     v.setBigUint64(ptr, 2n, true);
     v.setBigUint64(ptr + 8, BigInt(ino), true);
-    v.setUint8(ptr + 16, type === 'dir' ? FILETYPE.DIR : FILETYPE.REG);
+    v.setUint8(ptr + 16, sharedType(type));
     v.setBigUint64(ptr + 24, 1n, true);
     v.setBigUint64(ptr + 32, BigInt(size), true);
     v.setBigUint64(ptr + 40, BigInt(mtime), true);
@@ -562,7 +606,7 @@ export class WASI {
       path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr) {
         const target = path(fd, pathPtr, pathLen);
         if (!self.isShared(target)) return local.path_open(fd, dirflags, pathPtr, pathLen, oflags, base, inheriting, fdflags, fdPtr);
-        const opened = ask({ op: 'open', path: target, oflags });
+        const opened = ask({ op: 'open', path: target, oflags, follow: !!(dirflags & LOOKUP_SYMLINKS) });
         if (opened.error) return opened.error;
         const id = self.next++;
         self.fds.set(id, {
@@ -575,9 +619,24 @@ export class WASI {
       path_filestat_get(fd, flags, pathPtr, pathLen, ptr) {
         const target = path(fd, pathPtr, pathLen);
         if (!self.isShared(target)) return local.path_filestat_get(fd, flags, pathPtr, pathLen, ptr);
-        const status = ask({ op: 'stat', path: target });
+        const status = ask({ op: 'stat', path: target, follow: !!(flags & LOOKUP_SYMLINKS) });
         if (status.error) return status.error;
         self.sharedFilestat(ptr, status);
+        return E.SUCCESS;
+      },
+      path_symlink(targetPtr, targetLen, fd, pathPtr, pathLen) {
+        const at = path(fd, pathPtr, pathLen);
+        if (!self.isShared(at)) return local.path_symlink(targetPtr, targetLen, fd, pathPtr, pathLen);
+        return ask({ op: 'symlink', path: at, target: self.string(targetPtr, targetLen) }).error ?? E.SUCCESS;
+      },
+      path_readlink(fd, pathPtr, pathLen, buf, bufLen, usedPtr) {
+        const at = path(fd, pathPtr, pathLen);
+        if (!self.isShared(at)) return local.path_readlink(fd, pathPtr, pathLen, buf, bufLen, usedPtr);
+        const answer = ask({ op: 'readlink', path: at });
+        if (answer.error) return answer.error;
+        const target = new TextEncoder().encode(answer.target).subarray(0, bufLen);
+        self.bytes(buf, target.length).set(target);
+        self.view().setUint32(usedPtr, target.length, true);
         return E.SUCCESS;
       },
       path_create_directory: simple('mkdir', 'path_create_directory'),
@@ -595,7 +654,7 @@ export class WASI {
         const to = path(fd2, newPtr, newLen);
         if (!self.isShared(from) && !self.isShared(to)) return local.path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen);
         if (self.isShared(from) !== self.isShared(to)) return 75; // EXDEV
-        return ask({ op: 'link', path: from, to }).error ?? E.SUCCESS;
+        return ask({ op: 'link', path: from, to, follow: !!(flags & LOOKUP_SYMLINKS) }).error ?? E.SUCCESS;
       },
       fd_read(fd, iovs, count, nreadPtr) {
         const remote = remoteOf(fd);
@@ -688,7 +747,7 @@ export class WASI {
           h.setBigUint64(0, BigInt(i + 1), true);
           h.setBigUint64(8, BigInt(ino), true);
           h.setUint32(16, encoded.length, true);
-          h.setUint8(20, type === 'dir' ? FILETYPE.DIR : FILETYPE.REG);
+          h.setUint8(20, sharedType(type));
           record.set(encoded, 24);
           const room = Math.min(record.length, len - used);
           self.bytes(buf + used, room).set(record.subarray(0, room));
@@ -1005,7 +1064,7 @@ export class WASI {
           h.setBigUint64(0, BigInt(i + 1), true);
           h.setBigUint64(8, node.ino, true);
           h.setUint32(16, encoded.length, true);
-          h.setUint8(20, node instanceof Dir ? FILETYPE.DIR : FILETYPE.REG);
+          h.setUint8(20, fileType(node));
           const record = new Uint8Array(24 + encoded.length);
           record.set(header);
           record.set(encoded, 24);
@@ -1016,7 +1075,7 @@ export class WASI {
         v.setUint32(usedPtr, used, true);
         return ok;
       },
-      path_open(fd, _dirflags, pathPtr, pathLen, oflags, _base, _inheriting, fdflags, fdPtr) {
+      path_open(fd, dirflags, pathPtr, pathLen, oflags, _base, _inheriting, fdflags, fdPtr) {
         const path = self.string(pathPtr, pathLen).replace(/^\/+/, '');
         if (path === '.proc/spawn') {
           const opened = self.next++;
@@ -1058,10 +1117,12 @@ export class WASI {
           self.view().setUint32(fdPtr, opened, true);
           return ok;
         }
-        const found = self.resolve(fd, self.string(pathPtr, pathLen));
+        const found = self.resolve(fd, self.string(pathPtr, pathLen), !!(dirflags & LOOKUP_SYMLINKS));
         let node = found.node;
         let changed = false;
         if (node && oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return E.EXIST;
+        // O_NOFOLLOW on a symbolic link.
+        if (node instanceof Symlink) return E.LOOP;
         if (!node) {
           if (!(oflags & OFLAGS.CREAT) || !found.parent) return found.error;
           node = new File();
@@ -1087,8 +1148,8 @@ export class WASI {
         self.view().setUint32(fdPtr, opened, true);
         return ok;
       },
-      path_filestat_get(fd, _flags, pathPtr, pathLen, ptr) {
-        const found = self.resolve(fd, self.string(pathPtr, pathLen));
+      path_filestat_get(fd, flags, pathPtr, pathLen, ptr) {
+        const found = self.resolve(fd, self.string(pathPtr, pathLen), !!(flags & LOOKUP_SYMLINKS));
         if (!found.node) return found.error;
         self.filestat(ptr, found.node);
         return ok;
@@ -1134,8 +1195,8 @@ export class WASI {
         return ok;
       },
       // A hard link: the same file under a second name.
-      path_link(fd, _flags, oldPtr, oldLen, fd2, newPtr, newLen) {
-        const from = self.resolve(fd, self.string(oldPtr, oldLen));
+      path_link(fd, flags, oldPtr, oldLen, fd2, newPtr, newLen) {
+        const from = self.resolve(fd, self.string(oldPtr, oldLen), !!(flags & LOOKUP_SYMLINKS));
         if (!from.node) return from.error;
         if (from.node instanceof Dir) return E.PERM;
         const to = self.resolve(fd2, self.string(newPtr, newLen));
@@ -1145,7 +1206,24 @@ export class WASI {
         self.onchange(self.absolute(fd2, self.string(newPtr, newLen)));
         return ok;
       },
-      path_readlink: () => E.INVAL,
+      path_symlink(targetPtr, targetLen, fd, pathPtr, pathLen) {
+        const found = self.resolve(fd, self.string(pathPtr, pathLen));
+        if (found.node) return E.EXIST;
+        if (!found.parent) return found.error;
+        found.parent.entries.set(found.name, new Symlink(self.string(targetPtr, targetLen)));
+        found.parent.mtime = now();
+        self.onchange(self.absolute(fd, self.string(pathPtr, pathLen)));
+        return ok;
+      },
+      path_readlink(fd, pathPtr, pathLen, buf, bufLen, usedPtr) {
+        const found = self.resolve(fd, self.string(pathPtr, pathLen));
+        if (!found.node) return found.error;
+        if (!(found.node instanceof Symlink)) return E.INVAL;
+        const target = new TextEncoder().encode(found.node.target).subarray(0, bufLen);
+        self.bytes(buf, target.length).set(target);
+        self.view().setUint32(usedPtr, target.length, true);
+        return ok;
+      },
       sock_accept: () => E.NOSYS,
       sock_shutdown: () => E.NOSYS,
     };

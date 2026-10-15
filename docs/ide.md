@@ -116,9 +116,9 @@ runs; the node's `:path` for it is `/usr/bin/esbuild`
   (the deps ship them) is inlined, since esbuild-wasm reads no files.
 - **Watch mode** rebuilds 50 ms after a change to a file it read (a change
   during a build counts once it is done): about 1.2 s for the template's
-  first build, 0.3–0.4 s after. The preview then reloads, and Phoenix's
-  code reloader copies the new bundle into `_build` (no symlinks) before
-  serving it.
+  first build, 0.3–0.4 s after. The preview then reloads; the build's
+  `priv` is a symbolic link to the project's, so Phoenix serves the new
+  bundle as it is.
 
 ## The preview
 

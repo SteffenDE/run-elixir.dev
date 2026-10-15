@@ -93,8 +93,6 @@ last_updated: 2026-10-15
   Resources live as long as their library (the node does not report
   collected references); NIF threads, `enif_select` and monitors are
   missing; rustler_precompiled packages still try to download.
-- WASI has no symlinks: Phoenix warns that its code reloader would be faster
-  with them. `priv` and colocated assets are copies.
 
 **In the playground**
 - **Compiling is about 7× BEAM** (the Ash app above, before the day's later

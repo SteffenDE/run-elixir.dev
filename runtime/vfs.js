@@ -1,18 +1,13 @@
 // Files for code beside the node (the shell's builtins, programs.js): the
 // worker's own tree, and the shared directories through their channel
 // (sharedClient), as one.
-import { Dir, File, load } from './wasi.js';
+import { Dir, File, load, lookup as find } from './wasi.js';
 
 const CREATE = 1 | 8; // OFLAGS CREAT | TRUNC
 
+// The node at `path`, symbolic links followed, or null.
 function lookup(root, path) {
-  let node = root;
-  for (const part of path.split('/').filter((p) => p && p !== '.')) {
-    if (!(node instanceof Dir)) return null;
-    node = part === '..' ? node.parent || node : node.entries.get(part);
-    if (!node) return null;
-  }
-  return node;
+  return find(root, root, path).node ?? null;
 }
 
 // root: the worker's tree; fetch: its lazily fetched files; shared:
@@ -38,6 +33,7 @@ export function vfs(root, fetch, shared = null) {
         if (opened.error) return null;
         const { entries = [] } = ask({ op: 'readdir', handle: opened.handle }).answer;
         ask({ op: 'close', handle: opened.handle });
+        // A symbolic link counts as a file here (remove unlinks it).
         return entries.map(([name, type]) => ({ name, dir: type === 'dir' }));
       }
       const node = lookup(root, path);
@@ -100,12 +96,12 @@ export function vfs(root, fetch, shared = null) {
       file.written = true;
       return true;
     },
-    // Recursively.
+    // Recursively; a symbolic link is removed, not what it names.
     remove(path) {
       if (remote(path)) {
-        const status = api.stat(path);
-        if (!status) return;
-        if (status.dir) {
+        const { answer: status } = ask({ op: 'stat', path, follow: false });
+        if (status.error) return;
+        if (status.type === 'dir') {
           for (const entry of api.list(path) ?? []) api.remove(`${path}/${entry.name}`);
           ask({ op: 'rmdir', path });
         } else ask({ op: 'unlink', path });

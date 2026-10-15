@@ -35,10 +35,22 @@ environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the
 `path_*` calls, and `sock_accept` and `sock_shutdown`, which are refused.
 `new WASI({...}).imports` provides them:
 
-- **Filesystem.** `Dir` and `File` objects under one preopen, `/`. wasi-libc
-  turns every path into one relative to it. There are no symlinks; hard
-  links are the same `File` under two names (Mix's lock takes one). Errors
-  are WASI errno numbers.
+- **Filesystem.** `Dir`, `File` and `Symlink` objects under one preopen,
+  `/`. wasi-libc turns every path into one relative to it. Hard links are
+  the same `File` under two names (Mix's lock takes one). Errors are WASI
+  errno numbers.
+- **Symbolic links** (`path_symlink`, `path_readlink`): `lookup()`
+  follows the ones in the middle of a path, and a last one when the call's
+  `LOOKUP_SYMLINKS` flag says to (wasi-libc's `stat` and `open` set it,
+  `lstat` and `O_NOFOLLOW` do not); a relative target is read from the
+  link's directory, `..` is the physical parent, and 40 links in a row are
+  `ELOOP`. The shared files (`files.js`) resolve the same way and keep a
+  link as a record of its own (overlay.js); the page's requests follow
+  links but for removing and renaming. A link and what it names stay on
+  one side, the shared directories (`/work`, `/tmp`) or a node's own: a
+  path goes to one or the other by its prefix. Mix links a build's `priv`
+  to the project's, as natively, so Phoenix serves new assets at once and
+  no longer warns.
 - **Terminal.** With `tty: true`, the standard streams are character devices
   without seek or tell rights, which is wasi-libc's test for `isatty`. The
   node then treats them as a terminal (colours, IEx's prompt).

@@ -12,10 +12,10 @@
 // With a `store`, what changes below /work is kept (overlay.js): written
 // a second after it changes, and laid over the template when the files
 // start again.
-import { Dir, File, untar, mount, load, bundled } from './wasi.js';
+import { Dir, File, Symlink, lookup, untar, mount, load, bundled } from './wasi.js';
 import * as overlays from './overlay.js';
 
-const E = { SUCCESS: 0, EXIST: 20, INVAL: 28, IO: 29, ISDIR: 31, NOENT: 44, NOTDIR: 54, NOTEMPTY: 55, PERM: 63, XDEV: 75 };
+const E = { SUCCESS: 0, EXIST: 20, INVAL: 28, IO: 29, ISDIR: 31, LOOP: 32, NOENT: 44, NOTDIR: 54, NOTEMPTY: 55, PERM: 63, XDEV: 75 };
 const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
 export const SHARED = ['/work', '/tmp'];
 export const CHANNEL = 1 << 20;
@@ -42,33 +42,20 @@ const templateFiles = new Set();
 let saving = null;
 let saved = 0;
 
-function parts(path) {
-  return path.split('/').filter((p) => p && p !== '.');
+// { node, parent, name } or { error, parent?, name? } for an absolute path:
+// symbolic links on the way followed, a last one only when `follow`.
+function resolve(path, follow = false) {
+  return lookup(root, root, path, follow);
 }
 
-// { node, parent, name } or { error, parent?, name? } for an absolute path.
-function resolve(path) {
-  let dir = root;
-  const list = parts(path);
-  for (let i = 0; i < list.length; i++) {
-    if (!(dir instanceof Dir)) return { error: E.NOTDIR };
-    const part = list[i];
-    if (part === '..') {
-      dir = dir.parent || dir;
-      continue;
-    }
-    const node = dir.entries.get(part);
-    if (i === list.length - 1) return node ? { node, parent: dir, name: part } : { error: E.NOENT, parent: dir, name: part };
-    if (!node) return { error: E.NOENT };
-    dir = node;
-  }
-  return { node: dir };
+function type(node) {
+  return node instanceof Dir ? 'dir' : node instanceof Symlink ? 'link' : 'file';
 }
 
 function status(node) {
   return {
-    type: node instanceof Dir ? 'dir' : 'file',
-    size: node instanceof File ? node.size : 0,
+    type: type(node),
+    size: node instanceof Dir ? 0 : node.size,
     ino: Number(node.ino),
     mtime: String(node.mtime),
   };
@@ -92,6 +79,9 @@ function collect(path, node, deep, records, cleared) {
   } else if (node instanceof File) {
     load(node, fetchFile);
     records.push({ path, kind: 'file', data: node.bytes.slice(), mtime: String(node.mtime) });
+    overlay.whiteouts.delete(path);
+  } else if (node instanceof Symlink) {
+    records.push({ path, kind: 'link', target: node.target, mtime: String(node.mtime) });
     overlay.whiteouts.delete(path);
   }
 }
@@ -139,22 +129,26 @@ function apply(records) {
       const file = root.put(record.path, new File(record.data));
       file.written = true;
       file.mtime = BigInt(record.mtime);
+    } else if (record.kind === 'link') {
+      root.put(record.path, new Symlink(record.target)).mtime = BigInt(record.mtime);
     }
   }
 }
 
 // One request: { op, ... } and bytes; the answer and its bytes.
-function handle({ op, path, to, handle: id, offset, length, oflags = 0, append, size }, bytes) {
+function handle({ op, path, to, target, follow = true, handle: id, offset, length, oflags = 0, append, size }, bytes) {
   switch (op) {
     case 'stat': {
-      const found = resolve(path);
+      const found = resolve(path, follow);
       return found.node ? status(found.node) : { error: found.error };
     }
     case 'open': {
-      const found = resolve(path);
+      const found = resolve(path, follow);
       let node = found.node;
       let created = false;
       if (node && oflags & OFLAGS.CREAT && oflags & OFLAGS.EXCL) return { error: E.EXIST };
+      // O_NOFOLLOW on a symbolic link.
+      if (node instanceof Symlink) return { error: E.LOOP };
       if (!node) {
         if (!(oflags & OFLAGS.CREAT) || !found.parent) return { error: found.error };
         node = new File();
@@ -213,7 +207,7 @@ function handle({ op, path, to, handle: id, offset, length, oflags = 0, append, 
       const entry = handles.get(id);
       if (!entry || !(entry.node instanceof Dir)) return { error: E.NOTDIR };
       return {
-        entries: [...entry.node.entries].map(([name, node]) => [name, node instanceof Dir ? 'dir' : 'file', Number(node.ino)]),
+        entries: [...entry.node.entries].map(([name, node]) => [name, type(node), Number(node.ino)]),
       };
     }
     case 'close': {
@@ -263,7 +257,7 @@ function handle({ op, path, to, handle: id, offset, length, oflags = 0, append, 
       return {};
     }
     case 'link': {
-      const from = resolve(path);
+      const from = resolve(path, follow);
       if (!from.node) return { error: from.error };
       if (from.node instanceof Dir) return { error: E.PERM };
       const target = resolve(to);
@@ -272,6 +266,21 @@ function handle({ op, path, to, handle: id, offset, length, oflags = 0, append, 
       target.parent.entries.set(target.name, from.node);
       report(to);
       return {};
+    }
+    case 'symlink': {
+      const found = resolve(path);
+      if (found.node) return { error: E.EXIST };
+      if (!found.parent) return { error: found.error };
+      found.parent.entries.set(found.name, new Symlink(target));
+      found.parent.mtime = now();
+      report(path);
+      return {};
+    }
+    case 'readlink': {
+      const found = resolve(path);
+      if (!found.node) return { error: found.error };
+      if (!(found.node instanceof Symlink)) return { error: E.INVAL };
+      return { target: found.node.target };
     }
   }
   return { error: E.INVAL };
@@ -320,7 +329,8 @@ function walkFiles(dir, path, visit, skip = []) {
 
 // The page's requests (host.js Files): the same filesystem, by message.
 function page({ id, op, path, to, skip = [], data }) {
-  const found = path ? resolve(path) : null;
+  // Symbolic links are followed, but by what removes or renames them.
+  const found = path ? resolve(path, !['unlink', 'rmdir', 'remove', 'rename'].includes(op)) : null;
   switch (op) {
     case 'list': {
       const entries = [];
@@ -328,7 +338,9 @@ function page({ id, op, path, to, skip = [], data }) {
         for (const [name, node] of dir.entries) {
           if (skip.includes(name)) continue;
           const full = `${prefix}/${name}`;
-          entries.push({ path: full, dir: node instanceof Dir });
+          // A symbolic link as what it names, not walked into (no cycles).
+          const target = node instanceof Symlink ? lookup(root, dir, node.target).node : node;
+          entries.push({ path: full, dir: target instanceof Dir });
           if (node instanceof Dir) walk(node, full);
         }
       };
