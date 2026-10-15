@@ -15,6 +15,18 @@ function failure(message) {
   return out;
 }
 
+// The node's WASI for a library, with the functions it imports that
+// wasi.js lacks answering ENOSYS: such a library loads, and only a call
+// that needs one fails.
+const ENOSYS = 52;
+
+function wasiFor(module, wasi) {
+  const missing = WebAssembly.Module.imports(module)
+    .filter(({ module: name, kind, name: fn }) => name === 'wasi_snapshot_preview1' && kind === 'function' && !(fn in wasi))
+    .map(({ name }) => [name, () => ENOSYS]);
+  return missing.length ? { ...wasi, ...Object.fromEntries(missing) } : wasi;
+}
+
 export class Nifs {
   constructor(wasi) {
     this.wasi = wasi;
@@ -38,7 +50,7 @@ export class Nifs {
     try {
       const module = new WebAssembly.Module(bytes);
       const instance = new WebAssembly.Instance(module, {
-        wasi_snapshot_preview1: this.wasi.imports.wasi_snapshot_preview1,
+        wasi_snapshot_preview1: wasiFor(module, this.wasi.imports.wasi_snapshot_preview1),
       });
       this.within(instance, () => instance.exports._initialize?.());
       const id = this.next++;

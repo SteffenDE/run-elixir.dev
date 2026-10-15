@@ -26,6 +26,8 @@ message: {:bumped, 42}
 echo: true
 badarg: %ArgumentError{message: "argument error"}
 not a counter: %ArgumentError{message: "argument error"}
+touch: :ok
+advise: 52
 """
 
 

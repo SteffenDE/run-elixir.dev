@@ -928,7 +928,10 @@ export class WASI {
         entry.changed = true;
         return ok;
       },
+      // Files keep their own times (written ones are now): setting them
+      // does nothing, by descriptor or by path (SQLite asks for both).
       fd_filestat_set_times: () => ok,
+      path_filestat_set_times: () => ok,
       fd_read(fd, iovs, count, nreadPtr) {
         const entry = self.fds.get(fd);
         if (!entry) return E.BADF;

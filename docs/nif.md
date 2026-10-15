@@ -84,7 +84,10 @@ list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
 3. **`erlang:load_nif(Path, Info)`** (`BeamOS.HostedOs`, `BeamOS.Nif`):
    reads `Path.so`; WebAssembly loads through `/.nif/new`
    ([runtime.md](runtime.md#nif-libraries-nif)), then `{load, Info,
-   self()}` runs the library's load. Its functions are kept in
+   self()}` runs the library's load. The library gets the node's WASI
+   (its files, environment and terminal); a WASI function the node lacks
+   answers ENOSYS, so the library loads and only a call that needs it
+   fails (setting files' times does nothing, as for the node). Its functions are kept in
    `persistent_term` under the module `ERL_NIF_INIT` names. Anything else
    fails as before, and the caller's on_load with it. ERTS's errors:
    `load`, `bad_lib`, `load_failed`.
