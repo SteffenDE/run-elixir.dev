@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-15
 ---
 
 # Building the site (`runtime/build.py`)
@@ -12,7 +12,7 @@ python3 -I playground/runtime/build.py app   # just the page and the runtime's J
 python3 -I playground/runtime/serve.py 8081
 ```
 
-`build.py app` rebuilds the Vite app and copies the runtime into an
+`build.py app` rebuilds the Vite app and the runtime's bundles into an
 existing site, without the recording runs (seconds instead of a minute).
 
 ## Requirements
@@ -39,7 +39,8 @@ target/playground/site/
   playground.json            the project domain, if any
   _playground/               the Vite assets, content-hashed
   b/ID/                      the build, ID a digest of what is in it:
-    wasi.js worker.js …        runtime/*.js but sw.js, served as they are
+    worker.js files.js         the runtime's workers, bundled (Vite),
+    thread.js, chunks/           and what they share
     rotp.wasm                  stripped, 3.1 MB
     rotp-threads.wasm          the same for wasm32-wasip1-threads, 3.1 MB
     fs/boot.tar.gz             what IEx reads first (3.8 MB)
@@ -74,9 +75,14 @@ The filesystem holds:
 
 ## Steps
 
-1. **Vite build.** `npm ci && npm run build` in `playground/app`, in Docker,
-   then `dist/` and the runtime's JavaScript into the site, and the NIF
-   builds into `nif/`.
+1. **Vite build.** `npm ci && npm run build` in `playground/app`, in Docker:
+   `tsc --noEmit`, the app (`vite.config.ts`), then the runtime
+   (`vite.runtime.config.ts`). Its browser entries, `worker.js`,
+   `files.js`, `thread.js` and `sw.js`, keep their names (the page starts
+   them by URL; `sw.js` is the service worker), beside the app's in
+   `dist/`, which goes into the site; with `--mode node`, the Node harness
+   (`node.mjs`, `thread-node.mjs`) into `dist-node/`, which goes to
+   `target/playground/node`. The NIF builds go into `nif/`.
 2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`, and
    `rotp-threads.wasm`, the same for `wasm32-wasip1-threads`.
 3. **The Phoenix template** (once, into `target/playground-cache`):
@@ -131,7 +137,8 @@ The filesystem holds:
 ## The Node harness (`runtime/node.mjs`)
 
 `node node.mjs DIR ERL-ARGS…` runs the site's node under Node with the same
-shim, without a browser. Standard input is read whole, then ends. The
+shim, without a browser. It runs bundled, from `target/playground/node`
+(the Vite build's, step 1). Standard input is read whole, then ends. The
 environment controls the rest:
 
 | Variable | Effect |
@@ -153,7 +160,7 @@ For example:
 
 ```sh
 docker run --rm -i -e CWD=/work/playground -e HTTP=4000/ -e STOP_AFTER=20000 -e NO_EOF=1 \
-  -v $PWD/playground/runtime:/w:ro -v $PWD/target/playground/site:/d:ro node:24 \
+  -v $PWD/target/playground/node:/w:ro -v $PWD/target/playground/site:/d:ro node:24 \
   node /w/node.mjs /d -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
   -user elixir -extra --no-halt +iex /rotp/bin/mix phx.server </dev/null
 ```

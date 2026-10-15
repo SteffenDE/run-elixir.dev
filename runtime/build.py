@@ -3,8 +3,8 @@
     python3 -I playground/runtime/build.py
     python3 -I playground/runtime/build.py app   # just the page and the runtime's JavaScript
 
-The site is the app's Vite build (playground/app, made in Docker), the
-runtime's JavaScript, rotp.wasm, and a filesystem under fs/: the
+The site is the app's Vite build (playground/app, made in Docker), which
+bundles the runtime's workers too, rotp.wasm, and a filesystem under fs/: the
 installation (target/rotp) at /rotp and the Phoenix template, a phx.new
 app, at /work/playground.
 
@@ -48,11 +48,11 @@ import tarfile
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-HERE = os.path.dirname(os.path.abspath(__file__))
 INSTALL = os.path.join(ROOT, "target", "rotp")
 CACHE = os.path.join(ROOT, "target", "playground-cache")
-RUNTIME = ("wasi.js", "worker.js", "host.js", "terminal.js", "programs.js", "setup.js", "postgres.js", "files.js", "vfs.js",
-           "overlay.js", "fetcher.js", "bridge.js", "sw.js", "nif.js", "threads.js", "thread.js")
+# The Node harness, bundled by the Vite build (node.mjs): the recording
+# runs and playground/nif/test/test.py run it.
+NODE = os.path.join(ROOT, "target", "playground", "node")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
@@ -291,7 +291,7 @@ def record(out, boot, snapshot):
                             "-e", "SNAPSHOT=/work:/s", "-v", f"{snapshot}:/s"]
         for name, value in env.items():
             command += ["-e", f"{name}={value}"]
-        command += ["-v", f"{HERE}:/w:ro", "-v", f"{out}:/d:ro", "-v", f"{scratch}:/r",
+        command += ["-v", f"{NODE}:/w:ro", "-v", f"{out}:/d:ro", "-v", f"{scratch}:/r",
                     NODE_IMAGE, "node", "/w/node.mjs", "/d", *args]
         try:
             result = subprocess.run(command, input=stdin.encode(), capture_output=True, timeout=600)
@@ -304,13 +304,19 @@ def record(out, boot, snapshot):
 
 
 def page(out):
-    """The app's Vite build and the runtime's JavaScript into `out`."""
+    """The app's Vite build into `out` (the page, and the runtime's workers
+    and service worker), and its Node harness into NODE."""
     source = os.path.join(ROOT, "playground", "app")
     vite_build(source)
-    shutil.rmtree(os.path.join(out, "_playground"), ignore_errors=True)
+    # What an earlier build left: its assets, and its runtime's scripts.
+    for name in ("_playground", "chunks"):
+        shutil.rmtree(os.path.join(out, name), ignore_errors=True)
+    for name in os.listdir(out) if os.path.isdir(out) else ():
+        if name.endswith(".js"):
+            os.remove(os.path.join(out, name))
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
-    for name in RUNTIME:
-        shutil.copy(os.path.join(HERE, name), os.path.join(out, name))
+    shutil.rmtree(NODE, ignore_errors=True)
+    shutil.copytree(os.path.join(source, "dist-node"), NODE)
     # Packages' NIF libraries built to WebAssembly (playground/nif/build.py),
     # which the node's make fetches.
     packages = os.path.join(ROOT, "target", "playground", "nif", "packages")

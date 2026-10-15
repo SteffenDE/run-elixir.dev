@@ -1,5 +1,6 @@
 """The erl_nif layer from a node: layer.c built with nifcc, loaded and called
-by layer.exs in the Node harness (runtime/node.mjs) over the built site.
+by layer.exs in the Node harness (runtime/node.mjs, as build.py bundles it)
+over the built site.
 
     python3 -I playground/nif/build.py && python3 -I playground/runtime/build.py
     python3 -I playground/nif/test/test.py
@@ -15,6 +16,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
 NIF = os.path.join(ROOT, "target", "playground", "nif")
 SITE = os.path.join(ROOT, "target", "playground", "site")
+HARNESS = os.path.join(ROOT, "target", "playground", "node")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 sys.path.insert(0, os.path.dirname(HERE))
 from build import IMAGE  # noqa: E402
@@ -43,7 +45,7 @@ def main():
                        check=True)
         result = subprocess.run(DOCKER + ["run", "--rm", "-i", "-e", "CWD=/work/layer", "-e", "MOUNT=/work/layer:/layer",
                                           "-e", "BOOT=boot", "-v", f"{work}:/layer:ro",
-                                          "-v", f"{os.path.join(ROOT, 'playground', 'runtime')}:/w:ro",
+                                          "-v", f"{HARNESS}:/w:ro",
                                           "-v", f"{SITE}:/d:ro", "node:24", "node", "/w/node.mjs", "/d", "-noshell",
                                           "-elixir_root", "/rotp/lib", "-pa", "/rotp/lib/elixir/ebin", "-user", "elixir",
                                           "-extra", "/work/layer/layer.exs"],

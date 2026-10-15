@@ -6,8 +6,12 @@ last_updated: 2026-10-15
 
 # The runtime (`playground/runtime`)
 
-The site's runtime. Plain JavaScript modules, served as they are (not
-bundled), because the workers import them by URL.
+The site's runtime: JavaScript modules, which the app's Vite build
+bundles ([build.md](build.md#steps)). The page's parts (`host.js`,
+`bridge.js`, …) go into the app. The scripts that load by URL go into the
+build as entries of their own, under their names: `worker.js`, `files.js`
+and `thread.js` (what they share in `chunks/`), and `sw.js`, at the
+site's root. `node.mjs` is bundled for Node.
 
 | File | Runs in | Role |
 | --- | --- | --- |

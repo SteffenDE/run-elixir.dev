@@ -86,7 +86,7 @@ node does: boot errors, a request's status and headers, which files are
 fetched, every WASI call. For example, IEx with input:
 
 ```sh
-printf '1 + 1\n' | docker run --rm -i -v $PWD/playground/runtime:/w:ro \
+printf '1 + 1\n' | docker run --rm -i -v $PWD/target/playground/node:/w:ro \
   -v $PWD/target/playground/site:/d:ro -e BOOT=boot node:24 node /w/node.mjs /d \
   -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
   -user elixir -extra --no-halt +iex
