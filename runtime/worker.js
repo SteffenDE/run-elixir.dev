@@ -328,6 +328,8 @@ onmessage = async ({ data: { shared, files, shell, args, command: named, env, po
         if (error instanceof Interrupted) return 130;
         throw error;
       } finally {
+        // The interrupt that stopped the node is spent.
+        channel.interrupted = false;
         channel.network = null;
         for (const port of network.listeners.keys()) postMessage({ kind: 'listening', port, on: false });
         for (const id of network.endpoints.keys()) postMessage({ kind: 'net', op: 'close', id });
