@@ -8,7 +8,7 @@ last_updated: 2026-10-15
 
 The site's runtime: JavaScript modules, which the app's Vite build
 bundles ([build.md](build.md#steps)). The page's parts (`host.ts`,
-`bridge.js`, …) go into the app. The scripts that load by URL go into the
+`bridge.ts`, …) go into the app. The scripts that load by URL go into the
 build as entries of their own, under their names: `worker.js`, `files.js`
 and `thread.js` (what they share in `chunks/`), and `sw.js`, at the
 site's root. `node.mjs` is bundled for Node.
@@ -27,7 +27,7 @@ site's root. `node.mjs` is bundled for Node.
 | `terminal.ts` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
 | `sw.js` | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
-| `bridge.js` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
+| `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `build.py`, `serve.py`, `node.mjs` | build machine | See [build.md](build.md) and [testing.md](testing.md). |
@@ -248,7 +248,7 @@ and the template). It offers `list`, `stat`, `read`, `write`, `mkdir`,
 `remove`, `rename` and `flush` (write the pending changes now) for the page,
 and `connect()`, which makes a node's channel.
 
-## The preview (`sw.js`, `bridge.js`)
+## The preview (`sw.js`, `bridge.ts`)
 
 `Bridge.register(url, scope, key)` installs the service worker and
 announces the page as the host of `key` (a stored project's id, a temporary

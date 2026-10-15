@@ -4,7 +4,7 @@ import { defineConfig, type UserConfig } from 'vite';
 // shared files' worker and a threaded node's threads, which go into the
 // build (b/ID/, runtime/build.py) under their names, and the service
 // worker, which stays at the site's root (its scope is /). The page's
-// own parts of the runtime (host.ts, bridge.js, …) are in the app's build.
+// own parts of the runtime (host.ts, bridge.ts, …) are in the app's build.
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness (node.mjs and its threads' thread-node.mjs) into dist-node/

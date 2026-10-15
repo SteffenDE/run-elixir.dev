@@ -10,12 +10,30 @@
 // WebSocket of its own (webSocketShim): it asks the service worker, which
 // passes a MessagePort to the page running the project, where websocket()
 // connects to the node and speaks the protocol (RFC 6455) for it.
+import type { Connection } from './host';
 
-// The preview's WebSocket: the browser's API over a MessagePort.
+// What the preview's WebSocket and the page's bridge say over its port.
+type ToSocket =
+  | { open: string }
+  | { message: string | ArrayBuffer }
+  | { close: { code: number; reason: string; clean: boolean } };
+type FromSocket = { send: string | ArrayBuffer } | { close: { code: number; reason?: string } };
+
+// The preview's WebSocket: the browser's API over a MessagePort. Its
+// source goes into the preview's HTML as it is.
 function webSocketShim() {
   const states = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
   class PlaygroundWebSocket extends EventTarget {
-    constructor(url, protocols = []) {
+    declare url: string;
+    declare readyState: number;
+    declare protocol: string;
+    declare extensions: string;
+    declare bufferedAmount: number;
+    declare binaryType: 'blob' | 'arraybuffer';
+    declare port: MessagePort;
+    [handler: `on${string}`]: ((this: PlaygroundWebSocket, event: Event) => void) | null;
+
+    constructor(url: string | URL, protocols: string | string[] = []) {
       super();
       this.url = new URL(url, location.href).href;
       this.readyState = 0;
@@ -23,36 +41,36 @@ function webSocketShim() {
       this.extensions = '';
       this.bufferedAmount = 0;
       this.binaryType = 'blob';
-      for (const name of ['open', 'message', 'close', 'error']) this['on' + name] = null;
+      for (const name of ['open', 'message', 'close', 'error']) this[`on${name}`] = null;
       const channel = new MessageChannel();
       this.port = channel.port1;
-      this.port.onmessage = ({ data }) => this.receive(data);
+      this.port.onmessage = ({ data }: MessageEvent<ToSocket>) => this.receive(data);
       const target = new URL(this.url);
-      navigator.serviceWorker.controller.postMessage(
+      navigator.serviceWorker.controller!.postMessage(
         {
           kind: 'websocket',
           path: target.pathname + target.search,
-          protocols: [].concat(protocols),
+          protocols: ([] as string[]).concat(protocols),
         },
         [channel.port2],
       );
     }
-    emit(event) {
+    emit(event: Event) {
       this.dispatchEvent(event);
-      const handler = this['on' + event.type];
+      const handler = this[`on${event.type}`];
       if (handler) handler.call(this, event);
     }
-    receive(data) {
-      if (data.open !== undefined) {
+    receive(data: ToSocket) {
+      if ('open' in data) {
         this.readyState = 1;
         this.protocol = data.open;
         this.emit(new Event('open'));
-      } else if (data.message !== undefined) {
-        let message = data.message;
+      } else if ('message' in data) {
+        let message: string | ArrayBuffer | Blob = data.message;
         if (typeof message !== 'string' && this.binaryType === 'blob')
           message = new Blob([message]);
         this.emit(new MessageEvent('message', { data: message, origin: new URL(this.url).origin }));
-      } else if (data.close) {
+      } else if ('close' in data) {
         if (this.readyState === 3) return;
         this.readyState = 3;
         if (!data.close.clean) this.emit(new Event('error'));
@@ -66,7 +84,7 @@ function webSocketShim() {
         this.port.close();
       }
     }
-    send(data) {
+    send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
       if (this.readyState === 0)
         throw new DOMException('Still in CONNECTING state.', 'InvalidStateError');
       if (this.readyState !== 1) return;
@@ -86,11 +104,11 @@ function webSocketShim() {
   }
   Object.assign(PlaygroundWebSocket, states);
   Object.assign(PlaygroundWebSocket.prototype, states);
-  window.WebSocket = PlaygroundWebSocket;
+  window.WebSocket = PlaygroundWebSocket as unknown as typeof WebSocket;
 }
 const WEBSOCKET = `<script>(${webSocketShim})()</script>`;
 
-function concat(chunks) {
+function concat(chunks: Uint8Array[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
   let at = 0;
   for (const chunk of chunks) {
@@ -100,8 +118,8 @@ function concat(chunks) {
   return out;
 }
 
-function dechunk(body) {
-  const parts = [];
+function dechunk(body: Uint8Array): Uint8Array<ArrayBuffer> {
+  const parts: Uint8Array[] = [];
   let at = 0;
   const text = new TextDecoder('latin1');
   for (;;) {
@@ -115,8 +133,26 @@ function dechunk(body) {
   return concat(parts);
 }
 
+// A request from the preview (sw.js), and what answers it.
+export interface PreviewRequest {
+  method: string;
+  path: string;
+  headers: [string, string][];
+  body: ArrayBuffer | null;
+}
+export interface PreviewResponse {
+  status: number;
+  reason: string;
+  headers: [string, string][];
+  body: Uint8Array<ArrayBuffer>;
+}
+
 export class Bridge {
-  constructor(node, port = 4000) {
+  declare node: { connect(port: number): Connection };
+  declare port: number;
+  declare cookies: Map<string, string>;
+
+  constructor(node: { connect(port: number): Connection }, port = 4000) {
     this.node = node;
     this.port = port;
     this.cookies = new Map();
@@ -133,7 +169,7 @@ export class Bridge {
 
   // The cookie header for a request: the app's HttpOnly cookies and those in
   // document.cookie.
-  cookieHeader() {
+  cookieHeader(): string | null {
     const cookies = [...this.cookies].map(([k, v]) => `${k}=${v}`);
     if (typeof document !== 'undefined' && document.cookie) cookies.push(document.cookie);
     return cookies.length ? `cookie: ${cookies.join('; ')}` : null;
@@ -142,7 +178,7 @@ export class Bridge {
   // A preview's WebSocket (webSocketShim): the opening handshake on a
   // connection to the app, then frames both ways. `port` speaks
   // { open | message | close } to the preview and hears { send | close }.
-  websocket({ path, protocols }, port) {
+  websocket({ path, protocols }: { path: string; protocols: string[] }, port: MessagePort): void {
     const connection = this.node.connect(this.port);
     const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
     const lines = [
@@ -162,9 +198,9 @@ export class Bridge {
     let buffer = new Uint8Array(0);
     let open = false;
     let closed = false;
-    let fragments = [];
+    let fragments: Uint8Array[] = [];
     let fragmentType = 0;
-    const finish = (code, reason, clean) => {
+    const finish = (code: number, reason: string, clean: boolean) => {
       if (closed) return;
       closed = true;
       port.postMessage({ close: { code, reason, clean } });
@@ -172,7 +208,7 @@ export class Bridge {
       connection.close();
     };
     // A frame to the app: masked, as a client's must be.
-    const frame = (opcode, payload) => {
+    const frame = (opcode: number, payload: Uint8Array) => {
       const mask = crypto.getRandomValues(new Uint8Array(4));
       const length = payload.length;
       const head =
@@ -198,12 +234,12 @@ export class Bridge {
       for (let i = 0; i < length; i++) bytes[head.length + 4 + i] = payload[i] ^ mask[i & 3];
       connection.write(bytes);
     };
-    port.onmessage = ({ data }) => {
+    port.onmessage = ({ data }: MessageEvent<FromSocket>) => {
       if (closed) return;
-      if (data.send !== undefined) {
+      if ('send' in data) {
         if (typeof data.send === 'string') frame(1, new TextEncoder().encode(data.send));
         else frame(2, new Uint8Array(data.send));
-      } else if (data.close) {
+      } else if ('close' in data) {
         const reason = new TextEncoder().encode(data.close.reason ?? '');
         frame(8, new Uint8Array([data.close.code >> 8, data.close.code & 255, ...reason]));
       }
@@ -290,29 +326,29 @@ export class Bridge {
   // Announce this page to the service worker as the host of `key` (sw.js
   // routes a preview's requests by it), once it controls the page, and
   // again when another worker takes over.
-  static async register(url = 'sw.js', scope = './', key = 'default') {
+  static async register(url = 'sw.js', scope = './', key = 'default'): Promise<void> {
     await navigator.serviceWorker.register(url, { scope });
     // A forced reload (shift-reload) loads the page uncontrolled; the
     // active worker takes it over when asked.
     const { active } = await navigator.serviceWorker.ready;
-    if (!navigator.serviceWorker.controller) active.postMessage('claim');
+    if (!navigator.serviceWorker.controller) active!.postMessage('claim');
     await Bridge.announce({ kind: 'host', key });
   }
 
   // Tell the service worker who this page is: { kind: 'host' | 'preview', key }.
-  static async announce(message) {
+  static async announce(message: { kind: 'host' | 'preview'; key: string }): Promise<void> {
     if (!navigator.serviceWorker.controller) {
       await new Promise((resolve) =>
         navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }),
       );
     }
-    navigator.serviceWorker.controller.postMessage(message);
+    navigator.serviceWorker.controller!.postMessage(message);
     navigator.serviceWorker.addEventListener('controllerchange', () =>
       navigator.serviceWorker.controller?.postMessage(message),
     );
   }
 
-  request({ method, path, headers, body }) {
+  request({ method, path, headers, body }: PreviewRequest): Promise<PreviewResponse> {
     return new Promise((resolve) => {
       const lines = [
         `${method} ${path} HTTP/1.1`,
@@ -327,10 +363,10 @@ export class Bridge {
       if (cookie) lines.push(cookie);
       const payload = body ? new Uint8Array(body) : null;
       if (payload) lines.push(`content-length: ${payload.length}`);
-      const chunks = [];
+      const chunks: Uint8Array[] = [];
       const connection = this.node.connect(this.port);
       let done = false;
-      const finish = (refused) => {
+      const finish = (refused: boolean) => {
         if (done) return;
         done = true;
         if (refused || !chunks.length) {
@@ -357,7 +393,7 @@ export class Bridge {
     });
   }
 
-  parse(raw) {
+  parse(raw: Uint8Array<ArrayBuffer>): PreviewResponse {
     let split = -1;
     for (let i = 0; i + 3 < raw.length; i++) {
       if (raw[i] === 13 && raw[i + 1] === 10 && raw[i + 2] === 13 && raw[i + 3] === 10) {
@@ -374,7 +410,7 @@ export class Bridge {
       '502',
       'Bad Gateway',
     ];
-    const headers = [];
+    const headers: [string, string][] = [];
     for (const line of head.slice(1)) {
       const at = line.indexOf(':');
       if (at < 0) continue;
@@ -396,7 +432,7 @@ export class Bridge {
     return { status: Number(status), reason, headers, body };
   }
 
-  remember(cookie) {
+  remember(cookie: string): void {
     const [pair, ...attributes] = cookie.split(';');
     const at = pair.indexOf('=');
     const name = pair.slice(0, at).trim();

@@ -22,7 +22,7 @@ several projects (one tab per project, [projects.md](projects.md)).
  │                                             IndexedDB (overlay.ts)
  │                   worker.js ═══════════════► files.js
  │                   synchronous calls (SharedArrayBuffer + Atomics.wait)
- ├─ bridge.js ◄──── sw.js (service worker) ◄─── preview <iframe> (the app)
+ ├─ bridge.ts ◄──── sw.js (service worker) ◄─── preview <iframe> (the app)
  │                  routes by project key       or a popped-out window
  ├─ postgres.ts ─── PGlite (Postgres in WebAssembly; IndexedDB)
  └─ page programs: tailwind, git, and sh and rebar3 (programs/node.ts),
@@ -96,7 +96,7 @@ terminal. All of them are the shim's.
    With a project domain each project has an origin, and so a service
    worker, of its own ([projects.md](projects.md#a-project-domain)). Its
    frames (`registry.html`, `storage.html`) are never a preview.
-3. `src/runtime/bridge.js` on the page opens a connection to the preview's port
+3. `src/runtime/bridge.ts` on the page opens a connection to the preview's port
    (4000, else the lowest port a node serves on; ports a node asked for
    with 0, such as Mix's compile lock's, are no server) of the node that
    listens there. Nodes report their listening ports, and the IDE routes by

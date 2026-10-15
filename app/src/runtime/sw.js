@@ -1,5 +1,5 @@
 // The playground's service worker: what a preview iframe asks for goes to
-// the app in a node, through the page that runs it (bridge.js); everything
+// the app in a node, through the page that runs it (bridge.ts); everything
 // else (the playground itself) comes from the network. The app sees its
 // own paths, so its absolute links work in the iframe.
 //
@@ -91,7 +91,7 @@ self.addEventListener('message', (event) => {
     event.waitUntil(self.clients.claim());
     return;
   }
-  // A preview's WebSocket (bridge.js): its port goes to its project's page.
+  // A preview's WebSocket (bridge.ts): its port goes to its project's page.
   if (event.data?.kind === 'websocket') {
     event.waitUntil(
       load()
@@ -168,7 +168,7 @@ async function host(key) {
   return id ? self.clients.get(id) : null;
 }
 
-// The app's answer to a request, through its page (bridge.js).
+// The app's answer to a request, through its page (bridge.ts).
 async function app(event, navigation) {
   const { request } = event;
   const key = await keyOf(event);

@@ -14,7 +14,7 @@ import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files, Node, type NifBuild } from '@runtime/host';
 import { BUILD } from '@/shared/lib/build';
-import { Bridge } from '@runtime/bridge.js';
+import { Bridge } from '@runtime/bridge';
 import { postgres } from '@runtime/postgres';
 import { httpsByFetch } from '@runtime/https';
 import { built, tailwind } from '@/project/lib/programs/tailwind';
