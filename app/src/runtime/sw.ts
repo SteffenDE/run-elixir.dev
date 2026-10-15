@@ -10,6 +10,46 @@
 // client that navigated it (its referrer), or of the only (or focused)
 // host. Which client has which key is kept in IndexedDB too, since a
 // service worker is stopped when idle and starts again without its memory.
+import type { PreviewResponse } from './bridge';
+
+// What this worker uses of its scope, which the app's DOM library leaves
+// out.
+interface Client {
+  id: string;
+  url: string;
+  focused?: boolean;
+  frameType?: 'auxiliary' | 'top-level' | 'nested' | 'none';
+  postMessage(message: unknown, transfer?: Transferable[]): void;
+}
+interface ExtendableEvent extends Event {
+  waitUntil(promise: Promise<unknown>): void;
+}
+interface ClientMessageEvent extends ExtendableEvent {
+  // oxlint-disable-next-line typescript/no-explicit-any -- what pages send.
+  data: any;
+  source: Client;
+  ports: readonly MessagePort[];
+}
+interface FetchEvent extends ExtendableEvent {
+  request: Request;
+  clientId: string;
+  resultingClientId: string;
+  respondWith(response: Response | Promise<Response>): void;
+}
+declare const self: {
+  location: Location;
+  skipWaiting(): Promise<void>;
+  clients: {
+    matchAll(options?: { includeUncontrolled?: boolean; type?: 'window' }): Promise<Client[]>;
+    get(id: string): Promise<Client | undefined>;
+    claim(): Promise<void>;
+  };
+  addEventListener(type: 'install', listener: (event: ExtendableEvent) => void): void;
+  addEventListener(type: 'activate', listener: (event: ExtendableEvent) => void): void;
+  addEventListener(type: 'message', listener: (event: ClientMessageEvent) => void): void;
+  addEventListener(type: 'fetch', listener: (event: FetchEvent) => void): void;
+};
+
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
@@ -25,11 +65,11 @@ const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 
 
 // client id → key (hosts, preview windows, the app's documents), and
 // key → the host's client id.
-const keys = new Map();
-const hosts = new Map();
-let loading = null;
+const keys = new Map<string, string>();
+const hosts = new Map<string, string>();
+let loading: Promise<void> | null = null;
 
-function database() {
+function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const opening = indexedDB.open('playground-sw', 1);
     opening.onupgradeneeded = () => opening.result.createObjectStore('clients');
@@ -38,11 +78,11 @@ function database() {
   });
 }
 
-function load() {
+function load(): Promise<void> {
   loading ??= database()
     .then(
       (db) =>
-        new Promise((resolve) => {
+        new Promise<void>((resolve) => {
           const request = db.transaction('clients').objectStore('clients').get('routes');
           request.onsuccess = () => {
             for (const [id, key] of request.result?.keys ?? [])
@@ -58,10 +98,10 @@ function load() {
   return loading;
 }
 
-let saving = null;
+let saving: Promise<void> | null = null;
 // Keep the maps. Clients that are gone go once there are many: a document
 // still loading is no client yet, and must keep its key.
-function save() {
+function save(): void {
   saving ??= new Promise((resolve) => setTimeout(resolve, 200))
     .then(async () => {
       saving = null;
@@ -80,7 +120,7 @@ function save() {
     .catch(() => {});
 }
 
-function remember(id, key) {
+function remember(id: string, key: string | null): void {
   if (!id || !key) return;
   keys.set(id, key);
   save();
@@ -111,7 +151,7 @@ self.addEventListener('message', (event) => {
 });
 
 // The key a request belongs to.
-async function keyOf(event) {
+async function keyOf(event: FetchEvent): Promise<string | null> {
   await load();
   const known = event.clientId && keys.get(event.clientId);
   if (known) return known;
@@ -120,7 +160,7 @@ async function keyOf(event) {
   const { referrer } = event.request;
   if (referrer) {
     const from = all.find((client) => client.url === referrer && keys.has(client.id));
-    if (from) return keys.get(from.id);
+    if (from) return keys.get(from.id)!;
   }
   // The only host there is, else the focused one, else the last.
   const live = [...hosts].filter(([, id]) => all.some((client) => client.id === id));
@@ -132,14 +172,14 @@ async function keyOf(event) {
 // Whether each client is a preview's document (a nested frame), as first
 // seen. Only those requests are answered here; everything else goes
 // straight to the network, without passing through this worker.
-const nested = new Map();
+const nested = new Map<string, boolean>();
 
-async function isApp(id) {
+async function isApp(id: string): Promise<boolean> {
   if (!nested.has(id)) {
     const client = await self.clients.get(id);
     nested.set(id, client?.frameType === 'nested');
   }
-  return nested.get(id);
+  return nested.get(id)!;
 }
 
 self.addEventListener('fetch', (event) => {
@@ -163,13 +203,13 @@ self.addEventListener('fetch', (event) => {
 });
 
 // The page running the key's project.
-async function host(key) {
+async function host(key: string | null | undefined): Promise<Client | null | undefined> {
   const id = key && hosts.get(key);
   return id ? self.clients.get(id) : null;
 }
 
 // The app's answer to a request, through its page (bridge.ts).
-async function app(event, navigation) {
+async function app(event: FetchEvent, navigation: boolean): Promise<Response> {
   const { request } = event;
   const key = await keyOf(event);
   if (navigation) remember(event.resultingClientId, key);
@@ -183,7 +223,7 @@ async function app(event, navigation) {
   const url = new URL(request.url);
   const body = ['GET', 'HEAD'].includes(request.method) ? null : await request.arrayBuffer();
   const channel = new MessageChannel();
-  const reply = new Promise((resolve) => {
+  const reply = new Promise<PreviewResponse>((resolve) => {
     channel.port1.onmessage = (e) => resolve(e.data);
   });
   page.postMessage(

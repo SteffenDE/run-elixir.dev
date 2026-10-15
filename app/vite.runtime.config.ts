@@ -40,7 +40,7 @@ export default defineConfig(({ mode }): UserConfig =>
               worker: runtime('worker.js'),
               files: runtime('files.js'),
               thread: runtime('thread.js'),
-              sw: runtime('sw.js'),
+              sw: runtime('sw.ts'),
             },
             output: { format: 'es', entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js' },
           },
