@@ -49,7 +49,7 @@ RUNTIME = ("wasi.js", "worker.js", "host.js", "terminal.js", "programs.js", "set
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
-        "syntax_tools-", "parsetools-", "sasl-", "tools-", "xmerl-", "os_mon-")
+        "syntax_tools-", "parsetools-", "sasl-", "tools-", "xmerl-", "os_mon-", "mnesia-")
 PHX_NEW = "1.8.15"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
