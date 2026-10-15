@@ -135,6 +135,7 @@ the Dockerfile's stages into a directory the app mounts read-only
 (`SANDBOX_DIR`, `data/sandbox` by default):
 
 ```sh
+git submodule update --init --depth 1 third_party/otp   # erl_nif.h
 cd playground/backend
 cp .env.example .env               # and fill it in
 sandbox/build data/sandbox         # the kernel takes a while
