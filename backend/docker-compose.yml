@@ -2,7 +2,12 @@
 # must have KVM (builds run in Firecracker VMs):
 #
 #     cp .env.example .env    # and fill it in
+#     sandbox/build data/sandbox
 #     docker compose up --build -d
+#
+# The VM's artifacts (kernel, root disk, sandbox-netd) are built on their own
+# into SANDBOX_DIR (data/sandbox by default), so the image stays small;
+# after building them anew, restart the app.
 #
 # The app listens on 127.0.0.1:${PORT:-4000} and redirects to HTTPS unless
 # the request says it came over HTTPS: Caddy in front terminates TLS (see
@@ -28,8 +33,8 @@ services:
   app:
     build:
       context: .
-      # The erl_nif layer and OTP's headers, which the sandbox's root disk
-      # is built with, from the repository.
+      # The erl_nif layer and OTP's headers, from the repository (the
+      # Dockerfile's sandbox stages use them; the release does not).
       additional_contexts:
         nif: ../nif
         otp: ../../third_party/otp/erts/emulator/beam
@@ -52,6 +57,8 @@ services:
       NIF_DAILY_BUDGET_USD: ${NIF_DAILY_BUDGET_USD:-}
       PLAYGROUND_VAPID_PRIVATE_KEY: ${PLAYGROUND_VAPID_PRIVATE_KEY:-}
       PLAYGROUND_VAPID_SUBJECT: ${PLAYGROUND_VAPID_SUBJECT:-}
+      NIF_VM_CPUS: ${NIF_VM_CPUS:-}
+      NIF_VM_MEMORY_MIB: ${NIF_VM_MEMORY_MIB:-}
     # Builds run in Firecracker VMs, with KVM. The container runs as nobody,
     # which needs the group that owns /dev/kvm on the host.
     devices:
@@ -62,3 +69,5 @@ services:
       # Hex tarballs and built libraries (PLAYGROUND_DATA_DIR). Owned by
       # nobody (65534): sudo chown 65534 data/playground
       - ./data/playground:/var/lib/playground
+      # The VM's artifacts, from sandbox/build.
+      - ${SANDBOX_DIR:-./data/sandbox}:/var/lib/playground-sandbox:ro

@@ -87,8 +87,8 @@ a person reviews what the agent wrote.
 
 `Playground.Sandbox` runs one job per Firecracker VM: a Linux 6.18 kernel
 and a read-only ext4 root disk built as stages of the backend's
-`Dockerfile` (`mix sandbox.setup` → `priv/sandbox`; the release image has
-them too). The guest is the hexpm/elixir Debian image with wasi-sdk 33
+`Dockerfile` (`mix sandbox.setup` → `priv/sandbox` when developing;
+`sandbox/build DIR` for a deployment). The guest is the hexpm/elixir Debian image with wasi-sdk 33
 and the layer at build.py's paths (`/nif`, `/tools/nifcc`), and build
 tools (make, CMake, Ninja, autotools, git, curl, Python). Jobs run as an
 unprivileged user in a tmpfs `/workspace`; the workspace archive comes in
@@ -102,8 +102,7 @@ refused and recorded.
 
 A VM boots and runs a job in about 150 ms. Builds run one at a time
 (Oban queue `builds`), agent sessions one at a time (`setups`), with 2
-vCPUs and 4 GiB each (`config :playground, Playground.Nif, cpus:,
-memory_mib:`).
+vCPUs and 4 GiB each (`NIF_VM_CPUS`, `NIF_VM_MEMORY_MIB`).
 
 ## Admin
 
@@ -130,20 +129,25 @@ Firecracker's binary is the Dockerfile's `firecracker` stage. Without an
 
 ## Deploying
 
-`docker-compose.yml` runs the release and Postgres on a machine with KVM:
+`docker-compose.yml` runs the release and Postgres on a machine with KVM.
+The VM's artifacts stay out of the image: `sandbox/build` builds them from
+the Dockerfile's stages into a directory the app mounts read-only
+(`SANDBOX_DIR`, `data/sandbox` by default):
 
 ```sh
 cd playground/backend
 cp .env.example .env               # and fill it in
+sandbox/build data/sandbox         # the kernel takes a while
 mkdir -p data/playground && sudo chown 65534 data/playground
 docker compose up --build -d
 ```
 
-The image builds the sandbox too (the kernel takes a while). It listens on
-`127.0.0.1:4000`; Caddy terminates TLS in front: the admin's site, and
-`/api/nif/` and `/socket` in run-elixir.dev's ([deploy.md](deploy.md#caddy)
-has both). Caddy's `handle` blocks are exclusive, so these never reach the
-static site's fallback.
+After building the artifacts anew (a new erl_nif layer, say), restart the
+app: it reads the toolchain once. It listens on `127.0.0.1:PORT`; Caddy
+terminates TLS in front: the admin's site, and `/api/nif/` and `/socket`
+on run-elixir.dev's ([deploy.md](deploy.md#caddy) has both). Caddy's
+`handle` blocks are exclusive, so these never reach the static site's
+fallback.
 
 The GitHub OAuth app's callback is
 `https://run-elixir.steffend.me/auth/github/callback`.

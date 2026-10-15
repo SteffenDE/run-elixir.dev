@@ -255,6 +255,9 @@ run-elixir.dev, *.run-elixir.dev {
 # The backend's admin.
 run-elixir.steffend.me {
 	reverse_proxy 127.0.0.1:4000
+	log {
+		output file /var/log/caddy/run-elixir-admin.log
+	}
 }
 
 # The former Phoenix playground: a new Phoenix project.

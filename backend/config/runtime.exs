@@ -28,6 +28,16 @@ env = fn name -> if (value = System.get_env(name, "")) != "", do: value end
 
 if dir = env.("PLAYGROUND_DATA_DIR"), do: config(:playground, :data_dir, dir)
 
+if dir = env.("PLAYGROUND_SANDBOX_DIR") do
+  config :playground, Playground.Sandbox, artifacts_dir: dir
+end
+
+# Build VMs' size, see Playground.Nif.
+for {name, key} <- [{"NIF_VM_CPUS", :cpus}, {"NIF_VM_MEMORY_MIB", :memory_mib}],
+    value = env.(name) do
+  config :playground, Playground.Nif, [{key, String.to_integer(value)}]
+end
+
 if api_key = env.("OPENAI_API_KEY") do
   config :playground, Playground.Nif.Agent, api_key: api_key
 end

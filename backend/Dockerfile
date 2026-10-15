@@ -1,21 +1,23 @@
 # syntax=docker/dockerfile:1
 
 # Builds the playground backend's release, and the sandbox VM that it builds
-# NIF libraries in. Two named contexts come from the repository, besides this
-# directory (docker-compose.yml and Playground.Sandbox.Builder pass them):
+# NIF libraries in. The VM's artifacts are not in the release's image: they
+# are built on their own (sandbox/build, or mix sandbox.setup) and mounted.
+# Two named contexts come from the repository, besides this directory
+# (sandbox/build and Playground.Sandbox.Builder pass them):
 #
 #   * nif - playground/nif: the erl_nif layer and nifcc
 #   * otp - third_party/otp/erts/emulator/beam: OTP's erl_nif.h
 #
-# The sandbox stages are also built on their own by `mix sandbox.setup`, see
-# Playground.Sandbox.Builder, so they are the only definition of the VM:
+# The sandbox stages, the only definition of the VM:
 #
 #   * sandbox-kernel - the Linux kernel the VM boots
 #   * sandbox-rootfs - the root disk, made from sandbox-image, the guest's userspace
 #   * sandbox-netd - sandbox-netd, which runs on the host next to the VM
 #
-# The image runs Firecracker with KVM, so it needs /dev/kvm, see
-# docker-compose.yml. (Adapted from SCA's.)
+# The image runs Firecracker with KVM, so it needs /dev/kvm, and the
+# artifacts at PLAYGROUND_SANDBOX_DIR, see docker-compose.yml. (Adapted from
+# SCA's.)
 
 ARG ELIXIR_VERSION=1.20.4
 ARG OTP_VERSION=29.1.2
@@ -210,9 +212,6 @@ COPY config/config.exs config/${MIX_ENV}.exs config/
 RUN mix deps.compile
 
 COPY priv priv
-COPY --from=sandbox-kernel / priv/sandbox/
-COPY --from=sandbox-rootfs / priv/sandbox/
-COPY --from=sandbox-netd / priv/sandbox/
 
 COPY lib lib
 
@@ -243,9 +242,11 @@ ENV LC_ALL=en_US.UTF-8
 WORKDIR "/app"
 RUN chown nobody /app
 
-# Hex tarballs and built libraries are kept outside the release, in a volume.
+# Hex tarballs and built libraries are kept outside the release, in a volume,
+# and the sandbox's artifacts come in another (read-only).
 ENV PLAYGROUND_DATA_DIR=/var/lib/playground
-RUN mkdir -p "$PLAYGROUND_DATA_DIR" && chown nobody "$PLAYGROUND_DATA_DIR"
+ENV PLAYGROUND_SANDBOX_DIR=/var/lib/playground-sandbox
+RUN mkdir -p "$PLAYGROUND_DATA_DIR" "$PLAYGROUND_SANDBOX_DIR" && chown nobody "$PLAYGROUND_DATA_DIR"
 
 ENV MIX_ENV="prod"
 
