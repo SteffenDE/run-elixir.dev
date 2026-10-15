@@ -69,7 +69,8 @@ the document that started it, else the only, focused or last tab).
 The projects' list stays the apex's. The two sides call each other
 through a hidden frame of the other origin (`src/shared/lib/frames.ts`),
 which answers only the origins it lets in. The apex and its projects are
-one site, so neither frame's storage is partitioned:
+one site, so in Chromium and Firefox, which key a frame's storage by site,
+neither frame's storage is partitioned:
 
 - `DOMAIN/registry.html`, in a project's page: the project's entry
   (read, renamed, opened, its template, a link's seed), and only its
@@ -77,6 +78,17 @@ one site, so neither frame's storage is partitioned:
   lives, so the home page marks it open.
 - `p-ID.DOMAIN/storage.html`, in the home page: deletes what the project
   keeps on its origin (`registry.ts`), refused while a tab runs it.
+
+Safari (and every browser on iOS) keys a frame's storage by the page's
+origin, so there each side's frame sees an empty store of its own. That is
+found out rather than guessed from the browser's name (`site.ts`): the
+apex's page keeps a key in its local storage and in a cookie, and a
+registry frame that sees the cookie but not the key is partitioned. The
+project's page then goes to the apex's `/ID/?one-origin`, and from then on
+the apex runs its projects itself at `/ID/`, as a site without a project
+domain does. On `*.playground.localhost` WebKit takes each name for a site
+of its own and shows the frame no cookie, so the browser tests cannot
+reach this; it was checked by hand in Safari on the deployed site.
 
 Projects made before a site had a domain stay where they were, on the
 origin that made them.

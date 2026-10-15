@@ -3,7 +3,7 @@
 // asks only about itself.
 import { serve } from '@/shared/lib/frames';
 import * as projects from '@/shared/lib/projects';
-import { loadSite, projectOf } from '@/shared/lib/site';
+import { apexPartitioned, loadSite, projectOf } from '@/shared/lib/site';
 import { projectLock } from '@/shared/lib/storage';
 import type { Template } from '@/shared/lib/templates';
 
@@ -12,6 +12,7 @@ const id = (origin: string) => projectOf(origin)!;
 
 serve((origin) => projectOf(origin) !== null, {
   get: (origin) => projects.getProject(id(origin)),
+  partitioned: () => apexPartitioned(),
   opened: (origin) => projects.openedProject(id(origin)),
   rename: (origin, name: string) => {
     if (typeof name !== 'string' || !name.trim()) throw new Error('no name');

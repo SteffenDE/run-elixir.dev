@@ -17,6 +17,12 @@ export function getProject(id: string): Promise<Project | undefined> {
   return projectOrigin() ? (registry('get') as Promise<Project | undefined>) : local.getProject(id);
 }
 
+// On a project's own origin: the apex's frame sees a store of its own
+// (Safari's partitioning, site.ts), not the apex's projects.
+export async function apexPartitioned(): Promise<boolean> {
+  return projectOrigin() !== null && ((await registry('partitioned')) as boolean);
+}
+
 export async function openedProject(id: string): Promise<void> {
   if (projectOrigin()) await registry('opened');
   else await local.openedProject(id);

@@ -9,8 +9,15 @@ import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
 import { createProject, isId, type Kind } from '@/shared/lib/projects';
-import { getProject, heldOpen, openedProject } from '@/shared/lib/registry';
-import { loadSite, onDomain, projectOrigin, projectUrl, strayOrigin } from '@/shared/lib/site';
+import { apexPartitioned, getProject, heldOpen, openedProject } from '@/shared/lib/registry';
+import {
+  loadSite,
+  onDomain,
+  oneOriginUrl,
+  projectOrigin,
+  projectUrl,
+  strayOrigin,
+} from '@/shared/lib/site';
 import '@/styles.css';
 
 // Pages are whole page loads: a project's page owns its workers, and
@@ -24,7 +31,8 @@ import '@/styles.css';
 //
 // With a project domain (site.ts), a project is its own origin's /, and
 // the rest is the apex's; an old /ID/ link on the apex goes there. Any
-// other name under the domain is reserved: not found.
+// other name under the domain is reserved: not found. Where a frame's
+// storage is the page origin's own (Safari), the apex runs projects itself.
 const SHORTCUTS: Record<string, Kind> = { phoenix: 'phoenix', empty: 'empty' };
 
 async function page(path: string): Promise<ReactNode> {
@@ -55,6 +63,10 @@ async function page(path: string): Promise<ReactNode> {
 // Project `id`'s page, at its path (/ID/, or its own origin's /).
 async function projectPage(id: string, path: string): Promise<ReactNode> {
   const project = await getProject(id);
+  if (!project && (await apexPartitioned())) {
+    location.replace(oneOriginUrl(id));
+    return null;
+  }
   if (!project) return <NotFound project />;
   const home = projectOrigin() ? '/' : `/${project.id}/`;
   if (path !== home) history.replaceState(null, '', home);

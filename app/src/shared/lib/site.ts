@@ -36,8 +36,10 @@ export async function loadSite(): Promise<void> {
   const domain = typeof config.domain === 'string' && config.domain ? config.domain : null;
   if (!domain) return;
   const host = location.host;
-  if (host === domain) site = { domain, project: null, stray: false };
-  else if (host.endsWith(`.${domain}`)) {
+  if (host === domain) {
+    if (window.parent === window && apexOnOneOrigin()) return;
+    site = { domain, project: null, stray: false };
+  } else if (host.endsWith(`.${domain}`)) {
     const id = idOf(host.slice(0, -domain.length - 1));
     site = { domain, project: id, stray: id === null };
   }
@@ -69,3 +71,54 @@ export function projectOf(origin: string): string | null {
   if (protocol !== location.protocol || !host.endsWith(`.${site.domain}`)) return null;
   return idOf(host.slice(0, -site.domain.length - 1));
 }
+
+// Safari (and every browser on iOS) keys a frame's storage by the page's
+// origin, not its site, so the apex's frames on a project's origin and a
+// project's on the apex see stores of their own, empty. There the apex
+// runs its projects itself, as a site without a project domain does.
+//
+// It is found out, not guessed from the browser's name: the apex's own
+// page keeps a key in its local storage and in a cookie, which a frame
+// reads either way (the two origins are one site). A registry frame that
+// sees the cookie but not the key in its storage is partitioned
+// (apexPartitioned); the project's page then sends the browser to the
+// apex's /ID/?one-origin, and the apex keeps running projects itself.
+const KEY = 'playground-apex';
+const ONE_ORIGIN = 'playground-one-origin';
+
+function apexOnOneOrigin(): boolean {
+  try {
+    let key = localStorage.getItem(KEY);
+    if (!key) {
+      key = crypto.randomUUID();
+      localStorage.setItem(KEY, key);
+    }
+    document.cookie = `${KEY}=${key}; path=/; max-age=31536000; SameSite=Lax`;
+    const url = new URL(location.href);
+    if (url.searchParams.has('one-origin')) {
+      localStorage.setItem(ONE_ORIGIN, '1');
+      url.searchParams.delete('one-origin');
+      history.replaceState(null, '', url);
+    }
+    return localStorage.getItem(ONE_ORIGIN) === '1';
+  } catch {
+    return false;
+  }
+}
+
+// In the apex's registry frame: its storage is not the apex page's.
+export function apexPartitioned(): boolean {
+  const cookie = document.cookie
+    .split('; ')
+    .find((pair) => pair.startsWith(`${KEY}=`))
+    ?.slice(KEY.length + 1);
+  try {
+    return !!cookie && localStorage.getItem(KEY) !== cookie;
+  } catch {
+    return !!cookie;
+  }
+}
+
+// From a project's origin whose apex frame is partitioned: the project,
+// on the apex.
+export const oneOriginUrl = (id: string) => apexUrl(`/${id}/?one-origin`);
