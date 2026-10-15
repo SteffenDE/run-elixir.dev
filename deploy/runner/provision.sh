@@ -3,8 +3,10 @@
 # again later): the build's toolchain for the user `runner`, and the
 # Forgejo runner as a service. Safe to run again: it updates.
 #
-# /etc/playground-runner.env: FORGEJO_URL, and FORGEJO_TOKEN (a runner
-# registration token) until the runner is registered, which removes it.
+# /etc/playground-runner.env: FORGEJO_URL and FORGEJO_UUID, the runner
+# made in Forgejo's settings (Actions → Runners → Create new runner), and
+# FORGEJO_TOKEN, its token, which goes to ~runner/.runner-token from
+# there.
 # RUNNER_VERSION: the forgejo-runner release (default: the one tried).
 set -euo pipefail
 . /etc/playground-runner.env
@@ -41,14 +43,14 @@ if ! /usr/local/bin/forgejo-runner --version 2>/dev/null | grep -q "$version"; t
   install -m 755 /tmp/forgejo-runner /usr/local/bin/forgejo-runner
   rm /tmp/forgejo-runner
 fi
-if [ ! -f /home/runner/.runner ]; then
-  [ -n "${FORGEJO_TOKEN:-}" ] || { echo "provision: no FORGEJO_TOKEN to register the runner with" >&2; exit 1; }
-  sudo -iu runner forgejo-runner register --no-interactive --instance "$FORGEJO_URL" \
-    --token "$FORGEJO_TOKEN" --name "$(hostname)" --labels beamos-build:host
+if [ -n "${FORGEJO_TOKEN:-}" ]; then
+  install -o runner -g runner -m 600 /dev/null /home/runner/.runner-token
+  printf '%s' "$FORGEJO_TOKEN" > /home/runner/.runner-token
   sed -i '/^FORGEJO_TOKEN=/d' /etc/playground-runner.env
 fi
-[ -f /home/runner/runner.yml ] || sudo -iu runner sh -c 'forgejo-runner generate-config > runner.yml'
-cat > /etc/systemd/system/forgejo-runner.service <<'UNIT'
+[ -n "${FORGEJO_UUID:-}" ] && [ -s /home/runner/.runner-token ] ||
+  { echo "provision: no runner (FORGEJO_UUID, FORGEJO_TOKEN) to run as" >&2; exit 1; }
+cat > /etc/systemd/system/forgejo-runner.service <<UNIT
 [Unit]
 Description=Forgejo runner (beamos-build)
 After=network-online.target docker.service
@@ -59,7 +61,8 @@ User=runner
 WorkingDirectory=/home/runner
 # The build's tools: rustup's cargo, mise's Erlang and Elixir.
 Environment=PATH=/home/runner/.cargo/bin:/home/runner/.local/bin:/home/runner/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
-ExecStart=/usr/local/bin/forgejo-runner daemon --config runner.yml
+ExecStart=/usr/local/bin/forgejo-runner daemon --url $FORGEJO_URL --uuid $FORGEJO_UUID \\
+  --token-url file:///home/runner/.runner-token --label beamos-build:host
 Restart=always
 RestartSec=10
 

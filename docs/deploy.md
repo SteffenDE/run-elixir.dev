@@ -50,9 +50,10 @@ sudo playground/deploy/setup.sh
 ```
 
 It asks for the project domain, the site's directory, Forgejo's URL
-(from the clone's remote) and a runner registration token (Settings →
-Actions → Runners), and the runner VM's size; or takes them from the
-environment (`DOMAIN`, `SITE`, `FORGEJO_URL`, `FORGEJO_TOKEN`,
+(from the clone's remote), a runner made in Forgejo (the repository's
+Settings → Actions → Runners → Create new runner: its UUID and token) and
+the runner VM's size; or takes them from the environment (`DOMAIN`,
+`SITE`, `FORGEJO_URL`, `FORGEJO_UUID`, `FORGEJO_TOKEN`,
 `RUNNER_CPUS`, `RUNNER_MEMORY`, `RUNNER_DISK`, `RUNNER_SSH_PORT`). It
 installs what is missing (QEMU, `cloud-localds`, rsync and rrsync), then:
 
@@ -76,14 +77,14 @@ installs what is missing (QEMU, `cloud-localds`, rsync and rrsync), then:
   network is not changed. Its first boot (cloud-init) runs
   `runner/provision.sh`: Docker, rustup with the wasm targets, mise with the
   repository's Erlang and Elixir, and forgejo-runner (13.2.0, checked
-  against its digest) registered with the label `beamos-build:host` and
-  running as a service. The VM reaches this machine's sshd at `10.0.2.2`,
+  against its digest) running as a service as that runner, with the label
+  `beamos-build:host`. The VM reaches this machine's sshd at `10.0.2.2`,
   as ssh's host `playground-prod`, with the deploy key and this machine's
   host key. Stopping the service powers the VM off (ACPI).
 
 Run again, it keeps its settings and keys and updates the rest: the
 script, the unit, and (over ssh to the running VM) the provisioning. A
-`FORGEJO_TOKEN` given then registers a runner whose registration failed.
+`FORGEJO_UUID` and `FORGEJO_TOKEN` given then replace the VM's runner.
 The VM's console is `/var/lib/playground-runner/console.log`; its shell:
 
 ```sh

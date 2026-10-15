@@ -19,9 +19,10 @@
 #   `ssh -i /var/lib/playground-runner/admin_key runner@127.0.0.1 -p PORT`.
 #
 # Asked for the first time (or given in the environment): DOMAIN,
-# FORGEJO_URL and FORGEJO_TOKEN (a runner registration token: the
-# repository's or the user's Settings → Actions → Runners; given again
-# to a later run, it registers a runner whose registration failed). The VM's
+# FORGEJO_URL, and the runner made in Forgejo (the repository's or the
+# user's Settings → Actions → Runners → Create new runner): its
+# FORGEJO_UUID and FORGEJO_TOKEN. Given to a later run, those two replace
+# the VM's. The VM's
 # size: RUNNER_CPUS (half the cores), RUNNER_MEMORY (16G), RUNNER_DISK
 # (120G), RUNNER_SSH_PORT (2222); kept in /etc/playground-runner.env.
 set -euo pipefail
@@ -128,8 +129,9 @@ if [ ! -f "$VM/runner.qcow2" ]; then
   setting FORGEJO_URL "$(git -c safe.directory='*' -C "$HERE" remote get-url origin 2>/dev/null |
     sed -E 's#^https?://([^/]+).*#https://\1#; t; s#^(ssh://)?([^@]*@)?([^:/]+).*#https://\3#')" \
     /dev/null "Forgejo's URL"
-  setting FORGEJO_TOKEN "" /dev/null "A runner registration token"
-  [ -n "$FORGEJO_TOKEN" ] || { echo "setup.sh: a runner registration token is needed" >&2; exit 1; }
+  setting FORGEJO_UUID "" /dev/null "The runner's UUID (Forgejo: Actions → Runners → Create new runner)"
+  setting FORGEJO_TOKEN "" /dev/null "The runner's token"
+  [ -n "$FORGEJO_UUID" ] && [ -n "$FORGEJO_TOKEN" ] || { echo "setup.sh: the runner's UUID and token are needed" >&2; exit 1; }
   say "fetching $IMAGE"
   curl -sSfLo "$VM/$IMAGE.part" "$IMAGE_URL/$IMAGE"
   expected=$(curl -sSfL "$IMAGE_URL/SHA256SUMS" | sed -n "s/^\([0-9a-f]*\) \*$IMAGE\$/\1/p")
@@ -142,7 +144,7 @@ if [ ! -f "$VM/runner.qcow2" ]; then
   seed=$(mktemp -d)
   trap 'rm -rf "$seed"' EXIT
   indent() { sed 's/^/      /' "$1"; }
-  printf 'FORGEJO_URL=%s\nFORGEJO_TOKEN=%s\n' "$FORGEJO_URL" "$FORGEJO_TOKEN" > "$seed/runner.env"
+  printf 'FORGEJO_URL=%s\nFORGEJO_UUID=%s\nFORGEJO_TOKEN=%s\n' "$FORGEJO_URL" "$FORGEJO_UUID" "$FORGEJO_TOKEN" > "$seed/runner.env"
   cat > "$seed/ssh_config" <<EOF
 Host playground-prod
   HostName 10.0.2.2
@@ -195,7 +197,7 @@ EOF
   rm -rf "$seed"
   trap - EXIT
   # The token has done its work once the VM has it.
-  unset FORGEJO_TOKEN
+  unset FORGEJO_UUID FORGEJO_TOKEN
 fi
 chown -R playground-runner:playground-runner "$VM"
 chmod 600 "$VM/seed.iso"
@@ -236,11 +238,12 @@ if systemctl is-active -q playground-runner; then
   ssh=(ssh -i "$VM/admin_key" -p "$RUNNER_SSH_PORT" -o StrictHostKeyChecking=accept-new
        -o UserKnownHostsFile="$VM/known_hosts" runner@127.0.0.1)
   "${ssh[@]}" sudo tee /root/provision.sh >/dev/null < "$HERE/runner/provision.sh"
-  # A token given now registers a runner that is not yet registered.
-  if [ -n "${FORGEJO_TOKEN:-}" ]; then
-    "${ssh[@]}" sudo sed -i '/^FORGEJO_TOKEN=/d' /etc/playground-runner.env
-    printf 'FORGEJO_TOKEN=%s\n' "$FORGEJO_TOKEN" | "${ssh[@]}" sudo tee -a /etc/playground-runner.env >/dev/null
-  fi
+  # A runner given now (its UUID and token) replaces the VM's.
+  for name in FORGEJO_UUID FORGEJO_TOKEN; do
+    [ -n "${!name:-}" ] || continue
+    "${ssh[@]}" sudo sed -i "/^$name=/d" /etc/playground-runner.env
+    printf '%s=%s\n' "$name" "${!name}" | "${ssh[@]}" sudo tee -a /etc/playground-runner.env >/dev/null
+  done
   "${ssh[@]}" sudo bash /root/provision.sh
 else
   systemctl start playground-runner
