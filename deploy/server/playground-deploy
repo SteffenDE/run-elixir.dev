@@ -85,7 +85,10 @@ check() {
   headers=$("${curl[@]}" -D - -o "$page" "$base/") || { echo "check: / failed" >&2; return 1; }
   grep -qi '^cross-origin-opener-policy: same-origin' <<<"$headers" || { echo "check: no COOP" >&2; return 1; }
   grep -qi '^cross-origin-embedder-policy: require-corp' <<<"$headers" || { echo "check: no COEP" >&2; return 1; }
-  grep -q "content=\"$build\"" "$page" || { echo "check: / is not build $build" >&2; return 1; }
+  if ! grep -q "content=\"$build\"" "$page"; then
+    echo "check: / is build $(sed -n 's/.*<meta name="playground-build" content="\([0-9a-f]*\)".*/\1/p' "$page" | head -n 1 | grep . || echo '(none named)'), not $build: is Caddy's root $SITE/current?" >&2
+    return 1
+  fi
   "${curl[@]}" -o /dev/null -w '%{content_type}\n' "$base/b/$build/rotp.wasm" | grep -q '^application/wasm' ||
     { echo "check: b/$build/rotp.wasm is not served as WebAssembly" >&2; return 1; }
   "${curl[@]}" -o /dev/null -D - "$base/sw.js" | grep -qi '^cache-control: no-cache' ||
@@ -129,7 +132,11 @@ activate() {
   previous=$(live || true)
   swap "$rid"
   if ! check "$build"; then
-    [ -n "$previous" ] && swap "$previous"
+    if [ -n "$previous" ]; then
+      swap "$previous"
+    else
+      rm "$SITE/current"
+    fi
     die "$rid failed its check; live again: ${previous:-nothing}"
   fi
   purge
