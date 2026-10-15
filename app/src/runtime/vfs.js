@@ -1,7 +1,7 @@
 // Files for code beside the node (the shell's builtins, programs.js): the
 // worker's own tree, and the shared directories through their channel
 // (sharedClient), as one.
-import { Dir, File, load, lookup as find } from './wasi.js';
+import { Dir, File, load, lookup as find } from './wasi';
 
 const CREATE = 1 | 8; // OFLAGS CREAT | TRUNC
 

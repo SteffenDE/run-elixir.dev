@@ -12,8 +12,8 @@
 // With a `store`, what changes below /work is kept (overlay.js): written
 // a second after it changes, and laid over the template when the files
 // start again.
-import { Dir, File, Symlink, lookup, untar, mount, load, bundled } from './wasi.js';
-import * as overlays from './overlay.js';
+import { Dir, File, Symlink, lookup, untar, mount, load, bundled } from './wasi';
+import * as overlays from './overlay';
 
 const E = {
   SUCCESS: 0,

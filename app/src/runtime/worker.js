@@ -8,10 +8,10 @@
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node. With `files`, /work and /tmp are files.js's, which every
 // shell (each in its own worker) and the page share.
-import { WASI, Dir, Exit, Network, untar, mount, bundled, sharedClient } from './wasi.js';
-import { ENV, prepare, programs } from './setup.js';
-import { channel as threadChannel, Host } from './threads.js';
-import { vfs } from './vfs.js';
+import { WASI, Dir, Exit, Network, untar, mount, bundled, sharedClient } from './wasi';
+import { ENV, prepare, programs } from './setup';
+import { channel as threadChannel, Host } from './threads';
+import { vfs } from './vfs';
 
 const FRAME = {
   INPUT: 0,

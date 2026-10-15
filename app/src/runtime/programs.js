@@ -1,4 +1,4 @@
-import { entries } from './wasi.js';
+import { entries } from './wasi';
 
 // Programs a playground node can run (open_port, System.cmd), in place of
 // the OS's. Each gets its Process (write, exit) and { args, cwd, env }.

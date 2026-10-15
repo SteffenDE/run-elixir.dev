@@ -3,7 +3,7 @@
 // the node, with its own memory. The node's WASI serves them too: while a
 // library runs, the WASI calls work on its memory, so it reads the node's
 // files and environment and writes to its terminal.
-import { Exit } from './wasi.js';
+import { Exit } from './wasi';
 
 // {error, Reason} as an external term, Reason a binary.
 function failure(message) {

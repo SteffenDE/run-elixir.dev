@@ -1,7 +1,7 @@
 // What every playground node gets, in the browser and under node.mjs: its
 // environment, the files around the installation, and its programs.
-import { File, urandom } from './wasi.js';
-import { git, esbuild, tailwind, make } from './programs.js';
+import { File, urandom } from './wasi';
+import { git, esbuild, tailwind, make } from './programs';
 
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
 // so Hex tool wrappers take their Linux paths; the esbuild and tailwind

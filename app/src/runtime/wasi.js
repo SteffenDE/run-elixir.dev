@@ -4,7 +4,7 @@
 // Standard input is a callback that answers bytes, null when none is
 // waiting (EAGAIN: the node polls again) or an empty array at its end.
 
-import { Nifs } from './nif.js';
+import { Nifs } from './nif';
 
 const E = {
   SUCCESS: 0,

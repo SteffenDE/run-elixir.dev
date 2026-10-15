@@ -4,9 +4,9 @@
 // builds (b/ID). Standard input is read whole first and then ends.
 import { readFile } from 'node:fs/promises';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
-import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi.js';
-import { ENV, prepare, programs } from './setup.js';
-import { vfs } from './vfs.js';
+import { WASI, Dir, File, Network, Exit, untar, mount, bundled } from './wasi';
+import { ENV, prepare, programs } from './setup';
+import { vfs } from './vfs';
 
 const [site, ...args] = process.argv.slice(2);
 // A versioned site's build (b/ID/, build.py), or a flat one.
@@ -187,7 +187,7 @@ const threaded = WebAssembly.Module.imports(module).some(
 let status;
 if (threaded) {
   const { Worker } = await import('node:worker_threads');
-  const { channel, Host } = await import('./threads.js');
+  const { channel, Host } = await import('./threads');
   const memory = new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
   wasi.memory = memory;
   const chan = channel();
