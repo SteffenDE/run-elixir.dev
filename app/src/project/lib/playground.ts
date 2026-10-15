@@ -316,6 +316,8 @@ export function openTerminal(initial: string[] = []): number {
       if (text === 'running') {
         useStore.getState().setStatus(setup.running);
         useStore.getState().setReady(true);
+      } else if (text.startsWith('failed') && !useStore.getState().ready) {
+        useStore.getState().failedToStart(text.replace(/^failed: /, ''));
       } else useStore.getState().setStatus(text);
     },
     onlistening: updateListening,
@@ -409,7 +411,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   setup = setupOf(kind);
   const store = useStore.getState();
   if (!crossOriginIsolated) {
-    store.setStatus('This page needs cross-origin isolation (see playground/README.md).');
+    store.failedToStart('This page needs cross-origin isolation (see playground/README.md).');
     return;
   }
   store.setStatus('Starting the files…');

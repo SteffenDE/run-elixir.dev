@@ -25,6 +25,8 @@ export interface Tab {
 
 interface State {
   status: string;
+  // Why the project could not start (StartError shows it), if it could not.
+  startError: string | null;
   ready: boolean;
   // The port the preview shows (a node listens on it), if any.
   previewPort: number | null;
@@ -48,6 +50,7 @@ interface State {
   setFilesShown(shown: boolean): void;
   setElsewhere(elsewhere: boolean): void;
   setStatus(status: string): void;
+  failedToStart(error: string): void;
   setReady(ready: boolean): void;
   setPreviewPort(port: number | null): void;
   setPaths(paths: string[]): void;
@@ -74,6 +77,7 @@ interface State {
 
 export const useStore = create<State>((set) => ({
   status: 'Starting…',
+  startError: null,
   ready: false,
   previewPort: null,
   paths: [],
@@ -90,6 +94,7 @@ export const useStore = create<State>((set) => ({
   setFilesShown: (filesShown) => set({ filesShown }),
   setElsewhere: (elsewhere) => set({ elsewhere }),
   setStatus: (status) => set({ status }),
+  failedToStart: (startError) => set({ startError, status: 'Could not start' }),
   setReady: (ready) => set({ ready }),
   setPreviewPort: (previewPort) => set({ previewPort }),
   setPaths: (paths) => set({ paths }),

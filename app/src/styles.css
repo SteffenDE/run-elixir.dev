@@ -926,6 +926,61 @@ button {
   font-size: 12px;
 }
 
+/* A project that could not start: a modal dialog (StartError). */
+
+.start-error {
+  width: min(640px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  color: inherit;
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.25);
+}
+
+.start-error::backdrop {
+  background: rgb(0 0 0 / 0.35);
+}
+
+.start-error-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  color: var(--accent);
+  font-size: 16px;
+}
+
+.start-error-message {
+  margin: 0;
+  padding: 8px 12px;
+  max-height: 50vh;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
+  font:
+    12px/1.6 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.start-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.start-error-actions a.button {
+  color: inherit;
+  text-decoration: none;
+}
+
 .template-notice {
   display: flex;
   align-items: flex-start;

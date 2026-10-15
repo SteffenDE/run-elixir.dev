@@ -14,6 +14,7 @@ import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
 import { setup } from '@/project/lib/kinds';
@@ -49,6 +50,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
   const kind = project?.kind ?? 'iex';
   const status = useStore((state) => state.status);
   const ready = useStore((state) => state.ready);
+  const startError = useStore((state) => state.startError);
   const previewPort = useStore((state) => state.previewPort);
   const popped = useStore((state) => state.previewPopped);
   const elsewhere = useStore((state) => state.elsewhere);
@@ -109,7 +111,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
     if (started) return;
     started = true;
     start(kind, project?.id ?? null).catch((error: Error) =>
-      useStore.getState().setStatus(`failed: ${error.message}`),
+      useStore.getState().failedToStart(error.message),
     );
   }, [kind, project]);
 
@@ -126,7 +128,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
         </a>
         <ProjectTitle project={project} />
         <div className="status">
-          {!ready && <RiLoader4Line size={14} className="spin" />}
+          {!ready && !startError && <RiLoader4Line size={14} className="spin" />}
           <span className="status-text">{status}</span>
         </div>
         {popped && (
@@ -157,6 +159,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
         )}
       </header>
       <TemplateNotice project={project} />
+      <StartError />
       {narrow ? (
         <NarrowWorkspace
           phoenix={kind === 'phoenix'}

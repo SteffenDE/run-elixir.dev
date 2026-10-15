@@ -63,6 +63,19 @@ test('an unknown project is not found', async ({ page }) => {
   await expect(page.getByText('There is no such project in this browser.')).toBeVisible();
 });
 
+test('a project that cannot start says why in a modal dialog', async ({ page }) => {
+  await page.addInitScript(() => {
+    navigator.serviceWorker.register = () => Promise.reject(new Error('no service worker here'));
+  });
+  await newProject(page, 'empty');
+  const dialog = page.getByRole('dialog', { name: 'The project could not start' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toContainText('no service worker here');
+  await expect(page.locator('.status-text')).toHaveText('Could not start');
+  await dialog.getByRole('button', { name: 'Close' }).click();
+  await expect(dialog).toBeHidden();
+});
+
 test('a project starts again after a forced reload', async ({ page, browserName }) => {
   await newProject(page, 'empty');
   await prompted(page, 1);
