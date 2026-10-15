@@ -853,7 +853,7 @@ export class WASI {
     return new Uint8Array(this.memory!.buffer, ptr, len);
   }
   string(ptr: number, len: number): string {
-    // A copy: TextDecoder takes no view of a shared memory (threads.js).
+    // A copy: TextDecoder takes no view of a shared memory (threads.ts).
     return new TextDecoder().decode(this.bytes(ptr, len).slice());
   }
 

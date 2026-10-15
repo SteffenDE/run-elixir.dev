@@ -41,8 +41,8 @@ terminal. All of them are the shim's.
   worker loads `rotp-threads.wasm` (`wasm32-wasip1-threads`) and runs the
   node with as many schedulers as the machine has cores, at most four.
   The worker then runs no WebAssembly: it keeps the WASI state and serves
-  the threads' calls (`src/runtime/threads.js`), and the page starts a worker
-  for each thread (`src/runtime/thread.js`), since a worker busy serving could
+  the threads' calls (`src/runtime/threads.ts`), and the page starts a worker
+  for each thread (`src/runtime/thread.ts`), since a worker busy serving could
   not start them; the page stops them when the node ends. Elsewhere, or
   when `rotp-threads.wasm` does not load, the worker runs `rotp.wasm` with
   one scheduler itself. Chromium before 157 (V8 before 15.7) checks

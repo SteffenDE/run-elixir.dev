@@ -76,7 +76,7 @@ RECORD = {
 
 # rotp.wasm for wasm32-wasip1, or (directory "wasm-threads") its threaded
 # build for wasm32-wasip1-threads, which worker.js prefers where shared
-# memory is (threads.js).
+# memory is (threads.ts).
 def build_wasm(target="wasm32-wasip1", directory="wasm"):
     env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, "target", directory),
                CARGO_PROFILE_RELEASE_DEBUG="false", CARGO_PROFILE_RELEASE_STRIP="true")

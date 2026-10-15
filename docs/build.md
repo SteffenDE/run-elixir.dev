@@ -81,7 +81,7 @@ The filesystem holds:
    `files.js`, `thread.js` and `sw.js`, keep their names (the page starts
    them by URL; `sw.js` is the service worker), beside the app's in
    `dist/`, which goes into the site; with `--mode node`, the Node harness
-   (`node.mjs`, `thread-node.mjs`) into `dist-node/`, which goes to
+   (`node.mjs`, and `thread-node.ts` as `thread-node.mjs`) into `dist-node/`, which goes to
    `target/playground/node`. The NIF builds go into `nif/`.
 2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`, and
    `rotp-threads.wasm`, the same for `wasm32-wasip1-threads`.
@@ -171,7 +171,7 @@ page programs. It is the recording run's environment.
 A `rotp.wasm` built for `wasm32-wasip1-threads` (it imports its memory;
 `.cargo/config.toml` lets it grow to 4 GiB) runs threaded: each thread in
 a worker on one shared memory, the node's schedulers as `+S` says.
-`threads.js` keeps the WASI state with a host that runs no WebAssembly
+`threads.ts` keeps the WASI state with a host that runs no WebAssembly
 (a thread waiting in a futex could not serve calls): a thread forwards
 each call through its slot in a SharedArrayBuffer, and the host runs
 `wasi.ts`'s function on the shared memory and answers. Clocks,

@@ -180,7 +180,7 @@ if (process.env.TRACE_WASI) {
 }
 // A threaded node (rotp.wasm for wasm32-wasip1-threads, which imports its
 // memory) runs its threads in workers on a shared memory, and this thread
-// serves their WASI calls (threads.js); otherwise the node runs here.
+// serves their WASI calls (threads.ts); otherwise the node runs here.
 const threaded = WebAssembly.Module.imports(module).some(
   (i) => i.module === 'env' && i.name === 'memory',
 );

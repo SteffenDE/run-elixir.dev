@@ -6,10 +6,10 @@
 // slot in a SharedArrayBuffer: the host runs wasi.ts's own function with
 // the same arguments on the shared memory (pointers are the same there),
 // and answers. Clocks, randomness and sleeping stay with the thread.
+import type { Syscall, WASI } from './wasi';
 
-const SLOT = 128; // bytes: state, call, argument count, i64 mask, result, then arguments
+const SLOT = 128; // bytes: state, call, argument count, i64 mask, result, then 12 arguments
 const ARGS = 4; // where the arguments start, in 8-byte words
-const MAX_ARGS = 12;
 const IDLE = 0;
 const ASKED = 1;
 const ANSWERED = 2;
@@ -23,7 +23,25 @@ const SPAWN = -1;
 // (status in [1]), 2 when a thread failed (its message's length in [1],
 // the message from byte 16); [2] is taken by the first to end, which
 // writes the rest before [0].
-export function channel(threads = 64) {
+export interface Chan {
+  doorbell: SharedArrayBuffer;
+  slots: SharedArrayBuffer;
+  end: SharedArrayBuffer;
+  threads: number;
+}
+
+// What a thread starts with (runThread).
+export interface ThreadStart {
+  module: WebAssembly.Module;
+  memory: WebAssembly.Memory;
+  chan: Chan;
+  slot: number;
+  names: string[];
+  tid: number;
+  startArg: number;
+}
+
+export function channel(threads = 64): Chan {
   return {
     doorbell: new SharedArrayBuffer(4),
     slots: new SharedArrayBuffer(SLOT * threads),
@@ -35,7 +53,7 @@ export function channel(threads = 64) {
 const RETURNED = 1;
 const FAILED = 2;
 
-function finish(chan, how, value, message = '') {
+function finish(chan: Chan, how: number, value: number, message = ''): void {
   const end = new Int32Array(chan.end, 0, 3);
   if (Atomics.compareExchange(end, 2, 0, 1) !== 0) return;
   const bytes = new TextEncoder().encode(message).subarray(0, chan.end.byteLength - 16);
@@ -50,7 +68,20 @@ function finish(chan, how, value, message = '') {
 // The host: `wasi` (its memory the shared one) serves the threads' calls.
 // spawn(tid, startArg) starts a thread; next tid from 1.
 export class Host {
-  constructor(wasi, chan, { spawn }) {
+  declare wasi: WASI;
+  declare chan: Chan;
+  declare names: string[];
+  declare functions: Record<string, Syscall>;
+  declare doorbell: Int32Array;
+  declare spawn: (tid: number, startArg: number) => void;
+  declare nextTid: number;
+  declare thrown?: unknown;
+
+  constructor(
+    wasi: WASI,
+    chan: Chan,
+    { spawn }: { spawn: (tid: number, startArg: number) => void },
+  ) {
     this.wasi = wasi;
     this.chan = chan;
     this.names = Object.keys(wasi.imports.wasi_snapshot_preview1);
@@ -61,7 +92,7 @@ export class Host {
   }
 
   // Serve every waiting call; true when one was.
-  serve() {
+  serve(): boolean {
     let served = false;
     for (let slot = 0; slot < this.chan.threads; slot++) {
       const words = new Int32Array(this.chan.slots, SLOT * slot, SLOT / 4);
@@ -71,7 +102,7 @@ export class Host {
       const count = words[2];
       const mask = words[3];
       const wide = new BigInt64Array(this.chan.slots, SLOT * slot, SLOT / 8);
-      const args = [];
+      const args: (number | bigint)[] = [];
       for (let i = 0; i < count; i++) {
         const value = wide[ARGS + i];
         args.push(mask & (1 << i) ? value : Number(BigInt.asUintN(32, value)));
@@ -82,7 +113,7 @@ export class Host {
           const tid = this.nextTid++;
           if (tid >= this.chan.threads)
             throw new Error(`a node has at most ${this.chan.threads} threads`);
-          this.spawn(tid, args[0]);
+          this.spawn(tid, args[0] as number);
           words[4] = tid;
         } else {
           words[4] = this.functions[this.names[call]](...args) ?? 0;
@@ -102,7 +133,7 @@ export class Host {
 
   // Sleep until a thread rings or `ms` pass. Then: the main thread's
   // status once it returned; a thread's failure is thrown.
-  wait(ms) {
+  wait(ms: number): number | null {
     const rung = Atomics.load(this.doorbell, 0);
     if (!this.serve()) Atomics.wait(this.doorbell, 0, rung, ms);
     const end = new Int32Array(this.chan.end, 0, 2);
@@ -120,12 +151,17 @@ export class Host {
 }
 
 // A thread's imports: `names` the host's WASI functions, by index.
-export function threadImports({ memory, chan, slot, names }) {
+export function threadImports({
+  memory,
+  chan,
+  slot,
+  names,
+}: Pick<ThreadStart, 'memory' | 'chan' | 'slot' | 'names'>): WebAssembly.Imports {
   const words = new Int32Array(chan.slots, SLOT * slot, SLOT / 4);
   const wide = new BigInt64Array(chan.slots, SLOT * slot, SLOT / 8);
   const doorbell = new Int32Array(chan.doorbell);
   const nap = new Int32Array(new SharedArrayBuffer(4));
-  const ask = (call, args) => {
+  const ask = (call: number, args: (number | bigint)[]) => {
     let mask = 0;
     args.forEach((value, i) => {
       if (typeof value === 'bigint') mask |= 1 << i;
@@ -148,11 +184,11 @@ export function threadImports({ memory, chan, slot, names }) {
   const view = () => new DataView(memory.buffer);
   const nanos = () => BigInt(Math.round((performance.timeOrigin + performance.now()) * 1e6));
   const local = {
-    clock_time_get(_id, _precision, ptr) {
+    clock_time_get(_id: number, _precision: bigint, ptr: number) {
       view().setBigUint64(ptr >>> 0, nanos(), true);
       return 0;
     },
-    random_get(ptr, len) {
+    random_get(ptr: number, len: number) {
       // getRandomValues takes no view of shared memory: fill a copy.
       const bytes = new Uint8Array(len >>> 0);
       for (let at = 0; at < bytes.length; at += 65536)
@@ -163,7 +199,7 @@ export function threadImports({ memory, chan, slot, names }) {
     sched_yield: () => 0,
     // Only clock subscriptions are slept on (as wasi.ts does); the host
     // takes in the page's input meanwhile.
-    poll_oneoff(inPtr, outPtr, count, eventsPtr) {
+    poll_oneoff(inPtr: number, outPtr: number, count: number, eventsPtr: number) {
       const v = view();
       let wait = Infinity;
       let events = 0;
@@ -187,29 +223,34 @@ export function threadImports({ memory, chan, slot, names }) {
       return 0;
     },
   };
-  const preview1 = {};
+  const preview1: Record<string, Syscall> = {};
   names.forEach((name, index) => {
-    preview1[name] = local[name] ?? ((...args) => ask(index, args));
+    preview1[name] =
+      (local as Record<string, Syscall | undefined>)[name] ?? ((...args) => ask(index, args));
   });
   return {
     env: { memory },
-    wasi: { 'thread-spawn': (startArg) => ask(SPAWN, [startArg]) },
+    wasi: { 'thread-spawn': (startArg: number) => ask(SPAWN, [startArg]) },
     wasi_snapshot_preview1: preview1,
   };
 }
 
 // Run a thread: tid 0 is the node's main thread (_start), others start at
 // wasi_thread_start(tid, startArg).
-export function runThread({ module, memory, chan, slot, names, tid, startArg }) {
+export function runThread({ module, memory, chan, slot, names, tid, startArg }: ThreadStart): void {
   try {
     const instance = new WebAssembly.Instance(module, threadImports({ memory, chan, slot, names }));
     if (tid === 0) {
-      instance.exports._start();
+      // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a program's start.
+      (instance.exports._start as () => void)();
       finish(chan, RETURNED, 0);
     } else {
-      instance.exports.wasi_thread_start(tid, startArg);
+      (instance.exports.wasi_thread_start as (tid: number, startArg: number) => void)(
+        tid,
+        startArg,
+      );
     }
   } catch (error) {
-    finish(chan, FAILED, 0, `thread ${tid}: ${error?.stack ?? error}`);
+    finish(chan, FAILED, 0, `thread ${tid}: ${(error as Error)?.stack ?? error}`);
   }
 }

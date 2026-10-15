@@ -7,8 +7,8 @@ import { defineConfig, type UserConfig } from 'vite';
 // own parts of the runtime (host.ts, bridge.ts, …) are in the app's build.
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
-// harness (node.mjs and its threads' thread-node.mjs) into dist-node/
-// instead.
+// harness instead: node.mjs, and thread-node.ts for its threads, into
+// dist-node/ as .mjs.
 const runtime = (name: string) => new URL(`./src/runtime/${name}`, import.meta.url).pathname;
 
 export default defineConfig(({ mode }): UserConfig =>
@@ -22,7 +22,7 @@ export default defineConfig(({ mode }): UserConfig =>
           target: 'node24',
           minify: false,
           rollupOptions: {
-            input: { node: runtime('node.mjs'), 'thread-node': runtime('thread-node.mjs') },
+            input: { node: runtime('node.mjs'), 'thread-node': runtime('thread-node.ts') },
             output: { format: 'es', entryFileNames: '[name].mjs', chunkFileNames: '[name]-[hash].mjs' },
           },
         },
@@ -39,7 +39,7 @@ export default defineConfig(({ mode }): UserConfig =>
             input: {
               worker: runtime('worker.js'),
               files: runtime('files.js'),
-              thread: runtime('thread.js'),
+              thread: runtime('thread.ts'),
               sw: runtime('sw.ts'),
             },
             output: { format: 'es', entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js' },
