@@ -51,7 +51,7 @@ defmodule Playground.MixProject do
       {:oban, "~> 2.24"},
       {:hex_core, "~> 0.19"},
       {:req, "~> 0.8-rc"},
-      {:req_llm, "~> 1.25"}
+      {:req_llm, "~> 1.25.0"}
     ]
   end
 
