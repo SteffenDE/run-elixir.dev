@@ -7,7 +7,7 @@
 // mode it rebuilds when a file it read changes.
 import type { BuildOptions, Loader, Message, Plugin } from 'esbuild-wasm';
 import wasmURL from 'esbuild-wasm/esbuild.wasm?url';
-import { path } from './modules';
+import { made, path } from './modules';
 import type { Context, Process } from './tailwind';
 import { type Watcher, watchers } from './watch';
 
@@ -349,11 +349,6 @@ export async function esbuild(process: Process, { args, cwd, env, fs }: Context)
     const text = await engine.formatMessages(messages, { kind: severity, color: false });
     process.write(text.join(''));
   };
-  const made = async (dir: string): Promise<void> => {
-    if ((await fs.stat(dir)) === 'dir') return;
-    await made(path.dirname(dir));
-    await fs.mkdir(dir);
-  };
 
   const build = async (): Promise<boolean> => {
     const started = performance.now();
@@ -371,7 +366,7 @@ export async function esbuild(process: Process, { args, cwd, env, fs }: Context)
       await report(result.warnings, 'warning');
       const sizes: string[] = [];
       for (const output of result.outputFiles ?? []) {
-        await made(path.dirname(output.path));
+        await made(fs, path.dirname(output.path));
         await fs.write(output.path, output.contents);
         const relative = path.relative(cwd, output.path);
         const kb = (output.contents.length / 1024).toFixed(1);

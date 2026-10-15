@@ -134,6 +134,14 @@ export class SyncFiles {
   }
 }
 
+// A directory and those above it, made where missing (as a tool's output
+// path needs: `mkdir -p`).
+export async function made(fs: Files, dir: string): Promise<void> {
+  if ((await fs.stat(dir)) === 'dir') return;
+  await made(fs, path.dirname(dir));
+  await fs.mkdir(dir);
+}
+
 // Run `work` until it needs nothing the files have not fetched.
 export async function withFaults<T>(files: SyncFiles, work: () => Promise<T> | T): Promise<T> {
   for (let attempt = 0; ; attempt++) {

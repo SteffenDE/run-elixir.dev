@@ -10,7 +10,7 @@ import preflightCss from 'tailwindcss/preflight.css?raw';
 import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
 import type { FileSystem as Files } from '@runtime/host.js';
-import { SyncFiles, evaluate, path, withFaults } from './modules';
+import { SyncFiles, evaluate, made, path, withFaults } from './modules';
 import { type Watcher, watchers } from './watch';
 
 export const TAILWIND_VERSION = '4.3.3';
@@ -156,6 +156,9 @@ export async function tailwind(process: Process, { args, cwd, env, fs }: Context
       }
     }
     const result = await withFaults(files, () => compiler.build([...candidates]));
+    // The tailwind CLI makes the output's directory, as a new app's first
+    // build needs (priv/static/assets/css is in no template).
+    await made(fs, path.dirname(outputPath));
     await fs.write(outputPath, result);
     process.write(`\nDone in ${Math.round(performance.now() - started)}ms.\n`);
     for (const listener of built) listener(outputPath);
