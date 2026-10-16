@@ -47,6 +47,8 @@ Assets go under `/_playground/`, because the app in the preview owns
 | `project/components/Editor.tsx` | Tabs (Base UI) of open files; `@pierre/diffs` `File` in edit mode, one editor per tab, keyed by path. ⌘S / Ctrl+S saves. A clean tab follows the node's changes. |
 | `project/components/Terminals.tsx`, `TerminalPanel.tsx`, `lib/terminal-handle.ts`, `lib/terminal-links.ts` | Terminal tabs, each a node of its own over the same files, and their xterm terminals and links. |
 | `project/components/Preview.tsx`, `PreviewFrame.tsx`, `project/preview.tsx` | The preview, docked or popped out. |
+| `project/lib/workspace.ts` | What the components do to a project (read, save, the tree's operations, terminals), wherever it runs: this page's nodes, or a live session's host. |
+| `project/components/ShareButton.tsx`, `src/live/` | *Share*: a link, or a live session ([collaboration.md](collaboration.md)): the host's panel, a guest's page and top bar, the relay, encryption, shared files and the editor's binding to them. |
 ## Editing and saving
 
 Saving writes through `Files` (which keeps it, [projects.md](projects.md#what-is-kept))

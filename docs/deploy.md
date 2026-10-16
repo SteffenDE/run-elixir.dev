@@ -244,7 +244,7 @@ run-elixir.dev, *.run-elixir.dev {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
 	root * /srv/playground/run-elixir/current
-	# The backend (backend.md): NIF builds, and /socket for collaboration.
+	# The backend (backend.md): NIF builds, and /socket for live sessions.
 	@backend path /api/nif/* /socket /socket/*
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000

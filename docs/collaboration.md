@@ -4,45 +4,51 @@ status: live
 last_updated: 2026-10-16
 ---
 
-# Sharing and live sessions (plan)
+# Sharing and live sessions
 
-Not built yet, apart from the link share ([projects.md](projects.md#sharing)).
-This is the plan: what *Share* offers, how a live session works, what the
-server sees, and the order to build it in.
+*Share* makes a link to a copy of the project, or starts a live session of
+it: others join the project as it runs in this tab. This covers how a live
+session works, what the relay sees, and what is left
+([below](#not-built-yet)). The link is [projects.md](projects.md#sharing)'s.
+
+Code: `app/src/live` (the session), `backend/lib/playground/live*` and
+`backend/lib/playground_web/channels` (the relay). Tests:
+`app/test/e2e/live.spec.ts` and `live-domain.spec.ts`
+([testing.md](testing.md)), `backend/test/playground_web/channels`.
 
 ## What *Share* offers
 
-*Share* in the top bar opens a dialog with two choices:
+*Share* in the top bar opens a popover with two choices
+(`project/components/ShareButton.tsx`):
 
 | | Link | Live session |
 | --- | --- | --- |
-| What the other side gets | A copy: a new project of their own, made from the project's changes (today's `/import#DATA`). | This project, as it runs in this tab: files, open editors, terminals, preview. |
+| What the other side gets | A copy: a new project of their own, made from the project's changes (`/import#DATA`). | This project, as it runs in this tab: files, open editors, terminals, preview. |
 | Server | None (the fragment never reaches it). Later, optionally, a stored share ([below](#later-stored-shares-and-accounts)). | The backend's `/socket` relays encrypted messages between the browsers. It cannot read them. |
-| Lifetime | For ever. | While the host's tab runs the session. |
-| Guests can | Everything (it is their project). | Watch; edit, type in terminals and fork only if the host allows it. |
+| Lifetime | For ever. | While the host's tab runs the session (at most 24 hours). |
+| Guests can | Everything (it is their project). | Watch; edit, use the terminals and fork only if the host allows it. |
 
-A temporary IEx can be shared live (showing someone an IEx) but not as a
-link, as today.
+A temporary IEx has no link, only a live session (showing someone an IEx).
+While a session runs, the button reads *Live*, shows who is in, and opens
+on the session's panel: its link, who is in and what each may do, who
+waits to be let in, and *End live session* (`live/components/HostPanel.tsx`).
 
 ## A live session
 
 ### Who runs what
 
 **The host's tab runs the project; guests run no nodes.** A guest's page
-is a view of the host's: the file tree, editors, terminals and preview,
-fed over the relay. Everything a guest does goes to the host, which
-applies it through the same functions the IDE calls today
-(`src/project/lib/playground.ts`: `read`, `save`, `createFile`,
-`movePath`, `removePath`, `type`, `interrupt`, `resize`, the bridge).
+is the IDE over a remote workspace: the components call `workspace()`
+(`project/lib/workspace.ts`), which in a project's page is its nodes
+(`playground.ts`'s `local`) and in a guest's page asks the host
+(`live/lib/guest.ts`'s `remote`). The host does what a guest asks with
+the same functions its own IDE calls (`live/lib/host.ts`).
 
 - One truth: one `/work`, one database, one server. Two browsers each
   running the project would diverge (Mix's builds, PGlite, the server's
   state) with no way to reconcile.
 - Guests start in a second: no runtime download, no boot. A phone can
   join.
-- The guest page is the project IDE with a remote backend behind the
-  `playground.ts` interface ([projects.md](projects.md#plans) left room
-  for it). The IDE's components stay as they are.
 
 The cost: the session ends with the host's tab, and every request of a
 guest's preview crosses the relay twice.
@@ -55,210 +61,219 @@ https://DOMAIN/live/ID#k=KEY&h=HOSTKEY
 
 - `ID`: 128 random bits, base64url. The Phoenix topic is `live:ID`.
 - `KEY`: a random AES-256-GCM key, made by the host's browser.
-- `HOSTKEY`: the host's Ed25519 public key (WebCrypto). Guests accept
-  the session's state only when the host signed it ([why](#permissions)).
+- `HOSTKEY`: the host's Ed25519 public key. Guests take the session's
+  state only from what the host signed ([why](#permissions)).
 
 The fragment never reaches a server. Anyone with the link can read the
-session, so it is the secret: the dialog says so, and the host sees who
-is in.
+session, so it is the secret: the panel says so, and the host sees who is
+in.
 
-A guest's page runs on an origin of its own, `l-ID.DOMAIN` (see
-[projects.md](projects.md#a-project-domain)): the host's app runs in
-the guest's preview, with its own cookies and storage, and must not
-share an origin with the guest's projects or the apex. `DOMAIN/live/ID`
-goes there, carrying the fragment along (the page navigates itself,
-adding the fragment, so a redirect cannot drop it).
+On a project domain a guest's page runs on an origin of its own,
+`l-ID.DOMAIN` (lowercased; `shared/lib/site.ts`): the host's app runs in
+the guest's preview and must not share an origin with the guest's
+projects or the apex. `DOMAIN/live/ID` goes there, the page adding the
+fragment itself. Without a project domain the guest's page is the site's
+`/live/ID`, as projects share the one origin there.
+
+A guest's page asks for a name (kept in local storage, as the host's is),
+then joins.
 
 ### The relay
 
-A Phoenix channel in `playground/backend` on `/socket`, which
-[backend.md](backend.md) keeps for it. It knows nothing about projects:
+`PlaygroundWeb.LiveChannel` on the backend's `/socket`
+([backend.md](backend.md#live-sessions-relay)). It knows nothing about
+projects:
 
-- `join "live:ID"` with `{role: "host" | "guest"}`. The first join
-  creates the topic and must be a host; it gets a host token for
-  moderation. The topic ends when the host leaves (after a grace period
-  for a reload, below).
-- Every participant gets a server-assigned id. The server stamps
-  `from` on what it relays, so a guest cannot pretend to be another
-  participant to the server's moderation (signatures still decide what
-  guests trust).
-- `broadcast` (to all others) and `send` (to one participant, by id, for
-  a snapshot or a reply). The payload is opaque bytes.
-- `kick` (host token only): disconnects a participant and refuses its
-  rejoin.
-- Limits: participants per session (16), message size (256 KiB; larger
-  payloads are chunked by the client), message rate per participant,
-  total bytes per session per minute, idle timeout. Sockets only from
-  the site's origins.
-- Nothing is stored. Presence is ids and roles only; names travel
-  encrypted.
+- `join "live:ID"` with `role: "host"` makes the session
+  (`Playground.Live.Session`) and answers a host token, kept for a
+  reload; the host joins again with it. Guests join sessions that exist.
+- Each participant gets an id from the session; the relay stamps `from`
+  on what it passes on.
+- `b` (binary): to every other admitted participant. `s` (binary, a
+  target id first): to one. Both arrive as `m`.
+- The host's commands: `admission` (ask before letting guests in),
+  `admit`, `kick` and `end`. A guest waiting to be let in reaches only the
+  host and hears nothing else, enforced by the relay.
+- News: `joined`, `admitted`, `left`, `host` (gone for now, or back),
+  `kicked`, `ended`, `replaced` (the host joined again from elsewhere).
+- Limits (`config/config.exs`): 16 participants, 256 KiB a message, 1 MiB
+  and 200 messages a second per participant with four seconds' worth at
+  once, 30 s for a host to come back, 24 hours a session. The page paces
+  itself under them (`live/lib/relay.ts`). Sockets only from the site's
+  origins (`PLAYGROUND_ORIGINS` in production).
+- Nothing is stored. The relay knows ids, roles and who is admitted;
+  names travel encrypted.
 
 What the server does see: IP addresses, when and how much each
 participant sends, how many are in a session, and how long it lasts.
 
+A kicked guest's channel is closed. The link still works for it: it can
+join again as a new guest, unless the host asks before letting people in.
+
 ### Encryption
 
-Every message: `{seq, nonce, ciphertext}` with AES-256-GCM, a random
-96-bit nonce, and the session ID, the sender's id and `seq` as additional
-data, so the relay cannot move a message to another session or replay
-it as another sender's. The host's messages that carry state (file
-contents, Yjs updates, permissions, the participant list) are signed with
-its Ed25519 key inside the ciphertext.
+`live/lib/peer.ts`, all WebCrypto (`live/lib/crypto.ts`). On the wire,
+each message is an 8-byte sequence number and the AES-256-GCM ciphertext
+with its random 96-bit nonce. The additional data is the session, the
+sender's id (as the relay stamps it) and the sequence number, so a message
+cannot be moved to another session or sender; a receiver drops a number it
+has seen from that sender (numbers start from the clock, so a host's
+reload keeps them growing). Inside: JSON and, if any, bytes (Yjs updates,
+terminal output, a connection's data). Messages over 192 KiB go as parts
+and are put back together.
 
-All of it is WebCrypto; nothing new to bundle.
+Everything the host sends is signed with its Ed25519 key, inside the
+ciphertext. The signature is over a SHA-256 digest of the message: WebKit
+crashes its page signing 64 KB or more. WebKit also fails about one Ed25519
+key generation in a hundred, which is tried again.
 
 ### Permissions
 
-The host decides, at any time, from a panel listing who is in:
+The host decides, at any time, for everyone and for each guest:
 
 | Permission | Default | Lets a guest |
 | --- | --- | --- |
-| Watch | always | See the tree, open files, follow cursors, see terminal output and the preview. |
+| Watch | always | See the tree, open files, see others' cursors, terminal output and the preview. |
 | Edit | off | Edit files, create, rename and delete them, save. |
-| Terminal | off | Type into terminals, open and close them, restart the server. This is full control of the project (and its network), so it is its own switch, worded as such. |
+| Terminals | off | Type into terminals, open and close them, restart the server. This is full control of the project (and its network), so it is its own switch, worded as such. |
 | Fork | off | Make a project of their own from the session's current state. |
-| Admit | off | (A switch for the host: ask before each new guest gets in, instead of anyone with the link.) |
 
-Per guest or for all; the host can also kick.
+*Ask me before letting each person in* (off by default) is the host's:
+the relay keeps a new guest waiting, and the panel shows its name with
+*Let in* and *Turn away*.
 
-Everyone with the link holds the key, so the server cannot enforce this
-and neither can the key: a watching guest could encrypt an edit and
-broadcast it. So guests apply **only what the host signed**. An editing
-guest sends its edits to the host (`send`), the host checks the
-permission, applies them and broadcasts them signed. Edits cross the
-relay twice; for typing that is still well under what a person notices.
-Cursors and selections are cosmetic and go straight to everyone.
+Everyone with the link holds the key, so a watching guest could encrypt
+an edit and send it. So guests apply **only what the host signed**: an
+editing guest sends its edits to the host, which checks the permission,
+applies them and sends them on, signed. Edits the host refuses come back
+as the host's text (`reset`). Cursors are the one thing guests send
+everyone directly, and take from each other unsigned.
 
-A kicked guest keeps the key and could still read what it gets hold of;
-the server no longer sends it anything. Rotating the key for those who
-stay (each guest sends an X25519 public key on joining; the host sends
-the new key to each) comes later. Until then the answer to a leaked link
-is ending the session and starting a new one.
+A guest's page shows what it may do: without *Edit* the tree has no
+buttons, menu or dragging, the editor drops keys and input that change
+the text (moving, selecting, copying and finding still work), and there
+is no save button; without *Terminals* the terminals take no input.
 
 ### Joining
 
-1. The guest's page joins the topic, sends `hello` (a display name, kept
-   in local storage, and the site's version and protocol version), and
-   waits. With *Admit* on, the host is asked.
-2. The host answers with a signed `welcome`: the participant list and
-   colors, permissions, the project's kind and name, the tree (paths and
-   types; not contents), the open terminals with their current screens
-   (`initialLines`), the preview's address.
-3. File contents come when the guest opens a file: the host sends the
-   file's shared document (below), or its bytes for a binary file.
+1. The guest's page joins the topic and sends `hello`: its name and the
+   protocol version (`PROTOCOL`, `peer.ts`). A guest speaking another is
+   told to reload and removed.
+2. The host answers with `welcome`: who is in and their colors, the
+   guest's permissions, the project's kind and name, the tree, the
+   terminals (with their first command lines and modes) and the preview's
+   port, then each terminal's output so far.
+3. A file's text comes when the guest opens it (`open`, below).
 
-Guests on another site version than the host's are told and may go on if
-the protocol version matches; the page has nothing else in common with
-the host's (no template, no runtime).
+After the host's reload the host asks everyone to say `hello` again
+(`who`), and each guest's IDE starts over from the new `welcome`
+(the open tabs come back from the host).
 
 ### Files and editing
 
-Text that more than one person may type into is a **Yjs** document
-(`Y.Text`), one per open file, kept by the host for as long as someone
-has the file open. Yjs merges concurrent edits without a server, and its
-updates are opaque bytes that encrypt like anything else. The host's own
-editor is a participant like the guests.
+`live/lib/shared-files.ts`. A file open in the session is a **Yjs**
+document (`Y.Text`), made by the host when someone first opens it (from
+the host's tab, unsaved text included, else from `/work`) and kept for
+the session. Yjs merges concurrent edits, and its updates are opaque
+bytes that encrypt like anything else. Each update to a document goes to
+everyone, signed; guests that have the file apply it. The host's own
+editor is bound to the document like the guests'.
 
-The editor (@pierre/diffs 1.5.2, `src/project/components/Editor.tsx`)
-has what this needs, with two things to work around:
+The editor (@pierre/diffs 1.5.2, `project/components/Editor.tsx`) is bound
+to a document while one exists for its file:
 
-- **Other people's cursors:** `editor.setCarets([{anchor, focus,
-  metadata: {color, …}}])` with `renderCaret` (a caret and the person's
-  name). It draws them apart from the local selection, never touching
-  focus, and moves them along with edits between updates.
-- **Local edits out:** `onChange` gives each change as `{start, end,
-  text}` offsets, a `Y.Text` delete and insert.
-- **Remote edits in:** `editor.applyEdits(edits)` on the attached editor
-  (from `onAttach`), which keeps the local selection where it belongs.
-  Not through the `file` prop: a new `cacheKey` replaces the session.
-- **Echo:** `applyEdits` fires `onChange` too. A flag set while
-  applying a remote edit keeps it from going back out.
-- **Undo:** every `applyEdits` joins the editor's undo stack, so ⌘Z
-  would undo someone else's typing. The keymap can only rebind built-in
-  commands, so ⌘Z and ⌘⇧Z are caught before the editor (as ⌘S is) and
-  go to a `Y.UndoManager` that tracks only this browser's edits. The
-  editor's own history is cleared after each remote edit.
+- **Others' cursors:** `editor.setCarets(...)` with `renderCaret`, a bar
+  and the person's name in their color. Cursors travel as Yjs relative
+  positions, so they stay put as the text changes.
+- **Local edits out:** the editor's change event gives offsets in the text
+  before the change; they go into the `Y.Text`, last first.
+- **Remote edits in:** `editor.applyEdits` on the attached editor, which
+  keeps the local selection where it belongs, flagged so they do not come
+  back out.
+- **Undo:** ⌘Z and ⌘⇧Z (Ctrl+Y elsewhere, and the browser's undo) are
+  taken before the editor and go to a `Y.UndoManager` that undoes only
+  this editor's edits. The editor's own history is cleared after each
+  remote edit, since it would undo others' typing.
 
-**Saving** stays explicit: a shared document is the draft everyone sees;
-*Save* (by anyone who may edit) asks the host to write it to `/work`, and
-the dirty mark is shared. What the host's nodes see is the saved file,
-as today; Phoenix's reload follows a save, not a keystroke.
+**Saving** stays explicit: the document is the draft everyone sees;
+*Save* (by anyone who may edit) writes it to the host's `/work`, and the
+dirty mark is everyone's. The host's nodes see the saved file, as before,
+and Phoenix's reload follows a save, in everyone's preview.
 
-**Changes on disk** (a generator, `mix format`, `git checkout`) reach the
-tree of everyone. For a file with a shared document and no unsaved
-changes, the host turns the new contents into a diff on the `Y.Text`, so
-carets and undo survive; with unsaved changes, the editor offers the
-disk's version, as it does without a session.
+**Changes on disk** (a generator, `mix format`) reach everyone's tree. A
+file with a document and no unsaved changes takes the new text as one
+replacement on the `Y.Text`, so carets and undo survive. One with unsaved
+changes keeps them, as a tab does without a session; saving writes them
+over the disk's.
 
-Tree operations (create, rename, delete, upload) are requests to the
-host, which applies them and broadcasts the new tree.
+Tree operations are requests to the host, which applies them and sends
+the new tree; moves and removals move or close everyone's tabs.
+
+A binary file does not open for a guest (there is no text to share).
 
 ### Terminals
 
-The host streams each terminal's output (`onOutput`) to everyone; a
-joining guest gets the screen so far. A guest's terminal shows the
-host's columns and rows (a guest's resize does not reach the node).
-With *Terminal*, keystrokes and Ctrl+C go to the host's `type` and
-`interrupt`, and a guest may open terminals.
+The host sends each terminal's output, in batches of 30 ms, to everyone.
+A guest's terminal fits its own panel; the node keeps the host's size, so
+a narrower guest sees long lines wrapped where the host's terminal wraps
+them. With *Terminals*, the guest's input and Ctrl+C go to the host's
+node, and the guest may open and close terminals (not the first) and
+restart the server.
 
 ### The preview
 
-A guest's preview runs the host's app as itself: its own cookies, its
-own LiveView. The guest's service worker sends the preview's requests to
-the guest's page (as it does to a project's page today); the page sends
-them over the relay to the host, whose bridge (`bridge.ts`) answers them
-as it answers its own preview, WebSockets included (the injected
-`WebSocket` already goes through a `MessagePort`). Each guest is then
-another user of the app, which is the point of showing a Phoenix app to
-someone.
+A guest's preview runs the host's app as itself: its own cookies, its own
+LiveView. The guest's page runs a bridge (`runtime/bridge.ts`) and a
+service worker as a project's page does; the bridge's connections are
+tunnelled through the relay (`tcp-open`, `tcp-data`, `tcp-end`,
+`tcp-close`) to the host, which connects them to the node that serves the
+port (only servers' ports: not PGlite's, not Mix's locks). HTTP, cookies
+and WebSockets are the guest's bridge's, as they are for the host's own
+preview. The host's data goes out every 5 ms or 128 KiB, so a page's
+assets are a few messages.
 
-Requests are chunked and streamed with ids, so a large asset does not
-stall the editors' messages. Static assets the host has served once may be
-cached in the guest's service worker for the session.
-
-The host's app code runs in the guest's browser, as it would from an
-imported link; the guest's origin of its own keeps it from anything else.
+The host's preview reloads (after a save, a new esbuild bundle) and
+Tailwind's new CSS reach the guests' previews.
 
 ### Presence
 
-Names (chosen on joining), colors (assigned by the host), who has which
-file open and where the cursor is, shown on tabs and the tree. *Follow*
-a participant: open what they open, scroll where they scroll.
+Names (chosen on joining), colors (by the order people joined), and
+where each cursor is. The top bar shows who is in.
 
 ### When the host goes away
 
-- **Reload:** the host keeps the session's ID and keys in
-  `sessionStorage` and rejoins; the relay holds the topic for a grace
-  period (30 s) and guests show "reconnecting". The shared documents are
-  rebuilt from `/work`; unsaved text is lost unless a guest still has
-  it, so a rejoining host first takes back the documents guests hold.
-- **Close, or *End session*:** guests are told, and keep a read-only
-  view of what they had open until they leave. A fork needs the host
-  (a guest has only the files it opened), so it is not offered then.
+- **Reload:** the host keeps the session's id, token and keys in
+  `sessionStorage` and joins again; the relay keeps the session for 30 s
+  and guests show *The host is away*. The documents are made again from
+  `/work` (and the host's tabs), so unsaved text the host's page held is
+  lost.
+- ***End live session***, or the tab closed for longer than 30 s: guests
+  are told, and keep a read-only view of what they had open until they
+  leave.
 - **Open it here** in another tab of the host's (one tab per project,
   [projects.md](projects.md#one-tab-per-project)) ends the session first.
 
 ### Forking
 
 A guest with *Fork* asks the host for the project as `shareable()` makes
-it for a link, including the shared documents' unsaved text, over
-`send` in chunks (no URL limit). The guest's apex then makes a project
-from it as `/import` does, with the same template check.
+it for a link, with the documents' unsaved text, in parts (no URL limit).
+It becomes a project of the guest's browser in a new tab: made directly
+where the guest's page shares the projects' origin, else (a guest's own
+origin on a project domain) through the apex's `/import#DATA` page, where
+a link's limits apply.
 
-## Order of work
+## Not built yet
 
-1. **Share dialog.** Link or live; the link as today.
-2. **Relay.** The channel, ids, `broadcast`/`send`/`kick`, limits; ExUnit
-   tests. Deployed on `/socket` with the backend.
-3. **Watching.** The guest page on `l-ID.DOMAIN`; encryption and
-   signatures; `hello`/`welcome`; the remote `playground.ts` (tree,
-   reading files); terminal output; the participant panel. Playwright with
-   two browser contexts and the backend running locally.
-4. **Editing.** Yjs documents; remote carets; ⌘Z through `Y.UndoManager`;
-   shared saving; changes on disk; the *Edit* permission.
-5. **Preview** over the relay; *Terminal* input.
-6. **Fork**, *Admit*, follow mode, the host's reload.
-7. **Key rotation** after a kick.
+- **Key rotation** after a kick (each guest sends an X25519 public key on
+  joining; the host sends the new key to each). Until then the answer to
+  a leaked link is ending the session and starting a new one.
+- **Presence on tabs and the tree** (who has which file open), and
+  *Follow* a participant.
+- **A guest's preview cache:** every asset crosses the relay each time.
+- **Deploying on a site without a project domain**
+  (elixir-playground.steffend.me): Caddy routes `/socket` only on
+  run-elixir.dev, and the backend lets only its origins in
+  ([deploy.md](deploy.md)).
 
 ## Later: stored shares and accounts
 
@@ -271,6 +286,10 @@ Accounts come after: a signed-in user's projects kept on the server with
 a lasting id or slug, opened from any browser, and a stored share that
 can be updated in place. Whether those are encrypted too (with a key the
 account holds) is open.
+
+WebRTC between the browsers (less relay traffic for previews) is for
+later too; the relay would then carry its signalling and stay the
+fallback.
 
 ## Open questions
 

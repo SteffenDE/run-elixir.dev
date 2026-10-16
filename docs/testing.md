@@ -29,6 +29,12 @@ runs `WORKERS` (3) tests at a time, and leaves tests tagged `@slow` to
 `SLOW=1`. Results, failure screenshots and traces go to
 `target/playground-tests/`.
 
+The live session tests need the backend's relay: `mix phx.server` in
+`playground/backend` (on port 4000; [backend.md](backend.md#developing)).
+The config serves the site for them on `PORT` + 2, and with a project
+domain on `PORT` + 3, both with `--api http://localhost:4000`; without a
+backend there, they are skipped.
+
 Each test gets a fresh browser context, so its IndexedDB starts empty.
 `fixtures.ts` fails a test on an uncaught page error; `helpers.ts` drives
 the page through `window.playground`, and `syncLV(page or frame)` waits for
@@ -54,6 +60,8 @@ submits) (`node`, `output`, `sessions`,
 | `git` | heroicons as phx.new adds it (tag, sparse, depth 1): fetched and checked out sparsely, the lock checked, and fetched again from the lock. |
 | `tree` | Files and folders made, renamed, moved (Chromium) and deleted from the tree, kept across a reload. |
 | `share` | An empty project (text and bytes) and a Phoenix project (an edited and a removed template file) shared as links and opened in a fresh browser context; a damaged link. |
+| `live` | A live session, host and guest in two browser contexts: the guest watches (tree, terminal, a file it cannot change), then edits once allowed (typing both ways, each other's carets, undo of its own typing, saving, a change on disk), types into the host's terminal, and sees the session end; asking before letting a guest in, and removing one; a fork with unsaved text; the host's reload; a Phoenix app in the guest's preview, LiveDashboard over its WebSocket, and a save in the host's editor reloading it. |
+| `live-domain` (project `domain`) | A live session with a project domain: the guest's page on its `l-ID` origin, and its fork made through the apex's import page. |
 | `phone` | At 390×844: the home page and projects fit, one pane at a time, a Phoenix project opens on its preview. |
 | `websocket` | A WebSocket from the preview to `/live/websocket` gets Phoenix's heartbeat reply; LiveDashboard (path bar `/dev/dashboard`) connects over `:websocket`, shows its home page and a process's details. |
 | `auth` (`@slow`) | `phx.gen.auth --hashing-lib pbkdf2` in a second shell, `deps.get`, `compile`, `ecto.migrate`, the server restarted, a registration in the preview over LiveView's WebSocket (flash, PGlite row). About 1.2 min. |

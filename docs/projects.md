@@ -164,8 +164,11 @@ routes each preview to its project's page ([runtime.md](runtime.md#the-preview-s
 
 ## Sharing
 
-*Share* in the top bar makes a link to the project's changes over its
-template and copies it (`src/shared/lib/share.ts`):
+*Share* in the top bar offers a link or a live session. A live session
+lets others join the project as it runs in this tab
+([collaboration.md](collaboration.md)); its guests' pages are
+`/live/ID#KEY`, and on a project domain `l-ID.DOMAIN`. A link is the
+project's changes over its template, copied (`src/shared/lib/share.ts`):
 
 - **What:** the files below `/work` it added, renamed or wrote, whole, and
   the template's files it removed (`files.js`'s `changes`, against the
@@ -185,7 +188,8 @@ Whole files, rather than line diffs, apply exactly over any version of
 the template, and compression takes most of the difference in size: a
 Phoenix project with one edited template file and one removed makes a
 link of a few KB. A link holds what a URL can; very large projects will
-want a server to keep them (with the collaboration server).
+want a server to keep them
+([collaboration.md](collaboration.md#later-stored-shares-and-accounts)).
 
 ## Deleting
 
@@ -205,9 +209,4 @@ Not built yet; the design leaves room for them.
 - **Shares on a server,** for projects too large for a link, encrypted
   in the browser ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)), and git
   history in a project (the shell's `git` beyond what Mix asks).
-- **Live sessions.** *Share* offering a live session beside the link:
-  guests watch, and with the host's leave edit, the project running in
-  the host's tab, over an encrypted relay. The page reaches the nodes
-  only through `Files` and the port routing in
-  `src/project/lib/playground.ts`, which a remote side can stand behind.
-  The plan: [collaboration.md](collaboration.md).
+- **Live sessions:** what is left ([collaboration.md](collaboration.md#not-built-yet)).

@@ -25,6 +25,13 @@ last_updated: 2026-10-16
   project, its `make` unpacking the library, and its NIFs run in the
   node's worker (fetched, built and used in about 13–16 s in each
   browser).
+- **Live sessions** ([collaboration.md](collaboration.md)): *Share*
+  starts one; guests join with the link and see the project as it runs
+  in the host's tab, its tree, terminals, files and preview (their own
+  cookies and LiveView), end-to-end encrypted through the backend's
+  relay. Files open in the session are Yjs documents, edited together
+  with each other's carets; the host chooses who may edit, use the
+  terminals or fork, and may ask before letting each guest in.
 - **The backend** ([backend.md](backend.md), run-elixir.steffend.me,
   deployed with docker compose on anubis): builds a Hex release's NIF
   library on request (`/api/nif/`) in a Firecracker VM, from a template
@@ -180,5 +187,7 @@ last_updated: 2026-10-16
 7. A TCP relay through the site for the node's other connections
    (allow-listed hosts, TLS in the node), as an API-only Phoenix app the
    collaboration relay can grow from.
-8. Live sessions ([collaboration.md](collaboration.md#order-of-work)).
+8. Live sessions: what is left
+   ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
+   elixir-playground.steffend.me too.
 9. Compile speed: within 3–4× of BEAM on the Ash app (now about 7×).

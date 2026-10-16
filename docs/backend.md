@@ -8,11 +8,10 @@ last_updated: 2026-10-16
 
 The site is static; the backend is what it can't be: a Phoenix API app
 (`mix phx.new --no-html --no-assets`, app `:playground`) that builds NIF
-libraries to WebAssembly on request, and later relays live sessions
-([collaboration.md](collaboration.md#the-relay), not started). It runs at
+libraries to WebAssembly on request, and relays live sessions between
+browsers ([collaboration.md](collaboration.md)). It runs at
 run-elixir.steffend.me for its admin, and answers the playground's
-pages at `/api/nif/` on run-elixir.dev and its project origins, where
-`/socket` is kept for live sessions.
+pages at `/api/nif/` and `/socket` on run-elixir.dev and its subdomains.
 
 Its sandbox, notifications and GitHub sign-in come from SCA (~/sca), a
 different project, cut down to what the backend needs.
@@ -83,6 +82,27 @@ reach the backend's hosts, and only VMs run them.
 A failed build, a package found unsupported and every template the agent
 writes are notified (Web Push, to the browsers subscribed at `/admin`), so
 a person reviews what the agent wrote.
+
+## Live sessions' relay
+
+`/socket` (`PlaygroundWeb.LiveSocket`, WebSocket only) has one channel,
+`live:ID` (`PlaygroundWeb.LiveChannel`): a live session's host and guests
+pass each other binary messages the browsers encrypted, which the relay
+cannot read. `Playground.Live` keeps sessions: a process each
+(`Playground.Live.Session`, under `Playground.Live.Supervisor`), started
+by the host's first join, which answers a token to rejoin with after a
+reload; the participants' channels are registered under the session and
+their id (`Playground.Live.Registry`). The admitted ones subscribe to the
+session's room for broadcasts; one-to-one messages find their target in
+the registry. A session ends when the host ends it, 30 s after its host
+left, or after 24 hours. Nothing is stored.
+
+What each message and command does, the limits and what the relay sees:
+[collaboration.md](collaboration.md#the-relay). The limits are
+`config :playground, Playground.Live`. In production, only the site's
+origins may open the socket: `PLAYGROUND_ORIGINS` (comma-separated, as
+`check_origin` takes them; `//run-elixir.dev,//*.run-elixir.dev` by
+default).
 
 ## The sandbox
 
@@ -185,4 +205,3 @@ locally needs the network or a local backend (`serve.py --api`).
   layer for Rust NIFs.
 - Rate limits on `/api/nif/` beyond the agent's budget and the downloads
   threshold; builds of a popular package's many versions still queue VMs.
-- Collaboration over `/socket`.
