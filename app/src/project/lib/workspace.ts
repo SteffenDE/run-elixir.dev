@@ -1,3 +1,5 @@
+import type { SearchQuery, SearchResult } from '@/runtime/host/files';
+
 // What the IDE's components do to a project, wherever it runs: the nodes
 // in this page (playground.ts), or a live session's host, for a guest
 // (src/live/lib/guest.ts). Components call `workspace()` when they act,
@@ -5,6 +7,9 @@
 export interface Workspace {
   read(path: string): Promise<Uint8Array>;
   stat(path: string): Promise<'file' | 'dir' | null>;
+  // Matches in the project's text files, but in the tree's hidden
+  // directories.
+  search(query: SearchQuery): Promise<SearchResult>;
   // The tree's file operations, on absolute paths below /work.
   createFile(path: string): Promise<void>;
   createDirectory(path: string): Promise<void>;

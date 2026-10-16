@@ -85,6 +85,11 @@ test('a guest watches, then edits and types when the host allows it', async ({ p
   await guest.waitForTimeout(500);
   expect(await editorText(guest)).not.toContain('nope');
   await expect(guest.getByTitle('New file')).toHaveCount(0);
+  // The search runs over the host's files, watching or not.
+  await guest.getByRole('tab', { name: 'Search' }).click();
+  await guest.getByRole('textbox', { name: 'Search the files' }).fill('hello');
+  await expect(guest.locator('.search-hit')).toHaveAttribute('title', 'notes.txt:1:1');
+  await guest.getByRole('tab', { name: 'Files' }).click();
 
   // Allowed to edit: the guest's typing reaches the host's editor, and the
   // host's the guest's.

@@ -255,8 +255,13 @@ handler }` answers the node's connections to those ports (5432: PGlite).
 `new Files({ base, boots, template, store, onchange, onwarning })` starts
 `files.js` from the site's boot images and manifest (only the shared paths
 and the template). It offers `list`, `stat`, `read`, `write`, `mkdir`,
-`remove`, `rename` and `flush` (write the pending changes now) for the page,
-and `connect()`, which makes a node's channel.
+`remove`, `rename`, `search` and `flush` (write the pending changes now)
+for the page, and `connect()`, which makes a node's channel. `search(path,
+query, skip, limit)` finds a text or a regular expression (of any case, or
+this one) in the files below `path`, in the worker (`runtime/search.ts`):
+files over 1 MiB or with a NUL in their first 8 KiB are skipped, hits come
+in the order of the paths, each with its line and column and a piece of
+the line from a little before the match, at most `limit` (1000) of them.
 
 ## The preview (`sw.js`, `bridge.ts`)
 

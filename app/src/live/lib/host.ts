@@ -23,6 +23,7 @@ import { fragment, newKeys, randomId, storedKeys, utf8, type StoredKeys } from '
 import { PROTOCOL, Peer, type Message, type Received } from './peer';
 import { startFollowing } from './follow';
 import { setActiveSender, setCursorSender } from './presence';
+import type { SearchQuery } from '@/runtime/host/files';
 import type { Connection } from '@/runtime/host/node';
 import type { Joined } from './relay';
 import {
@@ -440,6 +441,12 @@ const below = (path: unknown): path is string =>
   path.startsWith(`${WORK}/`) &&
   !path.split('/').some((part) => part === '..' || HIDDEN.includes(part));
 
+// A guest's search, as a query whatever it sent.
+const searchQuery = (query: unknown): SearchQuery => {
+  const { text, regex, matchCase } = (query ?? {}) as Partial<SearchQuery>;
+  return { text: String(text ?? ''), regex: regex === true, matchCase: matchCase === true };
+};
+
 async function receive({ from, message, bytes }: Received) {
   const person = people.get(from);
   if (!person) return;
@@ -484,6 +491,11 @@ async function receive({ from, message, bytes }: Received) {
       );
     case 'stat':
       return reply(from, req, below(path) ? await local.stat(path) : null);
+    case 'search':
+      return local.search(searchQuery(message.query)).then(
+        (result) => reply(from, req, result),
+        (error: Error) => refuse(from, req, error.message),
+      );
     case 'update': {
       const file = typeof path === 'string' ? sharedFile(path) : undefined;
       if (!file || !bytes) return;

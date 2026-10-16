@@ -28,7 +28,8 @@ import {
 } from './wasi/fs';
 import * as overlays from './overlay';
 import type { KeptRecord } from './overlay';
-import type { Entry } from './host/files';
+import type { Entry, SearchHit, SearchQuery } from './host/files';
+import { LARGEST, pattern, searchFile } from './search';
 
 // This worker's postMessage (a dedicated worker's: the app's DOM library
 // has the page's).
@@ -59,6 +60,8 @@ interface PageRequest {
   to: string;
   skip?: string[];
   data: Uint8Array;
+  query?: SearchQuery;
+  limit?: number;
 }
 type PageReply = {
   id: number;
@@ -456,7 +459,7 @@ function walkFiles(
 }
 
 // The page's requests (host/files.ts): the same filesystem, by message.
-function page({ id, op, path, to, skip = [], data }: PageRequest): PageReply {
+function page({ id, op, path, to, skip = [], data, query, limit = 1000 }: PageRequest): PageReply {
   // Symbolic links are followed, but by what removes or renames them.
   // Every request with a path needs it.
   const found = (
@@ -477,6 +480,31 @@ function page({ id, op, path, to, skip = [], data }: PageRequest): PageReply {
       };
       if (found.node instanceof Dir) walk(found.node, path === '/' ? '' : path);
       return { id, entries };
+    }
+    // Every match of `query` in the files below `path` (search.ts), in
+    // the order of their paths.
+    case 'search': {
+      const expression = pattern(query!);
+      if (typeof expression === 'string')
+        return { id, hits: [], truncated: false, error: expression };
+      const files: [string, File][] = [];
+      if (found.node instanceof Dir)
+        walkFiles(found.node, path, (file, node) => files.push([file, node]), skip);
+      files.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+      const hits: SearchHit[] = [];
+      let truncated = false;
+      for (const [file, node] of files) {
+        // Not fetched only to be skipped.
+        if (node.size > LARGEST) continue;
+        load(node, fetchFile);
+        hits.push(...searchFile(file, node.bytes, expression, limit + 1 - hits.length));
+        if (hits.length > limit) {
+          hits.length = limit;
+          truncated = true;
+          break;
+        }
+      }
+      return { id, hits, truncated };
     }
     // What the project changed below /work over its template, but in
     // directories named in `skip` (builds, dependencies): the files it

@@ -13,7 +13,7 @@ import { resumeSession } from '@/live/lib/host';
 import type { GuestProject } from '@/live/lib/guest';
 import { EditorArea } from '@/project/components/Editor';
 import { KindChip } from '@/shared/components/KindChip';
-import { FileTreePanel } from '@/project/components/FileTreePanel';
+import { SidePanel } from '@/project/components/SidePanel';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
 import { QuickOpen } from '@/project/components/QuickOpen';
@@ -221,7 +221,7 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
             collapsible
             className="panel"
           >
-            <FileTreePanel />
+            <SidePanel />
           </Panel>
           <Separator className="separator" />
           <Panel id="work" defaultSize="44" minSize={240} className="panel">

@@ -9,6 +9,34 @@ export interface Entry {
   dir: boolean;
 }
 
+// A search of file contents (Files.search): a text, or a regular
+// expression; of any case, or this one.
+export interface SearchQuery {
+  text: string;
+  regex: boolean;
+  matchCase: boolean;
+}
+
+// A match: where it is (one-based), and its line as it shows, from a
+// little before it (`cut`: not from its start), the match `at` in it.
+export interface SearchHit {
+  path: string;
+  line: number;
+  column: number;
+  text: string;
+  at: number;
+  length: number;
+  cut: boolean;
+}
+
+// The hits, in the order of the files; `truncated` when there were more
+// than were kept; `error` when the expression is not one.
+export interface SearchResult {
+  hits: SearchHit[];
+  truncated: boolean;
+  error?: string;
+}
+
 export interface Stat {
   type: 'file' | 'dir';
   size: number;
@@ -153,6 +181,18 @@ export class Files implements FileSystem {
     skip: string[] = [],
   ): Promise<{ changed: { path: string; data: Uint8Array }[]; removed: string[] }> {
     return this.ask({ op: 'changes', skip }).then(({ changed, removed }) => ({ changed, removed }));
+  }
+  // The matches of `query` in the text files below `path`, but in
+  // directories named in `skip`, at most `limit`.
+  search(
+    path: string,
+    query: SearchQuery,
+    skip: string[] = [],
+    limit = 1000,
+  ): Promise<SearchResult> {
+    return this.ask({ op: 'search', path, query, skip, limit }).then(
+      ({ hits, truncated, error }) => ({ hits, truncated, error }),
+    );
   }
   // Keep everything changed so far (a store's).
   flush(): Promise<void> {

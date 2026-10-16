@@ -217,6 +217,11 @@ the new tree; moves and removals move or close everyone's tabs.
 
 A binary file does not open for a guest (there is no text to share).
 
+A guest's search of the files' contents (*Search* in the side panel) is a
+`search` request; the host runs it over its own files, as its search
+does, whatever the guest may do, and answers with the hits. Unsaved text
+in anyone's editor is not searched.
+
 ### Terminals
 
 The host sends each terminal's output, in batches of 30 ms, to everyone.

@@ -1,6 +1,6 @@
 import { RiCodeSSlashLine, RiFolder3Line, RiGlobalLine, RiTerminalBoxLine } from '@remixicon/react';
 import { EditorArea } from '@/project/components/Editor';
-import { FileTreePanel } from '@/project/components/FileTreePanel';
+import { SidePanel } from '@/project/components/SidePanel';
 import { Preview } from '@/project/components/Preview';
 import { Terminals } from '@/project/components/Terminals';
 import { useStore, type Pane } from '@/project/lib/store';
@@ -32,7 +32,7 @@ export function NarrowWorkspace({
   return (
     <div className="narrow-workspace">
       <div className="narrow-pane" hidden={shown !== 'files'}>
-        <FileTreePanel />
+        <SidePanel />
       </div>
       <div className="narrow-pane" hidden={shown !== 'editor'}>
         <EditorArea phoenix={phoenix} />

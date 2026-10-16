@@ -12,7 +12,7 @@ import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
 import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
-import { Files } from '@/runtime/host/files';
+import { Files, type SearchQuery, type SearchResult } from '@/runtime/host/files';
 import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
 import { lineDiscipline } from '@/runtime/terminal';
 import { BUILD } from '@/shared/lib/build';
@@ -144,6 +144,12 @@ export function read(path: string): Promise<Uint8Array> {
 
 export function stat(path: string): Promise<'file' | 'dir' | null> {
   return files ? files.stat(path) : Promise.resolve(null);
+}
+
+// What the project's files say: matches of `query` below /work, but in
+// the directories the tree leaves out.
+export function search(query: SearchQuery): Promise<SearchResult> {
+  return running().search(WORK, query, HIDDEN);
 }
 
 function running(): Files {
@@ -460,6 +466,7 @@ export async function shareable(name: string, template?: Template): Promise<Shar
 export const local: Workspace = {
   read,
   stat,
+  search,
   createFile: (path) => createFile(path),
   createDirectory,
   movePath,

@@ -7,6 +7,8 @@ export const WORK = '/work';
 export const HIDDEN = ['_build', 'deps', '.mix', '.hex', 'node_modules', '.git', '.elixir_ls'];
 
 export type Pane = 'files' | 'editor' | 'terminal' | 'preview';
+// What the side panel shows: the tree, or the search of the files.
+export type SideTab = 'files' | 'search';
 
 export interface Tab {
   // Absolute path in the node.
@@ -60,6 +62,11 @@ interface State {
   filesShown: boolean;
   // On a narrow screen, the one pane that shows.
   pane: Pane;
+  sideTab: SideTab;
+  // Bumped to put the focus in the search field (⌘⇧F, Ctrl+Shift+F).
+  searchFocus: number;
+  setSideTab(tab: SideTab): void;
+  focusSearch(): void;
   // What this page may do: change files (the tree and the editor), and
   // type into terminals (and open them, restart the server). Only a live
   // session's guest may not.
@@ -132,6 +139,16 @@ export const useStore = create<State>((set) => ({
   elsewhere: false,
   filesShown: true,
   pane: 'terminal',
+  sideTab: 'files',
+  searchFocus: 0,
+  setSideTab: (sideTab) => set({ sideTab }),
+  focusSearch: () =>
+    set((state) => ({
+      sideTab: 'search',
+      filesShown: true,
+      pane: 'files',
+      searchFocus: state.searchFocus + 1,
+    })),
   access: { edit: true, terminal: true },
   remote: false,
   setAccess: (access) => set({ access }),

@@ -7,6 +7,7 @@ import { built } from '@/project/lib/programs/tailwind';
 import { previewKey } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { Bridge, type Connection } from '@/runtime/bridge';
+import type { SearchResult } from '@/runtime/host/files';
 import { disposeTerminal } from '@/project/lib/terminal-handle';
 import { setWorkspace, type Workspace } from '@/project/lib/workspace';
 import type { WorkspaceKind } from '@/shared/lib/projects';
@@ -462,6 +463,7 @@ export const remote: Workspace = {
   read: (path) => request({ t: 'read', path }).then((r) => r.bytes ?? new Uint8Array()),
   stat: (path) =>
     request({ t: 'stat', path }).then((r) => r.message.value as 'file' | 'dir' | null),
+  search: (query) => request({ t: 'search', query }).then((r) => r.message.value as SearchResult),
   createFile: async (path) => {
     await request({ t: 'create', path, dir: false });
     await remote.openFile(path);

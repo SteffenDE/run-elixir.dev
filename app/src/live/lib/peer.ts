@@ -18,7 +18,7 @@ import { Relay, type Joined, type Role } from './relay';
 
 // The messages' version: a guest says it, the host answers a guest that
 // speaks another.
-export const PROTOCOL = 2;
+export const PROTOCOL = 3;
 
 export interface Message {
   t: string;
