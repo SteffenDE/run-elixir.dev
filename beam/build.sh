@@ -4,19 +4,24 @@
 #
 # Usage: playground/beam/build.sh [debug|release] [-j N]
 #
-# Sources and build output live under out/beam-wasm:
+# Environment:
+#   OPT          release optimisation level (default -Os, as Popcorn)
+#   EXTRA_LINK   further emcc link flags, e.g. -sNODERAWFS=1 for Node runs
+#                with the host's file system
+#   DIST         output directory (default <tree>/dist)
+#
+# Each mode builds in its own tree, out/beam-wasm/debug or
+# out/beam-wasm/release<OPT without its dash> (releaseOs, releaseO2):
 #   otp/        patched OTP checkout (git, one commit per patch)
-#   dist/       beam.wasm, beam.mjs, beam.emu.mjs
+#   dist/       beam.wasm, beam.mjs, beam.emu.mjs, vm.boot
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/../.." && pwd)"
 OTP_TAG="${OTP_TAG:-OTP-29.1.1}"
-WORK="${ROOT}/out/beam-wasm"
-OTP_DIR="${WORK}/otp"
-DIST="${WORK}/dist"
 MODE=debug
 JOBS="$(nproc)"
+OPT="${OPT:--Os}"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -25,6 +30,15 @@ while [[ $# -gt 0 ]]; do
         *) echo "unknown argument: $1" >&2; exit 2 ;;
     esac
 done
+
+if [[ "${MODE}" == release ]]; then
+    # No -O2 in the path: erts/emulator/zlib/zlib.mk rewrites -O2 in CFLAGS.
+    WORK="${ROOT}/out/beam-wasm/release${OPT#-}"
+else
+    WORK="${ROOT}/out/beam-wasm/debug"
+fi
+OTP_DIR="${WORK}/otp"
+DIST="${DIST:-${WORK}/dist}"
 
 log() { echo "beam-wasm | $*" >&2; }
 
@@ -98,14 +112,13 @@ bootstrap() {
 }
 
 configure_wasm() {
-    local stamp="${OTP_DIR}/.stamp-configure-${MODE}"
+    local stamp="${OTP_DIR}/.stamp-configure"
     [[ -f "${stamp}" ]] && return
-    rm -f "${OTP_DIR}"/.stamp-configure-*
     log "configuring for emscripten (${MODE})"
     if [[ "${MODE}" == debug ]]; then
         export CFLAGS="-O0 -g -pthread"
     else
-        export CFLAGS="-Os -flto -pthread"
+        export CFLAGS="${OPT} -flto -pthread"
     fi
     export LDFLAGS="-pthread -flto"
     export ac_cv_func_pthread_create=yes ac_cv_header_pthread_h=yes
@@ -140,8 +153,11 @@ build() {
     if [[ "${MODE}" == debug ]]; then
         flags+=" -sASSERTIONS=2"
     else
-        flags+=" -sASSERTIONS=0 -Oz"
+        flags+=" -sASSERTIONS=0 ${OPT}"
     fi
+    flags+=" ${EXTRA_LINK:-}"
+    # The emulator's link does not depend on these flags; relink.
+    rm -f "${OTP_DIR}"/bin/wasm32-unknown-emscripten/beam.{emu,smp,wasm}
     export EXTRA_EMCC_LINK_FLAGS="${flags}"
     log "building erts and libraries (${MODE}, -j${JOBS})"
     (
