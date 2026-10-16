@@ -6,7 +6,7 @@ playground.
 
 ## Provenance
 
-`patches/` and `emscripten/` are copied unchanged from
+`patches/0001` to `0014` and `emscripten/` are copied unchanged from
 [Popcorn](https://github.com/software-mansion/popcorn) (Software Mansion,
 Apache License 2.0), `popcorn/patches` and `popcorn/emscripten` at commit
 `a64cbbc23cf1244a27d69a6d684e10c5040aa0e6`. Popcorn wrote them for
@@ -32,6 +32,13 @@ The patches, in order:
 | 0012 asn-one-erlang-fallback | asn1 without its NIF |
 | 0013 module-checksum-xxh | module MD5 replaced by xxhash |
 | 0014 no-jump-table | interpreter without computed goto |
+| 0015 wasm-process-main-returns | ours: `process_main` returns at each schedule |
+
+Patch 0015 is ours. V8 moves a WebAssembly function to optimized
+(TurboFan) code only when it is next called, and a scheduler thread
+entered `process_main`, the interpreter loop, once for good: it ran as
+baseline (Liftoff) code, 64% of a profile. Returning at each schedule and
+being called again in a loop made compiling Ash 4.5 times as fast.
 
 ## Build
 
@@ -68,8 +75,11 @@ schedulers, on a 12-core AMD machine; Node 24.19 from emsdk.
 | --- | --- | --- |
 | BEAM 29.1.1 native (JIT) | 37.4 s | 644 MB RSS |
 | Rust-OTP native | 97.2 s | 2.2 GB RSS |
-| Rust-OTP wasm (`rotp-threads.wasm`, `node.mjs`) | 153.2 s | 2.0 GB RSS |
-| BEAM wasm, `-O2`, mimalloc, `-MMscs 1536 -MMsco false` | 449.9 s | 1659 MB wasm, 2.2 GB RSS |
+| Rust-OTP wasm (`rotp-threads.wasm`, `node.mjs`) | 153.2 s (152.4 s with `--no-liftoff`) | 2.0 GB RSS |
+| BEAM 29.1.1 native, `--disable-jit` | 58.3 s | 550 MB RSS |
+| BEAM wasm, `-O2`, mimalloc, `-MMscs 1536 -MMsco false`, patch 0015 | 100.0 s | 1659 MB wasm, 2.2 GB RSS |
+| same without patch 0015 | 449.9 s | same |
+| same without patch 0015, Node `--no-liftoff` | 103.7 s | same |
 | BEAM wasm, `-O2`, emmalloc or mimalloc, no super carrier | crashes | 2 GB / 4 GB cap |
 
 Without a super carrier the wasm BEAM's memory grows until the cap

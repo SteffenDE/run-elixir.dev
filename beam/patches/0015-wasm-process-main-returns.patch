@@ -1,0 +1,75 @@
+diff --git a/erts/emulator/beam/emu/beam_emu.c b/erts/emulator/beam/emu/beam_emu.c
+index b490e43..cadcf32 100644
+--- a/erts/emulator/beam/emu/beam_emu.c
++++ b/erts/emulator/beam/emu/beam_emu.c
+@@ -265,8 +265,21 @@ init_emulator(void)
+  * process_main() is called twice:
+  * The first call performs some initialisation, including exporting
+  * the instructions' C labels to the loader.
+- * The second call starts execution of BEAM code. This call never returns.
++ * The second call starts execution of BEAM code. This call never returns,
++ * except on Emscripten (see below).
+  */
++#ifdef __EMSCRIPTEN__
++/*
++ * On Emscripten process_main() returns to its caller each time it would
++ * schedule, and is called again (erl_process.c). V8 only switches a
++ * WebAssembly function to optimized code at a call: a process_main() that
++ * never returned ran as baseline (Liftoff) code for good. The process and
++ * the reductions it used carry over in these; the first call starts as
++ * NULL and 0, as the initial call always did.
++ */
++static __thread Process *wasm_resume_c_p = NULL;
++static __thread int wasm_resume_reds_used = 0;
++#endif
+ ERTS_NO_RETPOLINE
+ void process_main(ErtsSchedulerData *esdp)
+ {
+@@ -350,10 +363,16 @@ void process_main(ErtsSchedulerData *esdp)
+     reg = (esdp->registers)->x_reg_array.d;
+     freg = (esdp->registers)->f_reg_array.d;
+ 
++#ifdef __EMSCRIPTEN__
++    c_p = wasm_resume_c_p;
++    reds_used = wasm_resume_reds_used;
++    goto do_schedule2;
++#else
+     c_p = NULL;
+     reds_used = 0;
+ 
+     goto do_schedule1;
++#endif
+ 
+  do_schedule:
+     ASSERT(c_p->arity < 6);
+@@ -369,6 +388,12 @@ void process_main(ErtsSchedulerData *esdp)
+         check_monitor_long_schedule(c_p, start_time, start_time_i);
+     }
+ 
++#ifdef __EMSCRIPTEN__
++    wasm_resume_c_p = c_p;
++    wasm_resume_reds_used = reds_used;
++    return;
++ do_schedule2:
++#endif
+     PROCESS_MAIN_CHK_LOCKS(c_p);
+     ERTS_UNREQ_PROC_MAIN_LOCK(c_p);
+     ERTS_VERIFY_UNUSED_TEMP_ALLOC(c_p);
+diff --git a/erts/emulator/beam/erl_process.c b/erts/emulator/beam/erl_process.c
+index 0201ea3..2bc4179 100644
+--- a/erts/emulator/beam/erl_process.c
++++ b/erts/emulator/beam/erl_process.c
+@@ -8796,7 +8796,13 @@ sched_thread_func(void *vesdp)
+     erts_utils_sched_spec_data_init();
+     erts_nif_sched_init(esdp);
+ 
++#ifdef __EMSCRIPTEN__
++    /* process_main() returns at each schedule there (beam_emu.c). */
++    for (;;)
++        process_main(esdp);
++#else
+     process_main(esdp);
++#endif
+ 
+     /* No schedulers should *ever* terminate */
+     erts_exit(ERTS_ABORT_EXIT,
