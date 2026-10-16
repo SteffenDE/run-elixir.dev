@@ -3,8 +3,17 @@ import { useState } from 'react';
 import { fork, leaveSession } from '@/live/lib/guest';
 import { useLive } from '@/live/lib/store';
 import { importProject } from '@/shared/lib/projects';
-import { apexUrl, projectUrl } from '@/shared/lib/site';
+import { encodeShared, type Shared } from '@/shared/lib/share';
+import { apexUrl, liveOrigin, projectUrl } from '@/shared/lib/site';
 import { People } from './People';
+
+// A fork becomes a project of this browser's: here, where the projects'
+// list is this origin's; from a guest's own origin (l-ID), through the
+// apex's import page, as a link would.
+async function keep(shared: Shared): Promise<string> {
+  if (liveOrigin()) return apexUrl(`/import#${await encodeShared(shared)}`);
+  return projectUrl((await importProject(shared)).id);
+}
 
 const STATUS: Record<string, string> = {
   connecting: 'Joining…',
@@ -39,8 +48,8 @@ export function GuestBar() {
             setForking(true);
             setError(null);
             fork()
-              .then(importProject)
-              .then((project) => window.open(projectUrl(project.id), '_blank'))
+              .then(keep)
+              .then((url) => window.open(url, '_blank'))
               .catch((failure: Error) => setError(failure.message))
               .finally(() => setForking(false));
           }}

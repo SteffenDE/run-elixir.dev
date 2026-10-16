@@ -41,6 +41,13 @@ export default defineConfig({
       reuseExistingServer: true,
       stderr: 'ignore',
     },
+    // A project domain and the local backend (live-domain.spec).
+    {
+      command: `python3 -I ../runtime/serve.py ${port + 3} --domain playground.localhost:${port + 3} --api http://localhost:4000`,
+      url: `http://localhost:${port + 3}/`,
+      reuseExistingServer: true,
+      stderr: 'ignore',
+    },
     // The same site with a project domain: projects at
     // ID.playground.localhost:PORT (one site, as ID.run-elixir.dev is).
     {
