@@ -13,7 +13,7 @@ import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
 import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files } from '@/runtime/host/files';
-import { Node, type NifBuild } from '@/runtime/host/node';
+import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
 import { BUILD } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
@@ -252,6 +252,14 @@ function nodeOn(port: number): Node | null {
 }
 
 let bridge: Bridge | null = null;
+
+// A connection to a server a node runs on `port` (not its other
+// listeners: Mix's locks, PGlite), for a live session's guest's preview.
+export function connectServer(port: number): Connection | null {
+  for (const session of sessions.values())
+    if (session.node.serving.has(port)) return session.node.connect(port);
+  return null;
+}
 
 // The ports the nodes serve on, and the one the preview shows. Ephemeral
 // listeners (Mix's compile lock) are no server.

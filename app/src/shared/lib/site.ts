@@ -14,13 +14,19 @@ interface Site {
   project: string | null;
   // A subdomain that is no project's (a reserved name, or a mistyped one).
   stray: boolean;
+  // Which live session this origin is a guest's page for (l-ID.DOMAIN).
+  live: string | null;
 }
 
-let site: Site = { domain: null, project: null, stray: false };
+let site: Site = { domain: null, project: null, stray: false, live: null };
 
 // A project's subdomain: p- and its id (p- and a chosen name, later). Every
 // other name under the domain is reserved (www, phoenix, ...).
 const PREFIX = 'p-';
+// A live session's guest page runs on an origin of its own, l- and the
+// session's id (lowercase; ids are base64url), so the host's app in its
+// preview reaches nothing else of the site (docs/collaboration.md).
+const LIVE = 'l-';
 const subdomain = (id: string) => `${PREFIX}${id}`;
 function idOf(name: string): string | null {
   return name.startsWith(PREFIX) && isId(name.slice(PREFIX.length))
@@ -38,10 +44,12 @@ export async function loadSite(): Promise<void> {
   const host = location.host;
   if (host === domain) {
     if (window.parent === window && apexOnOneOrigin()) return;
-    site = { domain, project: null, stray: false };
+    site = { domain, project: null, stray: false, live: null };
   } else if (host.endsWith(`.${domain}`)) {
-    const id = idOf(host.slice(0, -domain.length - 1));
-    site = { domain, project: id, stray: id === null };
+    const name = host.slice(0, -domain.length - 1);
+    const live = name.startsWith(LIVE) ? name.slice(LIVE.length) : null;
+    const id = live ? null : idOf(name);
+    site = { domain, project: id, stray: id === null && !live, live };
   }
   // Another name for the site (an address): one origin, as without.
 }
@@ -52,6 +60,16 @@ export const onDomain = () => site.domain !== null;
 export const projectOrigin = () => site.project;
 // This page is on a subdomain that is no project's.
 export const strayOrigin = () => site.stray;
+// This page is a live session's guest origin (l-ID.DOMAIN).
+export const liveOrigin = () => site.live !== null;
+
+// Where a guest joins live session `session` (its link's fragment follows):
+// an origin of its own on a project domain, else the site's /live/ID.
+export function liveUrl(session: string): string {
+  return site.domain
+    ? `${location.protocol}//${LIVE}${session.toLowerCase()}.${site.domain}/live/${session}`
+    : `/live/${session}`;
+}
 
 export function projectUrl(id: string): string {
   return site.domain ? `${location.protocol}//${subdomain(id)}.${site.domain}/` : `/${id}/`;

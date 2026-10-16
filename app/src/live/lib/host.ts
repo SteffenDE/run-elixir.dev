@@ -4,8 +4,10 @@
 // the IDE calls (playground.ts), and what changes is sent to everyone,
 // signed.
 import * as Y from 'yjs';
+import { built } from '@/project/lib/programs/tailwind';
 import {
   FIRST_SESSION,
+  connectServer,
   createFile,
   initialLines,
   live,
@@ -22,6 +24,7 @@ import type { Template } from '@/shared/lib/templates';
 import { fragment, newKeys, randomId, storedKeys, utf8, type StoredKeys } from './crypto';
 import { PROTOCOL, Peer, type Message, type Received } from './peer';
 import { setCursorSender } from './presence';
+import type { Connection } from '@/runtime/host/node';
 import type { Joined } from './relay';
 import {
   REMOTE,
@@ -62,6 +65,9 @@ let people = new Map<string, Person & { admitted: boolean; hello: boolean }>();
 let joinedOnce = false;
 let stops: (() => void)[] = [];
 let joins = 0;
+// Guests' connections to the app's servers (their previews), by guest and
+// the guest's number for it.
+const tunnels = new Map<string, Connection>();
 
 export const isHosting = () => peer !== null;
 
@@ -210,6 +216,11 @@ function news(event: string, payload: Record<string, unknown>) {
     publishPeople();
   } else if (event === 'left') {
     people.delete(id);
+    for (const [key, connection] of tunnels)
+      if (key.startsWith(`${id}:`)) {
+        tunnels.delete(key);
+        connection.close();
+      }
     useLive.getState().setCursor(id, null);
     publishPeople();
   } else if (event === 'replaced') {
@@ -322,12 +333,21 @@ function watch() {
       }
       if (state.previewPort !== before.previewPort)
         void send({ t: 'preview', port: state.previewPort });
+      // A save's reload, and Tailwind's new CSS, in the guests' previews too.
+      if (state.previewKey !== before.previewKey) void send({ t: 'reload' });
     }),
     () => {
       for (const stop of outputs.values()) stop();
       if (flushing) clearTimeout(flushing);
     },
   );
+  const css = () => void send({ t: 'css' });
+  built.add(css);
+  stops.push(() => {
+    built.delete(css);
+    for (const connection of tunnels.values()) connection.close();
+    tunnels.clear();
+  });
 
   live.moved = hostMoved;
   live.removed = hostRemoved;
@@ -484,6 +504,7 @@ async function receive({ from, message, bytes }: Received) {
     } else if (t === 'restart') local.restartServer();
     return req === undefined ? undefined : reply(from, req);
   }
+  if (t.startsWith('tcp-')) return tunnel(from, message, bytes);
   if (t === 'fork') {
     if (!can.fork) return refuse(from, req, 'The host has not let you fork.');
     const shared = await shareable(project!.name, project!.template);
@@ -494,6 +515,55 @@ async function receive({ from, message, bytes }: Received) {
         shared.files[open.slice(WORK.length + 1)] = file.text.toString();
     }
     return reply(from, req, shared);
+  }
+}
+
+// A guest's preview's connection to the app, its bytes both ways; what
+// the app sends goes out every few milliseconds, together.
+function tunnel(guest: string, message: Message, bytes: Uint8Array | null) {
+  const conn = Number(message.conn);
+  const key = `${guest}:${conn}`;
+  const open = tunnels.get(key);
+  if (message.t === 'tcp-data' && bytes) open?.write(bytes);
+  else if (message.t === 'tcp-end') open?.end();
+  else if (message.t === 'tcp-close') {
+    tunnels.delete(key);
+    open?.close();
+  } else if (message.t === 'tcp-open' && !open) {
+    const connection = connectServer(Number(message.port));
+    if (!connection) return send({ t: 'tcp-close', conn, why: 'refused' }, null, guest);
+    tunnels.set(key, connection);
+    let pending: Uint8Array[] = [];
+    let size = 0;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const flush = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      if (!size) return;
+      const data = new Uint8Array(size);
+      let at = 0;
+      for (const chunk of pending) {
+        data.set(chunk, at);
+        at += chunk.length;
+      }
+      pending = [];
+      size = 0;
+      void send({ t: 'tcp-data', conn }, data, guest);
+    };
+    connection.ondata = (data) => {
+      pending.push(data.slice());
+      size += data.length;
+      if (size >= 128 * 1024) flush();
+      else timer ??= setTimeout(flush, 5);
+    };
+    connection.onend = () => {
+      flush();
+      void send({ t: 'tcp-end', conn }, null, guest);
+    };
+    connection.onclose = (why) => {
+      flush();
+      if (tunnels.delete(key)) void send({ t: 'tcp-close', conn, why }, null, guest);
+    };
   }
 }
 

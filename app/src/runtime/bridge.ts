@@ -10,7 +10,11 @@
 // WebSocket of its own (webSocketShim): it asks the service worker, which
 // passes a MessagePort to the page running the project, where websocket()
 // connects to the node and speaks the protocol (RFC 6455) for it.
-import type { Connection } from './host/node';
+import type { Connection as NodeConnection } from './host/node';
+
+// A connection to the app: a node's, or one through a live session's
+// relay to the host's node (src/live/lib/guest.ts).
+export type Connection = Pick<NodeConnection, 'ondata' | 'onend' | 'onclose' | 'write' | 'close'>;
 
 // What the preview's WebSocket and the page's bridge say over its port.
 type ToSocket =

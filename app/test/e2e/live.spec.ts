@@ -5,7 +5,16 @@
 // are skipped.
 import type { Browser, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, output, prompted, readText, writeText } from './helpers';
+import {
+  newProject,
+  output,
+  preview,
+  prompted,
+  readText,
+  serverRunning,
+  syncLV,
+  writeText,
+} from './helpers';
 
 const LIVE = `http://localhost:${Number(process.env.PORT || 8081) + 2}`;
 
@@ -194,5 +203,43 @@ test('the host reloads its page; the session and its guests carry on', async ({
   await guest.keyboard.type('two');
   await guest.keyboard.press('Control+s');
   await expect.poll(() => readText(page, '/work/again.txt')).toBe('one\ntwo');
+  await guest.context().close();
+});
+
+test('a guest sees the app in its own preview, LiveView and all', async ({ page, browser }) => {
+  await newProject(page, 'phoenix');
+  await serverRunning(page);
+  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 120_000 });
+  const link = await startLive(page);
+  const guest = await join(browser, link);
+  // The host's app, through the relay.
+  await expect(preview(guest).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+
+  // LiveDashboard: the guest's own LiveView, over a WebSocket through the relay.
+  await guest.locator('.preview-bar input').fill('/dev/dashboard');
+  await guest.locator('.preview-bar input').press('Enter');
+  await syncLV(preview(guest));
+  await expect(preview(guest).getByText('System limits')).toBeVisible();
+  await preview(guest).getByRole('link', { name: 'Processes' }).click();
+  await syncLV(preview(guest));
+  await expect(preview(guest).locator('tr[phx-click="show_info"]').first()).toBeVisible();
+
+  // A save in the host's editor reloads the host's preview, and the
+  // guest's with it: no click here.
+  await guest.locator('.preview-bar input').fill('/');
+  await guest.locator('.preview-bar input').press('Enter');
+  await expect(preview(guest).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  for (const name of ['playground_web', 'controllers', 'page_html', 'home.html.heex']) {
+    await page.getByRole('treeitem', { name, exact: true }).first().click();
+    await page.waitForTimeout(300);
+  }
+  await expect.poll(() => editorText(page)).toContain('Peace of mind');
+  await page.locator('.editor-scroll').click({ position: { x: 120, y: 12 } });
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('<h1 id="marker">Seen by the guest</h1>\n');
+  await page.keyboard.press('Control+s');
+  await expect(preview(guest).locator('#marker')).toHaveText('Seen by the guest', {
+    timeout: 120_000,
+  });
   await guest.context().close();
 });

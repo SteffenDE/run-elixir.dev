@@ -3,7 +3,10 @@
 // the local one would do itself; what the host sends (signed) keeps the
 // tree, terminals, open files and people up to date.
 import * as Y from 'yjs';
+import { built } from '@/project/lib/programs/tailwind';
+import { previewKey } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
+import { Bridge, type Connection } from '@/runtime/bridge';
 import { disposeTerminal } from '@/project/lib/terminal-handle';
 import { setWorkspace, type Workspace } from '@/project/lib/workspace';
 import type { WorkspaceKind } from '@/shared/lib/projects';
@@ -44,6 +47,42 @@ const requests = new Map<number, { resolve(r: Received): void; reject(e: Error):
 const terminals = new Map<number, Terminal>();
 let cwd: string[] = ['/work'];
 let onProject: ((project: GuestProject) => void) | null = null;
+// The preview: the app's requests go to this page's bridge (as in a
+// project's page), whose connections go through the relay to the host's
+// node. Its cookies, and its LiveView, are this guest's own.
+let bridge: Bridge | null = null;
+const tunnels = new Map<number, Connection>();
+let nextConn = 1;
+
+function connect(port: number): Connection {
+  const conn = nextConn++;
+  const connection: Connection = {
+    ondata: () => {},
+    onend: () => {},
+    onclose: () => {},
+    write: (bytes) => void send({ t: 'tcp-data', conn }, bytes),
+    close: () => {
+      if (tunnels.delete(conn)) void send({ t: 'tcp-close', conn });
+    },
+  };
+  tunnels.set(conn, connection);
+  void send({ t: 'tcp-open', conn, port });
+  return connection;
+}
+
+function closeTunnels() {
+  for (const connection of tunnels.values()) connection.onclose('close');
+  tunnels.clear();
+}
+
+async function preview(port: number | null) {
+  if (!bridge) {
+    await Bridge.register('/sw.js', '/', previewKey);
+    bridge ??= new Bridge({ connect });
+  }
+  if (port !== null) bridge.port = port;
+  useStore.getState().setPreviewPort(port);
+}
 
 // Joins session `session` as `as`; `project` is called with what the host
 // runs once it lets this guest in (and again after the host's reload).
@@ -91,6 +130,7 @@ export async function joinSession(
 }
 
 export function leaveSession(): void {
+  closeTunnels();
   peer?.close();
   peer = null;
   setCursorSender(null);
@@ -205,9 +245,12 @@ function receive({ from, message, bytes, signed }: Received) {
         entry.raw = modes[term] ?? false;
       }
       cwd = message.cwd as string[];
+      closeTunnels();
       store.setRemote(true);
+      store.setReady(true);
+      store.setStatus('');
       store.setPaths(message.paths as string[]);
-      store.setPreviewPort((message.previewPort as number | null) ?? null);
+      void preview((message.previewPort as number | null) ?? null);
       setPermissions(message.perms as Permissions);
       useLive.getState().set({
         status: 'live',
@@ -248,8 +291,28 @@ function receive({ from, message, bytes, signed }: Received) {
       return;
     }
     case 'preview':
-      store.setPreviewPort((message.port as number | null) ?? null);
+      void preview((message.port as number | null) ?? null);
       return;
+    case 'reload':
+      store.reloadPreview();
+      return;
+    case 'css':
+      for (const listener of built) listener('');
+      return;
+    case 'tcp-data': {
+      const connection = tunnels.get(message.conn as number);
+      if (connection && bytes) connection.ondata(bytes);
+      return;
+    }
+    case 'tcp-end':
+      tunnels.get(message.conn as number)?.onend();
+      return;
+    case 'tcp-close': {
+      const connection = tunnels.get(message.conn as number);
+      tunnels.delete(message.conn as number);
+      connection?.onclose(message.why === 'refused' ? 'refused' : 'close');
+      return;
+    }
     case 'update': {
       const file = sharedFile(message.path as string);
       if (file && bytes) Y.applyUpdate(file.doc, bytes, REMOTE);

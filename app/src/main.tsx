@@ -13,6 +13,8 @@ import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lo
 import { createProject, isId, type Kind } from '@/shared/lib/projects';
 import { apexPartitioned, getProject, heldOpen, openedProject } from '@/shared/lib/registry';
 import {
+  liveOrigin,
+  liveUrl,
   loadSite,
   onDomain,
   oneOriginUrl,
@@ -41,6 +43,7 @@ const SHORTCUTS: Record<string, Kind> = { phoenix: 'phoenix', empty: 'empty' };
 async function page(path: string): Promise<ReactNode> {
   await loadSite();
   if (strayOrigin()) return <NotFound />;
+  if (liveOrigin() && !path.startsWith('/live/')) return <NotFound />;
   const own = projectOrigin();
   if (own) return projectPage(own, path);
   const name = path.split('/').filter(Boolean)[0] ?? '';
@@ -48,7 +51,13 @@ async function page(path: string): Promise<ReactNode> {
   if (name === 'import') return <ImportPage />;
   if (name === 'live') {
     const session = path.split('/').filter(Boolean)[1] ?? '';
-    return /^[\w-]{22}$/.test(session) ? <GuestPage session={session} /> : <NotFound />;
+    if (!/^[\w-]{22}$/.test(session)) return <NotFound />;
+    // On a project domain, the guest's page has an origin of its own.
+    if (onDomain() && !liveOrigin()) {
+      location.replace(liveUrl(session) + location.hash);
+      return null;
+    }
+    return <GuestPage session={session} />;
   }
   if (name === 'iex') {
     document.title = 'IEx · Elixir Playground';
