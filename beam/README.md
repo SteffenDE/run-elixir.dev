@@ -38,7 +38,7 @@ Patch 0015 is ours. V8 moves a WebAssembly function to optimized
 (TurboFan) code only when it is next called, and a scheduler thread
 entered `process_main`, the interpreter loop, once for good: it ran as
 baseline (Liftoff) code, 64% of a profile. Returning at each schedule and
-being called again in a loop made compiling Ash 4.5 times as fast.
+being called again in a loop made compiling Ash 5.2 times as fast.
 
 ## Build
 
@@ -77,7 +77,7 @@ schedulers, on a 12-core AMD machine; Node 24.19 from emsdk.
 | Rust-OTP native | 97.2 s | 2.2 GB RSS |
 | Rust-OTP wasm (`rotp-threads.wasm`, `node.mjs`) | 153.2 s (152.4 s with `--no-liftoff`) | 2.0 GB RSS |
 | BEAM 29.1.1 native, `--disable-jit` | 58.3 s | 550 MB RSS |
-| BEAM wasm, `-O2`, mimalloc, `-MMscs 1536 -MMsco false`, patch 0015 | 100.0 s | 1659 MB wasm, 2.2 GB RSS |
+| BEAM wasm, `-O2`, mimalloc, `-MMscs 1536 -MMsco false`, patch 0015 | 86.5 s (86.6, 86.3; a first run 100.0) | 1659 MB wasm, 2.2 GB RSS |
 | same without patch 0015 | 449.9 s | same |
 | same without patch 0015, Node `--no-liftoff` | 103.7 s | same |
 | BEAM wasm, `-O2`, emmalloc or mimalloc, no super carrier | crashes | 2 GB / 4 GB cap |
@@ -91,3 +91,11 @@ large lists reproduce it: 1620 MB of wasm memory against 302 MB RSS
 natively. A super carrier keeps carriers in one region erts manages
 itself; Emscripten zero-fills it when it is mapped, so it costs its
 whole size up front.
+
+Sampled with `perf` (Node `--perf-basic-prof`, a `--profiling-funcs`
+link), the wasm BEAM with patch 0015 and the native interpreter spend
+their time alike: `process_main` 57% and 49%, then `eq`,
+`erts_cmp_compound`, sweeping, collection and maps. WebAssembly costs
+about 1.5 to 1.8 times throughout, a little more in the interpreter
+loop, whose dispatch is a `switch` there (patch 0014): WebAssembly has
+no computed goto.
