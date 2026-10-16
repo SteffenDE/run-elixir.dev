@@ -33,6 +33,14 @@ export default defineConfig({
       reuseExistingServer: true,
       stderr: 'ignore',
     },
+    // The same site with the backend at localhost:4000 (live sessions'
+    // relay; `mix phx.server` in playground/backend).
+    {
+      command: `python3 -I ../runtime/serve.py ${port + 2} --api http://localhost:4000`,
+      url: `http://localhost:${port + 2}/`,
+      reuseExistingServer: true,
+      stderr: 'ignore',
+    },
     // The same site with a project domain: projects at
     // ID.playground.localhost:PORT (one site, as ID.run-elixir.dev is).
     {

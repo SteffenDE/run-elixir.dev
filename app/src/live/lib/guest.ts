@@ -125,6 +125,8 @@ function news(event: string, payload: Record<string, unknown>) {
 }
 
 function end(status: 'ended' | 'refused', reason: string) {
+  // The first reason stands (a guest turned away hears why, then is kicked).
+  if (['ended', 'refused'].includes(useLive.getState().status)) return;
   useLive.getState().set({ status, reason, mine: { edit: false, terminal: false, fork: false } });
   useStore.getState().setAccess({ edit: false, terminal: false });
   leaveSession();
@@ -181,6 +183,9 @@ function receive({ from, message, bytes, signed }: Received) {
   if (!signed || from !== peer?.host) return;
   const store = useStore.getState();
   switch (t) {
+    case 'outdated':
+      end('refused', 'This page is older or newer than the host’s: reload it and join again.');
+      return;
     case 'who':
       void hello();
       return;

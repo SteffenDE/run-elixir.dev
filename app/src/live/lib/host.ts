@@ -402,6 +402,10 @@ async function receive({ from, message, bytes }: Received) {
   if (!person) return;
   const { t, req } = message;
   if (t === 'hello') {
+    if (message.protocol !== PROTOCOL) {
+      await send({ t: 'outdated' }, null, from);
+      return kick(from);
+    }
     person.name =
       String(message.name ?? '')
         .trim()

@@ -75,11 +75,13 @@ test('a guest watches, then edits and types when the host allows it', async ({ p
   await guest.keyboard.type('nope ');
   await guest.waitForTimeout(500);
   expect(await editorText(guest)).not.toContain('nope');
+  await expect(guest.getByTitle('New file')).toHaveCount(0);
 
   // Allowed to edit: the guest's typing reaches the host's editor, and the
   // host's the guest's.
   await allow(page, 'Edit');
   await expect(guest.locator('.guest-status')).toHaveText('You may edit');
+  await expect(guest.getByTitle('New file')).toBeVisible();
   await guest.locator('.editor-scroll').click({ position: { x: 120, y: 12 } });
   await guest.keyboard.press('Control+Home');
   await guest.keyboard.type('from Bob ');
@@ -164,5 +166,33 @@ test('a guest forks the project with its unsaved text', async ({ page, browser }
   await forked.waitForURL(/\/[a-z0-9]{10}\/$/);
   await prompted(forked, 1);
   expect(await readText(forked, '/work/fork.txt')).toBe('saved\nunsaved');
+  await guest.context().close();
+});
+
+test('the host reloads its page; the session and its guests carry on', async ({
+  page,
+  browser,
+}) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(page, '/work/again.txt', 'one\n');
+  const link = await startLive(page);
+  await allow(page, 'Edit');
+  const guest = await join(browser, link);
+  await guest.getByRole('treeitem', { name: 'again.txt', exact: true }).click();
+  await expect.poll(() => editorText(guest)).toContain('one');
+
+  await page.reload();
+  await expect(guest.locator('.guest-status')).toHaveText('The host is away…');
+  await prompted(page, 1);
+  await expect(page.getByRole('button', { name: /^Live/ })).toBeVisible();
+  await expect(guest.locator('.guest-status')).toHaveText('You may edit');
+  // The guest's tab came back from the host, and edits go through again.
+  await expect.poll(() => editorText(guest)).toContain('one');
+  await guest.locator('.editor-scroll').click({ position: { x: 120, y: 12 } });
+  await guest.keyboard.press('Control+End');
+  await guest.keyboard.type('two');
+  await guest.keyboard.press('Control+s');
+  await expect.poll(() => readText(page, '/work/again.txt')).toBe('one\ntwo');
   await guest.context().close();
 });

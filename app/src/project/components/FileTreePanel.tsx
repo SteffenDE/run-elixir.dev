@@ -23,9 +23,11 @@ const report = (error: Error) => useStore.getState().setStatus(error.message);
 
 // The node's files below /work; selecting a file opens it in a tab. New
 // files and folders start as an entry named in place; renaming moves,
-// deleting removes, in the node's files.
+// deleting removes, in the node's files. A live session's guest that may
+// not edit only looks.
 export function FileTreePanel() {
   const paths = useStore((state) => state.paths);
+  const canEdit = useStore((state) => state.access.edit);
   const shown = useRef<string[] | null>(null);
   const selected = useRef<string | null>(null);
   // Entries being named (tree paths without a trailing slash), and files
@@ -70,6 +72,7 @@ export function FileTreePanel() {
     // back if the node refuses it.
     dragAndDrop: {
       canDrop: ({ draggedPaths, target }) =>
+        useStore.getState().access.edit &&
         draggedPaths.every((path) => {
           const destination = (target.directoryPath ?? '') + baseName(path);
           return !shown.current?.some((p) => p === destination || p.startsWith(`${destination}/`));
@@ -184,55 +187,59 @@ export function FileTreePanel() {
       model={model}
       className="file-tree"
       header={
-        <div className="tree-actions">
-          <button
-            type="button"
-            className="icon-button"
-            title="New file"
-            onClick={() => create(here(), false)}
-          >
-            <RiFileAddLine size={15} />
-          </button>
-          <button
-            type="button"
-            className="icon-button"
-            title="New folder"
-            onClick={() => create(here(), true)}
-          >
-            <RiFolderAddLine size={15} />
-          </button>
-        </div>
+        canEdit && (
+          <div className="tree-actions">
+            <button
+              type="button"
+              className="icon-button"
+              title="New file"
+              onClick={() => create(here(), false)}
+            >
+              <RiFileAddLine size={15} />
+            </button>
+            <button
+              type="button"
+              className="icon-button"
+              title="New folder"
+              onClick={() => create(here(), true)}
+            >
+              <RiFolderAddLine size={15} />
+            </button>
+          </div>
+        )
       }
-      renderContextMenu={(item, context) => (
-        <TreeMenu
-          item={item}
-          context={context}
-          onCreate={(folder) => {
-            context.close({ restoreFocus: false });
-            create(
-              item.kind === 'directory' ? item.path.replace(/\/?$/, '/') : parentOf(item.path),
-              folder,
-            );
-          }}
-          onRename={() => {
-            context.close({ restoreFocus: false });
-            model.startRenaming(item.path);
-          }}
-          onDelete={() => {
-            context.close();
-            const path = item.path.replace(/\/$/, '');
-            workspace()
-              .removePath(absolute(path))
-              .then(() => {
-                follow(path, null);
-                model.remove(
-                  item.path,
-                  item.kind === 'directory' ? { recursive: true } : undefined,
-                );
-              }, report);
-          }}
-        />
-      )}
+      renderContextMenu={(item, context) =>
+        canEdit && (
+          <TreeMenu
+            item={item}
+            context={context}
+            onCreate={(folder) => {
+              context.close({ restoreFocus: false });
+              create(
+                item.kind === 'directory' ? item.path.replace(/\/?$/, '/') : parentOf(item.path),
+                folder,
+              );
+            }}
+            onRename={() => {
+              context.close({ restoreFocus: false });
+              model.startRenaming(item.path);
+            }}
+            onDelete={() => {
+              context.close();
+              const path = item.path.replace(/\/$/, '');
+              workspace()
+                .removePath(absolute(path))
+                .then(() => {
+                  follow(path, null);
+                  model.remove(
+                    item.path,
+                    item.kind === 'directory' ? { recursive: true } : undefined,
+                  );
+                }, report);
+            }}
+          />
+        )
+      }
     />
   );
 }
