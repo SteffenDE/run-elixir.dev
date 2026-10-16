@@ -1,0 +1,15 @@
+diff --git a/erts/emulator/Makefile.in b/erts/emulator/Makefile.in
+index ba65f98..ae94fb5 100644
+--- a/erts/emulator/Makefile.in
++++ b/erts/emulator/Makefile.in
+@@ -1233,8 +1233,8 @@ NIF_OBJS = \
+ 
+ ifeq ($(TARGET),wasm32-unknown-emscripten)
+ # prim_socket over the playground's network: nifs/wasm/prim_socket_nif.c
+-# (playground/beam/build.sh puts it there), not esock's.
+-NIF_OBJS += $(OBJDIR)/prim_socket_nif.o
++# (playground/beam/build.sh puts it there) in place of esock's
++# (ESOCK_NIF_OBJS), which would use Emscripten's emulated sockets.
+ $(OBJDIR)/prim_socket_nif.o: nifs/wasm/prim_socket_nif.c
+ 	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
+ endif

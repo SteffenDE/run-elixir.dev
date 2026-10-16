@@ -74,6 +74,30 @@ Ash compiles so in 80.7 s (each file call proxied to the main thread,
 the output kept in memory). Renaming between two top directories (`/work`
 to `/tmp`) is `exdev`: they are separate mounts.
 
+## The network: `socket/`
+
+Patch 0016 builds `socket/prim_socket_nif.c` (copied into the tree by
+`build.sh`) as `prim_socket`'s NIF in place of esock's, and gives
+`prim_socket.erl` the tables esock would report (`nif_supports`,
+`nif_info/0`). With `-kernel inet_backend socket`, `gen_tcp` runs as
+`gen_tcp_socket` over `socket` over it, all OTP's own code. The NIF has
+stream sockets over the playground's `Network` (`wasi/net.ts`): each
+operation calls `socket/socket.js` on the module's main thread
+(`__proxy: 'sync'`); data and connections arriving wake the NIF's event
+thread through a ring in its memory, which sends the `select` messages.
+As esock does, one connection wakes one acceptor: `gen_tcp_socket`
+answers a `select` to its retry with `{error, timeout}`.
+
+`beam-node.mjs` passes its `Network` as `Module.beamNetwork`, writes
+`/etc/hosts` and an inetrc that resolves from it, and drives HTTP
+requests as `node.ts` does (`HTTP=4000/,4000/hello STOP_SERVED=500`).
+Bandit 1.13 serves a Plug so (2026-10-16): `200 OK` in 36 ms, then 1 ms
+per request.
+
+`crypto` (and `ssl`, `asn1`) are built: `openssl.sh` builds OpenSSL 3.0.15
+for WebAssembly as Popcorn does, and the NIFs are linked in
+(`--enable-static-nifs`); `beam.wasm` grows from 3.2 to 4.8 MB.
+
 ## Smoke test
 
     ~/emsdk/node/*/bin/node playground/beam/smoke.mjs ['<erlang expr>']

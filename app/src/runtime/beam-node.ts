@@ -6,9 +6,16 @@
 // them). MOUNT=VFSDIR:HOSTDIR,... puts host directories in the tree, read
 // when first opened; BEAM's otp/ is mounted at /otp. CWD is the working
 // directory (default /work).
+//
+// TCP is the playground's Network (wasi/net.ts), as Module.beamNetwork
+// (playground/beam/socket); start the node with -kernel inet_backend
+// socket. HTTP=PORT/PATH,... GETs each path once the node listens on the
+// port, prints each response's status line, and STOP_SERVED=MS stops the
+// node that long after the last.
 import { existsSync, readFileSync, readdirSync, statSync, type Stats } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-import { Dir, mount } from './wasi/fs';
+import { Dir, File, mount } from './wasi/fs';
+import { Network } from './wasi/net';
 import { TreeFs } from './beam/treefs';
 
 const [dist, ...args] = process.argv.slice(2);
@@ -42,6 +49,10 @@ for (const pair of mounts) {
 }
 root.mkdirs('work');
 root.mkdirs('tmp');
+// Names from the hosts file only: there is no inet_gethost.
+const textFile = (string: string) => new File(new TextEncoder().encode(string));
+root.put('etc/hosts', textFile('127.0.0.1 localhost\n::1 localhost\n'));
+root.put('etc/inetrc', textFile('{lookup, [file]}.\n'));
 let fetched = 0;
 const fs = new TreeFs(root, (source) => {
   fetched++;
@@ -55,11 +66,63 @@ const { default: createModule } = await import(
   /* @vite-ignore */ pathToFileURL(`${dist}/beam.mjs`).href
 );
 const wasmMemory = new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
+
+const network = new Network();
+const requests = (process.env.HTTP || '')
+  .split(',')
+  .filter(Boolean)
+  .map((r) => ({ port: Number(r.slice(0, r.indexOf('/'))), path: r.slice(r.indexOf('/')) }));
+let nextId = 1;
+// One request at a time, each once its port listens.
+const ask = () => {
+  const next = requests[0];
+  if (!next || !network.listeners.has(next.port)) return setTimeout(ask, 50);
+  requests.shift();
+  const started = performance.now();
+  let response = new Uint8Array(0);
+  let done = false;
+  const finish = () => {
+    if (done) return;
+    done = true;
+    const text = new TextDecoder().decode(response);
+    console.error(
+      `[GET ${next.path}: ${text.split('\r\n')[0]} (${response.length} bytes, ${Math.round(performance.now() - started)} ms)]`,
+    );
+    if (process.env.HTTP_HEADERS) console.error(text.slice(0, text.indexOf('\r\n\r\n')));
+    if (requests.length) ask();
+    else if (process.env.STOP_SERVED)
+      setTimeout(() => process.exit(0), Number(process.env.STOP_SERVED));
+  };
+  const id = (nextId += 2);
+  network.remote = {
+    ports: [],
+    send: (_, bytes) => {
+      const joined = new Uint8Array(response.length + bytes.length);
+      joined.set(response);
+      joined.set(bytes, response.length);
+      response = joined;
+    },
+    end: finish,
+    close: finish,
+    open() {},
+  };
+  network.accepted(id, next.port);
+  network.data(
+    id,
+    new TextEncoder().encode(
+      `GET ${next.path} HTTP/1.1\r\nhost: localhost:${next.port}\r\nconnection: close\r\n\r\n`,
+    ),
+  );
+};
+if (requests.length) ask();
 let t2 = Infinity;
 const status = await new Promise<number>((resolve) => {
   createModule({
     arguments: args,
     wasmMemory,
+    beamNetwork: network,
+    // TRACE_NET=1: socket.js's calls and events, on standard error.
+    beamSocketTrace: !!process.env.TRACE_NET,
     print: (line: string) => process.stdout.write(line + '\n'),
     printErr: (line: string) => {
       if (!line.includes('Heap resize call')) process.stderr.write(line + '\n');
@@ -69,7 +132,8 @@ const status = await new Promise<number>((resolve) => {
       // The tree's top directories, each a PROXYFS mount over `fs`.
       // oxlint-disable-next-line typescript/no-explicit-any -- Emscripten's module.
       (module: any) => {
-        const { FS } = module;
+        const { FS, ENV } = module;
+        ENV.ERL_INETRC = '/etc/inetrc';
         for (const name of root.entries.keys()) {
           const at = `/${name}`;
           if (!FS.analyzePath(at).exists) FS.mkdir(at);

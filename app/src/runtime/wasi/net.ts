@@ -12,11 +12,22 @@ export class Endpoint {
   declare inbox: Uint8Array[];
   declare eof: boolean;
   declare peer: Peer;
+  // Told when data or the end comes (the Emscripten BEAM's sockets:
+  // playground/beam/socket/socket.js); Rust-OTP polls instead.
+  declare notify?: (() => void) | null;
 
   constructor(peer: Peer) {
     this.inbox = [];
     this.eof = false;
     this.peer = peer; // { send(bytes), end(), close() }
+  }
+  receive(bytes: Uint8Array): void {
+    this.inbox.push(bytes);
+    this.notify?.();
+  }
+  finish(): void {
+    this.eof = true;
+    this.notify?.();
   }
   take(max: number): Uint8Array {
     const out = new Uint8Array(
@@ -78,6 +89,8 @@ export class Network {
   declare waiting: Map<number, Endpoint>;
   declare endpoints: Map<number, Endpoint>;
   declare next: number;
+  // Told when a connection waits on the listener on a port (as notify).
+  declare onqueue?: Map<number, () => void>;
 
   constructor(remote: Remote = { ports: [], open() {}, send() {}, end() {}, close() {} }) {
     this.remote = remote;
@@ -116,6 +129,7 @@ export class Network {
     this.endpoints.set(id, endpoint);
     this.waiting.set(id, endpoint);
     queue.push({ id, ip: '127.0.0.1', port: nextEphemeral() });
+    this.onqueue?.get(port)?.();
     return true;
   }
   // The node connects: to itself, or to the page.
@@ -125,25 +139,18 @@ export class Network {
       const id = (this.next += 2);
       let mine: Endpoint;
       const theirs = new Endpoint({
-        send: (bytes) => mine.inbox.push(bytes),
-        end: () => {
-          mine.eof = true;
-        },
-        close: () => {
-          mine.eof = true;
-        },
+        send: (bytes) => mine.receive(bytes),
+        end: () => mine.finish(),
+        close: () => mine.finish(),
       });
       mine = new Endpoint({
-        send: (bytes) => theirs.inbox.push(bytes),
-        end: () => {
-          theirs.eof = true;
-        },
-        close: () => {
-          theirs.eof = true;
-        },
+        send: (bytes) => theirs.receive(bytes),
+        end: () => theirs.finish(),
+        close: () => theirs.finish(),
       });
       this.waiting.set(id, theirs);
       queue.push({ id, ip: '127.0.0.1', port: nextEphemeral() });
+      this.onqueue?.get(port)?.();
       return mine;
     }
     if (!this.remote.ports.includes(port)) return null;
@@ -181,10 +188,13 @@ export class Network {
   }
   // From the page: data for, or the end of, connection `id`.
   data(id: number, bytes: Uint8Array): void {
-    this.endpoints.get(id)?.inbox.push(bytes);
+    this.endpoints.get(id)?.receive(bytes);
   }
   ended(id: number): void {
-    const endpoint = this.endpoints.get(id);
-    if (endpoint) endpoint.eof = true;
+    this.endpoints.get(id)?.finish();
+  }
+  // The node stops listening on `port`.
+  unlisten(port: number): void {
+    if (this.listeners.delete(port)) this.remote.listening?.(port, false);
   }
 }

@@ -96,7 +96,10 @@ autoconf_once() {
 # the host erlc, then again with the bootstrap's.
 compile_preloaded() {
     local erlc="$1"
-    for module in wasm erl_init prim_inet; do
+    for module in wasm erl_init prim_inet prim_socket; do
+        local beam="${OTP_DIR}/erts/preloaded/ebin/${module}.beam"
+        local src="${OTP_DIR}/erts/preloaded/src/${module}.erl"
+        [[ "${beam}" -nt "${src}" && "${beam}" -nt "${erlc}" ]] && continue
         "${erlc}" +deterministic \
             -I "${OTP_DIR}/lib/kernel/src" -I "${OTP_DIR}/lib/kernel/include" \
             -o "${OTP_DIR}/erts/preloaded/ebin" \
@@ -105,7 +108,10 @@ compile_preloaded() {
 }
 
 bootstrap() {
-    [[ -x "${OTP_DIR}/bootstrap/bin/erlc" ]] && return
+    if [[ -x "${OTP_DIR}/bootstrap/bin/erlc" ]]; then
+        compile_preloaded "${OTP_DIR}/bootstrap/bin/erlc"
+        return
+    fi
     compile_preloaded "$(command -v erlc)"
     log "building native bootstrap"
     (cd "${OTP_DIR}" && ./configure --enable-bootstrap-only >/dev/null && make -j"${JOBS}" >/dev/null)
@@ -114,8 +120,7 @@ bootstrap() {
 
 configure_wasm() {
     local stamp="${OTP_DIR}/.stamp-configure"
-    [[ -f "${stamp}" ]] && return
-    log "configuring for emscripten (${MODE})"
+    local openssl="${ROOT}/out/beam-wasm/openssl"
     if [[ "${MODE}" == debug ]]; then
         export CFLAGS="-O0 -g -pthread"
     else
@@ -127,17 +132,25 @@ configure_wasm() {
     export ac_cv_sizeof_long_long=8 ac_cv_sizeof_void_p=4 ac_cv_c_bigendian=no
     local without=(common_test diameter edoc eldap eunit ftp jinterface reltool
         snmp tftp tools termcap wx debugger dialyzer et megaco observer odbc
-        os_mon parsetools ssh mnesia xmerl runtime_tools crypto asn1 ssl javac
-        threadnames dynamic-trace)
+        os_mon parsetools ssh mnesia xmerl runtime_tools javac threadnames
+        dynamic-trace)
     local args=(--host=wasm32-unknown-emscripten
         --build="$("${OTP_DIR}/make/autoconf/config.guess")"
         --prefix=/otp --disable-jit --disable-sctp --disable-kernel-poll
         --disable-security-hardening-flags --disable-vm-probes
         --enable-builtin-zlib --disable-esock --disable-largefile)
     for app in "${without[@]}"; do args+=("--without-${app}"); done
-    (cd "${OTP_DIR}" && emconfigure ./configure "${args[@]}" >"${WORK}/configure.log" 2>&1) \
+    # crypto (and asn1's) NIFs linked in, over openssl.sh's OpenSSL.
+    args+=(--with-ssl="${openssl}" --disable-dynamic-ssl-lib --enable-static-nifs=yes)
+    local key="${MODE} ${OPT} ${args[*]}"
+    [[ -f "${stamp}" && "$(cat "${stamp}")" == "${key}" ]] && return
+    log "configuring for emscripten (${MODE})"
+    (cd "${OTP_DIR}" \
+        && export erl_xcomp_sysroot="${openssl}" erl_xcomp_isysroot="${openssl}" \
+            LIBS="-L${openssl}/lib -lcrypto -ldl -lm" \
+        && emconfigure ./configure "${args[@]}" >"${WORK}/configure.log" 2>&1) \
         || { tail -40 "${WORK}/configure.log"; exit 1; }
-    touch "${stamp}"
+    echo "${key}" > "${stamp}"
 }
 
 build() {
@@ -153,6 +166,8 @@ build() {
     # PROXYFS mounts the playground's tree (app/src/runtime/beam/treefs.ts).
     flags+=" -lproxyfs.js"
     flags+=" --js-library ${HERE}/emscripten/monotonic-clock.js"
+    # prim_socket over the playground's network (socket/, patch 0016).
+    flags+=" --js-library ${HERE}/socket/socket.js"
     flags+=" --pre-js ${OTP_DIR}/erts/emulator/js_bridge/beam-bridge.pre.js"
     flags+=" --js-library ${OTP_DIR}/erts/emulator/js_bridge/js_bridge.js"
     if [[ "${MODE}" == debug ]]; then
@@ -164,6 +179,8 @@ build() {
     # The emulator's link does not depend on these flags; relink.
     rm -f "${OTP_DIR}"/bin/wasm32-unknown-emscripten/beam.{emu,smp,wasm}
     export EXTRA_EMCC_LINK_FLAGS="${flags}"
+    mkdir -p "${OTP_DIR}/erts/emulator/nifs/wasm"
+    cp -p "${HERE}/socket/prim_socket_nif.c" "${OTP_DIR}/erts/emulator/nifs/wasm/"
     log "building erts and libraries (${MODE}, -j${JOBS})"
     (
         cd "${OTP_DIR}"
@@ -202,6 +219,7 @@ install_libs() {
     cp "${DIST}/vm.boot" "${DIST}/otp/bin/start.boot"
 }
 
+"${HERE}/openssl.sh" -j "${JOBS}"
 checkout_and_patch
 autoconf_once
 bootstrap
