@@ -11,6 +11,7 @@
 // passes a MessagePort to the page running the project, where websocket()
 // connects to the node and speaks the protocol (RFC 6455) for it.
 import type { Connection as NodeConnection } from './host/node';
+import { trace } from './trace';
 
 // A connection to the app: a node's, or one through a live session's
 // relay to the host's node (src/live/lib/guest.ts).
@@ -151,10 +152,41 @@ export interface PreviewResponse {
   body: Uint8Array<ArrayBuffer>;
 }
 
+// A request or WebSocket under way, for debug().
+interface Flight {
+  kind: 'http' | 'websocket';
+  what: string;
+  started: number;
+  bytes: number;
+  state: string;
+}
+
 export class Bridge {
   declare node: { connect(port: number): Connection };
   declare port: number;
   declare cookies: Map<string, string>;
+  flights = new Map<number, Flight>();
+  nextFlight = 1;
+
+  // What is under way, for a bug hunt: window.playground.debug().
+  debug() {
+    return [...this.flights.values()].map(({ started, ...flight }) => ({
+      ...flight,
+      age: `${((Date.now() - started) / 1000).toFixed(1)} s`,
+    }));
+  }
+
+  private flight(kind: Flight['kind'], what: string): Flight {
+    const flight = { kind, what, started: Date.now(), bytes: 0, state: 'connecting' };
+    const number = this.nextFlight++;
+    this.flights.set(number, flight);
+    trace('net', `bridge ${kind} ${number}: ${what}`);
+    const done = () => {
+      this.flights.delete(number);
+      trace('net', `bridge ${kind} ${number}: done (${flight.state}, ${flight.bytes} bytes)`);
+    };
+    return Object.assign(flight, { done });
+  }
 
   constructor(node: { connect(port: number): Connection }, port = 4000) {
     this.node = node;
@@ -183,6 +215,7 @@ export class Bridge {
   // connection to the app, then frames both ways. `port` speaks
   // { open | message | close } to the preview and hears { send | close }.
   websocket({ path, protocols }: { path: string; protocols: string[] }, port: MessagePort): void {
+    const flight = this.flight('websocket', path) as Flight & { done(): void };
     const connection = this.node.connect(this.port);
     const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
     const lines = [
@@ -207,6 +240,8 @@ export class Bridge {
     const finish = (code: number, reason: string, clean: boolean) => {
       if (closed) return;
       closed = true;
+      flight.state = `closed ${code}`;
+      flight.done();
       port.postMessage({ close: { code, reason, clean } });
       port.close();
       connection.close();
@@ -288,6 +323,7 @@ export class Bridge {
       }
     };
     connection.ondata = (bytes) => {
+      flight.bytes += bytes.length;
       buffer = concat([buffer, bytes]);
       if (!open) {
         let split = -1;
@@ -319,6 +355,7 @@ export class Bridge {
             ?.split(':')[1]
             .trim() ?? '';
         open = true;
+        flight.state = 'open';
         port.postMessage({ open: protocol });
       }
       frames();
@@ -368,11 +405,19 @@ export class Bridge {
       const payload = body ? new Uint8Array(body) : null;
       if (payload) lines.push(`content-length: ${payload.length}`);
       const chunks: Uint8Array[] = [];
+      const flight = this.flight('http', `${method} ${path}`) as Flight & { done(): void };
       const connection = this.node.connect(this.port);
+      flight.state = 'waiting for the answer';
       let done = false;
       const finish = (refused: boolean) => {
         if (done) return;
         done = true;
+        flight.state = refused
+          ? 'refused'
+          : chunks.length
+            ? 'answered'
+            : 'closed without an answer';
+        flight.done();
         if (refused || !chunks.length) {
           resolve({
             status: 502,
@@ -386,7 +431,11 @@ export class Bridge {
         }
         resolve(this.parse(concat(chunks)));
       };
-      connection.ondata = (bytes) => chunks.push(bytes);
+      connection.ondata = (bytes) => {
+        flight.bytes += bytes.length;
+        flight.state = 'receiving (until the node ends the connection)';
+        chunks.push(bytes);
+      };
       connection.onend = () => {
         finish(false);
         connection.close();

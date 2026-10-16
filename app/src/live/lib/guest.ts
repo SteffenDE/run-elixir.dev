@@ -58,23 +58,79 @@ let nextConn = 1;
 
 function connect(port: number): Connection {
   const conn = nextConn++;
+  const stats: TunnelStats = { opened: Date.now(), sent: 0, received: 0, state: 'open' };
+  tunnelStats.set(conn, stats);
+  // Kept for a minute after it ends, for debug().
+  const ended = (state: string) => {
+    stats.state = state;
+    setTimeout(() => tunnelStats.delete(conn), 60_000);
+  };
   const connection: Connection = {
     ondata: () => {},
     onend: () => {},
     onclose: () => {},
-    write: (bytes) => void send({ t: 'tcp-data', conn }, bytes),
+    write: (bytes) => {
+      stats.sent += bytes.length;
+      void send({ t: 'tcp-data', conn }, bytes);
+    },
     close: () => {
-      if (tunnels.delete(conn)) void send({ t: 'tcp-close', conn });
+      if (tunnels.delete(conn)) {
+        ended('closed by the page');
+        void send({ t: 'tcp-close', conn });
+      }
     },
   };
+  const ondata = (bytes: Uint8Array) => {
+    stats.received += bytes.length;
+    connection.ondata(bytes);
+  };
+  tunnelHooks.set(conn, { ondata, ended });
   tunnels.set(conn, connection);
   void send({ t: 'tcp-open', conn, port });
   return connection;
 }
 
+// For a bug hunt, in the console: playgroundLive.debug().
+interface TunnelStats {
+  opened: number;
+  sent: number;
+  received: number;
+  state: string;
+}
+const tunnelStats = new Map<number, TunnelStats>();
+
+const debug = {
+  playgroundLive: {
+    debug: () => ({
+      role: 'guest',
+      me: peer?.id,
+      host: peer?.host,
+      status: useLive.getState().status,
+      relay: peer?.relay.debug(),
+      bridge: bridge?.debug(),
+      tunnels: [...tunnelStats].map(([conn, s]) => ({
+        conn,
+        age: `${((Date.now() - s.opened) / 1000).toFixed(1)} s`,
+        sent: s.sent,
+        received: s.received,
+        state: s.state,
+      })),
+    }),
+  },
+};
+
+const tunnelHooks = new Map<
+  number,
+  { ondata(bytes: Uint8Array): void; ended(state: string): void }
+>();
+
 function closeTunnels() {
-  for (const connection of tunnels.values()) connection.onclose('close');
+  for (const [conn, connection] of tunnels) {
+    tunnelHooks.get(conn)?.ended('closed: the host or the relay went away');
+    connection.onclose('close');
+  }
   tunnels.clear();
+  tunnelHooks.clear();
 }
 
 async function preview(port: number | null) {
@@ -96,11 +152,15 @@ export async function joinSession(
 ): Promise<void> {
   name = as;
   onProject = project;
+  Object.assign(globalThis, debug);
   setWorkspace(remote);
   const keys = await linkKeys(secrets);
   useLive.getState().set({ role: 'guest', status: 'connecting', reason: null });
   peer = new Peer(session, 'guest', {}, keys, {
     joined(joined) {
+      // Joined again (a lost connection): the host forgot this guest's
+      // connections with its old id.
+      closeTunnels();
       useLive.getState().set({
         me: joined.id,
         status: joined.admitted ? 'connecting' : 'waiting',
@@ -164,8 +224,11 @@ function request(message: Message, bytes: Uint8Array | null = null): Promise<Rec
 function news(event: string, payload: Record<string, unknown>) {
   const live = useLive.getState();
   if (event === 'admitted' && payload.id === live.me) live.set({ status: 'connecting' });
-  else if (event === 'host') live.set({ status: payload.present ? 'live' : 'reconnecting' });
-  else if (event === 'left') {
+  else if (event === 'host') {
+    live.set({ status: payload.present ? 'live' : 'reconnecting' });
+    // The host's page went away: what it was answering will not come.
+    if (!payload.present) closeTunnels();
+  } else if (event === 'left') {
     live.setCursor(payload.id as string, null);
     live.setActive(payload.id as string, null);
     if (live.following === payload.id) live.set({ following: null });
@@ -318,16 +381,24 @@ function receive({ from, message, bytes, signed }: Received) {
       for (const listener of built) listener('');
       return;
     case 'tcp-data': {
-      const connection = tunnels.get(message.conn as number);
-      if (connection && bytes) connection.ondata(bytes);
+      const hooks = tunnelHooks.get(message.conn as number);
+      if (hooks && bytes) hooks.ondata(bytes);
       return;
     }
-    case 'tcp-end':
-      tunnels.get(message.conn as number)?.onend();
+    case 'tcp-end': {
+      const conn = message.conn as number;
+      if (tunnelStats.get(conn)) tunnelStats.get(conn)!.state = 'ended by the host';
+      tunnels.get(conn)?.onend();
       return;
+    }
     case 'tcp-close': {
-      const connection = tunnels.get(message.conn as number);
-      tunnels.delete(message.conn as number);
+      const conn = message.conn as number;
+      const connection = tunnels.get(conn);
+      tunnels.delete(conn);
+      tunnelHooks
+        .get(conn)
+        ?.ended(message.why === 'refused' ? 'refused by the host' : 'closed by the host');
+      tunnelHooks.delete(conn);
       connection?.onclose(message.why === 'refused' ? 'refused' : 'close');
       return;
     }

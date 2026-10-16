@@ -530,6 +530,12 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       },
       openTerminal,
       shareable,
+      // For a bug hunt: what is under way between the page and its nodes
+      // (see runtime/trace.ts for tracing it as it happens).
+      debug: () => ({
+        bridge: bridge?.debug(),
+        nodes: Object.fromEntries([...sessions].map(([id, s]) => [id, s.node.debug()])),
+      }),
     },
   });
 }

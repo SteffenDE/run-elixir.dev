@@ -3,7 +3,13 @@ import { output } from './helpers';
 
 // The node's files come lazily, in bundles (fs/bundles/N.tar). A bundle
 // whose download fails is tried again, not taken for loaded.
-test('bundles that fail to download at first still load', async ({ page, context }) => {
+test('bundles that fail to download at first still load', async ({
+  page,
+  context,
+  browserName,
+}) => {
+  // Playwright's WebKit routes none of a worker's own requests.
+  test.skip(browserName === 'webkit', "WebKit's routing does not see the node's downloads");
   const tries = new Map<string, number>();
   await context.route('**/fs/bundles/*.tar', (route) => {
     const url = route.request().url();

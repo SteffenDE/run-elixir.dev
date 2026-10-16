@@ -7,6 +7,7 @@
 // messages.
 import type { Files, FilesChannel } from './files';
 import { spawn, type PageProcess, type PageProgram } from './programs';
+import { trace } from '../trace';
 import { worker } from './worker';
 
 export const FRAME = {
@@ -34,6 +35,12 @@ export class Connection {
   ondata: (bytes: Uint8Array) => void;
   onend: () => void;
   onclose: (why?: CloseReason) => void;
+  // For debug(): when it opened, bytes each way, and how it ended.
+  opened = Date.now();
+  port = 0;
+  sent = 0;
+  received = 0;
+  ended: string | null = null;
 
   constructor(node: Node, id: number) {
     this.node = node;
@@ -43,16 +50,31 @@ export class Connection {
     this.onclose = () => {};
   }
   write(bytes: Uint8Array): void {
+    this.sent += bytes.length;
+    trace('net', `page → node ${this.id}: ${bytes.length} bytes`);
     for (let at = 0; at < bytes.length; at += CHUNK) {
       this.node.frame(FRAME.DATA, this.id, bytes.subarray(at, at + CHUNK));
     }
   }
   end(): void {
+    trace('net', `page → node ${this.id}: end`);
     this.node.frame(FRAME.END, this.id);
   }
   close(): void {
+    trace('net', `page → node ${this.id}: close`);
+    this.ended ??= 'closed by the page';
     this.node.frame(FRAME.CLOSE, this.id);
-    this.node.connections.delete(this.id);
+    this.node.forget(this);
+  }
+  describe() {
+    return {
+      id: this.id,
+      port: this.port,
+      age: `${((Date.now() - this.opened) / 1000).toFixed(1)} s`,
+      sent: this.sent,
+      received: this.received,
+      ended: this.ended,
+    };
   }
 }
 
@@ -121,6 +143,10 @@ export class Node {
   worker: Worker;
   channel: FilesChannel | null = null;
   retry: ReturnType<typeof setTimeout> | null = null;
+  // For debug(): connections that ended lately, and what the worker sent
+  // (how many of each kind, and when last).
+  recent: Connection[] = [];
+  fromWorker: Record<string, { count: number; last: number }> = {};
 
   // base: where the site's runtime files are; onoutput(bytes),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
@@ -170,6 +196,9 @@ export class Node {
     this.threads = new Map();
     this.worker = worker('worker.js', base);
     this.worker.onmessage = ({ data }: MessageEvent<NodeMessage>) => {
+      const seen = (this.fromWorker[data.kind] ??= { count: 0, last: 0 });
+      seen.count++;
+      seen.last = Date.now();
       if (data.kind === 'out') onoutput(data.payload);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
@@ -277,15 +306,49 @@ export class Node {
   connect(port: number): Connection {
     const id = (this.next += 2);
     const connection = new Connection(this, id);
+    connection.port = port;
+    trace('net', `page → node ${id}: open ${port}`);
     this.connections.set(id, connection);
     this.frame(FRAME.OPEN, id, new Uint8Array([port >> 8, port & 255]));
     return connection;
   }
 
+  // A connection that ended, kept a while for debug().
+  forget(connection: Connection): void {
+    this.connections.delete(connection.id);
+    this.recent.push(connection);
+    if (this.recent.length > 30) this.recent.shift();
+  }
+
+  // What the page knows of its traffic with the node, for a bug hunt:
+  // window.playground.debug().
+  debug() {
+    const unread = Atomics.load(this.control, 0) - Atomics.load(this.control, 1);
+    const ago = (time: number) => `${((Date.now() - time) / 1000).toFixed(1)} s ago`;
+    return {
+      ringUnread: unread,
+      pendingFrames: this.pending.length,
+      pendingBytes: this.pending.reduce((sum, frame) => sum + frame.length, 0),
+      retrying: this.retry !== null,
+      listening: [...this.listening],
+      serving: [...this.serving],
+      open: [...this.connections.values()].map((c) => c.describe()),
+      recent: this.recent.map((c) => c.describe()),
+      fromWorker: Object.fromEntries(
+        Object.entries(this.fromWorker).map(([kind, { count, last }]) => [
+          kind,
+          `${count}, last ${ago(last)}`,
+        ]),
+      ),
+    };
+  }
+
   network({ op, id, port, host, payload }: NetMessage): void {
+    trace('net', `node → page ${id}: ${op}${payload ? ` ${payload.length} bytes` : ''}`);
     let connection = this.connections.get(id);
     if (op === 'open') {
       connection = new Connection(this, id);
+      connection.port = port ?? 0;
       this.connections.set(id, connection);
       if (host !== undefined) {
         if (this.https) this.https(connection, { host, port: port! });
@@ -297,10 +360,15 @@ export class Node {
       else connection.close();
     } else if (!connection) {
       return;
-    } else if (op === 'data') connection.ondata(payload!);
-    else if (op === 'end') connection.onend();
-    else if (op === 'close' || op === 'refused') {
-      this.connections.delete(id);
+    } else if (op === 'data') {
+      connection.received += payload!.length;
+      connection.ondata(payload!);
+    } else if (op === 'end') {
+      connection.ended = 'ended by the node';
+      connection.onend();
+    } else if (op === 'close' || op === 'refused') {
+      connection.ended = op === 'refused' ? 'refused by the node' : 'closed by the node';
+      this.forget(connection);
       connection.onclose(op);
     }
   }

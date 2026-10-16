@@ -32,7 +32,9 @@ export interface RelayEvents {
 }
 
 // The relay's limits (config/config.exs), a little under, so a burst of
-// sends waits here rather than being refused there.
+// sends waits here rather than there (the relay makes a message over them
+// wait too, keeping the order, but closes a participant whose messages
+// pile up).
 const MAX_MESSAGE = 256 * 1024;
 const BYTES_PER_SECOND = 900 * 1024;
 const MESSAGES_PER_SECOND = 180;
@@ -86,6 +88,18 @@ export class Relay {
         this.events.refused(reason);
         this.close();
       });
+  }
+
+  // For a bug hunt: what waits to go out, and the connection's state.
+  debug() {
+    return {
+      socket: this.socket.connectionState(),
+      channel: (this.channel as unknown as { state?: string } | null)?.state ?? 'none',
+      queued: this.queue.length,
+      queuedBytes: this.queue.reduce((sum, message) => sum + message.data.length, 0),
+      waitingForBudget: this.pumping !== null,
+      closed: this.closed,
+    };
   }
 
   // Later joins (after a lost connection) as `params`: a host's token.
@@ -182,10 +196,11 @@ export class Relay {
     );
     this.channel
       .push(to === null ? 'b' : 's', buffer as unknown as object)
-      .receive('error', ({ reason }: { reason: string }) => {
-        // Over the relay's rate after all: once more, a second later.
-        if (reason === 'rate') setTimeout(() => this.enqueue({ to, data }), 1000);
-        else console.warn(`live session: the relay refused a message (${reason})`);
-      });
+      // Sent again it would come after later ones, which the receiver
+      // drops as replayed: a refused message is lost. The relay refuses
+      // one to someone gone (`unknown`), whose connections close anyway.
+      .receive('error', ({ reason }: { reason: string }) =>
+        console.warn(`live session: the relay refused a message (${reason})`),
+      );
   }
 }

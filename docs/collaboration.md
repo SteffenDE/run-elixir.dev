@@ -98,9 +98,15 @@ projects:
   `kicked`, `ended`, `replaced` (the host joined again from elsewhere).
 - Limits (`config/config.exs`): 16 participants, 256 KiB a message, 1 MiB
   and 200 messages a second per participant with four seconds' worth at
-  once, 30 s for a host to come back, 24 hours a session. The page paces
-  itself under them (`live/lib/relay.ts`). Sockets only from the site's
-  origins (`PLAYGROUND_ORIGINS` in production).
+  once, 30 s for a host to come back, 24 hours a session. A message over
+  the rate waits (and those after it, so the order holds); a participant
+  with more than 1,000 waiting is closed. The page paces itself under them
+  (`live/lib/relay.ts`), and never sends a message again: a receiver drops
+  one older than what it has seen. Sockets only from the site's origins
+  (`PLAYGROUND_ORIGINS` in production).
+- A preview's connections through the relay end when the host goes away
+  or either side joins again (a lost connection): what the relay could not
+  pass on meanwhile is lost, and the preview asks again.
 - Nothing is stored. The relay knows ids, roles and who is admitted;
   names travel encrypted.
 

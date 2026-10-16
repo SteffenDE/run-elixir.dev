@@ -72,6 +72,26 @@ const tunnels = new Map<string, Connection>();
 
 export const isHosting = () => peer !== null;
 
+// For a bug hunt, in the console: playgroundLive.debug() (set as a
+// session starts).
+const debug = {
+  playgroundLive: {
+    debug: () => ({
+      role: 'host',
+      me: peer?.id,
+      cursor: peer?.id ? useLive.getState().cursors[peer.id] : undefined,
+      active: useLive.getState().active,
+      status: useLive.getState().status,
+      relay: peer?.relay.debug(),
+      guests: [...people.values()].map(({ id, name, admitted }) => ({ id, name, admitted })),
+      tunnels: [...tunnels].map(([key, connection]) => ({
+        key,
+        ...(connection as { describe?: () => object }).describe?.(),
+      })),
+    }),
+  },
+};
+
 // Starts a live session of `of` (or takes up the one a reload left).
 export async function startSession(
   of: HostProject,
@@ -134,6 +154,7 @@ function connect(
 ) {
   project = of;
   joinedOnce = false;
+  Object.assign(globalThis, debug);
   peer = new Peer(stored!.session, 'host', params, keys, {
     joined,
     refused(reason) {
@@ -177,6 +198,10 @@ function joined(answer: Joined) {
     hello: true,
   };
   people = new Map([[answer.id, host]]);
+  // Joined again: what the relay could not pass on meanwhile is lost, so
+  // the guests' connections end (their previews ask again).
+  for (const connection of tunnels.values()) connection.close();
+  tunnels.clear();
   for (const participant of answer.participants)
     people.set(participant.id, {
       id: participant.id,

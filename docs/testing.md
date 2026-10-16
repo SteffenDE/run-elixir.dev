@@ -59,7 +59,8 @@ submits) (`node`, `output`, `sessions`,
 | `domain` (project `domain`, Chromium) | With a project domain (`serve.py --domain playground.localhost:8082`, which the config starts): an empty project runs on its own origin; renamed there, the apex lists it, marks it open, refuses to delete it while open and deletes it once closed; an old `/ID/` link and a share link reach a project's origin; a Phoenix project's preview and LiveDashboard (its redirect too) on its origin; other names (`random-foo`, `phoenix`, an unknown `p-ID`) are not found, with a button to the apex; what a project left on its origin, its entry gone, is deleted from there. |
 | `git` | heroicons as phx.new adds it (tag, sparse, depth 1): fetched and checked out sparsely, the lock checked, and fetched again from the lock. |
 | `tree` | Files and folders made, renamed, moved (Chromium) and deleted from the tree, kept across a reload. |
-| `bundles` | The node's lazily loaded files arrive although every bundle's first two downloads fail: a temporary IEx starts and answers. |
+| `worker` (`@slow`, Firefox) | After the service worker idled (45 s), a Phoenix server still answers a path whose modules the node has not loaded (the service worker and the node's worker once waited on each other for minutes). |
+| `bundles` | The node's lazily loaded files arrive although every bundle's first two downloads fail: a temporary IEx starts and answers (Chromium and Firefox: WebKit's routing does not see a worker's requests). |
 | `share` | An empty project (text and bytes) and a Phoenix project (an edited and a removed template file) shared as links and opened in a fresh browser context; a damaged link. |
 | `live` | A live session, host and guest in two browser contexts: the guest watches (tree, terminal, a file it cannot change), then edits once allowed (typing both ways, each other's carets, undo of its own typing, saving, a change on disk), types into the host's terminal, and sees the session end; asking before letting a guest in, and removing one; a fork with unsaved text; the host's reload; a Phoenix app in the guest's preview, LiveDashboard over its WebSocket, and a save in the host's editor reloading it; a guest following the host (its files, its caret far down a file), stopping when it opens a file itself, and following again. |
 | `live-domain` (project `domain`) | A live session with a project domain: the guest's page on its `l-ID` origin, and its fork made through the apex's import page. |
@@ -86,6 +87,21 @@ Playwright before 1.64 shipped a Firefox (141) without an optimizing
 WebAssembly compiler, which ran `rotp.wasm` about 10× slower than Chromium
 (`Enum.reduce(1..3_000_000, 0, &+/2)`: 8.6 s against 0.9 s); Firefox 157
 has one.
+
+## Debugging a stuck preview in the browser
+
+In a project's page, `playground.debug()` shows what is under way between
+the page and its nodes: the bridge's requests and WebSockets (with their
+age and bytes), and for each node its open and recently ended connections
+(bytes each way, who ended them), bytes it has not read yet from the page,
+frames waiting to be written, and when its worker last sent each kind of
+message. In a live session, `playgroundLive.debug()` adds the relay
+connection's state and queue and the preview's tunnels. To see every
+connection event as it happens:
+
+```js
+localStorage.setItem('playground-trace', 'net'); // then reload
+```
 
 ## Without a browser: `node.mjs`
 
