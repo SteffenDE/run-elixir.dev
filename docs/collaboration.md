@@ -251,8 +251,8 @@ unsigned: they only say where someone is. The top bar shows who is in.
 ### Following
 
 `live/lib/follow.ts`. Following someone, the file in front of them opens
-here at their caret's line, and as their caret moves it stays in view
-(scrolled to where the editor draws it; outside what the editor has
+here at their caret's line, and as their caret moves it stays in the
+middle of the view (scrolled to where the editor draws it; outside what the editor has
 rendered, scrolled to its line first). Following never focuses the
 editor: that would move this page's caret, which the editor keeps in
 view on each of their edits, and the two would pull the view back and

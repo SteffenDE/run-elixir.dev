@@ -302,6 +302,20 @@ test('a guest follows the host until it opens a file itself, and can follow agai
     false,
   );
 
+  // Down the file, the host's caret stays in the middle of the guest's view.
+  for (let i = 0; i < 100; i++) await page.keyboard.press('ArrowDown');
+  const offCenter = () =>
+    guest.evaluate(() => {
+      const view = document.querySelector('.tab-panel:not([hidden]) .editor-scroll')!;
+      const caret = [...view.querySelectorAll('*')]
+        .map((e) => e.shadowRoot?.querySelector('[data-person]'))
+        .find(Boolean)!;
+      const box = view.getBoundingClientRect();
+      const at = caret.getBoundingClientRect();
+      return Math.abs(at.top + at.height / 2 - (box.top + box.height / 2)) / box.height;
+    });
+  await expect.poll(offCenter).toBeLessThan(0.1);
+
   // The guest's own choice ends following; the host's next file stays there.
   await guest.getByRole('treeitem', { name: 'b.txt', exact: true }).click();
   await expect(activeTab(guest)).toHaveText('b.txt');

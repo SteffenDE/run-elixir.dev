@@ -38,8 +38,9 @@ async function showFile(id: string) {
   }
 }
 
-// Their caret, in view: scrolled to where it is drawn, else (outside what
-// the editor rendered) to its line, then to the caret once drawn there.
+// Their caret, in the middle of the view: scrolled to where it is drawn,
+// else (outside what the editor rendered) to its line, then to the caret
+// once drawn there. A move along its line scrolls nothing.
 // Once the editor has drawn the carets anew (it hears of a moved caret as
 // this does): until then the caret is where it was. Never by focusing the
 // editor: that moves this page's caret, which the editor then keeps in
@@ -66,7 +67,7 @@ function editorFocused(): boolean {
 function showCaret(id: string, line: number, again = true) {
   const root = editorRoot();
   const caret = root?.querySelector(`[data-person="${CSS.escape(id)}"]`);
-  if (caret) caret.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  if (caret) caret.scrollIntoView({ block: 'center', inline: 'nearest' });
   else if (root && again && !root.querySelector(`[data-line="${line}"]`)) {
     showLine(root, line);
     requestAnimationFrame(() => showCaret(id, line, false));
