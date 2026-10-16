@@ -16,6 +16,9 @@ export class Process {
   declare closed: boolean;
   // The node closed its port.
   declare onclose?: () => void;
+  // Told when the program writes or exits (the Emscripten BEAM's ports:
+  // playground/beam/host/spawn.js); Rust-OTP polls instead.
+  declare notify?: (() => void) | null;
 
   constructor() {
     this.output = [];
@@ -26,10 +29,12 @@ export class Process {
   }
   write(bytes: string | Uint8Array): void {
     this.output.push(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes);
+    this.notify?.();
   }
   exit(status: number): void {
     this.ended = true;
     this.status = status;
+    this.notify?.();
   }
 }
 

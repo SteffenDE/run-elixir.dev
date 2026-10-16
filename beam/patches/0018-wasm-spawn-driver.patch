@@ -1,0 +1,62 @@
+diff --git a/erts/emulator/sys/unix/sys_drivers.c b/erts/emulator/sys/unix/sys_drivers.c
+index 1cb2c12..451c6f9 100644
+--- a/erts/emulator/sys/unix/sys_drivers.c
++++ b/erts/emulator/sys/unix/sys_drivers.c
+@@ -230,6 +230,9 @@ static ErlDrvSSizeT forker_control(ErlDrvData, unsigned int, char *,
+ /* III Driver entries */
+ 
+ /* III.I The spawn driver */
++/* On Emscripten the playground's spawn driver is in its place
++ * (nifs/wasm/wasm_spawn.c). */
++#ifndef ERTS_EMSCRIPTEN
+ struct erl_drv_entry spawn_driver_entry = {
+     NULL,
+     spawn_start,
+@@ -255,6 +258,8 @@ struct erl_drv_entry spawn_driver_entry = {
+     stop_select
+ };
+ 
++#endif /* !ERTS_EMSCRIPTEN */
++
+ /* III.II The fd driver */
+ struct erl_drv_entry fd_driver_entry = {
+     NULL,
+diff --git a/erts/preloaded/src/erl_init.erl b/erts/preloaded/src/erl_init.erl
+index 7e845c2..0680e6c 100644
+--- a/erts/preloaded/src/erl_init.erl
++++ b/erts/preloaded/src/erl_init.erl
+@@ -24,7 +24,7 @@
+ 
+ %% Initial process of an Erlang system.
+ 
+--export([start/2, restart/0]).
++-export([start/2, restart/0, port_pump/0]).
+ 
+ %% This gets the module name given by the +i option (default 'init')
+ %% and the list of command line arguments
+@@ -47,9 +47,25 @@ start(Mod, BootArgs) ->
+               prim_net:on_load(),
+               ok
+       end),
++    %% The playground's ports (playground/beam/host/wasm_spawn.c) deliver
++    %% their programs' output when this process asks them to.
++    _ = erts_internal:spawn_system_process(?MODULE, port_pump, []),
+     %% Proceed to the specified boot module
+     run(Mod, boot, BootArgs).
+ 
++port_pump() ->
++    register(wasm_port_pump, self()),
++    port_pump_loop().
++
++port_pump_loop() ->
++    receive
++        {ready, Port} ->
++            try erlang:port_control(Port, 1, [])
++            catch error:_ -> ok
++            end
++    end,
++    port_pump_loop().
++
+ restart() ->
+     erts_internal:erase_persistent_terms(),
+     if_loaded(

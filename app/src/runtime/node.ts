@@ -2,6 +2,8 @@
 //   node node.mjs SITE [erl args...] < input
 // SITE is a site build.py made (target/playground/site), or one of its
 // builds (b/ID). Standard input is read whole first and then ends.
+// A site built for the Emscripten BEAM (beam.mjs, PLAYGROUND_RUNTIME=otp)
+// runs that instead (beam/run.ts), with the same erl arguments.
 import { readFile } from 'node:fs/promises';
 import {
   existsSync,
@@ -15,6 +17,7 @@ import { WASI, Exit } from './wasi';
 import { Dir, File, untar, mount, bundled, type FsNode } from './wasi/fs';
 import { Network } from './wasi/net';
 import { ENV, prepare, programs } from './setup';
+import { beamArgs } from './beam/args';
 import { vfs } from './vfs';
 
 const [site, ...args] = process.argv.slice(2);
@@ -63,7 +66,8 @@ let fetched = 0;
 const recorded: string[] = [];
 prepare(root);
 const t1 = performance.now();
-const module = await WebAssembly.compile(await readFile(`${dir}/rotp.wasm`));
+const beam = existsSync(`${dir}/beam.mjs`);
+const module = beam ? null : await WebAssembly.compile(await readFile(`${dir}/rotp.wasm`));
 let input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 const wait = new Int32Array(new SharedArrayBuffer(4));
 // Mounted host files, or the site's bundles.
@@ -198,11 +202,56 @@ if (process.env.TRACE_WASI) {
 // A threaded node (rotp.wasm for wasm32-wasip1-threads, which imports its
 // memory) runs its threads in workers on a shared memory, and this thread
 // serves their WASI calls (threads.ts); otherwise the node runs here.
-const threaded = WebAssembly.Module.imports(module).some(
-  (i) => i.module === 'env' && i.name === 'memory',
-);
+const threaded =
+  !!module &&
+  WebAssembly.Module.imports(module).some((i) => i.module === 'env' && i.name === 'memory');
 let status: number | null;
-if (threaded) {
+if (beam) {
+  // The Emscripten BEAM: its threads call back into this one, so the
+  // harness's own work (pump) runs on a timer.
+  const { startBeam } = await import('./beam/run');
+  const { TreeFs } = await import('./beam/treefs');
+  const { pathToFileURL } = await import('node:url');
+  const env = {
+    ...ENV,
+    PWD: process.env.CWD || '/work',
+    ERL_INETRC: '/etc/inetrc',
+  };
+  const node = startBeam({
+    module: pathToFileURL(`${dir}/beam.mjs`).href,
+    args: beamArgs(args, env.HOME),
+    env,
+    cwd: env.PWD,
+    root,
+    fs: new TreeFs(root, fetchFile),
+    network,
+    programs: programs(vfs(root, fetchFile), (name, version) => {
+      const path = `${dir}/nif/${name}-${version}.tar`;
+      return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+    }),
+    size: [80, 24],
+    onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,
+    stdout: (bytes) => process.stdout.write(bytes),
+    stderr: (bytes) => process.stderr.write(bytes),
+    trace: !!process.env.TRACE_NET,
+  });
+  t2 = performance.now();
+  if (input.length) node.input(input);
+  if (!process.env.NO_EOF) node.end();
+  const timer = setInterval(() => {
+    try {
+      pump();
+    } catch (error) {
+      if (!(error instanceof Exit)) throw error;
+      node.kill(error.code);
+    }
+  }, 5);
+  try {
+    status = await node.done;
+  } finally {
+    clearInterval(timer);
+  }
+} else if (threaded) {
   const { Worker } = await import('node:worker_threads');
   const { channel, Host } = await import('./threads');
   const memory = new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
@@ -227,7 +276,7 @@ if (threaded) {
     status = error.code;
   }
 } else {
-  const instance = await WebAssembly.instantiate(module, wasi.imports);
+  const instance = await WebAssembly.instantiate(module!, wasi.imports);
   t2 = performance.now();
   status = wasi.start(instance);
 }

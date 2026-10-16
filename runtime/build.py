@@ -36,6 +36,13 @@ own build's files while the server still has them.
 The template is generated once into target/playground-cache with the
 native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
 deps fetched and compiled, assets built.
+
+PLAYGROUND_RUNTIME=otp builds the site for OTP's own emulator built with
+Emscripten (playground/beam) instead of Rust-OTP: beam.mjs, beam.emu.mjs
+and beam.wasm in place of rotp*.wasm, an installation laid out as Rust-OTP's
+(target/otp, at /rotp in the node: OTP's applications from that build, the
+host's Elixir, Hex, phx_new and rebar3), the template built by the host's
+Mix, and runtime.json saying which the build runs.
 """
 import hashlib
 import json
@@ -48,8 +55,16 @@ import tarfile
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-INSTALL = os.path.join(ROOT, "target", "rotp")
-CACHE = os.path.join(ROOT, "target", "playground-cache")
+RUNTIME = os.environ.get("PLAYGROUND_RUNTIME", "rotp")
+assert RUNTIME in ("rotp", "otp"), RUNTIME
+OTP = RUNTIME == "otp"
+INSTALL = os.path.join(ROOT, "target", "otp" if OTP else "rotp")
+CACHE = os.path.join(ROOT, "target", "playground-cache-otp" if OTP else "playground-cache")
+# The template's build directory: Rust-OTP's beside the host's, or the
+# host Mix's own for the Emscripten BEAM (same OTP, same code).
+BUILD = "_build_otp" if OTP else "_build_rotp"
+# playground/beam/build.sh's output for the site.
+BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
 # runs and playground/nif/test/test.py run it.
 NODE = os.path.join(ROOT, "target", "playground", "node")
@@ -107,6 +122,10 @@ def cacerts():
 
 def installed(relative):
     parts = relative.split("/")
+    if OTP and parts[0] == "lib" and len(parts) > 1:
+        # The Emscripten BEAM's installation has versionless directories.
+        return f"{parts[1]}-".startswith(APPS) or parts[1] in APPS
+    
     if parts[0] == "bin":
         return relative.endswith(".boot")
     if parts[0] == "releases":
@@ -120,7 +139,52 @@ def installed(relative):
 
 
 def rotp_env():
+    """The environment the template is made in: the native Rust-OTP's, or
+    the host's Elixir with its own build directory."""
+    if OTP:
+        return dict(os.environ, MIX_BUILD_ROOT=BUILD)
     return dict(os.environ, PATH=os.path.join(INSTALL, "bin") + os.pathsep + os.environ["PATH"])
+
+
+def host_elixir():
+    """The host's Elixir installation (its bin/elixir's parent)."""
+    elixir = shutil.which("elixir")
+    return os.path.dirname(os.path.dirname(os.path.realpath(elixir)))
+
+
+def otp_install():
+    """The Emscripten BEAM (playground/beam/build.sh, release) and its
+    installation in INSTALL, laid out as Rust-OTP's: lib/APP/{ebin,priv,
+    include}, bin/*.boot, releases/, mix/archives and mix/rebar3."""
+    subprocess.run([os.path.join(ROOT, "playground", "beam", "build.sh"), "release"], check=True,
+                   env=dict(os.environ, OPT="-O2", DIST=BEAM_DIST))
+    shutil.rmtree(INSTALL, ignore_errors=True)
+    shutil.copytree(os.path.join(BEAM_DIST, "otp", "lib"), os.path.join(INSTALL, "lib"))
+    elixir = host_elixir()
+    for app in ("elixir", "eex", "ex_unit", "iex", "logger", "mix"):
+        for part in ("ebin", "priv", "include"):
+            here = os.path.join(elixir, "lib", app, part)
+            if os.path.isdir(here):
+                shutil.copytree(here, os.path.join(INSTALL, "lib", app, part))
+    os.makedirs(os.path.join(INSTALL, "bin"))
+    tree = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp")
+    for boot in ("start", "start_clean", "no_dot_erlang"):
+        shutil.copy(os.path.join(tree, "bootstrap", "bin", f"{boot}.boot"), os.path.join(INSTALL, "bin"))
+    with open(os.path.join(tree, "OTP_VERSION")) as f:
+        version = f.read().strip()
+    os.makedirs(os.path.join(INSTALL, "releases", version.split(".")[0]))
+    with open(os.path.join(INSTALL, "releases", version.split(".")[0], "OTP_VERSION"), "w") as f:
+        f.write(version + "\n")
+    # Mix's archives and rebar3 as the host's Mix installs them (the same
+    # OTP runs them).
+    mix = os.path.expanduser("~/.mix")
+    archives = os.path.join(INSTALL, "mix", "archives")
+    os.makedirs(archives)
+    for name in os.listdir(os.path.join(mix, "archives")):
+        if name.startswith(("hex-", f"phx_new-{PHX_NEW}")):
+            shutil.copytree(os.path.join(mix, "archives", name), os.path.join(archives, name))
+    rebar3 = [os.path.join(mix, "elixir", d, "rebar3") for d in sorted(os.listdir(os.path.join(mix, "elixir")))]
+    shutil.copy([r for r in rebar3 if os.path.isfile(r)][-1], os.path.join(INSTALL, "mix", "rebar3"))
 
 
 # The playground's settings for a phx.new app's config/dev.exs: one
@@ -170,7 +234,11 @@ def configure(app):
 
 
 def compiler_stamp():
-    """The Rust-OTP that compiles the template: its backend decides the code."""
+    """The Rust-OTP that compiles the template: its backend decides the code;
+    or the host's OTP and Elixir that do."""
+    if OTP:
+        versions = subprocess.run(["elixir", "--version"], capture_output=True, check=True).stdout
+        return hashlib.sha256(versions).hexdigest()
     with open(os.path.join(INSTALL, "bin", "rotp"), "rb") as f:
         return hashlib.sha256(f.read()).hexdigest()
 
@@ -184,7 +252,7 @@ def phoenix_app():
     if os.path.exists(os.path.join(app, "priv", "static", "assets", "css", "app.css")):
         built = open(stamp).read() if os.path.exists(stamp) else None
         if built != compiler_stamp():
-            shutil.rmtree(os.path.join(app, "_build_rotp", "dev"), ignore_errors=True)
+            shutil.rmtree(os.path.join(app, BUILD, "dev"), ignore_errors=True)
             configure(app)
             subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
             with open(stamp, "w") as f:
@@ -193,7 +261,7 @@ def phoenix_app():
             subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
         return app
     os.makedirs(CACHE, exist_ok=True)
-    if not os.path.isdir(os.path.join(INSTALL, "mix", "archives", f"phx_new-{PHX_NEW}")):
+    if not OTP and not os.path.isdir(os.path.join(INSTALL, "mix", "archives", f"phx_new-{PHX_NEW}")):
         subprocess.run(["mix", "archive.install", "hex", "phx_new", PHX_NEW, "--force"],
                        cwd=CACHE, env=env, check=True)
     shutil.rmtree(app, ignore_errors=True)
@@ -205,7 +273,7 @@ def phoenix_app():
         config = f.read()
     esbuild = config.split("config :esbuild,")[1].split('version: "')[1].split('"')[0]
     tailwind = config.split("config :tailwind,")[1].split('version: "')[1].split('"')[0]
-    build = os.path.join(app, "_build_rotp")
+    build = os.path.join(app, BUILD)
     os.makedirs(build, exist_ok=True)
     binary = os.path.join(build, f"tailwind-linux-x64-{tailwind}")
     subprocess.run(["curl", "-sSfL", "-o", binary, "https://github.com/tailwindlabs/tailwindcss/releases/"
@@ -228,34 +296,35 @@ def phoenix_app():
 
 def app_files(app):
     """(path in the node, path here) for the app at /work/playground: _build
-    is _build_rotp; deps keep only the .git files Mix asks git about."""
+    is BUILD (_build_rotp or _build_otp); deps keep only the .git files Mix
+    asks git about."""
     out = []
     # The build links each dependency's priv (and some src) to deps/; WASI has
     # no links, so their files are copied in place.
     for directory, dirs, names in os.walk(app, followlinks=True):
         dirs[:] = sorted(d for d in dirs if d != "node_modules"
-                         and (not os.path.islink(os.path.join(directory, d)) or "_build_rotp" in directory))
+                         and (not os.path.islink(os.path.join(directory, d)) or BUILD in directory))
         relative_dir = os.path.relpath(directory, app)
         parts = relative_dir.split(os.sep)
-        if parts[0] in ("_build", ".elixir_ls") or (len(parts) > 2 and parts[0] == "deps" and parts[2] == ".git"):
+        if parts[0] in ("_build", "_build_rotp", "_build_otp", ".elixir_ls") and parts[0] != BUILD or (len(parts) > 2 and parts[0] == "deps" and parts[2] == ".git"):
             dirs[:] = []
             if len(parts) == 3 and parts[0] == "deps" and parts[2] == ".git":
                 for name in ("config", "HEAD"):
                     if os.path.exists(os.path.join(directory, name)):
                         out.append((f"work/playground/{relative_dir}/{name}", os.path.join(directory, name)))
             continue
-        if parts[0] == "_build_rotp" and len(parts) == 1:
+        if parts[0] == BUILD and len(parts) == 1:
             dirs[:] = [d for d in dirs if d == "dev"]
         for name in sorted(names):
             path = os.path.join(directory, name)
             if not os.path.isfile(path):
                 continue
             relative = os.path.relpath(path, app)
-            if relative.startswith("_build_rotp/") and relative.count("/") == 1:
+            if relative.startswith(BUILD + "/") and relative.count("/") == 1:
                 # The native esbuild and tailwind: the node runs the page's
                 # (their :path, worker/index.ts).
                 continue
-            relative = relative.replace("_build_rotp/", "_build/", 1)
+            relative = relative.replace(BUILD + "/", "_build/", 1)
             out.append(("work/playground/" + relative, path))
     return out
 
@@ -310,7 +379,10 @@ def record(out, boot, snapshot):
             raise
         sys.stderr.write(result.stderr.decode(errors="replace")[-2000:])
         with open(listing) as f:
-            return {line for line in f.read().split("\n") if line}
+            fetched = {line for line in f.read().split("\n") if line}
+        if not fetched:
+            sys.exit(f"recording {boot}: the node fetched nothing (exit {result.returncode})")
+        return fetched
 
 
 def page(out):
@@ -393,8 +465,16 @@ def main():
         return
     shutil.rmtree(out, ignore_errors=True)
     page(out)
-    shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
-    shutil.copy(build_wasm("wasm32-wasip1-threads", "wasm-threads"), os.path.join(out, "rotp-threads.wasm"))
+    if OTP:
+        otp_install()
+        for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
+            shutil.copy(os.path.join(BEAM_DIST, name), os.path.join(out, name))
+    else:
+        shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
+        shutil.copy(build_wasm("wasm32-wasip1-threads", "wasm-threads"), os.path.join(out, "rotp-threads.wasm"))
+    # Which runtime the build's nodes run (worker/index.ts).
+    with open(os.path.join(out, "runtime.json"), "w") as f:
+        json.dump({"runtime": RUNTIME}, f)
 
     files = []  # (path in the node, path here)
     for directory, dirs, names in os.walk(INSTALL):
@@ -435,7 +515,8 @@ def main():
 
     # The template's files go only in the Phoenix image; an empty project
     # has none of them.
-    needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(("rotp/releases/", "rotp/lib/erts-"))
+    needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(
+        ("rotp/releases/", "rotp/lib/erts/" if OTP else "rotp/lib/erts-"))
     images = {
         "boot": [(path, here) for path, here in files
                  if not path.startswith("work/") and (path in fetched["boot"] or needed(path))],
@@ -470,8 +551,8 @@ def main():
     with open(os.path.join(fs, "version"), "w") as f:
         f.write(digest.hexdigest()[:16] + "\n")
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
-    print(f"{out}: rotp.wasm {mb(os.path.join(out, 'rotp.wasm'))}, "
-          f"rotp-threads.wasm {mb(os.path.join(out, 'rotp-threads.wasm'))}; " + "; ".join(
+    wasm = ("beam.wasm",) if OTP else ("rotp.wasm", "rotp-threads.wasm")
+    print(f"{out}: " + ", ".join(f"{name} {mb(os.path.join(out, name))}" for name in wasm) + "; " + "; ".join(
         f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"
         for boot in RECORD) + f"; {len(lazy)} lazy files in {bundles} bundles")
     print(f"{out}: build {version(out)}")

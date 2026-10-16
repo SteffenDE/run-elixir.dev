@@ -11,6 +11,8 @@ import { Device, Dir, File, Symlink, load, lookup, now, type Fetch, type FsNode 
 import { E } from '../wasi/abi';
 
 const S_IFDIR = 0o040000;
+// Files are executable: the node finds its programs on PATH by the bit
+// (os:find_executable), as the playground's /usr/bin has them.
 const S_IFREG = 0o100000;
 const S_IFLNK = 0o120000;
 const S_IFCHR = 0o020000;
@@ -28,7 +30,9 @@ class FsError extends Error {
 const fail = (code: string): never => {
   throw new FsError(code);
 };
-const failWith = (errno: number): never => fail(NAMES.get(errno) ?? 'EIO');
+// A WASI errno's POSIX name, as PROXYFS reads an error's code.
+export const errnoName = (errno: number): string => NAMES.get(errno) ?? 'EIO';
+const failWith = (errno: number): never => fail(errnoName(errno));
 
 export interface Stat {
   dev: number;
@@ -91,7 +95,7 @@ export class TreeFs {
           ? S_IFLNK | 0o777
           : node instanceof Device
             ? S_IFCHR | 0o666
-            : S_IFREG | 0o644;
+            : S_IFREG | 0o755;
     const size = node instanceof Dir ? 4096 : node.size;
     const time = new Date(Number(node.mtime / 1000000n));
     return {
@@ -173,6 +177,15 @@ export class TreeFs {
   symlink(target: string, path: string): void {
     const { parent, name } = this.free(path);
     parent.entries.set(name, new Symlink(target));
+    parent.mtime = now();
+  }
+  // A second name for a file (Emscripten has no hard links of its own:
+  // beam/link.js calls this).
+  link(from: string, to: string): void {
+    const { node } = this.at(from);
+    if (node instanceof Dir) fail('EPERM');
+    const { parent, name } = this.free(to);
+    parent.entries.set(name, node);
     parent.mtime = now();
   }
   readlink(path: string): string {

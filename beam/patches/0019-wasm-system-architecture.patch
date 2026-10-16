@@ -1,0 +1,22 @@
+diff --git a/erts/emulator/beam/erl_bif_info.c b/erts/emulator/beam/erl_bif_info.c
+index a3cd22e..957a91c 100644
+--- a/erts/emulator/beam/erl_bif_info.c
++++ b/erts/emulator/beam/erl_bif_info.c
+@@ -3017,6 +3017,17 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
+ 	erts_destroy_tmp_dsbuf(dsbufp);
+ 	BIF_RET(res);
+     } else if (BIF_ARG_1 == am_system_architecture) {
++#ifdef ERTS_EMSCRIPTEN
++	/* The playground's node names the architecture it presents (as
++	 * Rust-OTP does, by the same variable): packages pick their tools'
++	 * builds by it (esbuild, tailwind). */
++	const char *architecture = getenv("ROTP_SYSTEM_ARCHITECTURE");
++	if (architecture && *architecture) {
++	    size_t length = strlen(architecture);
++	    hp = HAlloc(BIF_P, 2*length);
++	    BIF_RET(buf_to_intlist(&hp, architecture, length, NIL));
++	}
++#endif
+ 	hp = HAlloc(BIF_P, 2*(sizeof(ERLANG_ARCHITECTURE)-1));
+ 	BIF_RET(buf_to_intlist(&hp,
+ 			       ERLANG_ARCHITECTURE,

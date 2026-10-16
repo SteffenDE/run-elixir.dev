@@ -1,8 +1,8 @@
 diff --git a/erts/emulator/Makefile.in b/erts/emulator/Makefile.in
-index ba65f98..ae94fb5 100644
+index ba65f98..de23486 100644
 --- a/erts/emulator/Makefile.in
 +++ b/erts/emulator/Makefile.in
-@@ -1233,8 +1233,8 @@ NIF_OBJS = \
+@@ -1233,10 +1233,17 @@ NIF_OBJS = \
  
  ifeq ($(TARGET),wasm32-unknown-emscripten)
  # prim_socket over the playground's network: nifs/wasm/prim_socket_nif.c
@@ -12,4 +12,13 @@ index ba65f98..ae94fb5 100644
 +# (ESOCK_NIF_OBJS), which would use Emscripten's emulated sockets.
  $(OBJDIR)/prim_socket_nif.o: nifs/wasm/prim_socket_nif.c
  	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
++# The playground's system calls (hard links, uname) and spawn driver:
++# nifs/wasm/wasm_host.c and wasm_spawn.c.
++RUN_OBJS += $(OBJDIR)/wasm_host.o $(OBJDIR)/wasm_spawn.o
++$(OBJDIR)/wasm_host.o: nifs/wasm/wasm_host.c
++	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
++$(OBJDIR)/wasm_spawn.o: nifs/wasm/wasm_spawn.c
++	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
  endif
+ 
+ ifeq ($(TARGET),win32)

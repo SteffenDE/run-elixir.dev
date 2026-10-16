@@ -162,13 +162,18 @@ build() {
     flags+=" -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=4GB -sALLOW_MEMORY_GROWTH=1"
     flags+=" -sINCOMING_MODULE_JS_API=arguments,wasmMemory,preRun,print,printErr,onExit,onAbort,locateFile"
     flags+=" -sEXPORTED_RUNTIME_METHODS=ENV,FS,ccall,stringToNewUTF8,lengthBytesUTF8,FS_mkdirTree,FS_createDataFile"
-    flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']"
+    # popcorn*: patch 0011's and 0017's terminal; emscripten_force_exit
+    # stops a node (Ctrl+C).
+    flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_emscripten_force_exit','_popcornStdinEnqueue','_popcornStdinEof','_popcornTtyResize']"
     flags+=" -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sMALLOC=mimalloc"
     # PROXYFS mounts the playground's tree (app/src/runtime/beam/treefs.ts).
     flags+=" -lproxyfs.js"
     flags+=" --js-library ${HERE}/emscripten/monotonic-clock.js"
     # prim_socket over the playground's network (socket/, patch 0016).
     flags+=" --js-library ${HERE}/socket/socket.js"
+    flags+=" --js-library ${HERE}/emscripten/tty.js"
+    flags+=" --js-library ${HERE}/host/host.js"
+    flags+=" --js-library ${HERE}/host/spawn.js"
     flags+=" --pre-js ${OTP_DIR}/erts/emulator/js_bridge/beam-bridge.pre.js"
     flags+=" --js-library ${OTP_DIR}/erts/emulator/js_bridge/js_bridge.js"
     if [[ "${MODE}" == debug ]]; then
@@ -181,7 +186,8 @@ build() {
     rm -f "${OTP_DIR}"/bin/wasm32-unknown-emscripten/beam.{emu,smp,wasm}
     export EXTRA_EMCC_LINK_FLAGS="${flags}"
     mkdir -p "${OTP_DIR}/erts/emulator/nifs/wasm"
-    cp -p "${HERE}/socket/prim_socket_nif.c" "${OTP_DIR}/erts/emulator/nifs/wasm/"
+    cp -p "${HERE}/socket/prim_socket_nif.c" "${HERE}/host/wasm_host.c" "${HERE}/host/wasm_spawn.c" \
+        "${OTP_DIR}/erts/emulator/nifs/wasm/"
     log "building erts and libraries (${MODE}, -j${JOBS})"
     (
         cd "${OTP_DIR}"
