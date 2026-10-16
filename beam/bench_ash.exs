@@ -18,6 +18,35 @@ for ebin <- Path.wildcard(Path.join(build, "dev/lib/*/ebin")),
   Code.prepend_path(ebin)
 end
 
+# BENCH_MEMORY=SECONDS logs erlang:memory/0 (MB) at that interval.
+if interval = System.get_env("BENCH_MEMORY") do
+  started = System.monotonic_time(:millisecond)
+
+  # The alloc_util allocators' carriers (MB): what erts holds from malloc,
+  # used or not.
+  sum = fn
+    sum, {:carriers_size, current, _, _} -> current
+    sum, tuple when is_tuple(tuple) -> sum.(sum, Tuple.to_list(tuple))
+    sum, list when is_list(list) -> Enum.reduce(list, 0, &(sum.(sum, &1) + &2))
+    _, _ -> 0
+  end
+
+  carriers = fn ->
+    allocators = :erlang.system_info(:alloc_util_allocators)
+    div(Enum.sum(for a <- allocators, do: sum.(sum, :erlang.system_info({:allocator, a}))), 1_048_576)
+  end
+
+  spawn(fn ->
+    Stream.repeatedly(fn ->
+      Process.sleep(String.to_integer(interval) * 1000)
+      memory = for {kind, bytes} <- :erlang.memory(), do: {kind, div(bytes, 1_048_576)}
+      seconds = div(System.monotonic_time(:millisecond) - started, 1000)
+      IO.puts(:stderr, "memory #{seconds} s: #{inspect(memory)} carriers: #{carriers.()}")
+    end)
+    |> Stream.run()
+  end)
+end
+
 # Mix tasks among the sources ask Mix's project stack at compile time.
 Mix.start()
 
