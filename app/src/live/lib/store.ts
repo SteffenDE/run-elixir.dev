@@ -59,6 +59,9 @@ interface LiveState {
   // in view): a guest follows the host from the start.
   active: Record<string, string | null>;
   following: string | null;
+  // Following, but this page's editor has focus: its own caret is the
+  // one in view (Escape follows again). 'quiet' once its notice is closed.
+  detached: 'notice' | 'quiet' | null;
   setActive(id: string, path: string | null): void;
   // A guest's: bumped by each welcome, which starts the IDE over.
   generation: number;
@@ -80,6 +83,7 @@ export const useLive = create<LiveState>((set) => ({
   cursors: {},
   active: {},
   following: null,
+  detached: null,
   setActive: (id, path) => set((state) => ({ active: { ...state.active, [id]: path } })),
   generation: 0,
   set: (partial) => set(partial),

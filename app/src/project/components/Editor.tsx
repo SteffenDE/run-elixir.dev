@@ -9,6 +9,7 @@ import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
 import { followed, resumeFollowing, showFollowed } from '@/live/lib/follow';
 import { publishCursor } from '@/live/lib/presence';
+import { FollowNotice } from '@/live/components/FollowNotice';
 import {
   bind,
   caretsIn,
@@ -84,7 +85,19 @@ function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElem
         resumeFollowing();
       }, 0);
     };
+    // Focus in the file of someone followed detaches (FollowNotice);
+    // leaving the editor follows again.
+    const onFocusIn = () => {
+      if (followed(path) && !useLive.getState().detached)
+        useLive.getState().set({ detached: 'notice' });
+    };
+    const onFocusOut = (event: FocusEvent) => {
+      if (!holder.contains(event.relatedTarget as Node | null))
+        useLive.getState().set({ detached: null });
+    };
     document.addEventListener('selectionchange', onSelection);
+    holder.addEventListener('focusin', onFocusIn);
+    holder.addEventListener('focusout', onFocusOut);
     holder.addEventListener('keyup', onSelection);
     holder.addEventListener('mouseup', onSelection);
     holder.addEventListener('keydown', onEscape, true);
@@ -96,6 +109,9 @@ function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElem
       holder.removeEventListener('keyup', onSelection);
       holder.removeEventListener('mouseup', onSelection);
       holder.removeEventListener('keydown', onEscape, true);
+      holder.removeEventListener('focusin', onFocusIn);
+      holder.removeEventListener('focusout', onFocusOut);
+      useLive.getState().set({ detached: null });
       editor.setCarets([]);
     };
   }, [path, editor, holder, files]);
@@ -138,22 +154,25 @@ function TabEditor({ tab }: { tab: Tab }) {
     [tab.path, tab.contents, tab.version],
   );
   return (
-    <div className="editor-holder" ref={setHolder}>
-      <Virtualizer className="editor-scroll">
-        <File
-          file={file}
-          options={fileOptions}
-          edit
-          editorOptions={editorOptions}
-          editStateKey={`${tab.path}@${tab.version}`}
-          onEditChange={(event) => {
-            binding.current?.local(event.changes);
-            edit(tab.path, event.file.contents);
-          }}
-          onEditComplete={() => 'accept'}
-        />
-      </Virtualizer>
-    </div>
+    <>
+      <div className="editor-holder" ref={setHolder}>
+        <Virtualizer className="editor-scroll">
+          <File
+            file={file}
+            options={fileOptions}
+            edit
+            editorOptions={editorOptions}
+            editStateKey={`${tab.path}@${tab.version}`}
+            onEditChange={(event) => {
+              binding.current?.local(event.changes);
+              edit(tab.path, event.file.contents);
+            }}
+            onEditComplete={() => 'accept'}
+          />
+        </Virtualizer>
+      </div>
+      <FollowNotice />
+    </>
   );
 }
 

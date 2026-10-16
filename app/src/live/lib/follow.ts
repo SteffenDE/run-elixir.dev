@@ -14,7 +14,7 @@ let opening: string | null = null;
 
 // Their file opens at once (the subscription below sees the change).
 export function follow(id: string | null): void {
-  useLive.getState().set({ following: id });
+  useLive.getState().set({ following: id, detached: null });
 }
 
 // The followed person's file, at their caret's line.

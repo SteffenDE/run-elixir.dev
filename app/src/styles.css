@@ -359,6 +359,39 @@ button {
   flex: 1;
   min-height: 0;
   display: flex;
+  position: relative;
+}
+
+/* Following, detached: over the editor's foot (FollowNotice). */
+.follow-notice {
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: calc(100% - 32px);
+  padding: 4px 4px 4px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--fg);
+  font-size: 12px;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+.follow-notice > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.follow-notice .icon-button {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
 }
 
 .editor-holder {

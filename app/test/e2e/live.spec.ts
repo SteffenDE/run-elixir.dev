@@ -301,6 +301,14 @@ test('a guest follows the host until it opens a file itself, and can follow agai
   // Typing (here, clicking) in the file, the guest's own caret is in view;
   // Escape goes back to the host's.
   await guest.locator('.editor-scroll').click({ position: { x: 120, y: 12 } });
+  // A notice says so; closing it keeps the editor's focus (still detached).
+  const notice = guest.locator('.follow-notice');
+  await expect(notice).toContainText('Detached · Press Esc to follow Ada again');
+  await notice.getByRole('button', { name: 'Close' }).click();
+  await expect(notice).toHaveCount(0);
+  expect(await guest.evaluate(() => !!document.activeElement?.closest('.editor-holder'))).toBe(
+    true,
+  );
   await page.keyboard.press('Control+Home');
   await page.keyboard.type('top ');
   await guest.locator('.editor-scroll').evaluate((e) => e.scrollTo(0, e.scrollHeight));
@@ -308,6 +316,7 @@ test('a guest follows the host until it opens a file itself, and can follow agai
   await expect(guest.locator('[data-person]')).not.toBeInViewport();
   await guest.keyboard.press('Escape');
   await expect(guest.locator('[data-person]')).toBeInViewport();
+  await expect(notice).toHaveCount(0);
   expect(await guest.evaluate(() => !!document.activeElement?.closest('.editor-holder'))).toBe(
     false,
   );
