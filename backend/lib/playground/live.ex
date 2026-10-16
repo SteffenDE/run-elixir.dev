@@ -76,9 +76,18 @@ defmodule Playground.Live do
   end
 
   @doc false
-  def register(session, id, admitted) do
-    {:ok, _} = Registry.register(@registry, {session, id}, admitted)
-    :ok
+  # A host joining again may find its old channel still registered (its
+  # socket not yet gone): that one goes, and is waited for.
+  def register(session, id, admitted, tries \\ 50) do
+    case Registry.register(@registry, {session, id}, admitted) do
+      {:ok, _} ->
+        :ok
+
+      {:error, {:already_registered, old}} when tries > 0 ->
+        Process.exit(old, :kill)
+        Process.sleep(10)
+        register(session, id, admitted, tries - 1)
+    end
   end
 
   @doc false

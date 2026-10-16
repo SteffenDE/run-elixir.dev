@@ -119,6 +119,16 @@ defmodule PlaygroundWeb.LiveChannelTest do
     refute_push "ended", %{}, 100
   end
 
+  # The host's new socket joins before its old channel is gone.
+  test "a host joining again replaces its old channel", context do
+    %{session: session, host: host, host_socket: host_socket} = context
+    Process.unlink(host_socket.channel_pid)
+    monitor = watch(host_socket)
+    {:ok, again, _} = enter(session, %{"role" => "host", "token" => host.token})
+    assert again.id == host.id
+    assert_receive {:DOWN, ^monitor, _, _, _}
+  end
+
   test "a session whose host stays away ends", %{session: session, host_socket: host_socket} do
     {:ok, _guest, guest_socket} = enter(session, %{"role" => "guest"})
     monitor = watch(guest_socket)
@@ -136,13 +146,30 @@ defmodule PlaygroundWeb.LiveChannelTest do
     assert_push "ended", %{}
   end
 
-  test "messages over the size or the rate are refused", %{session: session} do
+  test "a message over the size is refused", %{session: session} do
     {:ok, _guest, guest_socket} = enter(session, %{"role" => "guest"})
     ref = push(guest_socket, "b", {:binary, :binary.copy("x", 262_145)})
     assert_reply ref, :error, %{reason: "too_large"}
+  end
 
-    refs = for _ <- 1..801, do: push(guest_socket, "b", {:binary, "x"})
-    for ref <- Enum.take(refs, 800), do: assert_reply(ref, :ok)
-    assert_reply List.last(refs), :error, %{reason: "rate"}
+  # 1,000 messages, a few microseconds apart: past the burst (800), the
+  # rest wait for the rate (200 a second), and all arrive, in order.
+  test "messages over the rate wait, and keep their order", %{session: session} do
+    {:ok, guest, guest_socket} = enter(session, %{"role" => "guest"})
+    assert_push "joined", %{}
+    refs = for n <- 1..1000, do: push(guest_socket, "b", {:binary, <<n::32>>})
+    for ref <- refs, do: assert_reply(ref, :ok, _, 5000)
+
+    for n <- 1..1000 do
+      assert_push "m", message
+      assert message == message(guest.id, <<n::32>>)
+    end
+  end
+
+  test "a participant whose messages pile up is closed", %{session: session} do
+    {:ok, _guest, guest_socket} = enter(session, %{"role" => "guest"})
+    monitor = watch(guest_socket)
+    for _ <- 1..3000, do: push(guest_socket, "b", {:binary, "x"})
+    assert_receive {:DOWN, ^monitor, _, _, _}, 5000
   end
 end

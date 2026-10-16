@@ -37,14 +37,16 @@ config :playground, Playground.Nif, daily_budget_usd: 20.0, setup_min_downloads:
 
 # Live sessions' relay, see Playground.Live: participants per session,
 # how long a host may be away (a reload), a session's longest life, the
-# largest message, and what each participant may send a second (four
-# seconds' worth at once).
+# largest message, what each participant may send a second (four seconds'
+# worth at once; more waits), and how many messages may wait before the
+# participant is closed.
 config :playground, Playground.Live,
   max_participants: 16,
   grace_ms: 30_000,
   lifetime_ms: :timer.hours(24),
   max_message: 262_144,
-  rate: [bytes: 1_048_576, messages: 200]
+  rate: [bytes: 1_048_576, messages: 200],
+  max_backlog: 1000
 
 # Configure the endpoint
 config :playground, PlaygroundWeb.Endpoint,

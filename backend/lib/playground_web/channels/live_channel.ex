@@ -15,7 +15,9 @@ defmodule PlaygroundWeb.LiveChannel do
   `"replaced"`) comes as JSON events.
 
   Each participant may send so many bytes and messages a second, with a
-  burst; what goes over is refused (`{:error, %{reason: "rate"}}`).
+  burst; a message over that waits, and those after it wait behind it, so
+  their order holds. A participant whose messages keep piling up is closed
+  (`{:error, %{reason: "overloaded"}}`).
   """
 
   use PlaygroundWeb, :channel
@@ -40,6 +42,7 @@ defmodule PlaygroundWeb.LiveChannel do
           room: welcome.room,
           max_message: Keyword.get(config, :max_message, 262_144),
           rate: Keyword.get(config, :rate, bytes: 1_048_576, messages: 200),
+          max_backlog: Keyword.get(config, :max_backlog, 1000),
           bucket: nil
         )
 
@@ -89,7 +92,7 @@ defmodule PlaygroundWeb.LiveChannel do
          :ok <- send.(data, socket) do
       {:reply, :ok, socket}
     else
-      {:error, reason, socket} -> {:reply, {:error, %{reason: reason}}, socket}
+      :overloaded -> {:stop, :normal, {:error, %{reason: "overloaded"}}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason}}, socket}
       reason when is_binary(reason) -> {:reply, {:error, %{reason: reason}}, socket}
     end
@@ -124,22 +127,38 @@ defmodule PlaygroundWeb.LiveChannel do
   end
 
   # A token bucket per participant, for bytes and for messages: a second's
-  # worth a second, and up to four seconds' worth at once.
+  # worth a second, and up to four seconds' worth at once, counted in
+  # fractions (messages a few milliseconds apart each add a little). A
+  # message over it waits until the bucket has it: this channel takes its
+  # next message only then, so the order holds. Too many waiting behind:
+  # :overloaded.
   defp take(socket, bytes) do
-    rate = socket.assigns.rate
-    now = System.monotonic_time(:millisecond)
+    %{rate: rate, max_backlog: max_backlog} = socket.assigns
+    now = System.monotonic_time(:microsecond)
+    full = {rate[:bytes] * 4.0, rate[:messages] * 4.0}
 
     {last, have_bytes, have_messages} =
-      socket.assigns.bucket || {now, rate[:bytes] * 4, rate[:messages] * 4}
+      socket.assigns.bucket || {now, elem(full, 0), elem(full, 1)}
 
-    elapsed = now - last
-    have_bytes = min(rate[:bytes] * 4, have_bytes + div(rate[:bytes] * elapsed, 1000))
-    have_messages = min(rate[:messages] * 4, have_messages + div(rate[:messages] * elapsed, 1000))
+    seconds = (now - last) / 1_000_000
+    have_bytes = min(elem(full, 0), have_bytes + rate[:bytes] * seconds)
+    have_messages = min(elem(full, 1), have_messages + rate[:messages] * seconds)
 
-    if have_bytes >= bytes and have_messages >= 1 do
-      {:ok, assign(socket, :bucket, {now, have_bytes - bytes, have_messages - 1})}
-    else
-      {:error, "rate", assign(socket, :bucket, {now, have_bytes, have_messages})}
+    wait =
+      max(0.0, max((bytes - have_bytes) / rate[:bytes], (1 - have_messages) / rate[:messages]))
+
+    {:message_queue_len, backlog} = Process.info(self(), :message_queue_len)
+
+    cond do
+      wait > 0 and backlog > max_backlog ->
+        :overloaded
+
+      true ->
+        if wait > 0, do: Process.sleep(ceil(wait * 1000))
+        have_bytes = have_bytes + rate[:bytes] * wait - bytes
+        have_messages = have_messages + rate[:messages] * wait - 1
+        bucket = {now + round(wait * 1_000_000), have_bytes, have_messages}
+        {:ok, assign(socket, :bucket, bucket)}
     end
   end
 
