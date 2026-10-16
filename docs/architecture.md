@@ -115,8 +115,17 @@ over it as outside the playground.
 
 Postgrex connects to `localhost:5432`. That port is served on the page:
 `src/runtime/postgres.ts` hands whole wire-protocol messages to PGlite's
-`execProtocolRaw`, one connection at a time. PGlite is a single session, so
-the app's pool has one connection. It starts on the first connection, and a
+`execProtocolRaw`. PGlite is a single session, so a pool's connections take
+turns: one that leaves the session in a transaction, or between a Parse and
+its Sync, holds it until a ReadyForQuery says idle, and the others wait
+(one that saw another's transaction would take it for its own, and an
+unnamed statement would be another's). A transaction idle for a second lets
+the waiting ones in, into it, except a new connection's startup: Ecto's
+migrator holds a lock in a transaction on one connection and migrates on
+another. A connection that closes in its transaction has it rolled back; a
+CancelRequest closes its connection and stops nothing. The template's pool
+has one connection anyway; a cloned app keeps its own. PGlite starts on the
+first connection, and a
 stored project's lives in IndexedDB (`idb://playground-pg-ID`); a temporary
 IEx's lives in memory.
 

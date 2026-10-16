@@ -1,7 +1,13 @@
 // Postgres for the node: a connection Postgrex makes to the page (host/node.ts
 // serve) carries the wire protocol to PGlite. Messages go to
-// execProtocolRaw whole and in order, one connection at a time (PGlite is
-// one session, which is why the app's pool has one connection).
+// execProtocolRaw whole and in order. PGlite is one session, so the pool's
+// connections take turns: a connection that leaves the session in a
+// transaction, or between a Parse and its Sync, holds it until a
+// ReadyForQuery says idle; the others' messages wait (a connection that
+// saw another's transaction would take it for its own). A transaction
+// idle for JOIN_AFTER lets the waiting ones in, into it, except a new
+// connection's startup: Ecto's migrator holds its lock in a transaction on
+// one connection and migrates on another.
 // database(): the PGlite, a promise; asked for on the first message.
 import type { Connection } from './host/node';
 
@@ -10,17 +16,144 @@ export interface Database {
   execProtocolRaw(message: Uint8Array): Promise<Uint8Array>;
 }
 
+const JOIN_AFTER = 1000;
+
+// Startup codes: SSLRequest and GSSENCRequest (declined), CancelRequest
+// (a query cannot be stopped here: the connection just closes).
+const SSL = 80877103;
+const GSSENC = 80877104;
+const CANCEL = 80877102;
+
+// Query 'ROLLBACK'.
+const ROLLBACK = (() => {
+  const sql = new TextEncoder().encode('ROLLBACK\0');
+  const query = new Uint8Array(5 + sql.length);
+  query[0] = 81;
+  new DataView(query.buffer).setInt32(1, 4 + sql.length);
+  query.set(sql, 5);
+  return query;
+})();
+
+// The transaction status of the last ReadyForQuery in a reply (I, T or E),
+// or null when there is none.
+function readyStatus(reply: Uint8Array): string | null {
+  const view = new DataView(reply.buffer, reply.byteOffset, reply.byteLength);
+  let status: string | null = null;
+  for (let at = 0; at + 5 <= reply.length; at += 1 + view.getInt32(at + 1)) {
+    if (reply[at] === 90) status = String.fromCharCode(reply[at + 5]);
+  }
+  return status;
+}
+
+// A connection's messages, or (connection null) the session's own.
+interface Batch {
+  connection: Connection | null;
+  bytes: Uint8Array;
+  startup: boolean;
+  terminate: boolean;
+}
+
 export function postgres(database: () => Promise<Database>): (connection: Connection) => void {
-  let queue: Promise<unknown> = Promise.resolve();
+  // The connections the session is with (none: anyone's turn), and since
+  // when it has been idle in their transaction (null while a reply is
+  // awaited, or between Parse and Sync). One batch runs at a time.
+  const holders = new Set<Connection>();
+  let idleSince: number | null = null;
+  let running = false;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const waiting: Batch[] = [];
+
+  const next = (): Batch | undefined => {
+    const turn = waiting.findIndex(
+      (batch) => !batch.connection || !holders.size || holders.has(batch.connection),
+    );
+    if (turn >= 0) return waiting.splice(turn, 1)[0];
+    if (idleSince === null) return undefined;
+    const late = Date.now() - idleSince >= JOIN_AFTER;
+    const joining = waiting.findIndex((batch) => !batch.startup);
+    if (late && joining >= 0) return waiting.splice(joining, 1)[0];
+    if (!late && joining >= 0 && !timer)
+      timer = setTimeout(
+        () => {
+          timer = null;
+          pump();
+        },
+        JOIN_AFTER - (Date.now() - idleSince),
+      );
+    return undefined;
+  };
+
+  const pump = (): void => {
+    if (running) return;
+    const batch = next();
+    if (!batch) return;
+    running = true;
+    const { connection, bytes, terminate } = batch;
+    const reply =
+      terminate && bytes.length === 5
+        ? Promise.resolve(new Uint8Array(0))
+        : database().then((db) => db.execProtocolRaw(bytes));
+    reply
+      .then((out) => {
+        if (!connection) return;
+        const status = readyStatus(out);
+        if (status === 'I') {
+          holders.clear();
+          idleSince = null;
+        } else if (status === 'T' || status === 'E') {
+          holders.add(connection);
+          idleSince = Date.now();
+        } else if (!terminate) {
+          holders.add(connection);
+          idleSince = null;
+        }
+        if (out.length) connection.write(out);
+        if (terminate) {
+          connection.close();
+          gone(connection);
+        }
+      })
+      .catch((error) => {
+        console.error('postgres:', error);
+        if (connection) {
+          connection.close();
+          gone(connection);
+        }
+      })
+      .finally(() => {
+        running = false;
+        pump();
+      });
+  };
+
+  // A connection gone: its waiting messages are dropped, and the
+  // transaction it held alone is rolled back (nothing else would end it).
+  const gone = (connection: Connection) => {
+    for (let i = waiting.length - 1; i >= 0; i--)
+      if (waiting[i].connection === connection) waiting.splice(i, 1);
+    if (!holders.delete(connection)) return;
+    if (holders.size) return;
+    idleSince = null;
+    waiting.unshift({ connection: null, bytes: ROLLBACK, startup: false, terminate: false });
+    pump();
+  };
+
   return (connection) => {
     let buffer = new Uint8Array(0);
     let started = false;
+    let closed = false;
     const take = (count: number) => {
       const out = buffer.slice(0, count);
       buffer = buffer.slice(count);
       return out;
     };
+    connection.onclose = () => {
+      closed = true;
+      gone(connection);
+    };
     connection.ondata = (bytes) => {
+      if (closed) return;
+      const wasStarted = started;
       const joined = new Uint8Array(buffer.length + bytes.length);
       joined.set(buffer);
       joined.set(bytes, buffer.length);
@@ -35,10 +168,14 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
           if (buffer.length < length) break;
           const code = view.getInt32(4);
           const message = take(length);
-          // SSLRequest, GSSENCRequest: not here.
-          if (code === 80877103 || code === 80877104) {
+          if (code === SSL || code === GSSENC) {
             connection.write(new Uint8Array([78]));
             continue;
+          }
+          if (code === CANCEL) {
+            closed = true;
+            connection.close();
+            return;
           }
           started = true;
           messages.push(message);
@@ -57,20 +194,8 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
         batch.set(m, at);
         at += m.length;
       }
-      queue = queue
-        .then(async () =>
-          terminate && batch.length === 5
-            ? new Uint8Array(0)
-            : (await database()).execProtocolRaw(batch),
-        )
-        .then((out) => {
-          if (out.length) connection.write(out);
-          if (terminate) connection.close();
-        })
-        .catch((error) => {
-          console.error('postgres:', error);
-          connection.close();
-        });
+      waiting.push({ connection, bytes: batch, startup: !wasStarted, terminate });
+      pump();
     };
   };
 }

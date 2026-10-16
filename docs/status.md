@@ -147,8 +147,9 @@ last_updated: 2026-10-16
   the app's own compile adds it back. Only in the browser (host OTP and
   native Rust-OTP in the same sequence pass); not yet understood. `mix
   compile` first avoids it.
-- **PGlite is one session,** so Ecto's pool is 1, and two shells using the
-  database at once share it.
+- **PGlite is one session:** a pool's connections, and two shells, take
+  turns by transaction ([architecture.md](architecture.md#the-database)); a
+  transaction left idle for a second lets the others into it.
 - **Changes under a second old** are lost when the tab closes (files are
   written a second after they change).
 - **A new site build** drops a Phoenix project's kept template build; Mix
