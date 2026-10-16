@@ -85,7 +85,7 @@ terminal. All of them are the shim's.
 
 ## How a preview request reaches Phoenix
 
-1. The preview iframe asks for `/posts`. The service worker (`src/runtime/sw.js`)
+1. The preview iframe asks for `/posts`. The service worker (`src/runtime/sw.ts`, served as `/sw.js`)
    answers only the preview's requests: iframe navigations, and requests
    from clients it has seen to be nested frames. Everything else goes to the
    network directly.

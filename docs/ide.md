@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # The app (`playground/app`)

@@ -7,9 +7,11 @@ Phoenix projects (a `phx.new` app, its server, PGlite, Tailwind on the
 page), empty projects, and a temporary IEx.
 
 - `app/`: the site's page, a React app (home page, project IDE) built with
-  Vite, and its Playwright tests (`app/test/e2e`).
-- `runtime/`: the WASI shim, workers, shared files and their storage, the
-  service worker, bridges, and the build.
+  Vite, its runtime (`app/src/runtime`: the WASI shim, workers, shared
+  files and their storage, the service worker, bridges), and its
+  Playwright tests (`app/test/e2e`).
+- `runtime/`: the site's build (`build.py`) and a server for it
+  (`serve.py`).
 - `nif/`: an erl_nif for NIF libraries built to WebAssembly, and the
   builds of packages' native code (bcrypt_elixir, lazy_html).
 - `tests/run.sh`: runs the Playwright tests in Docker.

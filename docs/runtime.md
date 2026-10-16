@@ -1,23 +1,33 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # The runtime (`playground/app/src/runtime`)
 
-The site's runtime: JavaScript modules, which the app's Vite build
-bundles ([build.md](build.md#steps)). The page's parts (`host/`,
-`bridge.ts`, …) go into the app. The scripts that load by URL go into the
-build as entries of their own, under their names: `worker.js`, `files.js`
-and `thread.js` (what they share in `chunks/`), and `sw.js`, at the
-site's root. `node.mjs` is bundled for Node.
+The site's runtime, in TypeScript, as part of the app: one `tsconfig`,
+oxlint and oxfmt (`npm run lint`, `format:check`), erasable syntax only
+(no enums or namespaces). The app's Vite build bundles it
+([build.md](build.md#steps)). The page's parts (`host/`, `bridge.ts`, …)
+go into the app, which imports them as `@/runtime/…`. The scripts that
+load by URL go into the build as entries of their own, under their
+names: `worker.js` (`worker/index.ts`), `files.js` and `thread.js` (what
+they share in `chunks/`), and `sw.js`, at the site's root. `node.ts` is
+bundled for Node, as `node.mjs`.
+
+**The WASI calls stay cheap.** The calls are closures, built once per
+node (`functions()`, `sharedCalls`, `positioned`) and wrapped once in
+`unsigned()`; classes declare their fields (`declare`), so types add no
+code, and a call goes through no more functions than it did as
+JavaScript.
 
 | File | Runs in | Role |
 | --- | --- | --- |
 | `wasi/` | worker, Node | WASI preview 1 for `rotp.wasm`. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
 | `worker/` (`worker.js`) | worker | A node. `index.ts` boots `rotp.wasm` and runs one command or the shell; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's); `threaded.ts` serves a threaded node's threads. |
-| `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
+| `files.ts` (`files.js`) | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
+| `threads.ts`, `thread.ts`, `thread-node.ts` | worker, Node | A threaded node: the host that serves its threads' WASI calls, and each thread's entry in a worker (the browser's, Node's). |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
@@ -25,12 +35,12 @@ site's root. `node.mjs` is bundled for Node.
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | The line discipline over xterm.js. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
-| `sw.js` | service worker | Sends a preview's requests to its project's page. |
+| `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
-| `node.ts` (`build.py`, `serve.py` in `playground/runtime`) | build machine | See [build.md](build.md) and [testing.md](testing.md). |
+| `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser ([build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `playground/runtime`. |
 
 ## WASI (`wasi/`)
 

@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Testing
@@ -105,8 +105,9 @@ programs (Tailwind), the service worker, PGlite.
     rotp -- -D warnings`
 - **The erl_nif layer** (`playground/nif`): `python3 -I playground/nif/test/test.py`
   over the built site ([nif.md](nif.md)).
-- **The app:** `npm run lint`, `npm run format:check`, `tsc --noEmit` (part
-  of `npm run build`).
+- **The app and the runtime:** `npm run lint`, `npm run format:check`,
+  `tsc --noEmit` (part of `npm run build`), in Docker (`node:24`) in
+  `playground/app`.
 - **The browsers:** the Playwright suite in Chromium, Firefox and WebKit.
 
 ## Not yet: caching the runtime between tests

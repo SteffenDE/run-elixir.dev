@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Building the site (`runtime/build.py`)
@@ -137,8 +137,9 @@ The filesystem holds:
 ## The Node harness (`src/runtime/node.ts`)
 
 `node node.mjs DIR ERL-ARGS…` runs the site's node under Node with the same
-shim, without a browser. It runs bundled, from `target/playground/node`
-(the Vite build's, step 1). Standard input is read whole, then ends. The
+shim, without a browser. It runs bundled (`node.ts` and
+`thread-node.ts`, built as `.mjs`), from `target/playground/node` (the
+Vite build's, step 1). Standard input is read whole, then ends. The
 environment controls the rest:
 
 | Variable | Effect |
