@@ -81,7 +81,7 @@ export function GuestPage({ session }: { session: string }) {
                 autoFocus
               />
             </label>
-            <button type="submit" className="button">
+            <button type="submit" className="button primary">
               Join
             </button>
           </form>

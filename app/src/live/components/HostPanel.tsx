@@ -63,7 +63,7 @@ function StartForm({ project, ended }: { project: HostProject; ended: string | n
         <input type="checkbox" checked={ask} onChange={(event) => setAsk(event.target.checked)} />
         Ask me before letting each person in
       </label>
-      <button type="submit" className="button" disabled={starting}>
+      <button type="submit" className="button primary" disabled={starting}>
         {starting ? 'Starting…' : 'Start live session'}
       </button>
     </form>
@@ -117,7 +117,11 @@ function Running() {
                 {person.name || 'Someone'} <span className="muted">wants to join</span>
               </span>
               <span className="live-actions">
-                <button type="button" className="button" onClick={() => void admit(person.id)}>
+                <button
+                  type="button"
+                  className="button primary"
+                  onClick={() => void admit(person.id)}
+                >
                   Let in
                 </button>
                 <button
