@@ -261,10 +261,20 @@ def app_files(app):
 
 
 def vite_build(source):
-    """A site's Vite app into its dist/, with Node in Docker."""
-    script = "npm ci --no-audit --no-fund && npm run build"
-    if os.path.isdir(os.path.join(source, "node_modules")):
-        script = "npm run build"
+    """A site's Vite app into its dist/, with Node in Docker. Its
+    node_modules is installed afresh when package-lock.json changed since
+    the last install (a stamp in node_modules has its digest)."""
+    with open(os.path.join(source, "package-lock.json"), "rb") as lock:
+        digest = hashlib.sha256(lock.read()).hexdigest()
+    stamp = os.path.join(source, "node_modules", ".playground-lock")
+    try:
+        with open(stamp) as f:
+            installed = f.read().strip() == digest
+    except OSError:
+        installed = False
+    script = "npm run build"
+    if not installed:
+        script = f"npm ci --no-audit --no-fund && echo {digest} > node_modules/.playground-lock && {script}"
     subprocess.run(DOCKER + ["run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
                              "-v", f"{os.path.dirname(source)}:/p", "-w", f"/p/{os.path.basename(source)}",
                              NODE_IMAGE, "sh", "-c", script], check=True)
