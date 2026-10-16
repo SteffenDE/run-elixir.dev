@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # Status
@@ -180,5 +180,5 @@ last_updated: 2026-10-15
 7. A TCP relay through the site for the node's other connections
    (allow-listed hosts, TLS in the node), as an API-only Phoenix app the
    collaboration relay can grow from.
-8. Collaboration ([projects.md](projects.md#plans)).
+8. Live sessions ([collaboration.md](collaboration.md#order-of-work)).
 9. Compile speed: within 3–4× of BEAM on the Ash app (now about 7×).

@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-16
 ---
 
 # Projects
@@ -202,10 +202,12 @@ Not built yet; the design leaves room for them.
 - **Export and import.** A project as a zip: its kind, name, and its
   changed files (the overlay without `_build`), imported over the same
   template.
-- **Shares on a server,** for projects too large for a link, and git
+- **Shares on a server,** for projects too large for a link, encrypted
+  in the browser ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)), and git
   history in a project (the shell's `git` beyond what Mix asks).
-- **Collaboration.** Two browsers on one project, tunnelling TCP (the
-  preview's and the database's connections) and file access over WebRTC
-  (with a small rendezvous service) or a Phoenix channel. The page reaches
-  the nodes only through `Files` and the port routing in
-  `src/project/lib/playground.ts`, which a remote side could stand behind.
+- **Live sessions.** *Share* offering a live session beside the link:
+  guests watch, and with the host's leave edit, the project running in
+  the host's tab, over an encrypted relay. The page reaches the nodes
+  only through `Files` and the port routing in
+  `src/project/lib/playground.ts`, which a remote side can stand behind.
+  The plan: [collaboration.md](collaboration.md).

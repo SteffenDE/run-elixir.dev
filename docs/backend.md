@@ -1,18 +1,18 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-16
 ---
 
 # The backend (`playground/backend`)
 
 The site is static; the backend is what it can't be: a Phoenix API app
 (`mix phx.new --no-html --no-assets`, app `:playground`) that builds NIF
-libraries to WebAssembly on request, and later relays collaboration
-([projects.md](projects.md#plans), not started). It runs at
+libraries to WebAssembly on request, and later relays live sessions
+([collaboration.md](collaboration.md#the-relay), not started). It runs at
 run-elixir.steffend.me for its admin, and answers the playground's
 pages at `/api/nif/` on run-elixir.dev and its project origins, where
-`/socket` is kept for collaboration.
+`/socket` is kept for live sessions.
 
 Its sandbox, notifications and GitHub sign-in come from SCA (~/sca), a
 different project, cut down to what the backend needs.
