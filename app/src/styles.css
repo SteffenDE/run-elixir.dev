@@ -701,6 +701,12 @@ button {
   gap: 6px;
 }
 
+/* As high as the bin they replace, so the row keeps its height. */
+.project-confirm .button {
+  height: 28px;
+  padding: 0 10px;
+}
+
 .project-error {
   color: var(--accent);
   font-size: 12px;
