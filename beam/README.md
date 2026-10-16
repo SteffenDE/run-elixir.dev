@@ -99,3 +99,41 @@ their time alike: `process_main` 57% and 49%, then `eq`,
 about 1.5 to 1.8 times throughout, a little more in the interpreter
 loop, whose dispatch is a `switch` there (patch 0014): WebAssembly has
 no computed goto.
+
+## Plan: the playground on this BEAM
+
+A proof of concept with what the playground's Rust-OTP node has, in this
+order: files and the network first (a Phoenix app's needs), then the
+terminal, ports, crypto and NIFs. What the playground provides today is
+mapped in [`../docs/runtime.md`](../docs/runtime.md); how each part maps:
+
+- **Files.** Today `rt/wasi/fs.ts` is the node's tree: boot images,
+  bundles fetched lazily by synchronous XHR, `/work` and `/tmp` served by
+  `files.js` over a SharedArrayBuffer. With `PROXY_TO_PTHREAD`
+  Emscripten's file system runs on the worker that loaded the module, so
+  a custom Emscripten file system (`node_ops`/`stream_ops`) over the same
+  tree keeps all of it. The images and bundles are rebuilt from stock
+  `.beam` files (OTP's from this tree, Elixir's and the template's
+  `_build` from the host), and the recording runs redone on this VM.
+- **Network.** Patch 0003 takes out the inet driver. OTP's other
+  `gen_tcp` backend, `gen_tcp_socket` (`-kernel inet_backend socket`), is
+  Erlang over `socket`, whose NIF is `prim_socket`. A `prim_socket` of
+  ours for TCP (open, bind, listen, accept, connect, send, recv,
+  setopt/getopt, close, with `select` messages when a call would block)
+  over the playground's `Network` keeps the page's side as it is (the
+  preview's requests, WebSockets, PGlite on 5432, the Hex fetcher).
+  HTTPS needs an `ssl` shim as `BeamOS.Ssl` is.
+- **NIFs.** As with Rust-OTP: each library a separate WebAssembly
+  instance with `playground/nif/beamos_nif.c`, called with copied terms.
+  The existing wasi-sdk builds stay. erts' `load_nif` (stubbed by patch
+  0006) asks JS for the instance and registers every function with one
+  proxy: erts sets the process's `current` to the function's MFA before
+  calling a NIF, so the proxy finds which one was called without a table
+  of stubs. Calls go to the one thread that holds the instances.
+- **Ports.** Patch 0010 takes out `open_port({spawn, ...})`; a static
+  driver speaking the playground's `/.proc` protocol to its programs.
+- **Crypto.** OpenSSL for WebAssembly, as Popcorn's
+  `scripts/build-openssl.sh` builds it.
+
+Open questions: Firefox and WebKit (only Node is measured), and the
+super carrier's memory, mapped (and zero-filled) whole at start.
