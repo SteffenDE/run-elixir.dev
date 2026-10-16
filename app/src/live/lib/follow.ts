@@ -44,7 +44,7 @@ async function showFile(id: string) {
 // this does): until then the caret is where it was. Never by focusing the
 // editor: that moves this page's caret, which the editor then keeps in
 // view on every edit of theirs. While this page types in the editor, its
-// own caret is the one in view.
+// own caret is the one in view, until Escape (resumeFollowing).
 function keepInView(id: string, line: number) {
   setTimeout(() => {
     if (!editorFocused()) showCaret(id, line);
@@ -100,6 +100,15 @@ export function showFollowed(line: number): void {
   requestAnimationFrame(() => {
     if (id) showCaret(id, line);
   });
+}
+
+// Escape in their file after typing in it (Editor.tsx): the editor lets
+// go of focus, and their caret is in view again.
+export function resumeFollowing(): void {
+  const { following, cursors } = useLive.getState();
+  const cursor = following ? cursors[following] : undefined;
+  if (following && cursor && cursor.path === useStore.getState().active)
+    keepInView(following, cursor.line);
 }
 
 // Watches both stores, once a session starts (host.ts, guest.ts).

@@ -288,6 +288,20 @@ test('a guest follows the host until it opens a file itself, and can follow agai
     false,
   );
 
+  // Typing (here, clicking) in the file, the guest's own caret is in view;
+  // Escape goes back to the host's.
+  await guest.locator('.editor-scroll').click({ position: { x: 120, y: 12 } });
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('top ');
+  await guest.locator('.editor-scroll').evaluate((e) => e.scrollTo(0, e.scrollHeight));
+  await guest.waitForTimeout(500);
+  await expect(guest.locator('[data-person]')).not.toBeInViewport();
+  await guest.keyboard.press('Escape');
+  await expect(guest.locator('[data-person]')).toBeInViewport();
+  expect(await guest.evaluate(() => !!document.activeElement?.closest('.editor-holder'))).toBe(
+    false,
+  );
+
   // The guest's own choice ends following; the host's next file stays there.
   await guest.getByRole('treeitem', { name: 'b.txt', exact: true }).click();
   await expect(activeTab(guest)).toHaveText('b.txt');

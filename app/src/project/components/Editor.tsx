@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { workspace } from '@/project/lib/workspace';
 import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
-import { followed, showFollowed } from '@/live/lib/follow';
+import { followed, resumeFollowing, showFollowed } from '@/live/lib/follow';
 import { publishCursor } from '@/live/lib/presence';
 import {
   bind,
@@ -73,9 +73,21 @@ function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElem
       if (holder.contains(document.activeElement))
         setTimeout(() => publishCursor(bound.cursor()), 0);
     };
+    // Escape in the file of someone followed goes back to following, unless
+    // it is the editor's (closing its search, leaving one of many carets).
+    const onEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || !followed(path)) return;
+      if (event.composedPath()[0] instanceof HTMLInputElement) return;
+      if ((editor.getViewState().selections?.length ?? 0) > 1) return;
+      setTimeout(() => {
+        editor.blur();
+        resumeFollowing();
+      }, 0);
+    };
     document.addEventListener('selectionchange', onSelection);
     holder.addEventListener('keyup', onSelection);
     holder.addEventListener('mouseup', onSelection);
+    holder.addEventListener('keydown', onEscape, true);
     return () => {
       bound.unbind();
       binding.current = null;
@@ -83,6 +95,7 @@ function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElem
       document.removeEventListener('selectionchange', onSelection);
       holder.removeEventListener('keyup', onSelection);
       holder.removeEventListener('mouseup', onSelection);
+      holder.removeEventListener('keydown', onEscape, true);
       editor.setCarets([]);
     };
   }, [path, editor, holder, files]);
