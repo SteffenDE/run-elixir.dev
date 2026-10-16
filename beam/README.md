@@ -44,3 +44,16 @@ Erlang, autoconf 2.72.
 Output is in `out/beam-wasm/dist`: `beam.wasm`, the Emscripten loader
 `beam.mjs` (with pthread workers from `beam.emu.mjs`) and `vm.boot`.
 Logs are `out/beam-wasm/configure.log` and `out/beam-wasm/build.log`.
+
+## Smoke test
+
+    ~/emsdk/node/*/bin/node playground/beam/smoke.mjs ['<erlang expr>']
+    APPS=kernel,stdlib,compiler,elixir node playground/beam/smoke.mjs '...'
+
+The script copies application ebins from `out/beam-wasm/otp/lib` into
+MEMFS and boots with `-noshell -eval`. Observed 2026-10-16 (debug build,
+Node 24.19 from emsdk): `hello from 29 on "wasm32-unknown-emscripten"`,
+exit 0 in 2.3 s. The host's unmodified Elixir 1.20.4 ebin (compiled by
+OTP 29.1.1) loads too: `Code.eval_string` runs, 2.4 s to exit. Module
+checksums (patch 0013) are computed by the loader, so stock `.beam`
+files need no rebuild.
