@@ -16,6 +16,7 @@ import { KindChip } from '@/shared/components/KindChip';
 import { FileTreePanel } from '@/project/components/FileTreePanel';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
+import { QuickOpen } from '@/project/components/QuickOpen';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
 import { NifBuildDialog } from '@/project/components/NifBuildDialog';
@@ -195,6 +196,7 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
       <TemplateNotice project={project} />
       <StartError />
       <NifBuildDialog />
+      <QuickOpen />
       {narrow ? (
         <NarrowWorkspace
           phoenix={kind === 'phoenix'}

@@ -44,6 +44,7 @@ Assets go under `/_playground/`, because the app in the preview owns
 | `project/components/NarrowWorkspace.tsx`, `shared/lib/narrow.ts` | Phones and windows up to 720 px wide: one pane at a time (files, editor, terminal, preview), chosen in a bar at the bottom; all stay mounted. Opening a file shows the editor, following an address the preview; a Phoenix project opens on its preview. The top bar keeps a home icon, the name, the spinner and the restart icon. |
 | `project/components/ProjectPage.tsx` | Top bar (name, kind, status, restart) and resizable panels: tree, then editor over terminals, then the preview while there is one. The tree and the editor are collapsible; the terminals' maximize button collapses or shows both (a temporary IEx starts maximized; a terminal's file link shows them). |
 | `project/components/FileTreePanel.tsx` | `@pierre/trees` over `/work`, without `_build`, `deps`, `.mix`, `.git`, …; follows changes with adds and removes (against the model, which also changes itself). Selecting a file opens it. New file and New folder in its header; a context menu (right-click, or a row's button; a popover in the top layer) to make, rename and delete; dragging moves. New entries are named in place (`startRenaming`). `.ex` and `.exs` get an Elixir drop from a sprite sheet. |
+| `project/components/QuickOpen.tsx`, `shared/lib/file-search.ts` | ⌘P / Ctrl+P (also from a terminal; not from the preview, whose keys are the app's): a modal dialog that finds a file of the tree by a fuzzy match of its path (every letter in order, clusters and starts after `/ _ . -` score higher, shorter paths win ties) and opens it; the matched letters are marked. Without a query, the open tabs, then the tree's files. |
 | `project/components/Editor.tsx` | Tabs (Base UI) of open files; `@pierre/diffs` `File` in edit mode, one editor per tab, keyed by path. ⌘S / Ctrl+S saves. A clean tab follows the node's changes. |
 | `project/components/Terminals.tsx`, `TerminalPanel.tsx`, `lib/terminal-handle.ts`, `lib/terminal-links.ts` | Terminal tabs, each a node of its own over the same files, and their xterm terminals and links. |
 | `project/components/Preview.tsx`, `PreviewFrame.tsx`, `project/preview.tsx` | The preview, docked or popped out. |
@@ -63,8 +64,8 @@ only when the file is (re)loaded, and `editStateKey` keeps undo history
 across tab switches. A file opens at line 1, or at the line a terminal's
 link names; following another link into an open tab moves its caret. A
 file opened from the tree leaves focus there. ⌘S (Apple systems) or
-Ctrl+S saves; the empty editor shows the keys, and in a Phoenix project
-that the preview reloads.
+Ctrl+S saves; the empty editor shows the keys, and quick open's, and in
+a Phoenix project that the preview reloads.
 
 Highlighting:
 

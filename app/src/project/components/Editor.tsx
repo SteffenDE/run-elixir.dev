@@ -207,7 +207,9 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
   if (!tabs.length) {
     return (
       <div className="editor-empty">
-        <p>Open a file from the tree to edit it.</p>
+        <p>
+          Open a file from the tree, or find one with <Shortcut keyName="P" />, to edit it.
+        </p>
         <p className="muted">
           Save with <Shortcut keyName="S" />
           {phoenix ? '; the preview reloads, and Phoenix recompiles what changed.' : '.'}
