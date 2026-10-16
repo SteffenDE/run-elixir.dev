@@ -14,6 +14,7 @@ export function Preview() {
   const reloadPreview = useStore((state) => state.reloadPreview);
   const popOut = useStore((state) => state.popOut);
   const [css, setCss] = useState(0);
+  const remote = useStore((state) => state.remote);
 
   useEffect(() => {
     const refresh = () => setCss((n) => n + 1);
@@ -22,6 +23,14 @@ export function Preview() {
       built.delete(refresh);
     };
   }, []);
+
+  // A live session's guest: the app runs in the host's page.
+  if (remote)
+    return (
+      <div className="preview preview-remote">
+        <p className="muted">The app runs in the host's browser. Its preview here comes later.</p>
+      </div>
+    );
 
   return (
     <PreviewFrame

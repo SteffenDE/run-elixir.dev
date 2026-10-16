@@ -15,6 +15,7 @@ import {
 // The project's link, from the Share button.
 async function share(page: import('@playwright/test').Page): Promise<string> {
   await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByRole('button', { name: /^Link/ }).click();
   const url = page.getByLabel('Link to this project');
   await expect(url).toHaveValue(/\/import#/);
   return url.inputValue();

@@ -69,6 +69,7 @@ test('an old /ID/ link on the apex and a share link reach a project’s origin',
 
   // The link is the apex's; it opens as a project on an origin of its own.
   await page.getByRole('button', { name: 'Share' }).click();
+  await page.getByRole('button', { name: /^Link/ }).click();
   const field = page.getByLabel('Link to this project');
   await expect(field).toHaveValue(new RegExp(`^${APEX}/import#`));
   const link = await field.inputValue();

@@ -11,6 +11,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { lineDiscipline } from '@/runtime/terminal';
+import { useStore } from '@/project/lib/store';
 import { workspace } from '@/project/lib/workspace';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
 import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
@@ -24,6 +25,7 @@ export class TerminalHandle {
   private unsubscribe: (() => void) | null = null;
   private unwatchMode: (() => void) | null = null;
   private readonly unwatchScheme: () => void;
+  private readonly unwatchAccess: () => void;
   private opened = false;
 
   constructor(private readonly id: number) {
@@ -49,6 +51,11 @@ export class TerminalHandle {
     this.terminal.registerLinkProvider(linkProvider(this.terminal));
     this.unwatchScheme = onSchemeChange(() => {
       this.terminal.options.theme = terminalTheme();
+    });
+    // A live session's guest types only when the host lets it.
+    this.terminal.options.disableStdin = !useStore.getState().access.terminal;
+    this.unwatchAccess = useStore.subscribe((state) => {
+      this.terminal.options.disableStdin = !state.access.terminal;
     });
   }
 
@@ -94,6 +101,7 @@ export class TerminalHandle {
     this.unsubscribe?.();
     this.unwatchMode?.();
     this.unwatchScheme();
+    this.unwatchAccess();
     this.resize?.disconnect();
     this.terminal.dispose();
     this.root.remove();

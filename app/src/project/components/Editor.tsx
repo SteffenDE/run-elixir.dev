@@ -3,17 +3,27 @@ import type { FileContents } from '@pierre/diffs';
 import { Editor as PierreEditor, type EditorFactory } from '@pierre/diffs/edit';
 import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import { RiCloseLine, RiSave3Line } from '@remixicon/react';
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { workspace } from '@/project/lib/workspace';
 import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
+import { publishCursor } from '@/live/lib/presence';
+import {
+  bind,
+  caretsIn,
+  onSharedFiles,
+  renderCaret,
+  sharedFile,
+  type Binding,
+  type CaretInfo,
+  type FileEditor,
+} from '@/live/lib/shared-files';
+import { useLive } from '@/live/lib/store';
 import { Shortcut } from '@/shared/components/Kbd';
 import { isModifierKeyPressed, modifierKey } from '@/shared/lib/keys';
 
-const createEditor: EditorFactory<undefined, undefined> = (type, options, key) =>
+const createEditor: EditorFactory<undefined, CaretInfo> = (type, options, key) =>
   new PierreEditor(type, options, key);
-
-type FileEditor = PierreEditor<'file', undefined, undefined>;
 
 // The caret on `line`, in view (the editor would show its caret wherever
 // it was, the end for a new session). Focus stays in the file tree when
@@ -35,19 +45,58 @@ const fileOptions = {
   unsafeCSS: ':host { --diffs-bg: light-dark(#ffffff, #18171d); }',
 } as const;
 
+// In a live session, a file open in it is shared (src/live): edits go
+// both ways, others' carets show, and this one's goes to them.
+function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElement | null) {
+  const binding = useRef<Binding | null>(null);
+  const [files, setFiles] = useState(0);
+  useEffect(() => onSharedFiles(() => setFiles((n) => n + 1)), []);
+  // oxlint-disable-next-line react/exhaustive-deps -- `files` is the signal.
+  useEffect(() => {
+    const file = sharedFile(path);
+    if (!editor || !holder || !file) return;
+    const bound = bind(editor, file, holder, () => !useStore.getState().access.edit);
+    binding.current = bound;
+    const draw = () => editor.setCarets(caretsIn(file, editor));
+    draw();
+    const unwatch = useLive.subscribe((state, before) => {
+      if (state.cursors !== before.cursors || state.people !== before.people) draw();
+    });
+    // The editor takes the selection's change first.
+    const onSelection = () => {
+      if (holder.contains(document.activeElement))
+        setTimeout(() => publishCursor(bound.cursor()), 0);
+    };
+    document.addEventListener('selectionchange', onSelection);
+    return () => {
+      bound.unbind();
+      binding.current = null;
+      unwatch();
+      document.removeEventListener('selectionchange', onSelection);
+      editor.setCarets([]);
+    };
+  }, [path, editor, holder, files]);
+  return binding;
+}
+
 function TabEditor({ tab }: { tab: Tab }) {
   const edit = useStore((state) => state.edit);
   const editor = useRef<FileEditor | null>(null);
+  const [attached, setAttached] = useState<FileEditor | null>(null);
+  const [holder, setHolder] = useState<HTMLDivElement | null>(null);
+  const binding = useSharedFile(tab.path, attached, holder);
   const line = useRef(tab.line);
   useEffect(() => {
     line.current = tab.line;
   }, [tab.line]);
   const editorOptions = useMemo(
     () => ({
-      onAttach: (attached: FileEditor) => {
-        editor.current = attached;
-        goTo(attached, line.current);
+      onAttach: (next: FileEditor) => {
+        editor.current = next;
+        setAttached(next);
+        goTo(next, line.current);
       },
+      renderCaret,
     }),
     [],
   );
@@ -66,17 +115,22 @@ function TabEditor({ tab }: { tab: Tab }) {
     [tab.path, tab.contents, tab.version],
   );
   return (
-    <Virtualizer className="editor-scroll">
-      <File
-        file={file}
-        options={fileOptions}
-        edit
-        editorOptions={editorOptions}
-        editStateKey={`${tab.path}@${tab.version}`}
-        onEditChange={(event) => edit(tab.path, event.file.contents)}
-        onEditComplete={() => 'accept'}
-      />
-    </Virtualizer>
+    <div className="editor-holder" ref={setHolder}>
+      <Virtualizer className="editor-scroll">
+        <File
+          file={file}
+          options={fileOptions}
+          edit
+          editorOptions={editorOptions}
+          editStateKey={`${tab.path}@${tab.version}`}
+          onEditChange={(event) => {
+            binding.current?.local(event.changes);
+            edit(tab.path, event.file.contents);
+          }}
+          onEditComplete={() => 'accept'}
+        />
+      </Virtualizer>
+    </div>
   );
 }
 
@@ -88,10 +142,13 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
   const activate = useStore((state) => state.activate);
   const close = useStore((state) => state.close);
   const current = tabs.find((tab) => tab.path === active);
+  const canEdit = useStore((state) => state.access.edit);
 
   const saveCurrent = useCallback(() => {
     if (current && current.draft !== current.saved)
-      void workspace().save(current.path, current.draft);
+      workspace()
+        .save(current.path, current.draft)
+        .catch((error: Error) => useStore.getState().setStatus(error.message));
   }, [current]);
 
   useEffect(() => {
@@ -151,15 +208,17 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
             );
           })}
         </Tabs.List>
-        <button
-          type="button"
-          className="icon-button"
-          disabled={!current || current.draft === current.saved}
-          onClick={saveCurrent}
-          title={`Save (${modifierKey()} S)`}
-        >
-          <RiSave3Line size={16} />
-        </button>
+        {canEdit && (
+          <button
+            type="button"
+            className="icon-button"
+            disabled={!current || current.draft === current.saved}
+            onClick={saveCurrent}
+            title={`Save (${modifierKey()} S)`}
+          >
+            <RiSave3Line size={16} />
+          </button>
+        )}
       </div>
       <EditProvider createEditor={createEditor}>
         {tabs.map((tab) => (

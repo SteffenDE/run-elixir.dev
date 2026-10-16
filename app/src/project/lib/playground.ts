@@ -101,6 +101,17 @@ export async function refreshTree(): Promise<void> {
   useStore.getState().setPaths(paths);
 }
 
+// A live session's host (src/live/lib/host.ts) hears of saves, moves and
+// removals, and of files the nodes changed, which it applies to the files
+// open in the session (and the tabs showing those: `changed` returns
+// their paths).
+export const live: {
+  saved?: (path: string, text: string) => void;
+  moved?: (from: string, to: string) => void;
+  removed?: (path: string) => void;
+  changed?: (paths: string[]) => Promise<Set<string>>;
+} = {};
+
 let refreshing: ReturnType<typeof setTimeout> | null = null;
 let reloading: ReturnType<typeof setTimeout> | null = null;
 
@@ -114,9 +125,10 @@ async function changed(paths: string[]): Promise<void> {
     refreshing = null;
     void refreshTree();
   }, 300);
+  const shared = (await live.changed?.(visible)) ?? new Set();
   const { tabs, replace } = useStore.getState();
   for (const tab of tabs) {
-    if (!visible.includes(tab.path) || tab.draft !== tab.saved) continue;
+    if (!visible.includes(tab.path) || tab.draft !== tab.saved || shared.has(tab.path)) continue;
     try {
       const text = decoder.decode(await read(tab.path));
       if (text !== tab.saved) replace(tab.path, text);
@@ -145,10 +157,10 @@ async function vacant(path: string): Promise<void> {
 }
 
 // The tree's file operations, on absolute paths below /work.
-export async function createFile(path: string): Promise<void> {
+export async function createFile(path: string, open = true): Promise<void> {
   await vacant(path);
   await running().write(path, new Uint8Array(0));
-  await openFile(path);
+  if (open) await openFile(path);
 }
 
 export async function createDirectory(path: string): Promise<void> {
@@ -160,11 +172,13 @@ export async function movePath(from: string, to: string): Promise<void> {
   await vacant(to);
   await running().rename(from, to);
   useStore.getState().moved(from, to);
+  live.moved?.(from, to);
 }
 
 export async function removePath(path: string): Promise<void> {
   await running().remove(path);
   useStore.getState().removed(path);
+  live.removed?.(path);
 }
 
 // Open a file in the editor, with the caret on `line`.
@@ -184,6 +198,7 @@ export async function save(path: string, text: string): Promise<void> {
   if (!files) return;
   await files.write(path, encoder.encode(text));
   useStore.getState().saved(path, text);
+  live.saved?.(path, text);
   filesChanged([path]);
   // Phoenix's code reloader compiles on the next request.
   if (useStore.getState().previewPort !== null) {
@@ -438,7 +453,7 @@ export async function shareable(name: string, template?: Template): Promise<Shar
 export const local: Workspace = {
   read,
   stat,
-  createFile,
+  createFile: (path) => createFile(path),
   createDirectory,
   movePath,
   removePath,

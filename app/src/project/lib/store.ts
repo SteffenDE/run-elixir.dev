@@ -60,6 +60,14 @@ interface State {
   filesShown: boolean;
   // On a narrow screen, the one pane that shows.
   pane: Pane;
+  // What this page may do: change files (the tree and the editor), and
+  // type into terminals (and open them, restart the server). Only a live
+  // session's guest may not.
+  access: { edit: boolean; terminal: boolean };
+  // The project runs elsewhere (this page is a live session's guest).
+  remote: boolean;
+  setAccess(access: { edit: boolean; terminal: boolean }): void;
+  setRemote(remote: boolean): void;
   setPane(pane: Pane): void;
   setFilesShown(shown: boolean): void;
   setElsewhere(elsewhere: boolean): void;
@@ -124,6 +132,10 @@ export const useStore = create<State>((set) => ({
   elsewhere: false,
   filesShown: true,
   pane: 'terminal',
+  access: { edit: true, terminal: true },
+  remote: false,
+  setAccess: (access) => set({ access }),
+  setRemote: (remote) => set({ remote }),
   setPane: (pane) => set({ pane }),
   setFilesShown: (filesShown) => set({ filesShown }),
   setElsewhere: (elsewhere) => set({ elsewhere }),

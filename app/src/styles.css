@@ -361,6 +361,13 @@ button {
   display: flex;
 }
 
+.editor-holder {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+
 .editor-scroll {
   flex: 1;
   min-height: 0;
@@ -1016,4 +1023,151 @@ button {
 .template-notice p {
   flex: 1;
   margin: 2px 0;
+}
+
+/* Sharing: the choice between a link and a live session, and the live
+   session's panel. */
+.share-choices {
+  display: grid;
+  gap: 8px;
+}
+
+.share-choice {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--panel-2);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.share-choice:hover {
+  border-color: var(--accent);
+}
+
+.share-choice > span {
+  display: grid;
+  gap: 2px;
+}
+
+.share-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.live-form,
+.live-panel {
+  display: grid;
+  gap: 10px;
+}
+
+.live-field {
+  display: grid;
+  gap: 4px;
+}
+
+.live-field input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--panel-2);
+  color: inherit;
+  font: inherit;
+}
+
+.live-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.live-switches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  align-items: center;
+}
+
+.live-people {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.live-people li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.live-person,
+.live-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.button.live {
+  border-color: var(--accent);
+}
+
+.people {
+  display: inline-flex;
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 2px solid var(--panel);
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.people .avatar + .avatar {
+  margin-left: -6px;
+}
+
+.avatar.more {
+  background: var(--muted);
+}
+
+.guest-status {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.live-ended {
+  padding: 6px 12px;
+  background: var(--accent-soft);
+  text-align: center;
+}
+
+.preview-remote {
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
 }

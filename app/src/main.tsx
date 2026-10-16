@@ -2,9 +2,11 @@ import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HomePage } from '@/home/components/HomePage';
 import { ImportPage } from '@/home/components/ImportPage';
+import { GuestPage } from '@/live/components/GuestPage';
 import { NotFound } from '@/home/components/NotFound';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
+import { endSession } from '@/live/lib/host';
 import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
@@ -28,6 +30,7 @@ import '@/styles.css';
 //   /phoenix    a new Phoenix project; /empty, a new empty one
 //   /iex        a temporary IEx, kept nowhere
 //   /import#…   a shared project's link
+//   /live/ID#…  a live session's link, to join it
 //
 // With a project domain (site.ts), a project is its own origin's /, and
 // the rest is the apex's; an old /ID/ link on the apex goes there. Any
@@ -43,6 +46,10 @@ async function page(path: string): Promise<ReactNode> {
   const name = path.split('/').filter(Boolean)[0] ?? '';
   if (!name) return <HomePage />;
   if (name === 'import') return <ImportPage />;
+  if (name === 'live') {
+    const session = path.split('/').filter(Boolean)[1] ?? '';
+    return /^[\w-]{22}$/.test(session) ? <GuestPage session={session} /> : <NotFound />;
+  }
   if (name === 'iex') {
     document.title = 'IEx · Elixir Playground';
     return <ProjectPage project={null} />;
@@ -72,10 +79,14 @@ async function projectPage(id: string, path: string): Promise<ReactNode> {
   if (path !== home) history.replaceState(null, '', home);
   document.title = `${project.name} · Elixir Playground`;
   // Asked to let go: stop here first. Taken (after not answering): stop.
-  onProjectRelease(shutdown, () => {
-    void shutdown();
-    useStore.getState().setElsewhere(true);
-  });
+  onProjectRelease(
+    () => endSession().then(shutdown),
+    () => {
+      void endSession();
+      void shutdown();
+      useStore.getState().setElsewhere(true);
+    },
+  );
   const run = () => {
     void openedProject(project.id);
     void heldOpen();

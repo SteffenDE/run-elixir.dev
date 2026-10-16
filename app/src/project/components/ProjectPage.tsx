@@ -8,7 +8,11 @@ import {
   usePanelRef,
   type PanelImperativeHandle,
 } from 'react-resizable-panels';
+import { GuestBar } from '@/live/components/GuestBar';
+import { resumeSession } from '@/live/lib/host';
+import type { GuestProject } from '@/live/lib/guest';
 import { EditorArea } from '@/project/components/Editor';
+import { KindChip } from '@/shared/components/KindChip';
 import { FileTreePanel } from '@/project/components/FileTreePanel';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { Preview } from '@/project/components/Preview';
@@ -47,9 +51,11 @@ function showPanels(panels: FilePanels, show: boolean) {
 }
 
 // A project in the IDE: tree, editor over terminals, and the preview while
-// there is something to show. `project` is null for a temporary IEx.
-export function ProjectPage({ project }: { project: Project | null }) {
-  const kind = project?.kind ?? 'iex';
+// there is something to show. `project` is null for a temporary IEx, and
+// for a live session's guest, which shows `guest`, the host's project.
+export function ProjectPage({ project, guest }: { project: Project | null; guest?: GuestProject }) {
+  const kind = guest?.kind ?? project?.kind ?? 'iex';
+  const canRestart = useStore((state) => state.access.terminal);
   const status = useStore((state) => state.status);
   const ready = useStore((state) => state.ready);
   const startError = useStore((state) => state.startError);
@@ -110,12 +116,20 @@ export function ProjectPage({ project }: { project: Project | null }) {
   }, [docked, workspace]);
 
   useEffect(() => {
-    if (started) return;
+    if (started || guest) return;
     started = true;
-    start(kind, project?.id ?? null).catch((error: Error) =>
-      useStore.getState().failedToStart(error.message),
+    start(kind, project?.id ?? null).then(
+      () =>
+        project &&
+        resumeSession({
+          id: project.id,
+          kind,
+          name: project.name,
+          template: project.template,
+        }),
+      (error: Error) => useStore.getState().failedToStart(error.message),
     );
-  }, [kind, project]);
+  }, [kind, project, guest]);
 
   if (elsewhere && project) return <OpenElsewhere project={project} moved />;
 
@@ -128,7 +142,14 @@ export function ProjectPage({ project }: { project: Project | null }) {
             Elixir <span>Playground</span>
           </span>
         </a>
-        <ProjectTitle project={project} />
+        {guest ? (
+          <div className="project-title">
+            <span className="project-name">{guest.name}</span>
+            <KindChip kind={guest.kind} />
+          </div>
+        ) : (
+          <ProjectTitle project={project} />
+        )}
         <div className="status">
           {!ready && !startError && <RiLoader4Line size={14} className="spin" />}
           <span className="status-text">{status}</span>
@@ -144,8 +165,19 @@ export function ProjectPage({ project }: { project: Project | null }) {
             Dock preview
           </button>
         )}
-        <ShareButton name={project?.name ?? 'iex'} template={project?.template} />
-        {kind === 'phoenix' && (
+        {guest ? (
+          <GuestBar />
+        ) : (
+          <ShareButton
+            project={{
+              id: project?.id ?? null,
+              kind,
+              name: project?.name ?? 'iex',
+              template: project?.template,
+            }}
+          />
+        )}
+        {kind === 'phoenix' && canRestart && (
           <button
             type="button"
             className="button"
