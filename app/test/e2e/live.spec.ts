@@ -272,6 +272,22 @@ test('a guest follows the host until it opens a file itself, and can follow agai
   await page.keyboard.press('Control+End');
   await expect(guest.locator('[data-person]')).toBeInViewport();
 
+  // The host types there: the guest's view stays, and its editor has no
+  // focus (its own caret, which the editor keeps in view on each remote
+  // edit, would pull the view away).
+  const scrollTop = () => guest.locator('.editor-scroll').evaluate((e) => e.scrollTop);
+  const before = await scrollTop();
+  const tops: number[] = [];
+  for (const key of 'typing along') {
+    await page.keyboard.type(key);
+    tops.push(await scrollTop());
+  }
+  await expect(guest.locator('[data-person]')).toBeInViewport();
+  expect(tops.every((top) => Math.abs(top - before) < 40)).toBe(true);
+  expect(await guest.evaluate(() => !!document.activeElement?.closest('.editor-holder'))).toBe(
+    false,
+  );
+
   // The guest's own choice ends following; the host's next file stays there.
   await guest.getByRole('treeitem', { name: 'b.txt', exact: true }).click();
   await expect(activeTab(guest)).toHaveText('b.txt');

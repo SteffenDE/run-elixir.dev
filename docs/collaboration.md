@@ -253,7 +253,11 @@ unsigned: they only say where someone is. The top bar shows who is in.
 `live/lib/follow.ts`. Following someone, the file in front of them opens
 here at their caret's line, and as their caret moves it stays in view
 (scrolled to where the editor draws it; outside what the editor has
-rendered, the editor goes to its line). A guest follows the host from
+rendered, scrolled to its line first). Following never focuses the
+editor: that would move this page's caret, which the editor keeps in
+view on each of their edits, and the two would pull the view back and
+forth. While this page types in their file, its own caret is the one in
+view. A guest follows the host from
 the start; the top bar says *Following NAME · Stop*, else offers *Follow
 NAME* (the host). Clicking anyone's initials in a guest's top bar follows
 them, or stops; the host follows a guest from the session's panel.

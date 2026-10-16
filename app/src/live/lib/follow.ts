@@ -39,24 +39,67 @@ async function showFile(id: string) {
 }
 
 // Their caret, in view: scrolled to where it is drawn, else (outside what
-// the editor rendered) the editor goes to its line. Once the editor has
-// drawn the carets anew (it hears of a moved caret as this does): until
-// then the caret is where it was.
+// the editor rendered) to its line, then to the caret once drawn there.
+// Once the editor has drawn the carets anew (it hears of a moved caret as
+// this does): until then the caret is where it was. Never by focusing the
+// editor: that moves this page's caret, which the editor then keeps in
+// view on every edit of theirs. While this page types in the editor, its
+// own caret is the one in view.
 function keepInView(id: string, line: number) {
-  setTimeout(() => showCaret(id, line), 0);
+  setTimeout(() => {
+    if (!editorFocused()) showCaret(id, line);
+  }, 0);
 }
 
-function showCaret(id: string, line: number) {
+// The shadow root the active tab's editor draws in.
+function editorRoot(): ShadowRoot | null {
   const panel = document.querySelector('.tab-panel:not([hidden])');
-  for (const element of panel?.querySelectorAll('*') ?? []) {
-    const caret = element.shadowRoot?.querySelector(`[data-person="${CSS.escape(id)}"]`);
-    if (caret) {
-      caret.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      return;
-    }
+  for (const element of panel?.querySelectorAll('*') ?? [])
+    if (element.shadowRoot?.querySelector('[data-line]')) return element.shadowRoot;
+  return null;
+}
+
+function editorFocused(): boolean {
+  return !!document.activeElement?.closest('.tab-panel:not([hidden])');
+}
+
+function showCaret(id: string, line: number, again = true) {
+  const root = editorRoot();
+  const caret = root?.querySelector(`[data-person="${CSS.escape(id)}"]`);
+  if (caret) caret.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  else if (root && again && !root.querySelector(`[data-line="${line}"]`)) {
+    showLine(root, line);
+    requestAnimationFrame(() => showCaret(id, line, false));
   }
-  const path = useStore.getState().active;
-  if (path) useStore.getState().open(path, '', line);
+  // A drawn line without their caret: it is not known here yet (their
+  // edit is on its way); the next move shows it.
+}
+
+// `line` in the middle of the editor, from where a drawn line is (lines
+// are as high as each other, as the editor reckons too).
+function showLine(root: ShadowRoot, line: number) {
+  const drawn = root.querySelector<HTMLElement>('[data-line]');
+  const scroller = document.querySelector('.tab-panel:not([hidden]) .editor-scroll');
+  if (!drawn || !scroller) return;
+  const at = drawn.getBoundingClientRect();
+  const top = at.top + (line - Number(drawn.dataset.line)) * at.height;
+  const view = scroller.getBoundingClientRect();
+  scroller.scrollBy(0, top - view.top - view.height / 2);
+}
+
+// The file of the one followed, open here: it goes to their caret
+// (Editor.tsx), not focused.
+export function followed(path: string): boolean {
+  const { following, active } = useLive.getState();
+  return !!following && active[following] === path;
+}
+
+// Once the editor has drawn their caret (it draws them on attaching).
+export function showFollowed(line: number): void {
+  const id = useLive.getState().following;
+  requestAnimationFrame(() => {
+    if (id) showCaret(id, line);
+  });
 }
 
 // Watches both stores, once a session starts (host.ts, guest.ts).

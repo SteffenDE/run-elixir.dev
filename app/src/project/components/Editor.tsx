@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { workspace } from '@/project/lib/workspace';
 import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
+import { followed, showFollowed } from '@/live/lib/follow';
 import { publishCursor } from '@/live/lib/presence';
 import {
   bind,
@@ -27,9 +28,12 @@ const createEditor: EditorFactory<undefined, CaretInfo> = (type, options, key) =
 
 // The caret on `line`, in view (the editor would show its caret wherever
 // it was, the end for a new session). Focus stays in the file tree when
-// the user is there (selecting, renaming).
-function goTo(editor: FileEditor, line: number) {
-  if (!document.activeElement?.closest('.file-tree'))
+// the user is there (selecting, renaming). The file of someone followed
+// shows their caret instead (live/lib/follow.ts): focus would move this
+// page's caret, which the editor keeps in view on each of their edits.
+function goTo(editor: FileEditor, path: string, line: number) {
+  if (followed(path)) showFollowed(line);
+  else if (!document.activeElement?.closest('.file-tree'))
     editor.focus({ lineNumber: line, offset: 80 });
   if (line === 1) {
     requestAnimationFrame(() =>
@@ -100,16 +104,16 @@ function TabEditor({ tab }: { tab: Tab }) {
       onAttach: (next: FileEditor) => {
         editor.current = next;
         setAttached(next);
-        goTo(next, line.current);
+        goTo(next, tab.path, line.current);
       },
       renderCaret,
     }),
-    [],
+    [tab.path],
   );
   // Asked again for a line (a terminal's link) while open.
   useEffect(() => {
-    if (tab.jump && editor.current) goTo(editor.current, tab.line);
-  }, [tab.jump, tab.line]);
+    if (tab.jump && editor.current) goTo(editor.current, tab.path, tab.line);
+  }, [tab.jump, tab.path, tab.line]);
   // A new object only when the file is (re)loaded: the editor owns the text
   // in between.
   const file = useMemo<FileContents>(
