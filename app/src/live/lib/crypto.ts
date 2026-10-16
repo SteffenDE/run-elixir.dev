@@ -138,12 +138,28 @@ export async function open(
   return new Uint8Array(plain);
 }
 
+// Signatures are over the data's SHA-256 digest: WebKit (2026) crashes
+// its page signing 64 KB or more with Ed25519.
+const digest = async (data: Uint8Array) =>
+  new Uint8Array(await crypto.subtle.digest('SHA-256', data as BufferSource));
+
 export async function sign(key: CryptoKey, data: Uint8Array): Promise<Uint8Array> {
-  return new Uint8Array(await crypto.subtle.sign('Ed25519', key, data as BufferSource));
+  return new Uint8Array(
+    await crypto.subtle.sign('Ed25519', key, (await digest(data)) as BufferSource),
+  );
 }
 
-export function verify(key: CryptoKey, signature: Uint8Array, data: Uint8Array): Promise<boolean> {
-  return crypto.subtle.verify('Ed25519', key, signature as BufferSource, data as BufferSource);
+export async function verify(
+  key: CryptoKey,
+  signature: Uint8Array,
+  data: Uint8Array,
+): Promise<boolean> {
+  return crypto.subtle.verify(
+    'Ed25519',
+    key,
+    signature as BufferSource,
+    (await digest(data)) as BufferSource,
+  );
 }
 
 export const utf8 = (text: string) => encoder.encode(text);

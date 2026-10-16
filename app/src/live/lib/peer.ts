@@ -11,8 +11,8 @@
 // Sealed inside: a kind byte, 0 for a whole message, 1 for a part of one
 // (u32 message number, u16 index, u16 count, then its slice of the
 // whole). A whole message: a flag byte (1: signed, then 64 bytes of
-// Ed25519 signature over the session id and the rest), a u32 length, the
-// JSON, and the rest: its bytes, if any.
+// Ed25519 signature over the SHA-256 of the session id and the rest), a
+// u32 length, the JSON, and the rest: its bytes, if any.
 import { open, seal, sign, utf8, verify, type Keys } from './crypto';
 import { Relay, type Joined, type Role } from './relay';
 
