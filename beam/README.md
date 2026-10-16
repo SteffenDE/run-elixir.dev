@@ -57,3 +57,27 @@ exit 0 in 2.3 s. The host's unmodified Elixir 1.20.4 ebin (compiled by
 OTP 29.1.1) loads too: `Code.eval_string` runs, 2.4 s to exit. Module
 checksums (patch 0013) are computed by the loader, so stock `.beam`
 files need no rebuild.
+
+## Ash benchmark (2026-10-16)
+
+`bench_ash.exs` compiles Ash 3.36.1's 659 files (1380 modules) with
+`Kernel.ParallelCompiler`, every other dependency compiled, four
+schedulers, on a 12-core AMD machine; Node 24.19 from emsdk.
+
+| VM | Time | Peak memory |
+| --- | --- | --- |
+| BEAM 29.1.1 native (JIT) | 37.4 s | 644 MB RSS |
+| Rust-OTP native | 97.2 s | 2.2 GB RSS |
+| Rust-OTP wasm (`rotp-threads.wasm`, `node.mjs`) | 153.2 s | 2.0 GB RSS |
+| BEAM wasm, `-O2`, mimalloc, `-MMscs 1536 -MMsco false` | 449.9 s | 1659 MB wasm, 2.2 GB RSS |
+| BEAM wasm, `-O2`, emmalloc or mimalloc, no super carrier | crashes | 2 GB / 4 GB cap |
+
+Without a super carrier the wasm BEAM's memory grows until the cap
+(about 14 MB/s) while `erlang:memory/0` stays near 100 MB and the
+allocators' carriers near 128 MB: on Emscripten `mmap` is `malloc` and
+`munmap` is `free`, and mseg's carriers of varying sizes fragment the
+heap, which WebAssembly cannot shrink. Eight tasks building and dropping
+large lists reproduce it: 1620 MB of wasm memory against 302 MB RSS
+natively. A super carrier keeps carriers in one region erts manages
+itself; Emscripten zero-fills it when it is mapped, so it costs its
+whole size up front.
