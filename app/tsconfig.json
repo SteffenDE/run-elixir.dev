@@ -9,7 +9,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["vite/client", "node"],
-    "paths": { "@/*": ["./src/*"], "@runtime/*": ["./src/runtime/*"] }
+    "paths": { "@/*": ["./src/*"] }
   },
   "include": ["src", "test", "vite.config.ts", "vite.runtime.config.ts", "playwright.config.ts"]
 }

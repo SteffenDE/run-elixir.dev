@@ -4,7 +4,7 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PreviewFrame } from '@/project/components/PreviewFrame';
-import { Bridge } from '@runtime/bridge';
+import { Bridge } from '@/runtime/bridge';
 import {
   previewChannel,
   previewKey,

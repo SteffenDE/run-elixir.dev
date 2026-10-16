@@ -7,7 +7,7 @@
 //   proxy at /hex/ (serve.py, Caddy: docs/deploy.md), else a public mirror
 //   that sends CORS headers.
 // - The API (hex.pm sends CORS headers): directly.
-import { fetcher } from '@runtime/fetcher';
+import { fetcher } from '@/runtime/fetcher';
 
 export const HEX_PORT = 49180;
 const MIRROR = 'https://hexpm.upyun.com';

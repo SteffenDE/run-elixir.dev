@@ -1,4 +1,4 @@
-import type { NifBuild } from '@runtime/host/node';
+import type { NifBuild } from '@/runtime/host/node';
 import { create } from 'zustand';
 
 // The project's files, in the node's filesystem.

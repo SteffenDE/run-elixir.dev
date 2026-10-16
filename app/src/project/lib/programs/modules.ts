@@ -5,7 +5,7 @@
 // from its worker. So `fs` answers from what it holds and throws a Fault
 // for anything else; the caller fetches what the fault names (a file's
 // whole directory) and runs again (`withFaults`).
-import type { FileSystem as Files } from '@runtime/host/files';
+import type { FileSystem as Files } from '@/runtime/host/files';
 
 export const path = {
   sep: '/',

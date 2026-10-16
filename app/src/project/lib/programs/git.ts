@@ -6,7 +6,7 @@
 // depth), checkout (sparse, as .git/info/sparse-checkout says), read-tree
 // -mu HEAD, rev-parse; and --version.
 import { Buffer } from 'buffer';
-import type { FileSystem as Files } from '@runtime/host/files';
+import type { FileSystem as Files } from '@/runtime/host/files';
 import type { Context, Process } from './tailwind';
 
 // isomorphic-git expects Node's Buffer.

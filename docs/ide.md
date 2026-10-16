@@ -12,8 +12,8 @@ dark tokens, oxlint and oxfmt. Its libraries are `@pierre/trees`,
 Dexie, Remix Icon, xterm.js (with its fit and web-links addons), PGlite and
 `tailwindcss`. Versions are exact in `package.json`; `package-lock.json` is
 committed. The layout follows tc's: `src/home`, `src/project` and
-`src/shared`, each with `components/` and `lib/`; imports use `@/` for
-`src/` and `@runtime/` for `src/runtime`.
+`src/shared`, each with `components/` and `lib/`, and the runtime in
+`src/runtime` ([runtime.md](runtime.md)); imports use `@/` for `src/`.
 
 ```sh
 cd playground/app
