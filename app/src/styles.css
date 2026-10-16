@@ -398,12 +398,14 @@ button {
 }
 
 .search-file-name {
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* Cut at the start, so the end of the directory shows. */
 .search-file-dir {
-  flex: 1;
+  flex: 1 1000 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--muted);
@@ -1302,19 +1304,26 @@ button {
 }
 
 .quick-open-path {
+  flex: 1;
   display: flex;
   align-items: baseline;
   gap: 8px;
   min-width: 0;
 }
 
+/* A long name is cut too, once its directory has given all its room. */
 .quick-open-name {
-  flex: none;
+  min-width: 0;
+  overflow: hidden;
   white-space: nowrap;
+  text-overflow: ellipsis;
 }
 
-/* Cut at the start, so the end of the directory shows. */
+/* Cut at the start, so the end of the directory shows; it gives way
+   before the name does. */
 .quick-open-dir {
+  flex: 0 1000 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--muted);
   font-size: 12px;

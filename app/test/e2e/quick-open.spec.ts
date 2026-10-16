@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject } from './helpers';
+import { newProject, writeText } from './helpers';
 
 const ENDPOINT = 'playground/lib/playground_web/endpoint.ex';
 
@@ -32,4 +32,18 @@ test('quick open finds a file by a fuzzy match of its path and opens it', async 
   await expect(dialog.getByText('No matching files')).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(dialog).toBeHidden();
+
+  // A long name is cut, in the dialog's width: nothing scrolls sideways.
+  const long = `${'very_long_module_name_'.repeat(8)}test.exs`;
+  await writeText(page, `/work/playground/test/${long}`, '');
+  await page.keyboard.press('ControlOrMeta+p');
+  await page.keyboard.type('veryverytest');
+  await expect(options.first()).toHaveAttribute('title', `playground/test/${long}`);
+  const results = dialog.locator('.quick-open-results');
+  expect(await results.evaluate((list) => list.scrollWidth - list.clientWidth)).toBeLessThanOrEqual(
+    0,
+  );
+  expect(await dialog.evaluate((box) => box.scrollWidth - box.clientWidth)).toBeLessThanOrEqual(0);
+  const name = options.first().locator('.quick-open-name');
+  expect(await name.evaluate((span) => span.scrollWidth > span.clientWidth)).toBe(true);
 });
