@@ -35,6 +35,17 @@ config :playground, Playground.Nif.Agent,
 # session unless an admin requests their build.
 config :playground, Playground.Nif, daily_budget_usd: 20.0, setup_min_downloads: 10_000
 
+# Live sessions' relay, see Playground.Live: participants per session,
+# how long a host may be away (a reload), a session's longest life, the
+# largest message, and what each participant may send a second (four
+# seconds' worth at once).
+config :playground, Playground.Live,
+  max_participants: 16,
+  grace_ms: 30_000,
+  lifetime_ms: :timer.hours(24),
+  max_message: 262_144,
+  rate: [bytes: 1_048_576, messages: 200]
+
 # Configure the endpoint
 config :playground, PlaygroundWeb.Endpoint,
   url: [host: "localhost"],

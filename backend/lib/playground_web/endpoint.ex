@@ -11,9 +11,11 @@ defmodule PlaygroundWeb.Endpoint do
     same_site: "Lax"
   ]
 
-  # socket "/live", Phoenix.LiveView.Socket,
-  #   websocket: [connect_info: [session: @session_options]],
-  #   longpoll: [connect_info: [session: @session_options]]
+  # Live sessions' relay (PlaygroundWeb.LiveSocket). A frame holds a
+  # message of up to :max_message bytes and Phoenix's framing.
+  socket "/socket", PlaygroundWeb.LiveSocket,
+    websocket: [max_frame_size: 1_048_576],
+    longpoll: false
 
   # Serve at "/" the static files from "priv/static" directory.
   #

@@ -13,6 +13,8 @@ defmodule Playground.Application do
       {DNSCluster, query: Application.get_env(:playground, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: Playground.PubSub},
       {DynamicSupervisor, name: Playground.Sandbox.Supervisor, strategy: :one_for_one},
+      {Registry, name: Playground.Live.Registry, keys: :unique},
+      {DynamicSupervisor, name: Playground.Live.Supervisor, strategy: :one_for_one},
       {Oban, Application.fetch_env!(:playground, Oban)},
       # Start to serve requests, typically the last entry
       PlaygroundWeb.Endpoint

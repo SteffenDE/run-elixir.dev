@@ -101,8 +101,17 @@ if config_env() == :prod do
 
   config :playground, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  # The site's pages may open the socket: the domain and its project
+  # origins (PLAYGROUND_ORIGINS, comma-separated, as check_origin takes
+  # them).
+  origins =
+    String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev,//*.run-elixir.dev", ",",
+      trim: true
+    )
+
   config :playground, PlaygroundWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
+    check_origin: origins,
     http: [
       # Enable IPv6 and bind on all interfaces.
       # Set it to  {0, 0, 0, 0, 0, 0, 0, 1} for local network only access.

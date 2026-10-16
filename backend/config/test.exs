@@ -45,3 +45,6 @@ config :playground, Playground.Nif.Agent,
 # A toolchain for builds, without VM artifacts.
 config :playground, Playground.Sandbox,
   artifacts_dir: Path.expand("../test/support/sandbox", __DIR__)
+
+# A host away for longer than this ends its session.
+config :playground, Playground.Live, grace_ms: 200
