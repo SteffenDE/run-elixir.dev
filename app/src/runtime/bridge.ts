@@ -501,6 +501,13 @@ export class Bridge {
     if (flags.includes('httponly') || typeof document === 'undefined') {
       if (expired) this.cookies.delete(name);
       else this.cookies.set(name, value);
+      // A browser keeps one cookie of a name: an HttpOnly one replaces, or
+      // expires, one the app's JavaScript set (LiveView's reload status,
+      // which Plug's delete_resp_cookie expires as HttpOnly).
+      if (typeof document !== 'undefined' && hasCookie(name)) {
+        const path = attributes.map((a) => a.trim()).find((a) => /^path=/i.test(a)) ?? 'path=/';
+        document.cookie = `${name}=; ${path}; max-age=0`;
+      }
       return;
     }
     // The app's JavaScript may read it: the browser keeps it. Secure and
@@ -511,4 +518,8 @@ export class Bridge {
       .filter((a) => !/^(secure|samesite|domain)/i.test(a));
     document.cookie = [`${name}=${value}`, ...kept, ...(expired ? ['max-age=0'] : [])].join('; ');
   }
+}
+
+function hasCookie(name: string): boolean {
+  return document.cookie.split(';').some((pair) => pair.split('=')[0].trim() === name);
 }

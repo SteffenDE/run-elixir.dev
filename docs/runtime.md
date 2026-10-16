@@ -295,7 +295,9 @@ one it:
 - reads the response to its end, removing chunked encoding;
 - keeps HttpOnly `Set-Cookie`s in its own jar and puts the others in
   `document.cookie` (the preview's origin is the page's, so the app's
-  JavaScript reads and sets them too), and sends both as `cookie`;
+  JavaScript reads and sets them too), and sends both as `cookie`; an
+  HttpOnly one replaces or expires one of its name in `document.cookie`,
+  as a browser's jar would (Plug expires cookies as HttpOnly);
 - injects a `WebSocket` of its own into HTML (below);
 - answers a page that reloads every two seconds while nothing listens.
 

@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, reloadPreview, serverRunning } from './helpers';
+import { newProject, preview, prompted, reloadPreview, serverRunning } from './helpers';
 
 test('the path bar navigates the preview, and a reload stays there', async ({ page }) => {
   await newProject(page, 'phoenix');
@@ -59,4 +59,31 @@ test('the preview comes back after the service worker restarts', async ({
   await page.waitForTimeout(1000);
   await reloadPreview(page);
   await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+});
+
+test("the server's HttpOnly Set-Cookie replaces or expires one the app's JavaScript set", async ({
+  page,
+}) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  // LiveView sets its reload status in document.cookie; Plug's
+  // delete_resp_cookie expires it as HttpOnly, as a browser's jar takes it.
+  const cookie = () => page.evaluate(() => document.cookie);
+  await page.evaluate(
+    () => (document.cookie = '__phoenix_reload_status__=401; max-age=60; path=/'),
+  );
+  expect(await cookie()).toContain('__phoenix_reload_status__=401');
+  await page.evaluate(() =>
+    window.playground.bridge.remember(
+      '__phoenix_reload_status__=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0; HttpOnly',
+    ),
+  );
+  expect(await cookie()).not.toContain('__phoenix_reload_status__');
+  // Set anew as HttpOnly, it is the bridge's alone.
+  await page.evaluate(() => (document.cookie = 'kept=js; path=/'));
+  await page.evaluate(() => window.playground.bridge.remember('kept=server; path=/; HttpOnly'));
+  expect(await cookie()).not.toContain('kept=');
+  expect(await page.evaluate(() => window.playground.bridge.cookieHeader())).toContain(
+    'kept=server',
+  );
 });
