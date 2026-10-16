@@ -8,7 +8,8 @@ import { defineConfig, type UserConfig } from 'vite';
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness instead: node.mjs, and thread-node.ts for its threads, into
-// dist-node/ as .mjs.
+// dist-node/ as .mjs, and beam-node.mjs, the Emscripten BEAM's
+// (playground/beam).
 const runtime = (name: string) => new URL(`./src/runtime/${name}`, import.meta.url).pathname;
 
 export default defineConfig(({ mode }): UserConfig =>
@@ -22,8 +23,16 @@ export default defineConfig(({ mode }): UserConfig =>
           target: 'node24',
           minify: false,
           rollupOptions: {
-            input: { node: runtime('node.ts'), 'thread-node': runtime('thread-node.ts') },
-            output: { format: 'es', entryFileNames: '[name].mjs', chunkFileNames: '[name]-[hash].mjs' },
+            input: {
+              node: runtime('node.ts'),
+              'thread-node': runtime('thread-node.ts'),
+              'beam-node': runtime('beam-node.ts'),
+            },
+            output: {
+              format: 'es',
+              entryFileNames: '[name].mjs',
+              chunkFileNames: '[name]-[hash].mjs',
+            },
           },
         },
       }
@@ -42,7 +51,11 @@ export default defineConfig(({ mode }): UserConfig =>
               thread: runtime('thread.ts'),
               sw: runtime('sw.ts'),
             },
-            output: { format: 'es', entryFileNames: '[name].js', chunkFileNames: 'chunks/[name]-[hash].js' },
+            output: {
+              format: 'es',
+              entryFileNames: '[name].js',
+              chunkFileNames: 'chunks/[name]-[hash].js',
+            },
           },
         },
       },

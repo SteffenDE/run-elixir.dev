@@ -13,7 +13,8 @@
 # Each mode builds in its own tree, out/beam-wasm/debug or
 # out/beam-wasm/release<OPT without its dash> (releaseOs, releaseO2):
 #   otp/        patched OTP checkout (git, one commit per patch)
-#   dist/       beam.wasm, beam.mjs, beam.emu.mjs, vm.boot
+#   dist/       beam.wasm, beam.mjs, beam.emu.mjs, vm.boot, and otp/: the
+#               applications' ebin and priv (otp/lib/APP), otp/bin/start.boot
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -142,11 +143,15 @@ configure_wasm() {
 build() {
     local flags="-sUSE_PTHREADS=1 -sPTHREAD_POOL_SIZE=8 -sPROXY_TO_PTHREAD=1"
     flags+=" -sENVIRONMENT=worker,node -sEXPORT_ES6=1"
-    flags+=" -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=2GB -sALLOW_MEMORY_GROWTH=1"
+    # mimalloc and 4 GB: emmalloc's heap fragmented past Popcorn's 2 GB
+    # compiling Ash (README.md).
+    flags+=" -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=4GB -sALLOW_MEMORY_GROWTH=1"
     flags+=" -sINCOMING_MODULE_JS_API=arguments,wasmMemory,preRun,print,printErr,onExit,onAbort,locateFile"
     flags+=" -sEXPORTED_RUNTIME_METHODS=ENV,FS,ccall,stringToNewUTF8,lengthBytesUTF8,FS_mkdirTree,FS_createDataFile"
     flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free']"
-    flags+=" -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sMALLOC=emmalloc"
+    flags+=" -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sMALLOC=mimalloc"
+    # PROXYFS mounts the playground's tree (app/src/runtime/beam/treefs.ts).
+    flags+=" -lproxyfs.js"
     flags+=" --js-library ${HERE}/emscripten/monotonic-clock.js"
     flags+=" --pre-js ${OTP_DIR}/erts/emulator/js_bridge/beam-bridge.pre.js"
     flags+=" --js-library ${OTP_DIR}/erts/emulator/js_bridge/js_bridge.js"
@@ -175,7 +180,26 @@ build() {
     sed 's/"beam\.emu"/"beam.emu.mjs"/g' "${bin}/beam.smp" > "${DIST}/beam.mjs"
     sed 's/"beam\.emu"/"beam.emu.mjs"/g' "${bin}/beam.emu" > "${DIST}/beam.emu.mjs"
     cp "${OTP_DIR}/bootstrap/bin/no_dot_erlang.boot" "${DIST}/vm.boot"
+    install_libs
     log "wrote ${DIST} (beam.wasm $(du -h "${DIST}/beam.wasm" | cut -f1))"
+}
+
+# An installation to mount: each application's ebin and priv under
+# otp/lib, without its version (the boot script's paths have none), and the
+# boot script as otp/bin/start.boot.
+install_libs() {
+    rm -rf "${DIST}/otp"
+    for app in "${OTP_DIR}"/lib/*/ "${OTP_DIR}/erts/preloaded/"; do
+        [[ -d "${app}ebin" ]] || continue
+        local name
+        name="$(basename "${app}")"
+        [[ "${name}" == preloaded ]] && name=erts
+        mkdir -p "${DIST}/otp/lib/${name}"
+        cp -r "${app}ebin" "${DIST}/otp/lib/${name}/"
+        if [[ -d "${app}priv" ]]; then cp -r "${app}priv" "${DIST}/otp/lib/${name}/"; fi
+    done
+    mkdir -p "${DIST}/otp/bin"
+    cp "${DIST}/vm.boot" "${DIST}/otp/bin/start.boot"
 }
 
 checkout_and_patch

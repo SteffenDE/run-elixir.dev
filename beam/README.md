@@ -52,6 +52,28 @@ Output is in `out/beam-wasm/dist`: `beam.wasm`, the Emscripten loader
 `beam.mjs` (with pthread workers from `beam.emu.mjs`) and `vm.boot`.
 Logs are `out/beam-wasm/configure.log` and `out/beam-wasm/build.log`.
 
+## Under the playground's runtime: `beam-node.mjs`
+
+`build.sh` links the playground's build: mimalloc, 4 GB, and
+`-lproxyfs.js`, through which `app/src/runtime/beam/treefs.ts` mounts the
+playground's tree (`wasi/fs.ts`, as Rust-OTP's WASI shim serves it) at
+each of its top directories. `dist/otp` is the installation (each
+application's `ebin` and `priv`, `bin/start.boot`). The Node harness
+`app/src/runtime/beam-node.ts` (`vite build -c vite.runtime.config.ts
+--mode node`, into `app/dist-node`) mounts it at `/otp`, and host
+directories, read when first opened, with `MOUNT=VFSDIR:HOSTDIR,...`:
+
+    MOUNT=/elixir:$ELIXIR/lib,/work/ash:$HOME/src/ash_bench,/bench:playground/beam \
+    CWD=/work/ash node playground/app/dist-node/beam-node.mjs out/beam-wasm/web \
+      -S 4:4 -MMscs 1536 -MMsco false -- -root /otp -bindir /otp/bin -progname erl \
+      -home /work -boot /otp/bin/start -noshell -kernel start_distribution false \
+      -elixir_root /elixir -pa /elixir/elixir/ebin -pa /elixir/mix/ebin \
+      -s elixir start_cli -extra /bench/bench_ash.exs ash _build
+
+Ash compiles so in 80.7 s (each file call proxied to the main thread,
+the output kept in memory). Renaming between two top directories (`/work`
+to `/tmp`) is `exdev`: they are separate mounts.
+
 ## Smoke test
 
     ~/emsdk/node/*/bin/node playground/beam/smoke.mjs ['<erlang expr>']
