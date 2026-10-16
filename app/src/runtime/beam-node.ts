@@ -5,7 +5,8 @@
 // args are the emulator's flags, `--`, then init's (as erlexec passes
 // them). MOUNT=VFSDIR:HOSTDIR,... puts host directories in the tree, read
 // when first opened; BEAM's otp/ is mounted at /otp. CWD is the working
-// directory (default /work).
+// directory (default /work); VM_NAME=VALUE sets NAME in the node's
+// environment.
 //
 // TCP is the playground's Network (wasi/net.ts), as Module.beamNetwork
 // (playground/beam/socket); start the node with -kernel inet_backend
@@ -134,6 +135,9 @@ const status = await new Promise<number>((resolve) => {
       (module: any) => {
         const { FS, ENV } = module;
         ENV.ERL_INETRC = '/etc/inetrc';
+        // VM_NAME=VALUE: NAME=VALUE in the node's environment.
+        for (const [name, value] of Object.entries(process.env))
+          if (name.startsWith('VM_')) ENV[name.slice(3)] = value;
         for (const name of root.entries.keys()) {
           const at = `/${name}`;
           if (!FS.analyzePath(at).exists) FS.mkdir(at);

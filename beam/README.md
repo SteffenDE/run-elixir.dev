@@ -98,6 +98,23 @@ per request.
 for WebAssembly as Popcorn does, and the NIFs are linked in
 (`--enable-static-nifs`); `beam.wasm` grows from 3.2 to 4.8 MB.
 
+## A Phoenix app (2026-10-16)
+
+A `mix phx.new hello --no-ecto --no-assets --no-mailer --no-dashboard
+--no-gettext` app, its dependencies fetched and compiled on the host,
+runs `mix phx.server` on `beam-node.mjs` (host Elixir and `~/.mix` with
+Hex mounted, `VM_MIX_HOME`, `VM_MIX_OS_CONCURRENCY_LOCK=0`): Mix
+recompiles the app's 12 files over the tree, Bandit listens, and `GET /`
+is `200 OK` (16 kB, 38 ms in Phoenix). Found on the way:
+
+- **Hard links:** Emscripten's `linkat` always fails (`EMLINK`), and Mix's
+  compile lock needs them (`MIX_OS_CONCURRENCY_LOCK=0` for now). The tree
+  can link (Rust-OTP's WASI shim does); `linkat` needs overriding.
+- **The OS type** is `{unix, emscripten}`: `file_system` (live reload)
+  does not know it. Rust-OTP says Linux.
+- **Ports** (`open_port({spawn, ...})`) are off (patch 0010): esbuild,
+  tailwind and the rest of the page's programs wait for them.
+
 ## Smoke test
 
     ~/emsdk/node/*/bin/node playground/beam/smoke.mjs ['<erlang expr>']
