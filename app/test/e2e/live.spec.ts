@@ -128,8 +128,18 @@ test('a guest watches, then edits and types when the host allows it', async ({ p
   await expect(guest.locator('.guest-status')).toHaveText('You may edit and use the terminals');
   await guest.locator('.terminal-host:not([hidden])').click();
   await guest.keyboard.type('echo typed-by-bob\n');
-  await expect.poll(() => output(page)).toContain('typed-by-bob');
-  await expect(guest.locator('.terminal-host:not([hidden])')).toContainText('typed-by-bob');
+  // The line as typed (the host's line discipline echoes it), then its output.
+  await expect.poll(() => output(page)).toContain('echo typed-by-bob');
+  await expect.poll(() => output(page)).toMatch(/\r?\ntyped-by-bob/);
+  await expect(guest.locator('.terminal-host:not([hidden])')).toContainText('echo typed-by-bob');
+  // What the host types shows for the guest as it is typed.
+  await page.locator('.terminal-host:not([hidden])').click();
+  await page.keyboard.type('echo half-typed');
+  await expect(guest.locator('.terminal-host:not([hidden])')).toContainText('echo half-typed');
+  await page.keyboard.press('Enter');
+  await expect(guest.locator('.terminal-host:not([hidden])')).toContainText(
+    /echo half-typed[\s\S]*half-typed/,
+  );
 
   // The host ends it.
   await livePanel(page);

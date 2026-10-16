@@ -10,7 +10,6 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
-import { lineDiscipline } from '@/runtime/terminal';
 import { useStore } from '@/project/lib/store';
 import { workspace } from '@/project/lib/workspace';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
@@ -23,7 +22,6 @@ export class TerminalHandle {
   private readonly fit = new FitAddon();
   private resize: ResizeObserver | null = null;
   private unsubscribe: (() => void) | null = null;
-  private unwatchMode: (() => void) | null = null;
   private readonly unwatchScheme: () => void;
   private readonly unwatchAccess: () => void;
   private opened = false;
@@ -68,19 +66,14 @@ export class TerminalHandle {
       if (width && height) this.fit.fit();
     });
     this.resize.observe(this.container);
-    const discipline = lineDiscipline(
-      this.terminal,
-      {
-        input: (text) => workspace().type(this.id, text),
-        interrupt: () => workspace().interrupt(this.id),
-      },
-      workspace().initialLines(this.id),
-    );
+    // The shell's line discipline is the project's (playground.ts), one
+    // for everyone in a live session: keys go to it, its echo comes back
+    // with the output.
+    this.terminal.onData((data) => workspace().keys(this.id, data));
     // The node's line editing needs the terminal's size.
     this.terminal.onResize(({ cols, rows }) => workspace().resize(this.id, cols, rows));
     workspace().resize(this.id, this.terminal.cols, this.terminal.rows);
     this.unsubscribe = workspace().onOutput(this.id, (text) => this.terminal.write(text));
-    this.unwatchMode = workspace().onTerminalMode(this.id, (raw) => discipline.raw(raw));
   }
 
   attach(parent: HTMLElement) {
@@ -99,7 +92,6 @@ export class TerminalHandle {
 
   dispose() {
     this.unsubscribe?.();
-    this.unwatchMode?.();
     this.unwatchScheme();
     this.unwatchAccess();
     this.resize?.disconnect();

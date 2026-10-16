@@ -222,9 +222,13 @@ A binary file does not open for a guest (there is no text to share).
 The host sends each terminal's output, in batches of 30 ms, to everyone.
 A guest's terminal fits its own panel; the node keeps the host's size, so
 a narrower guest sees long lines wrapped where the host's terminal wraps
-them. With *Terminals*, the guest's input and Ctrl+C go to the host's
-node, and the guest may open and close terminals (not the first) and
-restart the server.
+them. A shell has one line discipline, on the host's page
+(`runtime/terminal.ts`), as a tty has one driver: everyone's keys go to
+it, and its echo is part of the output, so everyone sees a line as it is
+typed, and one line is being typed at a time. With *Terminals*, the
+guest's keys go to it (`keys`, Ctrl+C too): the guest sees them once the
+host's echo comes back through the relay, as over SSH, and the guest may
+open and close terminals (not the first) and restart the server.
 
 ### The preview
 

@@ -14,6 +14,7 @@ import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files } from '@/runtime/host/files';
 import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
+import { lineDiscipline } from '@/runtime/terminal';
 import { BUILD } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
@@ -50,11 +51,9 @@ interface Session {
   node: Node;
   backlog: string;
   listeners: Set<Output>;
-  // The command lines it ran first, as if typed.
-  initial: string[];
-  // Whether the node set its terminal to raw input, and who is told.
-  raw: boolean;
-  modeListeners: Set<(raw: boolean) => void>;
+  // Its tty's line discipline: everyone's keys, one line being typed, and
+  // the command lines it ran first as if typed (the history).
+  discipline: ReturnType<typeof lineDiscipline>;
 }
 
 const sessions = new Map<number, Session>();
@@ -207,27 +206,9 @@ export async function save(path: string, text: string): Promise<void> {
   }
 }
 
-export function type(id: number, text: string): void {
-  sessions.get(id)?.node.input(text);
-}
-
-// The command lines shell `id` ran first, for its terminal's history.
-export function initialLines(id: number): string[] {
-  return sessions.get(id)?.initial ?? [];
-}
-
-export function interrupt(id: number): void {
-  sessions.get(id)?.node.interrupt();
-}
-
-// Whether shell `id`'s node reads raw keys (IEx's line editing) or lines:
-// now, and on each change.
-export function onTerminalMode(id: number, listener: (raw: boolean) => void): () => void {
-  const session = sessions.get(id);
-  if (!session) return () => {};
-  listener(session.raw);
-  session.modeListeners.add(listener);
-  return () => session.modeListeners.delete(listener);
+// Keys typed into shell `id`'s terminal, here or by a live session's guest.
+export function keys(id: number, data: string): void {
+  sessions.get(id)?.discipline.keys(data);
 }
 
 // The size of shell `id`'s terminal, for the node's line editing.
@@ -349,18 +330,26 @@ export function openTerminal(initial: string[] = []): number {
     node: null as unknown as Node,
     backlog: '',
     listeners: new Set(),
-    initial,
-    raw: false,
-    modeListeners: new Set(),
+    discipline: null as unknown as Session['discipline'],
   };
+  const emit = (text: string) => {
+    session.backlog = (session.backlog + text).slice(-200_000);
+    for (const listener of session.listeners) listener(text);
+  };
+  session.discipline = lineDiscipline(
+    emit,
+    {
+      input: (text) => session.node.input(text),
+      interrupt: () => session.node.interrupt(),
+    },
+    initial,
+  );
   session.node = new Node({
     base: BUILD,
     files,
     ...nodeServices(),
     onoutput(bytes) {
-      const text = decoder.decode(bytes, { stream: true });
-      session.backlog = (session.backlog + text).slice(-200_000);
-      for (const listener of session.listeners) listener(text);
+      emit(decoder.decode(bytes, { stream: true }));
     },
     onstatus(text) {
       if (id !== FIRST_SESSION) return;
@@ -373,8 +362,7 @@ export function openTerminal(initial: string[] = []): number {
     },
     onlistening: updateListening,
     onterminal(raw) {
-      session.raw = raw;
-      for (const listener of session.modeListeners) listener(raw);
+      session.discipline.raw(raw);
     },
   });
   sessions.set(id, session);
@@ -469,11 +457,8 @@ export const local: Workspace = {
   save,
   searchPath,
   onOutput,
-  initialLines,
-  type,
-  interrupt,
+  keys,
   resize,
-  onTerminalMode,
   openTerminal: () => void openTerminal(),
   closeTerminal,
   restartServer,

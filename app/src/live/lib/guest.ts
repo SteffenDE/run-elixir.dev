@@ -34,9 +34,6 @@ export interface GuestProject {
 interface Terminal {
   backlog: string;
   listeners: Set<(text: string) => void>;
-  initial: string[];
-  raw: boolean;
-  modeListeners: Set<(raw: boolean) => void>;
 }
 
 const decoder = new TextDecoder();
@@ -255,9 +252,6 @@ function terminal(term: number): Terminal {
     found = {
       backlog: '',
       listeners: new Set(),
-      initial: [],
-      raw: false,
-      modeListeners: new Set(),
     };
     terminals.set(term, found);
   }
@@ -313,13 +307,7 @@ function receive({ from, message, bytes, signed }: Received) {
         disposeTerminal(term);
       }
       terminals.clear();
-      const initial = message.initial as Record<string, string[]>;
-      const modes = message.modes as Record<string, boolean>;
-      for (const term of message.terminals as number[]) {
-        const entry = terminal(term);
-        entry.initial = initial[term] ?? [];
-        entry.raw = modes[term] ?? false;
-      }
+      for (const term of message.terminals as number[]) terminal(term);
       cwd = message.cwd as string[];
       closeTunnels();
       store.setRemote(true);
@@ -363,12 +351,6 @@ function receive({ from, message, bytes, signed }: Received) {
       const text = bytes ? decoder.decode(bytes) : '';
       entry.backlog = (entry.backlog + text).slice(-200_000);
       for (const listener of entry.listeners) listener(text);
-      return;
-    }
-    case 'mode': {
-      const entry = terminal(message.term as number);
-      entry.raw = message.raw as boolean;
-      for (const listener of entry.modeListeners) listener(entry.raw);
       return;
     }
     case 'preview':
@@ -491,21 +473,12 @@ export const remote: Workspace = {
     entry.listeners.add(listener);
     return () => entry.listeners.delete(listener);
   },
-  initialLines: (id) => terminal(id).initial,
-  type: (id, text) => {
-    if (useLive.getState().mine.terminal) void send({ t: 'input', term: id, text });
-  },
-  interrupt: (id) => {
-    if (useLive.getState().mine.terminal) void send({ t: 'interrupt', term: id });
+  // To the host's line discipline, which echoes them to everyone.
+  keys: (id, data) => {
+    if (useLive.getState().mine.terminal) void send({ t: 'keys', term: id, data });
   },
   // The host's terminals keep the host's size.
   resize: () => {},
-  onTerminalMode(id, listener) {
-    const entry = terminal(id);
-    listener(entry.raw);
-    entry.modeListeners.add(listener);
-    return () => entry.modeListeners.delete(listener);
-  },
   openTerminal: () => void send({ t: 'open-terminal' }),
   closeTerminal: (id) => void send({ t: 'close-terminal', term: id }),
   restartServer: () => void send({ t: 'restart' }),

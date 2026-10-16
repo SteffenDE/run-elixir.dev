@@ -9,11 +9,9 @@ import {
   FIRST_SESSION,
   connectServer,
   createFile,
-  initialLines,
   live,
   local,
   onOutput,
-  onTerminalMode,
   read,
   shareable,
 } from '@/project/lib/playground';
@@ -287,8 +285,6 @@ function refuse(to: string, req: unknown, error: string) {
 async function welcome(id: string) {
   const state = useStore.getState();
   const terminals = state.terminals;
-  const modes: Record<number, boolean> = {};
-  for (const term of terminals) onTerminalMode(term, (raw) => (modes[term] = raw))();
   await send(
     {
       t: 'welcome',
@@ -300,8 +296,6 @@ async function welcome(id: string) {
       paths: state.paths,
       cwd: local.searchPath(),
       terminals,
-      modes,
-      initial: Object.fromEntries(terminals.map((term) => [term, initialLines(term)])),
       previewPort: state.previewPort,
       cursors: useLive.getState().cursors,
       active: useLive.getState().active,
@@ -334,11 +328,7 @@ function watch() {
       flushing ??= setTimeout(flush, 30);
     });
     replaying = false;
-    const offMode = onTerminalMode(term, (raw) => void send({ t: 'mode', term, raw }));
-    outputs.set(term, () => {
-      off();
-      offMode();
-    });
+    outputs.set(term, off);
   };
   for (const term of useStore.getState().terminals) watchTerminal(term);
 
@@ -529,11 +519,10 @@ async function receive({ from, message, bytes }: Received) {
       return refuse(from, req, (error as Error).message);
     }
   }
-  if (['input', 'interrupt', 'open-terminal', 'close-terminal', 'restart'].includes(t)) {
+  if (['keys', 'open-terminal', 'close-terminal', 'restart'].includes(t)) {
     if (!can.terminal) return refuse(from, req, 'The host has not let you use the terminals.');
     const term = Number(message.term);
-    if (t === 'input') local.type(term, String(message.text ?? ''));
-    else if (t === 'interrupt') local.interrupt(term);
+    if (t === 'keys') local.keys(term, String(message.data ?? ''));
     else if (t === 'open-terminal') local.openTerminal();
     else if (t === 'close-terminal' && term !== FIRST_SESSION) {
       local.closeTerminal(term);

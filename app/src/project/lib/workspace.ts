@@ -15,14 +15,11 @@ export interface Workspace {
   save(path: string, text: string): Promise<void>;
   // Where relative paths a shell prints may start.
   searchPath(): string[];
-  // Terminal `id`'s output (what came before is replayed), its first
-  // command lines, input, Ctrl+C, size, and whether it reads raw keys.
+  // Terminal `id`'s output (what came before is replayed, the echo of what
+  // anyone typed too), keys typed into it, and its size.
   onOutput(id: number, listener: (text: string) => void): () => void;
-  initialLines(id: number): string[];
-  type(id: number, text: string): void;
-  interrupt(id: number): void;
+  keys(id: number, data: string): void;
   resize(id: number, columns: number, rows: number): void;
-  onTerminalMode(id: number, listener: (raw: boolean) => void): () => void;
   openTerminal(): void;
   closeTerminal(id: number): void;
   restartServer(): void;
