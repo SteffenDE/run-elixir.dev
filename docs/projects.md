@@ -208,5 +208,5 @@ Not built yet; the design leaves room for them.
   template.
 - **Shares on a server,** for projects too large for a link, encrypted
   in the browser ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)), and git
-  history in a project (the shell's `git` beyond what Mix asks).
+  history in a project, a diff view and accounts ([git.md](git.md)).
 - **Live sessions:** what is left ([collaboration.md](collaboration.md#not-built-yet)).

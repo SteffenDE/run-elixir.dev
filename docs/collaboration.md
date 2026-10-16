@@ -322,7 +322,8 @@ and an expiry. That needs no accounts.
 Accounts come after: a signed-in user's projects kept on the server with
 a lasting id or slug, opened from any browser, and a stored share that
 can be updated in place. Whether those are encrypted too (with a key the
-account holds) is open.
+account holds) is open. How an account stays out of a project's
+reach (its own domain, a preview origin per project) is [git.md](git.md#accounts)'s.
 
 WebRTC between the browsers (less relay traffic for previews) is for
 later too; the relay would then carry its signalling and stay the
