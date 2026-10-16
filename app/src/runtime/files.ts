@@ -27,7 +27,7 @@ import {
 } from './wasi/fs';
 import * as overlays from './overlay';
 import type { KeptRecord } from './overlay';
-import type { Entry } from './host';
+import type { Entry } from './host/files';
 
 // This worker's postMessage (a dedicated worker's: the app's DOM library
 // has the page's).
@@ -50,7 +50,7 @@ interface NodeRequest {
 // What answers it: its fields, or `answer` with `bytes` after it.
 type NodeAnswer = { error?: number; answer?: object; bytes?: Uint8Array; [field: string]: unknown };
 
-// The page's request (host.ts Files) and its reply.
+// The page's request (host/files.ts) and its reply.
 interface PageRequest {
   id: number;
   op: string;
@@ -454,7 +454,7 @@ function walkFiles(
   }
 }
 
-// The page's requests (host.ts Files): the same filesystem, by message.
+// The page's requests (host/files.ts): the same filesystem, by message.
 function page({ id, op, path, to, skip = [], data }: PageRequest): PageReply {
   // Symbolic links are followed, but by what removes or renames them.
   // Every request with a path needs it.

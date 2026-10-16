@@ -10,7 +10,7 @@
 // WebSocket of its own (webSocketShim): it asks the service worker, which
 // passes a MessagePort to the page running the project, where websocket()
 // connects to the node and speaks the protocol (RFC 6455) for it.
-import type { Connection } from './host';
+import type { Connection } from './host/node';
 
 // What the preview's WebSocket and the page's bridge say over its port.
 type ToSocket =

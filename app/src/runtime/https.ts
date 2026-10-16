@@ -8,7 +8,7 @@
 // headers the site does not expose, follows redirects itself, and
 // decompresses: the answer is chunked, without Content-Encoding. A
 // connection carries one request and closes after its answer.
-import type { Connection, Https } from './host';
+import type { Connection, Https } from './host/node';
 
 const HEAD_END = [13, 10, 13, 10];
 const encoder = new TextEncoder();
@@ -98,7 +98,7 @@ function failed(connection: Connection, status: number, reason: string, text: st
   connection.end();
 }
 
-// (connection, { host, port }): a handler for host.ts's `https` option.
+// (connection, { host, port }): a handler for host/node.ts's `https` option.
 export function httpsByFetch({ onrequest = (_method: string, _url: string) => {} } = {}): Https {
   return (connection, { host, port }) => {
     let buffer = new Uint8Array(0);

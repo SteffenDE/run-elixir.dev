@@ -21,7 +21,7 @@ export function sharedMemory(): WebAssembly.Memory | null {
 export const SCHEDULERS = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1));
 let nodes = 0;
 
-// A threaded node: the page runs its threads in workers (host.ts), which
+// A threaded node: the page runs its threads in workers (host/node.ts), which
 // this worker serves WASI calls for until the node ends; then the page
 // stops them.
 export function runThreaded(

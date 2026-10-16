@@ -1,9 +1,9 @@
-// Postgres for the node: a connection Postgrex makes to the page (host.ts
+// Postgres for the node: a connection Postgrex makes to the page (host/node.ts
 // serve) carries the wire protocol to PGlite. Messages go to
 // execProtocolRaw whole and in order, one connection at a time (PGlite is
 // one session, which is why the app's pool has one connection).
 // database(): the PGlite, a promise; asked for on the first message.
-import type { Connection } from './host';
+import type { Connection } from './host/node';
 
 // What the handler needs of PGlite.
 export interface Database {

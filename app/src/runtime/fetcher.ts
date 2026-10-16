@@ -1,5 +1,5 @@
 // The internet for the node, over plain HTTP on a port the page serves
-// (host.ts serve): a request the node makes there is answered with the
+// (host/node.ts serve): a request the node makes there is answered with the
 // page's fetch() of the URL route(path) names (a promise; null: 404). The
 // node has no sockets of its own, and the page can only read what CORS
 // lets it; Hex
@@ -10,7 +10,7 @@
 // closed after its answer. Successful answers for which keep(url) holds
 // (what never changes, such as a package's tarball) are kept in the
 // Cache Storage `cache`, by URL.
-import type { Connection } from './host';
+import type { Connection } from './host/node';
 
 const HEAD_END = [13, 10, 13, 10];
 

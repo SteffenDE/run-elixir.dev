@@ -13,10 +13,10 @@ several projects (one tab per project, [projects.md](projects.md)).
 
 ```
  project page (React IDE, playground/app)
- ├─ host.ts Node ──────────────► worker.js  (one per shell / terminal tab)
+ ├─ host/ Node ────────────────► worker.js  (one per shell / terminal tab)
  │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi/
  │    messages back                            its own /rotp, /dev, /usr
- ├─ host.ts Files ─────────────► files.js   (one; runs no node)
+ ├─ host/ Files ───────────────► files.js   (one; runs no node)
  │    messages                                 /work and /tmp, shared;
  │                                             keeps /work's changes in
  │                                             IndexedDB (overlay.ts)

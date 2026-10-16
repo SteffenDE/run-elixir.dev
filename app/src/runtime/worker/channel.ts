@@ -1,4 +1,4 @@
-// The page's frames to a node's worker (host.ts writes them), and the
+// The page's frames to a node's worker (host/node.ts writes them), and the
 // programs the page runs for it.
 import type { Network } from '../wasi/net';
 import type { Process, Program } from '../wasi/process';
@@ -37,7 +37,7 @@ export class Channel {
     // raw input.
     this.size = [80, 24];
     this.raw = false;
-    // Programs the page runs (host.ts programs), by id.
+    // Programs the page runs (host/programs.ts), by id.
     this.processes = new Map();
   }
   bytes(from: number, count: number): Uint8Array {
@@ -125,7 +125,7 @@ export class Channel {
   }
 }
 
-// A program the page runs (host.ts programs): its output and exit come back
+// A program the page runs (host/programs.ts): its output and exit come back
 // as frames; it is told when the node closes its port.
 let processes = 0;
 export function onPage(channel: Channel, name: string): Program {

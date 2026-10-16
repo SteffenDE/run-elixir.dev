@@ -5,6 +5,10 @@
 // (the worker sleeps on its write count, so a frame wakes it):
 // [kind u8][id u32][length u32][payload]. The worker answers with
 // messages.
+import type { Files, FilesChannel } from './files';
+import { spawn, type PageProcess, type PageProgram } from './programs';
+import { worker } from './worker';
+
 export const FRAME = {
   INPUT: 0,
   OPEN: 1,
@@ -16,175 +20,8 @@ export const FRAME = {
   EXIT: 8,
   RESIZE: 9,
 } as const;
-const CHANNEL = 1 << 20;
-
-// A module worker from a blob that imports the runtime's script: Firefox
-// does not start a worker from a page its service worker controls; a blob
-// worker takes the page's cross-origin isolation in both.
-function worker(name: string, base: string): Worker {
-  const script = new URL(name, new URL(base, location.href)).href;
-  const blob = new Blob([`import ${JSON.stringify(script)};`], { type: 'text/javascript' });
-  return new Worker(URL.createObjectURL(blob), { type: 'module' });
-}
-
-// A path below a directory, and whether it is one (Files.list).
-export interface Entry {
-  path: string;
-  dir: boolean;
-}
-
-export interface Stat {
-  type: 'file' | 'dir';
-  size: number;
-  mtime: number;
-  ino: number;
-}
-
-// The shared filesystem's operations (files.js through Files).
-export interface FileSystem {
-  list(path: string, skip?: string[]): Promise<Entry[]>;
-  read(path: string): Promise<Uint8Array>;
-  write(path: string, data: string | Uint8Array): Promise<void>;
-  mkdir(path: string): Promise<void>;
-  remove(path: string): Promise<void>;
-  rename(path: string, to: string): Promise<void>;
-  stat(path: string): Promise<'file' | 'dir' | null>;
-  lstat(path: string): Promise<Stat>;
-  readdir(path: string): Promise<string[]>;
-  unlink(path: string): Promise<void>;
-  rmdir(path: string): Promise<void>;
-}
-
-// A node's way to the shared files (wasi/shared.ts sharedClient).
-export interface FilesChannel {
-  doorbell: SharedArrayBuffer;
-  channel: SharedArrayBuffer;
-}
-
-// What files.js answers a request with: its fields, by request.
-// oxlint-disable-next-line typescript/no-explicit-any -- each op's own.
-type Reply = Record<string, any>;
-
-// The shared filesystem (files.js): /work and /tmp, which every node and
-// the page see. onchange(paths): what changed in it.
-export class Files implements FileSystem {
-  doorbell: SharedArrayBuffer;
-  requests: Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>;
-  next: number;
-  worker: Worker;
-  ready: Promise<void>;
-
-  // boots, template, store: what files.js starts with (its 'start').
-  // onwarning(message): a change that was not kept.
-  constructor({
-    base = './',
-    boots = ['boot'],
-    template = [] as string[],
-    store = null as string | null,
-    onchange = (_paths: string[]) => {},
-    onwarning = (_message: string) => {},
-  } = {}) {
-    this.doorbell = new SharedArrayBuffer(4);
-    this.requests = new Map();
-    this.next = 0;
-    this.worker = worker('files.js', base);
-    this.ready = new Promise((resolve, reject) => {
-      this.worker.onmessage = ({ data }) => {
-        if (data.kind === 'ready') resolve();
-        else if (data.kind === 'failed') reject(new Error(data.message));
-        else if (data.kind === 'changed') onchange(data.paths);
-        else if (data.kind === 'warning') onwarning(data.message);
-        else if (data.kind === 'reply') {
-          const request = this.requests.get(data.id);
-          this.requests.delete(data.id);
-          if (data.error)
-            request?.reject(Object.assign(new Error(data.error), { code: data.code }));
-          else request?.resolve(data);
-        }
-      };
-    });
-    this.worker.postMessage({
-      kind: 'start',
-      base: new URL(base, location.href).href,
-      doorbell: this.doorbell,
-      boots,
-      template,
-      store,
-    });
-  }
-
-  // A node's channel (wasi/shared.ts sharedClient).
-  connect(): FilesChannel {
-    const channel = new SharedArrayBuffer(8 + CHANNEL);
-    this.worker.postMessage({ kind: 'connect', channel });
-    return { doorbell: this.doorbell, channel };
-  }
-  disconnect({ channel }: FilesChannel): void {
-    this.worker.postMessage({ kind: 'disconnect', channel });
-  }
-
-  ask(request: { op: string } & Record<string, unknown>): Promise<Reply> {
-    return new Promise((resolve, reject) => {
-      const id = ++this.next;
-      this.requests.set(id, { resolve, reject });
-      this.worker.postMessage({ kind: 'request', id, ...request });
-    });
-  }
-  list(path: string, skip: string[] = []): Promise<Entry[]> {
-    return this.ask({ op: 'list', path, skip }).then((r) => r.entries);
-  }
-  // 'file', 'dir', or null when there is nothing at `path`.
-  stat(path: string): Promise<'file' | 'dir' | null> {
-    return this.ask({ op: 'stat', path }).then((r) => r.type);
-  }
-  // In POSIX's shape, failing with its codes (ENOENT, ENOTDIR, ENOTEMPTY):
-  // { type, size, mtime (ms), ino }; the names in a directory; removing a
-  // file, an empty directory.
-  lstat(path: string): Promise<Stat> {
-    return this.ask({ op: 'lstat', path }) as Promise<Stat>;
-  }
-  readdir(path: string): Promise<string[]> {
-    return this.ask({ op: 'readdir', path }).then((r) => r.names);
-  }
-  unlink(path: string): Promise<void> {
-    return this.ask({ op: 'unlink', path }).then(() => {});
-  }
-  rmdir(path: string): Promise<void> {
-    return this.ask({ op: 'rmdir', path }).then(() => {});
-  }
-  read(path: string): Promise<Uint8Array> {
-    return this.ask({ op: 'read', path }).then((r) => r.data);
-  }
-  write(path: string, data: string | Uint8Array): Promise<void> {
-    return this.ask({
-      op: 'write',
-      path,
-      data: typeof data === 'string' ? new TextEncoder().encode(data) : data,
-    }).then(() => {});
-  }
-  mkdir(path: string): Promise<void> {
-    return this.ask({ op: 'mkdir', path }).then(() => {});
-  }
-  remove(path: string): Promise<void> {
-    return this.ask({ op: 'remove', path }).then(() => {});
-  }
-  rename(path: string, to: string): Promise<void> {
-    return this.ask({ op: 'rename', path, to }).then(() => {});
-  }
-  // What the project changed below /work over its template, but in
-  // directories named in `skip`: { changed: [{ path, data }], removed }.
-  changes(
-    skip: string[] = [],
-  ): Promise<{ changed: { path: string; data: Uint8Array }[]; removed: string[] }> {
-    return this.ask({ op: 'changes', skip }).then(({ changed, removed }) => ({ changed, removed }));
-  }
-  // Keep everything changed so far (a store's).
-  flush(): Promise<void> {
-    return this.ask({ op: 'flush' }).then(() => {});
-  }
-}
 export const RING = 1 << 20;
-const CHUNK = 1 << 16;
+export const CHUNK = 1 << 16;
 
 // Why a connection closed: the peer closed it, or (connecting) nothing
 // listened.
@@ -219,18 +56,6 @@ export class Connection {
   }
 }
 
-// A program the node started that runs on the page.
-export interface PageProcess {
-  write(data: string | Uint8Array): void;
-  exit(code?: number): void;
-  onkill: (() => void) | null;
-}
-
-export type PageProgram = (
-  process: PageProcess,
-  context: { args: string[]; cwd: string; env: Record<string, string>; fs: FileSystem },
-) => void | Promise<void>;
-
 // make waiting for the backend to build a package's NIF library (onnif).
 export interface NifBuild {
   name: string;
@@ -257,7 +82,7 @@ type NetMessage = {
   host?: string;
   payload?: Uint8Array;
 };
-type SpawnMessage = {
+export type SpawnMessage = {
   kind: 'spawn';
   id: number;
   name: string;
@@ -357,7 +182,7 @@ export class Node {
         if (data.on && !data.ephemeral) this.serving.add(data.port);
         else this.serving.delete(data.port);
         onlistening(data.port, data.on);
-      } else if (data.kind === 'spawn') this.spawn(data);
+      } else if (data.kind === 'spawn') spawn(this, data);
       else if (data.kind === 'thread') {
         const thread = worker('thread.js', base);
         thread.onerror = (event) =>
@@ -431,34 +256,6 @@ export class Node {
     for (const node of [...this.threads.keys()]) this.stopThreads(node);
     this.worker.terminate();
     if (this.channel) this.files!.disconnect(this.channel);
-  }
-
-  // A program the node started (worker/channel.ts onPage).
-  spawn({ id, name, args, cwd, env }: SpawnMessage): void {
-    let exited = false;
-    const process: PageProcess = {
-      onkill: null,
-      write: (data) => {
-        if (exited) return;
-        const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
-        for (let at = 0; at < bytes.length; at += CHUNK)
-          this.frame(FRAME.OUTPUT, id, bytes.subarray(at, at + CHUNK));
-      },
-      exit: (code = 0) => {
-        if (exited) return;
-        exited = true;
-        this.running.delete(id);
-        this.frame(FRAME.EXIT, id, new Uint8Array([code & 255]));
-      },
-    };
-    this.running.set(id, process);
-    Promise.resolve()
-      // Page programs come with shared files.
-      .then(() => this.programs[name](process, { args, cwd, env, fs: this.fs! }))
-      .catch((error) => {
-        process.write(`${name}: ${error.message}\n`);
-        process.exit(1);
-      });
   }
 
   input(text: string): void {

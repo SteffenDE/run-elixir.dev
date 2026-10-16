@@ -1,5 +1,5 @@
 // A playground node in a Web Worker: rotp.wasm over wasi/, as one
-// command or under a small shell. host.ts is the page's side: frames come
+// command or under a small shell. host/ is the page's side: frames come
 // in through its SharedArrayBuffer ring (the worker sleeps on the ring's
 // write count, so a frame wakes it) and everything goes back as messages.
 //
@@ -15,13 +15,13 @@ import { sharedClient, type Shared } from '../wasi/shared';
 import { ENV, prepare, programs } from '../setup';
 import { vfs } from '../vfs';
 import type { NifSource } from '../programs';
-import type { FilesChannel } from '../host';
+import type { FilesChannel } from '../host/files';
 import { Channel, onPage } from './channel';
 import { backendNif, siteNif } from './nif';
 import { site } from './site';
 import { SCHEDULERS, runThreaded, sharedMemory } from './threaded';
 
-// What the page starts a node with (host.ts Node.start).
+// What the page starts a node with (host/node.ts Node.start).
 interface Start {
   shared: SharedArrayBuffer;
   files: FilesChannel | null;

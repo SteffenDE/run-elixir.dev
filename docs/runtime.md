@@ -7,7 +7,7 @@ last_updated: 2026-10-15
 # The runtime (`playground/app/src/runtime`)
 
 The site's runtime: JavaScript modules, which the app's Vite build
-bundles ([build.md](build.md#steps)). The page's parts (`host.ts`,
+bundles ([build.md](build.md#steps)). The page's parts (`host/`,
 `bridge.ts`, …) go into the app. The scripts that load by URL go into the
 build as entries of their own, under their names: `worker.js`, `files.js`
 and `thread.js` (what they share in `chunks/`), and `sw.js`, at the
@@ -19,7 +19,7 @@ site's root. `node.mjs` is bundled for Node.
 | `worker/` (`worker.js`) | worker | A node. `index.ts` boots `rotp.wasm` and runs one command or the shell; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's); `threaded.ts` serves a threaded node's threads. |
 | `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
-| `host.ts` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
+| `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
@@ -184,7 +184,7 @@ below `/work` a second after they change, in one transaction
 ([projects.md](projects.md#what-is-kept)). A write that fails is reported
 to the page as `{ kind: 'warning', message }`.
 
-## Page and node (`host.ts`, `worker.js`)
+## Page and node (`host/`, `worker/`)
 
 `new Node({ base, files, serve, programs, onoutput, onstatus, onexit,
 onlistening })` starts a worker. It is a blob module that imports
