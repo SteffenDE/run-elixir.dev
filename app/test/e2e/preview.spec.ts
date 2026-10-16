@@ -1,5 +1,13 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, prompted, reloadPreview, serverRunning } from './helpers';
+import {
+  newProject,
+  newShell,
+  preview,
+  prompted,
+  reloadPreview,
+  serverRunning,
+  writeText,
+} from './helpers';
 
 test('the path bar navigates the preview, and a reload stays there', async ({ page }) => {
   await newProject(page, 'phoenix');
@@ -144,4 +152,58 @@ test("the app's absolute links and the path bar go to its paths, in the preview"
   await page.locator('.preview-bar input').fill('http://localhost:4000/');
   await page.locator('.preview-bar input').press('Enter');
   await expect.poll(at, { timeout: 60_000 }).toBe('/');
+});
+
+test("the path bar shows the app's port, and switches to another endpoint's", async ({ page }) => {
+  await newProject(page, 'phoenix');
+  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  const bar = page.locator('.preview-bar input');
+  await expect(bar).toHaveValue('localhost:4000/');
+
+  // A second endpoint on 4001 (as an umbrella's admin app), linking back.
+  await writeText(
+    page,
+    '/work/second.exs',
+    `{:ok, l} = :gen_tcp.listen(4001, [:binary, active: false, reuseaddr: true])
+body = ~s(<p id="second">second endpoint</p><a id="back" href="http://localhost:4000/">back</a>)
+serve = fn serve ->
+  {:ok, s} = :gen_tcp.accept(l)
+  {:ok, _} = :gen_tcp.recv(s, 0)
+  :gen_tcp.send(s, "HTTP/1.1 200 OK\\r\\ncontent-type: text/html\\r\\ncontent-length: #{byte_size(body)}\\r\\nconnection: close\\r\\n\\r\\n" <> body)
+  :gen_tcp.close(s)
+  serve.(serve)
+end
+serve.(serve)
+`,
+  );
+  const shell = await newShell(page);
+  await page.evaluate(
+    (id) => window.playground.sessions.get(id).node.input('elixir /work/second.exs\n'),
+    shell,
+  );
+  await expect
+    .poll(
+      () => page.evaluate((id) => [...window.playground.sessions.get(id).node.serving], shell),
+      {
+        timeout: 60_000,
+      },
+    )
+    .toContain(4001);
+
+  await bar.fill('localhost:4001/admin');
+  await bar.press('Enter');
+  await expect(preview(page).locator('#second')).toHaveText('second endpoint', {
+    timeout: 60_000,
+  });
+  await expect(bar).toHaveValue('localhost:4001/admin');
+  // A path alone stays on that port.
+  await bar.fill('/other');
+  await bar.press('Enter');
+  await expect(bar).toHaveValue('localhost:4001/other');
+  await expect(preview(page).locator('#second')).toBeVisible();
+
+  // Its link to the first endpoint switches back.
+  await preview(page).locator('#back').click();
+  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await expect(bar).toHaveValue('localhost:4000/');
 });

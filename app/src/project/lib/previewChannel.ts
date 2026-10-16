@@ -3,6 +3,8 @@ export type PreviewMessage =
   | { type: 'reload' }
   | { type: 'css' }
   | { type: 'navigate'; path: string }
+  // The port the preview shows (the IDE's bridge has it), for its path bar.
+  | { type: 'port'; port: number | null }
   | { type: 'opened' }
   | { type: 'closed' };
 

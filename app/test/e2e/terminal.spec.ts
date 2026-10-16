@@ -62,7 +62,7 @@ test('source locations open in the editor, addresses in the preview', async ({ p
   await expect(page.locator('.tab', { hasText: 'router.ex' })).toBeVisible();
   await expect(page.locator('.editor-scroll')).toContainText('scope "/", PlaygroundWeb do');
   await clickTerminalText(page, 'localhost:4000/missing');
-  await expect(page.locator('.preview-bar input')).toHaveValue('/missing');
+  await expect(page.locator('.preview-bar input')).toHaveValue('localhost:4000/missing');
 });
 
 test('the first terminal keeps the server command in its history', async ({ page }) => {

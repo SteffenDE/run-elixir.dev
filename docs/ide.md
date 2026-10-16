@@ -128,8 +128,12 @@ runs; the node's `:path` for it is `/usr/bin/esbuild`
 `PreviewFrame` is an iframe with a path bar. It shows from the start in a
 Phoenix project, and in others once a node listens on a port. Navigating and
 reloading are separate signals: a reload stays where the preview is, while
-navigating goes to the path typed (the app's own URL, as it prints it,
-`http://localhost:4000/…`, goes to its path). "Pop out" opens `/preview.html` in its
+navigating goes to the address typed. The bar shows the app's address as
+the app sees it, `localhost:4000/path`: a path alone stays on the port
+shown; another port (an umbrella's second endpoint) switches the preview
+to it, and it stays there, also while that server restarts. One port is
+shown at a time, the docked and the popped-out preview's alike; a live
+session's guest chooses its own. "Pop out" opens `/preview.html` in its
 own window, with the project's key in its URL. The IDE gives the preview's
 width to the editor until that window closes (or "Dock preview"). Reloads
 and new CSS reach it over the BroadcastChannel `playground-preview:KEY`,

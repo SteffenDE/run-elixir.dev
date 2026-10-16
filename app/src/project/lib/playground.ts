@@ -242,13 +242,20 @@ export function connectServer(port: number): Connection | null {
   return null;
 }
 
+// The port the preview was switched to (its path bar, a link to another
+// endpoint), which it keeps while any server runs, also while that one
+// restarts.
+let chosenPort: number | null = null;
+
 // The ports the nodes serve on, and the one the preview shows. Ephemeral
 // listeners (Mix's compile lock) are no server.
 function updateListening(): void {
   const ports = new Set<number>();
   for (const session of sessions.values()) for (const port of session.node.serving) ports.add(port);
   const sorted = [...ports].sort((a, b) => a - b);
-  const port = ports.has(PREVIEW_PORT) ? PREVIEW_PORT : (sorted[0] ?? null);
+  const port = !ports.size
+    ? null
+    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : sorted[0]));
   if (bridge && port !== null) bridge.port = port;
   if (port !== useStore.getState().previewPort) useStore.getState().setPreviewPort(port);
 }
@@ -389,6 +396,7 @@ export function closeTerminal(id: number): void {
 // CSS. Its closing brings the panel back.
 useStore.subscribe((state, before) => {
   if (state.previewKey !== before.previewKey) send({ type: 'reload' });
+  if (state.previewPort !== before.previewPort) send({ type: 'port', port: state.previewPort });
 });
 built.add(() => send({ type: 'css' }));
 // A rebuilt bundle: the preview loads it (a save's reload may come first).
@@ -399,7 +407,10 @@ bundled.add(() => {
 });
 previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessage>) => {
   if (data.type === 'closed') useStore.getState().popOut(false);
-  else if (data.type === 'opened') useStore.getState().popOut(true);
+  else if (data.type === 'opened') {
+    useStore.getState().popOut(true);
+    send({ type: 'port', port: useStore.getState().previewPort });
+  }
 });
 
 // Keep what changed and stop every node: the project runs elsewhere now.
@@ -499,6 +510,11 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   bridge = new Bridge({
     connect: (port: number) => nodeOn(port)!.connect(port),
   });
+  chosenPort = null;
+  bridge.onport = (port) => {
+    chosenPort = port;
+    updateListening();
+  };
   openTerminal(setup.first);
   // For tests and the curious.
   Object.assign(window, {

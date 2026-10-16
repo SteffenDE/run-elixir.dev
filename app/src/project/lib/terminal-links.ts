@@ -4,6 +4,7 @@
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm';
 import { useStore } from '@/project/lib/store';
 import { workspace } from '@/project/lib/workspace';
+import { previewPath } from '@/project/lib/address';
 
 const EXTENSIONS =
   'exs?|heex|eex|leex|erl|hrl|js|mjs|ts|tsx|css|json|md|lock|html|txt|toml|ya?ml|sh';
@@ -64,13 +65,16 @@ export function linkProvider(terminal: Terminal): ILinkProvider {
         );
       }
       for (const match of line.matchAll(ADDRESS)) {
-        const [text, , path] = match;
+        const [text, port, path] = match;
         links.push(
           Promise.resolve({
             range: range(y, match.index, text.length),
             text,
             decorations: { underline: true, pointerCursor: true },
-            activate: () => useStore.getState().navigate(path || '/'),
+            activate: () => {
+              const { navigate, previewPort } = useStore.getState();
+              navigate(previewPath(Number(port), path || '/', previewPort));
+            },
           }),
         );
       }
@@ -88,7 +92,8 @@ export function linkProvider(terminal: Terminal): ILinkProvider {
 export function openWebLink(uri: string): void {
   const url = new URL(uri);
   if (['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)) {
-    useStore.getState().navigate(url.pathname + url.search);
+    const { navigate, previewPort } = useStore.getState();
+    navigate(previewPath(Number(url.port || 80), url.pathname + url.search, previewPort));
   } else {
     window.open(uri, '_blank', 'noopener,noreferrer');
   }

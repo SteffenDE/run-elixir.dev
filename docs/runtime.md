@@ -301,11 +301,15 @@ one it:
 - injects a `WebSocket` of its own into HTML (below), and a script
   (`linkShim`) that sends the app's absolute links
   (`http://localhost:PORT/…`, as in a magic link's mail) and forms to
-  their paths as they are clicked or submitted, and keeps `_top` and
+  their paths (through `SWITCH` for another port) as they are clicked or submitted, and keeps `_top` and
   `_parent` inside the preview (Swoosh's mailbox opens a mail's links in
   `_top`; an outside link with them opens a new tab instead of replacing
   the IDE);
 - turns a redirect's `Location` at `http://localhost:PORT` into its path;
+- shows one of the app's ports at a time: a request for
+  `/__playground/port/PORT/path` (`SWITCH`: the path bar, a link or
+  redirect to another port) switches it, tells the IDE (`onport`), and
+  redirects to the path;
 - answers a page that reloads every two seconds while nothing listens.
 
 **WebSockets.** A service worker sees no WebSocket connection. The

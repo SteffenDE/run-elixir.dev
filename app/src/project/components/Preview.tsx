@@ -9,7 +9,8 @@ export function Preview() {
   const path = useStore((state) => state.previewPath);
   const navigation = useStore((state) => state.previewNavigation);
   const reload = useStore((state) => state.previewKey);
-  const running = useStore((state) => state.previewPort !== null);
+  const port = useStore((state) => state.previewPort);
+  const running = port !== null;
   const navigate = useStore((state) => state.navigate);
   const reloadPreview = useStore((state) => state.reloadPreview);
   const popOut = useStore((state) => state.popOut);
@@ -26,6 +27,7 @@ export function Preview() {
   return (
     <PreviewFrame
       running={running}
+      port={port}
       path={path}
       navigation={navigation}
       reload={reload}

@@ -1,5 +1,6 @@
 import { RiExternalLinkLine, RiRefreshLine } from '@remixicon/react';
 import { useEffect, useRef, useState } from 'react';
+import { shownAddress, typedPath } from '@/project/lib/address';
 
 // Stylesheets reload in place (as Phoenix's live reload does).
 export function refreshStylesheets(iframe: HTMLIFrameElement | null): void {
@@ -16,17 +17,10 @@ export function refreshStylesheets(iframe: HTMLIFrameElement | null): void {
   }
 }
 
-// What is typed into the path bar, as a path: the app's own URL (as
-// it prints it, http://localhost:4000/…) is its path.
-export function pathOf(typed: string): string {
-  const text = typed.trim();
-  const app = text.match(/^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(\/.*)?$/i);
-  if (app) return app[1] ?? '/';
-  return text.startsWith('/') ? text : `/${text}`;
-}
-
 interface Props {
   running: boolean;
+  // The app's port the preview shows (null: not known yet).
+  port: number | null;
   // Go to `path` whenever `navigation` changes; reload in place whenever
   // `reload` changes; refresh stylesheets whenever `css` changes.
   path: string;
@@ -42,6 +36,7 @@ interface Props {
 // (src/runtime/sw.js), with a path bar.
 export function PreviewFrame({
   running,
+  port,
   path,
   navigation,
   reload,
@@ -50,7 +45,10 @@ export function PreviewFrame({
   onReload,
   onPopOut,
 }: Props) {
-  const [typed, setTyped] = useState(path);
+  const [typed, setTyped] = useState(shownAddress(port, path));
+  // Where the preview is, for the path bar when the port changes.
+  const [at, setAt] = useState(path);
+  useEffect(() => setTyped(shownAddress(port, at)), [port, at]);
   const frame = useRef<HTMLIFrameElement>(null);
   // Where a reload goes when the preview has not loaded anything yet.
   const fallback = useRef(path);
@@ -59,7 +57,7 @@ export function PreviewFrame({
   useEffect(() => {
     if (!frame.current || !running) return;
     frame.current.src = path;
-    setTyped(path);
+    if (!path.startsWith('/__playground/')) setAt(path);
   }, [navigation, path, running]);
 
   // oxlint-disable-next-line react/exhaustive-deps -- `reload` is the signal.
@@ -88,7 +86,7 @@ export function PreviewFrame({
         className="bar preview-bar"
         onSubmit={(event) => {
           event.preventDefault();
-          onNavigate(pathOf(typed));
+          onNavigate(typedPath(typed, port));
         }}
       >
         <button type="button" className="icon-button" onClick={onReload} title="Reload">
@@ -97,7 +95,7 @@ export function PreviewFrame({
         <input
           value={typed}
           onChange={(event) => setTyped(event.target.value)}
-          aria-label="Path"
+          aria-label="Address"
           spellCheck={false}
         />
         {onPopOut && (
@@ -119,7 +117,7 @@ export function PreviewFrame({
           onLoad={() => {
             try {
               const location = frame.current?.contentWindow?.location;
-              if (location) setTyped(location.pathname + location.search);
+              if (location) setAt(location.pathname + location.search);
             } catch {
               // Cross-origin: leave it.
             }

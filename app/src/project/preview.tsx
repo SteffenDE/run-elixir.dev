@@ -18,12 +18,14 @@ function PreviewWindow() {
   const [navigation, setNavigation] = useState(0);
   const [reload, setReload] = useState(0);
   const [css, setCss] = useState(0);
+  const [port, setPort] = useState<number | null>(null);
 
   useEffect(() => {
     send({ type: 'opened' });
     const listen = ({ data }: MessageEvent<PreviewMessage>) => {
       if (data.type === 'reload') setReload((n) => n + 1);
       else if (data.type === 'css') setCss((n) => n + 1);
+      else if (data.type === 'port') setPort(data.port);
     };
     previewChannel.addEventListener('message', listen);
     const closed = () => send({ type: 'closed' });
@@ -38,6 +40,7 @@ function PreviewWindow() {
     <div className="app preview-window">
       <PreviewFrame
         running
+        port={port}
         path={path}
         navigation={navigation}
         reload={reload}

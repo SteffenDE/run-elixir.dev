@@ -130,13 +130,24 @@ function closeTunnels() {
   tunnelHooks.clear();
 }
 
+// The host's preview port, unless this guest switched to another (its
+// path bar, a link to another endpoint).
+let hostPort: number | null = null;
+let chosenPort: number | null = null;
+
 async function preview(port: number | null) {
+  hostPort = port;
   if (!bridge) {
     await Bridge.register('/sw.js', '/', previewKey);
     bridge ??= new Bridge({ connect });
+    bridge.onport = (switched) => {
+      chosenPort = switched;
+      void preview(hostPort);
+    };
   }
-  if (port !== null) bridge.port = port;
-  useStore.getState().setPreviewPort(port);
+  const shown = port === null ? null : (chosenPort ?? port);
+  if (shown !== null) bridge.port = shown;
+  useStore.getState().setPreviewPort(shown);
 }
 
 // Joins session `session` as `as`; `project` is called with what the host

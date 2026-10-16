@@ -114,7 +114,8 @@ function webSocketShim() {
 
 // The preview's links, as the app means them. The app believes it is at
 // http://localhost:PORT, so it writes absolute links there (a magic link
-// in a mail): they go to their path here. Its top is the preview's first
+// in a mail): they go to their path here, or, on another port (a second
+// endpoint), through the bridge's switch to it (SWITCH). Its top is the preview's first
 // frame, not the IDE's page: Swoosh's mailbox opens a mail's links in
 // _top, which would navigate the IDE away. Changed as they are clicked or
 // submitted, not in the HTML.
@@ -123,9 +124,7 @@ function linkShim(port: number) {
   marked.playgroundApp = true;
   const app = (url: URL) =>
     url.origin === location.origin ||
-    (url.protocol === 'http:' &&
-      ['localhost', '127.0.0.1'].includes(url.hostname) &&
-      url.port === String(port));
+    (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname));
   const parentOf = (win: Window): Window | null => {
     try {
       return win.parent !== win &&
@@ -141,7 +140,13 @@ function linkShim(port: number) {
     for (let up = parentOf(win); up; up = parentOf(win)) win = up;
     return win;
   };
-  const path = (url: URL) => url.pathname + url.search + url.hash;
+  const path = (url: URL) =>
+    (url.origin === location.origin || Number(url.port || 80) === port
+      ? ''
+      : `/__playground/port/${url.port || 80}`) +
+    url.pathname +
+    url.search +
+    url.hash;
   addEventListener(
     'click',
     (event) => {
@@ -187,6 +192,11 @@ function linkShim(port: number) {
     true,
   );
 }
+
+// A preview's request for this path switches the bridge to the port, then
+// goes to the rest: the app's links and redirects to another of its ports,
+// and the path bar's localhost:PORT/….
+const SWITCH = /^\/__playground\/port\/(\d+)(\/.*)?$/;
 
 const shims = (port: number) => `<script>(${webSocketShim})();(${linkShim})(${port})</script>`;
 
@@ -241,6 +251,8 @@ interface Flight {
 export class Bridge {
   declare node: { connect(port: number): Connection };
   declare port: number;
+  // Told when a preview switched to another port (SWITCH).
+  declare onport: ((port: number) => void) | null;
   declare cookies: Map<string, string>;
   flights = new Map<number, Flight>();
   nextFlight = 1;
@@ -268,6 +280,7 @@ export class Bridge {
   constructor(node: { connect(port: number): Connection }, port = 4000) {
     this.node = node;
     this.port = port;
+    this.onport = null;
     this.cookies = new Map();
     navigator.serviceWorker.addEventListener('message', async (event) => {
       if (event.data?.kind === 'websocket') {
@@ -467,6 +480,17 @@ export class Bridge {
   }
 
   request({ method, path, headers, body }: PreviewRequest): Promise<PreviewResponse> {
+    const switched = path.match(SWITCH);
+    if (switched) {
+      this.port = Number(switched[1]);
+      this.onport?.(this.port);
+      return Promise.resolve({
+        status: 302,
+        reason: 'Found',
+        headers: [['location', switched[2] ?? '/']],
+        body: new Uint8Array(0),
+      });
+    }
     return new Promise((resolve) => {
       const lines = [
         `${method} ${path} HTTP/1.1`,
@@ -547,11 +571,14 @@ export class Bridge {
       const name = line.slice(0, at).trim().toLowerCase();
       const value = line.slice(at + 1).trim();
       if (name === 'set-cookie') this.remember(value);
-      // A redirect to the app's absolute URL: its path, here.
+      // A redirect to the app's absolute URL: its path, here (through
+      // SWITCH for another port).
       if (name === 'location') {
-        const app = value.match(/^http:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/);
-        if (app && Number(app[1]) === this.port) {
-          headers.push([name, app[2] ?? '/']);
+        const app = value.match(/^http:\/\/(?:localhost|127\.0\.0\.1)(?::(\d+))?(\/.*)?$/);
+        if (app) {
+          const port = Number(app[1] ?? 80);
+          const path = app[2] ?? '/';
+          headers.push([name, port === this.port ? path : `/__playground/port/${port}${path}`]);
           continue;
         }
       }
