@@ -39,8 +39,14 @@ async function showFile(id: string) {
 }
 
 // Their caret, in view: scrolled to where it is drawn, else (outside what
-// the editor rendered) the editor goes to its line.
+// the editor rendered) the editor goes to its line. Once the editor has
+// drawn the carets anew (it hears of a moved caret as this does): until
+// then the caret is where it was.
 function keepInView(id: string, line: number) {
+  setTimeout(() => showCaret(id, line), 0);
+}
+
+function showCaret(id: string, line: number) {
   const panel = document.querySelector('.tab-panel:not([hidden])');
   for (const element of panel?.querySelectorAll('*') ?? []) {
     const caret = element.shadowRoot?.querySelector(`[data-person="${CSS.escape(id)}"]`);

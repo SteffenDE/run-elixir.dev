@@ -62,9 +62,9 @@ function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElem
     const unwatch = useLive.subscribe((state, before) => {
       if (state.cursors !== before.cursors || state.people !== before.people) draw();
     });
-    // The editor takes the selection's change first. Firefox does not tell
-    // the document of a selection in the editor's shadow root: keys and
-    // clicks in it say so too.
+    // The editor takes the selection's change first. Keys and clicks in it
+    // say so too: a selection in a shadow root does not reach the document
+    // in every browser.
     const onSelection = () => {
       if (holder.contains(document.activeElement))
         setTimeout(() => publishCursor(bound.cursor()), 0);
