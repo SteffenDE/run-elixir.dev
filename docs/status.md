@@ -123,8 +123,9 @@ last_updated: 2026-10-16
   fixes), most of it the interpreter: a new app's deps take minutes. The
   plans: prebuilt deps, and a faster interpreter
   ([interpreter.md](../../docs/design/interpreter.md#where-it-stands-2026-10-15)).
-- **git in the shell:** only what Mix asks (`git` is a program, not a shell
-  command yet); no pushes.
+- **git in the shell:** `clone` and fast-forward `pull` from GitHub,
+  GitLab and Codeberg, besides what Mix asks; no commits, diffs or pushes
+  yet ([git.md](git.md)).
 - **HTTPS from a node** goes by the page's `fetch()` (`https.ts`): only
   to sites that send CORS headers (hex.pm's API does; most others do not:
   502), HTTP/1.1 only, one request per connection, without the headers

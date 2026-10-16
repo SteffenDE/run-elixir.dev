@@ -5,9 +5,10 @@
 //
 // The shell runs each node command (elixir, iex, mix, erl) as a fresh
 // instance over the same filesystem, as a Unix shell runs processes, and
-// has the few builtins a playground needs. Ctrl+C (an interrupt frame)
-// stops the node. With `files`, /work and /tmp are files.js's, which every
-// shell (each in its own worker) and the page share.
+// has the few builtins a playground needs; the page's programs (git, …)
+// run as they would for a node. Ctrl+C (an interrupt frame) stops the
+// node or the program. With `files`, /work and /tmp are files.js's, which
+// every shell (each in its own worker) and the page share.
 import { WASI } from '../wasi';
 import { Dir, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
 import { Network } from '../wasi/net';
@@ -17,6 +18,7 @@ import { vfs } from '../vfs';
 import type { NifSource } from '../programs';
 import type { FilesChannel } from '../host/files';
 import { Channel, onPage } from './channel';
+import { Process } from '../wasi/process';
 import { backendNif, siteNif } from './nif';
 import { site } from './site';
 import { SCHEDULERS, runThreaded, sharedMemory } from './threaded';
@@ -122,8 +124,8 @@ function command(name: string, args: string[]): string[] | null {
   return null;
 }
 
-const HELP = `Commands: iex, elixir, mix, erl (each runs Rust-OTP), and
-cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
+const HELP = `Commands: iex, elixir, mix, erl (each runs Rust-OTP), git (clone,
+pull), and cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
 `;
 
@@ -251,6 +253,25 @@ onmessage = async ({
       }
     };
 
+    // A page program (git, tailwind, …) the shell runs, until it exits or
+    // Ctrl+C stops it.
+    const runOnPage = (name: string, args: string[], cwd: string): number => {
+      const process = new Process();
+      onPage(channel, name)(process, { args, cwd, env: { ...ENV, ...env, PWD: cwd }, root });
+      for (;;) {
+        channel.pump();
+        for (const bytes of process.output.splice(0)) say('out', bytes);
+        if (process.ended) return process.status ?? 1;
+        if (channel.interrupted) {
+          channel.interrupted = false;
+          channel.input = [];
+          process.onclose?.();
+          return 130;
+        }
+        channel.sleep(1000);
+      }
+    };
+
     say('status', 'running');
     if (!shell) {
       const argv = named ? command(named[0], named.slice(1)) : args;
@@ -295,6 +316,10 @@ onmessage = async ({
         if (argv) {
           const status = await run(argv, cwd);
           if (status === 130) text('\n');
+          continue;
+        }
+        if (pagePrograms.includes(name)) {
+          if (runOnPage(name, rest, cwd) === 130) text('^C\n');
           continue;
         }
         switch (name) {

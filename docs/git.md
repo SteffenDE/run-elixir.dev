@@ -8,7 +8,7 @@ last_updated: 2026-10-16
 
 A plan for git in a project (clone, history, a diff view, push) and for
 signing in, and what each needs from the site's origins to stay safe.
-Nothing of it is built yet.
+Built so far: `git clone` and `git pull` in the shell ([below](#built)).
 Mix's git dependencies are [architecture.md](architecture.md#git)'s.
 
 ## git in the shell
@@ -193,3 +193,17 @@ But:
 A separate account domain and a same-site preview origin give the same
 protection without that. Worth asking again once the server holds the
 project list.
+
+## Built
+
+- **`git clone URL [DIR]`** (`--depth N`, `--branch NAME`, `-b`): into
+  `DIR`, or the repository's name, which must be missing or empty (`.`
+  clones into the shell's directory). The whole history, as git clones;
+  `--depth` (one branch, as in git) is for a large repository. An SSH address (`git@HOST:OWNER/REPO`)
+  is fetched over HTTPS; a host the proxy does not serve is refused by name.
+  Progress as git prints it.
+- **`git pull`**: fetches the current branch's upstream (origin, the same
+  name) and fast-forwards; a branch that has diverged is refused, a
+  detached HEAD too.
+- **The shell runs the page's programs** (`git`, `tailwind`, `esbuild`,
+  `sh`, `rebar3`) as it runs a node's commands; Ctrl+C stops one.

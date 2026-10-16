@@ -4,7 +4,8 @@
 // asks of git for a dependency (Mix.SCM.Git): init, remote add and
 // set-head, config, fetch (a branch, a tag, or a locked revision, with a
 // depth), checkout (sparse, as .git/info/sparse-checkout says), read-tree
-// -mu HEAD, rev-parse; and --version.
+// -mu HEAD, rev-parse; and --version. In the shell: clone, and pull as a
+// fast-forward (docs/git.md).
 import { Buffer } from 'buffer';
 import type { FileSystem as Files } from '@/runtime/host/files';
 import type { Context, Process } from './tailwind';
@@ -82,6 +83,51 @@ function fsFor(files: Files) {
 }
 
 const join = (cwd: string, path: string) => (path.startsWith('/') ? path : `${cwd}/${path}`);
+
+// join, without . and .. (a clone's directory).
+function joinPath(cwd: string, path: string): string {
+  const out: string[] = [];
+  for (const part of join(cwd, path).split('/')) {
+    if (part === '..') out.pop();
+    else if (part && part !== '.') out.push(part);
+  }
+  return `/${out.join('/')}`;
+}
+
+// The hosts the site's proxy serves (serve.py, Caddy in docs/deploy.md).
+const HOSTS = ['github.com', 'gitlab.com', 'codeberg.org'];
+
+// A clone's address as HTTPS (git@HOST:OWNER/REPO and ssh:// too: there is
+// no SSH from the page), on a host the proxy serves.
+function cloneUrl(address: string): string {
+  const scp = /^(?:ssh:\/\/)?git@([^:/]+)[:/](.+)$/.exec(address);
+  const url = scp ? `https://${scp[1]}/${scp[2]}` : address;
+  const host = /^https?:\/\/([^/]+)\//.exec(url)?.[1];
+  if (!host || !HOSTS.includes(host))
+    throw new Failure(`fatal: the playground clones only from ${HOSTS.join(', ')} (over HTTPS)`);
+  return url.replace(/^http:/, 'https:');
+}
+
+// What the server says, each line as git prints it.
+const remoteSays = (out: (text: string) => void) => (message: string) =>
+  out(`remote: ${message.replace(/\n(?!$)/g, '\nremote: ')}`);
+
+// isomorphic-git's progress as git prints it: one line per phase, counted
+// in place.
+function progress(out: (text: string) => void) {
+  let phase = '';
+  let done = false;
+  return ({ phase: next, loaded, total }: { phase: string; loaded: number; total: number }) => {
+    if (next === phase && done) return;
+    if (next !== phase && phase && !done) out('\n');
+    phase = next;
+    done = !!total && loaded >= total;
+    const count = total
+      ? `${Math.floor((loaded * 100) / total)}% (${loaded}/${total})`
+      : `${loaded}`;
+    out(`\r${next}: ${count}${done ? ', done.\n' : ''}`);
+  };
+}
 
 export async function gitProgram(process: Process, { args, cwd, fs: files }: Context) {
   const out = (text: string) => process.write(text);
@@ -255,6 +301,83 @@ async function run(args: string[], cwd: string, files: Files, out: (text: string
       await g.checkout({ ...base, ref: oid, force: true, noUpdateHead: true, filepaths });
       // Detached, as git checks out a revision.
       await files.write(`${gitdir}/HEAD`, encoder.encode(`${oid}\n`));
+      return;
+    }
+
+    case 'clone': {
+      // git clone [--depth N] [--branch NAME] URL [DIR]
+      let depth: number | undefined;
+      let ref: string | undefined;
+      const operands: string[] = [];
+      for (let i = 0; i < more.length; i++) {
+        const arg = more[i];
+        const [name, inline] = arg.split(/=(.*)/s);
+        const value = () => inline ?? more[++i];
+        if (name === '--depth') depth = Number(value());
+        else if (name === '--branch' || name === '-b') ref = value();
+        else if (arg === '-q' || arg === '--quiet' || arg === '--single-branch') continue;
+        else if (arg.startsWith('-')) throw new Failure(`git clone ${arg}: not available`, 129);
+        else operands.push(arg);
+      }
+      const [address, target] = operands;
+      if (!address) throw new Failure('usage: git clone [--depth N] [-b BRANCH] URL [DIR]', 129);
+      const from = cloneUrl(address);
+      const name =
+        target ??
+        from
+          .replace(/\/$/, '')
+          .split('/')
+          .pop()!
+          .replace(/\.git$/, '');
+      const into = joinPath(dir, name);
+      if ((await files.stat(into)) === 'file' || (await files.readdir(into).catch(() => [])).length)
+        throw new Failure(
+          `fatal: destination path '${name}' already exists and is not an empty directory.`,
+        );
+      out(`Cloning into '${name}'...\n`);
+      await g.clone({
+        ...remote,
+        fs,
+        dir: into,
+        url: from,
+        ref,
+        depth,
+        singleBranch: !!ref || depth !== undefined,
+        onProgress: progress(out),
+        onMessage: remoteSays(out),
+      });
+      return;
+    }
+
+    case 'pull': {
+      // The branch's upstream, fast-forward only.
+      await url();
+      const branch = await g.currentBranch(base);
+      if (!branch) throw new Failure('You are not currently on a branch.');
+      const before = await g.resolveRef({ ...base, ref: 'HEAD' });
+      try {
+        await g.fastForward({
+          ...base,
+          ...remote,
+          remote: 'origin',
+          ref: branch,
+          singleBranch: true,
+          onProgress: progress(out),
+          onMessage: remoteSays(out),
+        });
+      } catch (error) {
+        if ((error as { code?: string }).code === 'FastForwardError')
+          throw new Failure(
+            'fatal: Not possible to fast-forward, aborting. (Merges are not available in the playground.)',
+          );
+        throw error;
+      }
+      const after = await g.resolveRef({ ...base, ref: 'HEAD' });
+      out(
+        before === after
+          ? 'Already up to date.\n'
+          : `Updating ${before.slice(0, 7)}..${after.slice(0, 7)}\nFast-forward\n`,
+      );
       return;
     }
 

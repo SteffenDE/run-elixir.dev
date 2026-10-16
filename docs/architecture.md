@@ -150,6 +150,7 @@ asks for a git dependency: `init`, `remote add` and `set-head`, `config`,
 `fetch` (a branch, a tag, or a locked revision, which it finds among the
 server's refs; a locked revision with depth 1), `checkout` (sparse, as
 `.git/info/sparse-checkout` says), `read-tree -mu HEAD`, `rev-parse`.
+In the shell it also clones and pulls ([git.md](git.md#built)).
 The Node harness keeps a stub that answers only the lock check.
 
 ## Programs
