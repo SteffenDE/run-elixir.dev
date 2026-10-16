@@ -2,7 +2,8 @@
 // (lib/foo.ex:12, /work/x/mix.exs:3:5) opens in the editor at that line;
 // a server's address (localhost:4000/posts) opens in the preview.
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm';
-import { openFile, searchPath, showInPreview, stat } from '@/project/lib/playground';
+import { useStore } from '@/project/lib/store';
+import { workspace } from '@/project/lib/workspace';
 
 const EXTENSIONS =
   'exs?|heex|eex|leex|erl|hrl|js|mjs|ts|tsx|css|json|md|lock|html|txt|toml|ya?ml|sh';
@@ -20,12 +21,15 @@ const found = new Map<string, Promise<string | null>>();
 function locate(path: string): Promise<string | null> {
   const candidates = path.startsWith('/')
     ? [path]
-    : searchPath().map((dir) => `${dir}/${path.replace(/^\.\//, '')}`);
+    : workspace()
+        .searchPath()
+        .map((dir) => `${dir}/${path.replace(/^\.\//, '')}`);
   const key = candidates.join('\n');
   let result = found.get(key);
   if (!result) {
     result = (async () => {
-      for (const candidate of candidates) if ((await stat(candidate)) === 'file') return candidate;
+      for (const candidate of candidates)
+        if ((await workspace().stat(candidate)) === 'file') return candidate;
       return null;
     })();
     found.set(key, result);
@@ -53,7 +57,7 @@ export function linkProvider(terminal: Terminal): ILinkProvider {
                   range: range(y, match.index, text.length),
                   text,
                   decorations: { underline: true, pointerCursor: true },
-                  activate: () => void openFile(absolute, Number(lineNumber)),
+                  activate: () => void workspace().openFile(absolute, Number(lineNumber)),
                 }
               : null,
           ),
@@ -66,7 +70,7 @@ export function linkProvider(terminal: Terminal): ILinkProvider {
             range: range(y, match.index, text.length),
             text,
             decorations: { underline: true, pointerCursor: true },
-            activate: () => showInPreview(path || '/'),
+            activate: () => useStore.getState().navigate(path || '/'),
           }),
         );
       }
@@ -84,7 +88,7 @@ export function linkProvider(terminal: Terminal): ILinkProvider {
 export function openWebLink(uri: string): void {
   const url = new URL(uri);
   if (['localhost', '127.0.0.1', '0.0.0.0'].includes(url.hostname)) {
-    showInPreview(url.pathname + url.search);
+    useStore.getState().navigate(url.pathname + url.search);
   } else {
     window.open(uri, '_blank', 'noopener,noreferrer');
   }

@@ -11,14 +11,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Terminal } from '@xterm/xterm';
 import '@xterm/xterm/css/xterm.css';
 import { lineDiscipline } from '@/runtime/terminal';
-import {
-  initialLines,
-  interrupt,
-  onOutput,
-  onTerminalMode,
-  resize,
-  type,
-} from '@/project/lib/playground';
+import { workspace } from '@/project/lib/workspace';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
 import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
 
@@ -71,16 +64,16 @@ export class TerminalHandle {
     const discipline = lineDiscipline(
       this.terminal,
       {
-        input: (text) => type(this.id, text),
-        interrupt: () => interrupt(this.id),
+        input: (text) => workspace().type(this.id, text),
+        interrupt: () => workspace().interrupt(this.id),
       },
-      initialLines(this.id),
+      workspace().initialLines(this.id),
     );
     // The node's line editing needs the terminal's size.
-    this.terminal.onResize(({ cols, rows }) => resize(this.id, cols, rows));
-    resize(this.id, this.terminal.cols, this.terminal.rows);
-    this.unsubscribe = onOutput(this.id, (text) => this.terminal.write(text));
-    this.unwatchMode = onTerminalMode(this.id, (raw) => discipline.raw(raw));
+    this.terminal.onResize(({ cols, rows }) => workspace().resize(this.id, cols, rows));
+    workspace().resize(this.id, this.terminal.cols, this.terminal.rows);
+    this.unsubscribe = workspace().onOutput(this.id, (text) => this.terminal.write(text));
+    this.unwatchMode = workspace().onTerminalMode(this.id, (raw) => discipline.raw(raw));
   }
 
   attach(parent: HTMLElement) {

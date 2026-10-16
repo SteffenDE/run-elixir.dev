@@ -4,7 +4,7 @@ import { Editor as PierreEditor, type EditorFactory } from '@pierre/diffs/edit';
 import { EditProvider, File, Virtualizer } from '@pierre/diffs/react';
 import { RiCloseLine, RiSave3Line } from '@remixicon/react';
 import { useCallback, useEffect, useMemo, useRef } from 'react';
-import { save } from '@/project/lib/playground';
+import { workspace } from '@/project/lib/workspace';
 import '@/project/lib/languages';
 import { WORK, useStore, type Tab } from '@/project/lib/store';
 import { Shortcut } from '@/shared/components/Kbd';
@@ -90,7 +90,8 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
   const current = tabs.find((tab) => tab.path === active);
 
   const saveCurrent = useCallback(() => {
-    if (current && current.draft !== current.saved) void save(current.path, current.draft);
+    if (current && current.draft !== current.saved)
+      void workspace().save(current.path, current.draft);
   }, [current]);
 
   useEffect(() => {

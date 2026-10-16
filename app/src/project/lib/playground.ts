@@ -39,6 +39,7 @@ import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
 import { seedTaken, takeSeed } from '@/shared/lib/registry';
 import { fileBytes, fileEntry, type Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
+import { setWorkspace, type Workspace } from './workspace';
 import { HEX_PORT, hex, hexEnv } from './hex';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
@@ -177,11 +178,6 @@ export async function openFile(path: string, line = 1): Promise<void> {
 // then /work.
 export function searchPath(): string[] {
   return [...new Set([setup.cwd, WORK])];
-}
-
-// Show `path` (the app's) in the preview.
-export function showInPreview(path: string): void {
-  useStore.getState().navigate(path);
 }
 
 export async function save(path: string, text: string): Promise<void> {
@@ -438,12 +434,35 @@ export async function shareable(name: string, template?: Template): Promise<Shar
   };
 }
 
+// The IDE's workspace (workspace.ts): these nodes.
+export const local: Workspace = {
+  read,
+  stat,
+  createFile,
+  createDirectory,
+  movePath,
+  removePath,
+  openFile,
+  save,
+  searchPath,
+  onOutput,
+  initialLines,
+  type,
+  interrupt,
+  resize,
+  onTerminalMode,
+  openTerminal: () => void openTerminal(),
+  closeTerminal,
+  restartServer,
+};
+
 // Start a project of `kind`: its files, the service worker, and the first
 // shell. `id`: the stored project's, whose changes are kept (none for a
 // temporary IEx).
 export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<void> {
   kind = workspaceKind;
   projectId = id;
+  setWorkspace(local);
   setup = setupOf(kind);
   const store = useStore.getState();
   if (!crossOriginIsolated) {

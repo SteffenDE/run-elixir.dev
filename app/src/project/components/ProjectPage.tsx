@@ -19,7 +19,8 @@ import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
 import { setup } from '@/project/lib/kinds';
-import { restartServer, start } from '@/project/lib/playground';
+import { start } from '@/project/lib/playground';
+import { workspace as current } from '@/project/lib/workspace';
 import { closePopup } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { NarrowWorkspace } from '@/project/components/NarrowWorkspace';
@@ -148,7 +149,7 @@ export function ProjectPage({ project }: { project: Project | null }) {
           <button
             type="button"
             className="button"
-            onClick={restartServer}
+            onClick={() => current().restartServer()}
             disabled={!ready}
             title={previewPort !== null ? 'Restart server' : 'Start server'}
           >

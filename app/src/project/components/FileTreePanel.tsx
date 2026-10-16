@@ -2,10 +2,8 @@ import type { ContextMenuItem, ContextMenuOpenContext } from '@pierre/trees';
 import { FileTree, useFileTree } from '@pierre/trees/react';
 import { RiDeleteBinLine, RiEditLine, RiFileAddLine, RiFolderAddLine } from '@remixicon/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createDirectory, createFile, movePath, read, removePath } from '@/project/lib/playground';
+import { workspace } from '@/project/lib/workspace';
 import { WORK, useStore } from '@/project/lib/store';
-
-const decoder = new TextDecoder();
 
 // Elixir's files get a drop (the built-in icon sets have none for them).
 const ICONS = {
@@ -83,11 +81,13 @@ export function FileTreePanel() {
           const folder = path.endsWith('/');
           if (from === to) continue;
           follow(from, folder ? `${to}/` : to);
-          movePath(absolute(from), absolute(to)).catch((error: Error) => {
-            report(error);
-            follow(to, folder ? `${from}/` : from);
-            model.move(folder ? `${to}/` : to, path);
-          });
+          workspace()
+            .movePath(absolute(from), absolute(to))
+            .catch((error: Error) => {
+              report(error);
+              follow(to, folder ? `${from}/` : from);
+              model.move(folder ? `${to}/` : to, path);
+            });
         }
       },
       onDropError: (message) => useStore.getState().setStatus(message),
@@ -99,12 +99,14 @@ export function FileTreePanel() {
         if (creating.current.delete(sourcePath)) {
           follow(null, to);
           writing.current.add(destinationPath);
-          (isFolder ? createDirectory : createFile)(absolute(destinationPath))
+          (isFolder ? workspace().createDirectory : workspace().createFile)(
+            absolute(destinationPath),
+          )
             .catch(report)
             .finally(() => writing.current.delete(destinationPath));
         } else {
           follow(sourcePath, to);
-          movePath(absolute(sourcePath), absolute(destinationPath)).catch(report);
+          workspace().movePath(absolute(sourcePath), absolute(destinationPath)).catch(report);
         }
       },
     },
@@ -114,10 +116,9 @@ export function FileTreePanel() {
       if (!path || path.endsWith('/') || model.getItem(path)?.isDirectory()) return;
       if (creating.current.has(path) || writing.current.has(path)) return;
       const file = absolute(path);
-      read(file).then(
-        (bytes) => useStore.getState().open(file, decoder.decode(bytes)),
-        (error: Error) => useStore.getState().setStatus(error.message),
-      );
+      workspace()
+        .openFile(file)
+        .catch((error: Error) => useStore.getState().setStatus(error.message));
     },
   });
 
@@ -220,10 +221,15 @@ export function FileTreePanel() {
           onDelete={() => {
             context.close();
             const path = item.path.replace(/\/$/, '');
-            removePath(absolute(path)).then(() => {
-              follow(path, null);
-              model.remove(item.path, item.kind === 'directory' ? { recursive: true } : undefined);
-            }, report);
+            workspace()
+              .removePath(absolute(path))
+              .then(() => {
+                follow(path, null);
+                model.remove(
+                  item.path,
+                  item.kind === 'directory' ? { recursive: true } : undefined,
+                );
+              }, report);
           }}
         />
       )}

@@ -7,7 +7,8 @@ import {
   RiServerLine,
   RiTerminalBoxLine,
 } from '@remixicon/react';
-import { FIRST_SESSION, closeTerminal, openTerminal } from '@/project/lib/playground';
+import { FIRST_SESSION } from '@/project/lib/playground';
+import { workspace } from '@/project/lib/workspace';
 import { useStore } from '@/project/lib/store';
 import { disposeTerminal } from '@/project/lib/terminal-handle';
 import { TerminalPanel } from './TerminalPanel';
@@ -54,7 +55,7 @@ export function Terminals({
                   aria-label={`Close shell ${index}`}
                   onClick={(event) => {
                     event.stopPropagation();
-                    closeTerminal(id);
+                    workspace().closeTerminal(id);
                     disposeTerminal(id);
                   }}
                 >
@@ -69,7 +70,7 @@ export function Terminals({
           className="icon-button"
           title="New shell"
           disabled={!ready}
-          onClick={() => openTerminal()}
+          onClick={() => workspace().openTerminal()}
         >
           <RiAddLine size={16} />
         </button>
