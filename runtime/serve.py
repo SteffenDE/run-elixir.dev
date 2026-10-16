@@ -3,9 +3,10 @@ with the cross-origin isolation SharedArrayBuffer needs, index.html for
 paths that are no file (a project's /ID/), Hex's repository at /hex/
 (repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
 clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
-does in production; and the backend's NIF builds at /api/nif/
-(docs/backend.md), from production's unless --api names another backend
-(http://localhost:4000, say).
+does in production; and the backend's NIF builds at /api/nif/ and its
+socket at /socket (live sessions' relay, docs/collaboration.md), from
+production's unless --api names another backend (http://localhost:4000,
+say).
 
     python3 -I playground/runtime/serve.py [PORT] [--domain DOMAIN] [--api URL]
 
@@ -20,9 +21,13 @@ import http.server
 import json
 import os
 import re
+import select
 import shutil
+import socket
+import ssl
 import sys
 import urllib.error
+import urllib.parse
 import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -109,6 +114,44 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
         return True
 
+    # The backend's socket (live sessions): the WebSocket's bytes, both
+    # ways, as they are.
+    def proxy_socket(self):
+        if not self.path.startswith("/socket/") or self.headers.get("Upgrade", "").lower() != "websocket":
+            return False
+        upstream = urllib.parse.urlsplit(API)
+        port = upstream.port or (443 if upstream.scheme == "https" else 80)
+        try:
+            conn = socket.create_connection((upstream.hostname, port), timeout=10)
+            if upstream.scheme == "https":
+                conn = ssl.create_default_context().wrap_socket(conn, server_hostname=upstream.hostname)
+        except OSError as error:
+            self.send_error(502, f"backend: {error}")
+            return True
+        conn.settimeout(None)
+        head = [f"GET {self.path} HTTP/1.1", f"Host: {upstream.netloc}"]
+        head += [f"{name}: {value}" for name, value in self.headers.items() if name.lower() != "host"]
+        conn.sendall(("\r\n".join(head) + "\r\n\r\n").encode())
+        client = self.connection
+        try:
+            while True:
+                # TLS may hold decrypted bytes select() cannot see.
+                pending = [conn] if isinstance(conn, ssl.SSLSocket) and conn.pending() else []
+                ready = pending or select.select([client, conn], [], [], 300)[0]
+                if not ready:
+                    break
+                for source in ready:
+                    data = source.recv(65536)
+                    if not data:
+                        raise ConnectionError
+                    (conn if source is client else client).sendall(data)
+        except OSError:
+            pass
+        finally:
+            conn.close()
+        self.close_connection = True
+        return True
+
     def do_POST(self):
         if not self.proxy_git("POST"):
             self.send_error(405)
@@ -121,7 +164,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Content-Length", str(len(data)))
             self.end_headers()
             self.wfile.write(data)
-        elif not self.proxy_hex(False) and not self.proxy_git("GET") and not self.proxy_api():
+        elif not self.proxy_socket() and not self.proxy_hex(False) and not self.proxy_git("GET") \
+                and not self.proxy_api():
             super().do_GET()
 
     def do_HEAD(self):
@@ -150,5 +194,5 @@ API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir
 args = [arg for i, arg in enumerate(args)
         if arg not in ("--domain", "--api") and (i == 0 or args[i - 1] not in ("--domain", "--api"))]
 port = int(args[0]) if args else 8080
-print(f"http://localhost:{port}/ serving {directory}, NIF builds from {API}")
+print(f"http://localhost:{port}/ serving {directory}, NIF builds and live sessions from {API}")
 http.server.ThreadingHTTPServer(("", port), functools.partial(Handler, directory=directory)).serve_forever()
