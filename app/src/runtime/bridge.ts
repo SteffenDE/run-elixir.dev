@@ -111,7 +111,84 @@ function webSocketShim() {
   Object.assign(PlaygroundWebSocket.prototype, states);
   window.WebSocket = PlaygroundWebSocket as unknown as typeof WebSocket;
 }
-const WEBSOCKET = `<script>(${webSocketShim})()</script>`;
+
+// The preview's links, as the app means them. The app believes it is at
+// http://localhost:PORT, so it writes absolute links there (a magic link
+// in a mail): they go to their path here. Its top is the preview's first
+// frame, not the IDE's page: Swoosh's mailbox opens a mail's links in
+// _top, which would navigate the IDE away. Changed as they are clicked or
+// submitted, not in the HTML.
+function linkShim(port: number) {
+  const marked = window as Window & { playgroundApp?: boolean };
+  marked.playgroundApp = true;
+  const app = (url: URL) =>
+    url.origin === location.origin ||
+    (url.protocol === 'http:' &&
+      ['localhost', '127.0.0.1'].includes(url.hostname) &&
+      url.port === String(port));
+  const parentOf = (win: Window): Window | null => {
+    try {
+      return win.parent !== win &&
+        (win.parent as Window & { playgroundApp?: boolean }).playgroundApp
+        ? win.parent
+        : null;
+    } catch {
+      return null;
+    }
+  };
+  const root = () => {
+    let win: Window = window;
+    for (let up = parentOf(win); up; up = parentOf(win)) win = up;
+    return win;
+  };
+  const path = (url: URL) => url.pathname + url.search + url.hash;
+  addEventListener(
+    'click',
+    (event) => {
+      if (event.defaultPrevented || event.button !== 0) return;
+      const link = event
+        .composedPath()
+        .find((node): node is HTMLAnchorElement => (node as Element).tagName === 'A');
+      if (!link?.href) return;
+      const url = new URL(link.href, location.href);
+      const target = (
+        link.target ||
+        document.querySelector('base[target]')?.getAttribute('target') ||
+        ''
+      ).toLowerCase();
+      const out = target === '_top' || target === '_parent';
+      if (!app(url)) {
+        // Out of the preview, not over the IDE.
+        if (out) {
+          event.preventDefault();
+          open(url.href, '_blank', 'noopener');
+        }
+        return;
+      }
+      if (url.origin !== location.origin) link.href = path(url);
+      if (!out) return;
+      const into = target === '_top' ? root() : (parentOf(window) ?? window);
+      if (into === window) {
+        link.target = '_self';
+        return;
+      }
+      event.preventDefault();
+      into.location.assign(path(url));
+    },
+    true,
+  );
+  addEventListener(
+    'submit',
+    (event) => {
+      const form = event.target as HTMLFormElement;
+      const url = new URL(form.action, location.href);
+      if (app(url) && url.origin !== location.origin) form.action = path(url);
+    },
+    true,
+  );
+}
+
+const shims = (port: number) => `<script>(${webSocketShim})();(${linkShim})(${port})</script>`;
 
 function concat(chunks: Uint8Array[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
@@ -470,6 +547,14 @@ export class Bridge {
       const name = line.slice(0, at).trim().toLowerCase();
       const value = line.slice(at + 1).trim();
       if (name === 'set-cookie') this.remember(value);
+      // A redirect to the app's absolute URL: its path, here.
+      if (name === 'location') {
+        const app = value.match(/^http:\/\/(?:localhost|127\.0\.0\.1):(\d+)(\/.*)?$/);
+        if (app && Number(app[1]) === this.port) {
+          headers.push([name, app[2] ?? '/']);
+          continue;
+        }
+      }
       headers.push([name, value]);
     }
     if (headers.some(([n, v]) => n === 'transfer-encoding' && /chunked/i.test(v)))
@@ -478,8 +563,8 @@ export class Bridge {
     if (type.startsWith('text/html')) {
       const html = new TextDecoder().decode(body);
       const at = html.search(/<head[^>]*>/i);
-      const injected =
-        at < 0 ? WEBSOCKET + html : html.replace(/<head[^>]*>/i, (m) => m + WEBSOCKET);
+      const scripts = shims(this.port);
+      const injected = at < 0 ? scripts + html : html.replace(/<head[^>]*>/i, (m) => m + scripts);
       body = new TextEncoder().encode(injected);
     }
     return { status: Number(status), reason, headers, body };

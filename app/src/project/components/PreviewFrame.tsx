@@ -16,6 +16,15 @@ export function refreshStylesheets(iframe: HTMLIFrameElement | null): void {
   }
 }
 
+// What is typed into the path bar, as a path: the app's own URL (as
+// it prints it, http://localhost:4000/…) is its path.
+export function pathOf(typed: string): string {
+  const text = typed.trim();
+  const app = text.match(/^(?:https?:\/\/)?(?:localhost|127\.0\.0\.1)(?::\d+)?(\/.*)?$/i);
+  if (app) return app[1] ?? '/';
+  return text.startsWith('/') ? text : `/${text}`;
+}
+
 interface Props {
   running: boolean;
   // Go to `path` whenever `navigation` changes; reload in place whenever
@@ -79,7 +88,7 @@ export function PreviewFrame({
         className="bar preview-bar"
         onSubmit={(event) => {
           event.preventDefault();
-          onNavigate(typed.startsWith('/') ? typed : `/${typed}`);
+          onNavigate(pathOf(typed));
         }}
       >
         <button type="button" className="icon-button" onClick={onReload} title="Reload">

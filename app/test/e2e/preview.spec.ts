@@ -87,3 +87,61 @@ test("the server's HttpOnly Set-Cookie replaces or expires one the app's JavaScr
     'kept=server',
   );
 });
+
+test("the app's absolute links and the path bar go to its paths, in the preview", async ({
+  page,
+}) => {
+  await newProject(page, 'phoenix');
+  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  const frame = () => page.frames().find((f) => f.parentFrame() === page.mainFrame())!;
+  const at = () =>
+    page.evaluate(
+      () =>
+        document.querySelector<HTMLIFrameElement>('.preview iframe')!.contentWindow!.location
+          .pathname,
+    );
+  const ide = page.url();
+
+  // A link to http://localhost:4000/… (a magic link in a mail) goes to its path.
+  await frame().evaluate(() => {
+    const link = document.createElement('a');
+    link.href = 'http://localhost:4000/dev/dashboard';
+    link.id = 'absolute';
+    link.textContent = 'absolute';
+    document.body.prepend(link);
+  });
+  await preview(page).locator('#absolute').click();
+  await expect.poll(at, { timeout: 60_000 }).toMatch(/^\/dev\/dashboard/);
+
+  // In a frame of the app, _top is the preview, not the IDE (Swoosh's
+  // mailbox opens a mail's links so).
+  await page.locator('.preview-bar input').fill('/');
+  await page.locator('.preview-bar input').press('Enter');
+  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await frame().evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        const inner = document.createElement('iframe');
+        inner.id = 'mail';
+        inner.src = '/';
+        inner.onload = () => {
+          const link = inner.contentDocument!.createElement('a');
+          link.href = 'http://localhost:4000/dev/dashboard';
+          link.target = '_top';
+          link.id = 'magic';
+          link.textContent = 'magic';
+          inner.contentDocument!.body.prepend(link);
+          resolve();
+        };
+        document.body.prepend(inner);
+      }),
+  );
+  await preview(page).frameLocator('#mail').locator('#magic').click();
+  await expect.poll(at, { timeout: 60_000 }).toMatch(/^\/dev\/dashboard/);
+  expect(page.url()).toBe(ide);
+
+  // The app's URL pasted into the path bar is its path.
+  await page.locator('.preview-bar input').fill('http://localhost:4000/');
+  await page.locator('.preview-bar input').press('Enter');
+  await expect.poll(at, { timeout: 60_000 }).toBe('/');
+});

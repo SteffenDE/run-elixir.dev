@@ -298,7 +298,14 @@ one it:
   JavaScript reads and sets them too), and sends both as `cookie`; an
   HttpOnly one replaces or expires one of its name in `document.cookie`,
   as a browser's jar would (Plug expires cookies as HttpOnly);
-- injects a `WebSocket` of its own into HTML (below);
+- injects a `WebSocket` of its own into HTML (below), and a script
+  (`linkShim`) that sends the app's absolute links
+  (`http://localhost:PORT/…`, as in a magic link's mail) and forms to
+  their paths as they are clicked or submitted, and keeps `_top` and
+  `_parent` inside the preview (Swoosh's mailbox opens a mail's links in
+  `_top`; an outside link with them opens a new tab instead of replacing
+  the IDE);
+- turns a redirect's `Location` at `http://localhost:PORT` into its path;
 - answers a page that reloads every two seconds while nothing listens.
 
 **WebSockets.** A service worker sees no WebSocket connection. The
