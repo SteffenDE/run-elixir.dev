@@ -7,6 +7,8 @@
   --line: #e2ded6;
   --accent: #e5532d;
   --accent-soft: #fde9e2;
+  /* Text on the accent (a primary button). */
+  --on-accent: #ffffff;
   --focus: #6e4a9e;
   --term: #fdfcfa;
   color-scheme: light;
@@ -22,6 +24,7 @@
     --line: #2c2a33;
     --accent: #ff7a50;
     --accent-soft: #3a2119;
+    --on-accent: #18171d;
     --focus: #b79ae0;
     --term: #16141c;
     color-scheme: dark;
@@ -37,6 +40,7 @@
   --line: #2c2a33;
   --accent: #ff7a50;
   --accent-soft: #3a2119;
+  --on-accent: #18171d;
   --focus: #b79ae0;
   --term: #16141c;
   color-scheme: dark;
@@ -546,7 +550,7 @@ button {
 .button.primary {
   border-color: var(--accent);
   background: var(--accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 
 .button.primary:hover:not(:disabled) {
