@@ -21,6 +21,7 @@ import {
   mount,
   load,
   bundled,
+  fetchBundle,
   type Fetch,
   type Found,
   type FsNode,
@@ -628,14 +629,7 @@ onmessage = async ({ data }) => {
         );
         overlay = { db, version: version.trim(), whiteouts };
       }
-      fetchFile = bundled((bundle) => {
-        const request = new XMLHttpRequest();
-        request.open('GET', new URL(`fs/bundles/${bundle}.tar`, base), false);
-        request.responseType = 'arraybuffer';
-        request.send();
-        if (request.status !== 200) throw new Error(`bundle ${bundle}: ${request.status}`);
-        return new Uint8Array(request.response);
-      });
+      fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, base)));
       doorbell = new Int32Array(data.doorbell);
       postMessage({ kind: 'ready' });
       loop ??= serve();

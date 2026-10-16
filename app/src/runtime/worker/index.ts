@@ -9,7 +9,7 @@
 // stops the node. With `files`, /work and /tmp are files.js's, which every
 // shell (each in its own worker) and the page share.
 import { WASI } from '../wasi';
-import { Dir, untar, mount, bundled, type Manifest } from '../wasi/fs';
+import { Dir, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
 import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
 import { ENV, prepare, programs } from '../setup';
@@ -179,14 +179,7 @@ onmessage = async ({
       : null;
     const channel = new Channel(shared);
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
-    const fetchFile = bundled((bundle) => {
-      const request = new XMLHttpRequest();
-      request.open('GET', site(`fs/bundles/${bundle}.tar`), false);
-      request.responseType = 'arraybuffer';
-      request.send();
-      if (request.status !== 200) throw new Error(`bundle ${bundle}: ${request.status}`);
-      return new Uint8Array(request.response);
-    });
+    const fetchFile = bundled((bundle) => fetchBundle(site(`fs/bundles/${bundle}.tar`)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this

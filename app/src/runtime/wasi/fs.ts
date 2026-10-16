@@ -73,13 +73,44 @@ export function load(node: Partial<File>, fetch: Fetch): void {
 // fetch(source, bundle) over bundles: get(bundle) is the bundle's tar,
 // synchronously. Each bundle is fetched once; its other files wait in
 // memory until they are opened.
+// A bundle from the site, synchronously (a worker's node waits for its
+// files). The network may fail now and then: three more tries, 0.5, 1 and
+// 2 s apart, before the file is an I/O error.
+export function fetchBundle(url: URL): Uint8Array {
+  for (let tries = 0; ; tries++) {
+    let status = 0;
+    try {
+      const request = new XMLHttpRequest();
+      request.open('GET', url, false);
+      request.responseType = 'arraybuffer';
+      request.send();
+      status = request.status;
+      if (status === 200) return new Uint8Array(request.response);
+    } catch {
+      // A network error: as a failed status.
+    }
+    if (tries === 3 || (status >= 400 && status < 500))
+      throw new Error(`${url.pathname}: ${status || 'network error'}`);
+    pause(500 * 2 ** tries);
+  }
+}
+
+// Waiting in a worker, which may block.
+function pause(ms: number): void {
+  if (typeof SharedArrayBuffer !== 'undefined')
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 export function bundled(get: (bundle: number) => Uint8Array): Fetch {
   const waiting = new Map<string, Uint8Array>();
   const loaded = new Set<number>();
   return (source, bundle) => {
     if (!waiting.has(source) && !loaded.has(bundle)) {
+      // Loaded once it came: a bundle that did not is asked for again by
+      // the next file in it.
+      const tar = get(bundle);
       loaded.add(bundle);
-      for (const { name, type, body } of entries(get(bundle))) {
+      for (const { name, type, body } of entries(tar)) {
         if (type === '0') waiting.set(name, body);
       }
     }
