@@ -1,4 +1,4 @@
-// A playground node in a Web Worker: rotp.wasm over wasi.ts, as one
+// A playground node in a Web Worker: rotp.wasm over wasi/, as one
 // command or under a small shell. host.ts is the page's side: frames come
 // in through its SharedArrayBuffer ring (the worker sleeps on the ring's
 // write count, so a frame wakes it) and everything goes back as messages.
@@ -8,20 +8,11 @@
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node. With `files`, /work and /tmp are files.js's, which every
 // shell (each in its own worker) and the page share.
-import {
-  WASI,
-  Dir,
-  Exit,
-  Network,
-  untar,
-  mount,
-  bundled,
-  sharedClient,
-  type Manifest,
-  type Process,
-  type Program,
-  type Shared,
-} from './wasi';
+import { WASI, Exit } from './wasi';
+import { Dir, untar, mount, bundled, type Manifest } from './wasi/fs';
+import { Network } from './wasi/net';
+import { sharedClient, type Shared } from './wasi/shared';
+import type { Process, Program } from './wasi/process';
 import { ENV, prepare, programs } from './setup';
 import { channel as threadChannel, Host } from './threads';
 import { vfs } from './vfs';

@@ -1,4 +1,4 @@
-// rotp.wasm under wasi.ts in Node, as the browser runs it:
+// rotp.wasm under wasi/ in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
 // SITE is a site build.py made (target/playground/site), or one of its
 // builds (b/ID). Standard input is read whole first and then ends.
@@ -11,7 +11,9 @@ import {
   writeFileSync,
   type Stats,
 } from 'node:fs';
-import { WASI, Dir, File, Network, Exit, untar, mount, bundled, type FsNode } from './wasi';
+import { WASI, Exit } from './wasi';
+import { Dir, File, untar, mount, bundled, type FsNode } from './wasi/fs';
+import { Network } from './wasi/net';
 import { ENV, prepare, programs } from './setup';
 import { vfs } from './vfs';
 

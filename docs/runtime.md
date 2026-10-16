@@ -15,7 +15,7 @@ site's root. `node.mjs` is bundled for Node.
 
 | File | Runs in | Role |
 | --- | --- | --- |
-| `wasi.ts` | worker, Node | WASI preview 1 for `rotp.wasm`: the in-memory filesystem, lazy files, `/dev/urandom`, TCP (`Network`), programs, and the client for shared files. |
+| `wasi/` | worker, Node | WASI preview 1 for `rotp.wasm`. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
 | `worker.js` | worker | A node: boots `rotp.wasm`, runs one command or the shell, pumps the page's frames. |
 | `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
@@ -32,7 +32,7 @@ site's root. `node.mjs` is bundled for Node.
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `node.ts` (`build.py`, `serve.py` in `playground/runtime`) | build machine | See [build.md](build.md) and [testing.md](testing.md). |
 
-## WASI (`wasi.ts`)
+## WASI (`wasi/`)
 
 `rotp.wasm` imports 33 functions from `wasi_snapshot_preview1`: args,
 environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the

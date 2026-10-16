@@ -3,7 +3,7 @@
 // them through this one, so what a shell writes, the server in another
 // sees; the page reads and writes them here too, and hears what changed.
 //
-// A node asks synchronously (wasi.ts shared): each has a channel, a
+// A node asks synchronously (wasi/shared.ts): each has a channel, a
 // SharedArrayBuffer whose control[0] is 0 when idle, 1 with a request in
 // it, 2 with the answer; it rings the shared doorbell and waits on
 // control[0]. Requests and answers are a JSON header and bytes:
@@ -24,7 +24,7 @@ import {
   type Fetch,
   type Found,
   type FsNode,
-} from './wasi';
+} from './wasi/fs';
 import * as overlays from './overlay';
 import type { KeptRecord } from './overlay';
 import type { Entry } from './host';
@@ -33,7 +33,7 @@ import type { Entry } from './host';
 // has the page's).
 declare function postMessage(message: unknown, transfer?: Transferable[]): void;
 
-// A node's request (wasi.ts remote): the fields its op takes.
+// A node's request (wasi/shared.ts sharedCalls): the fields its op takes.
 interface NodeRequest {
   op: string;
   path: string;

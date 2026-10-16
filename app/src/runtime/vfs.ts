@@ -1,7 +1,8 @@
 // Files for code beside the node (the shell's builtins, programs.ts): the
 // worker's own tree, and the shared directories through their channel
 // (sharedClient), as one.
-import { Dir, File, load, lookup as find, type Fetch, type FsNode, type Shared } from './wasi';
+import { Dir, File, load, lookup as find, type Fetch, type FsNode } from './wasi/fs';
+import type { Shared } from './wasi/shared';
 
 const CREATE = 1 | 8; // OFLAGS CREAT | TRUNC
 

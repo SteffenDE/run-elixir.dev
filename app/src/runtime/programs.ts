@@ -1,4 +1,5 @@
-import { entries, type Process, type Program, type ProgramContext } from './wasi';
+import { entries } from './wasi/fs';
+import type { Process, Program, ProgramContext } from './wasi/process';
 import type { Vfs } from './vfs';
 
 // A package's NIF library build for make: its tar, why there is none, or

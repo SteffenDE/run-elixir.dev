@@ -3,7 +3,8 @@
 // the node, with its own memory. The node's WASI serves them too: while a
 // library runs, the WASI calls work on its memory, so it reads the node's
 // files and environment and writes to its terminal.
-import { Exit, type Syscall, type WASI } from './wasi';
+import { Exit, type WASI } from './wasi';
+import type { Syscall } from './wasi/abi';
 
 // What a library exports (playground/nif's erl_nif).
 interface Library {
@@ -25,7 +26,7 @@ function failure(message: string): Uint8Array {
 }
 
 // The node's WASI for a library, with the functions it imports that
-// wasi.ts lacks answering ENOSYS: such a library loads, and only a call
+// wasi/ lacks answering ENOSYS: such a library loads, and only a call
 // that needs one fails.
 const ENOSYS = 52;
 

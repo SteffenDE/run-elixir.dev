@@ -3,10 +3,11 @@
 // (files, descriptors, the network) stays with one host that runs no
 // WebAssembly. A thread blocked in a futex cannot serve calls, so the
 // host is never a thread. Each thread forwards a WASI call through its
-// slot in a SharedArrayBuffer: the host runs wasi.ts's own function with
+// slot in a SharedArrayBuffer: the host runs wasi/'s own function with
 // the same arguments on the shared memory (pointers are the same there),
 // and answers. Clocks, randomness and sleeping stay with the thread.
-import type { Syscall, WASI } from './wasi';
+import type { Syscall } from './wasi/abi';
+import type { WASI } from './wasi';
 
 const SLOT = 128; // bytes: state, call, argument count, i64 mask, result, then 12 arguments
 const ARGS = 4; // where the arguments start, in 8-byte words
@@ -197,7 +198,7 @@ export function threadImports({
       return 0;
     },
     sched_yield: () => 0,
-    // Only clock subscriptions are slept on (as wasi.ts does); the host
+    // Only clock subscriptions are slept on (as wasi/index.ts does); the host
     // takes in the page's input meanwhile.
     poll_oneoff(inPtr: number, outPtr: number, count: number, eventsPtr: number) {
       const v = view();

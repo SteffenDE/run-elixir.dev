@@ -174,7 +174,7 @@ a worker on one shared memory, the node's schedulers as `+S` says.
 `threads.ts` keeps the WASI state with a host that runs no WebAssembly
 (a thread waiting in a futex could not serve calls): a thread forwards
 each call through its slot in a SharedArrayBuffer, and the host runs
-`wasi.ts`'s function on the shared memory and answers. Clocks,
+`wasi/`'s function on the shared memory and answers. Clocks,
 randomness and sleeping stay with the thread. The site runs nodes this
 way too ([architecture.md](architecture.md#the-node)). Compiling ecto (deps compiled natively): 41.9 s with
 `+S 1`, 23.6 s with `+S 2`, 16.2 s with `+S 4` and as long with `+S 8`

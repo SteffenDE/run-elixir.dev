@@ -1,6 +1,7 @@
 // What every playground node gets, in the browser and under node.ts: its
 // environment, the files around the installation, and its programs.
-import { File, urandom, type Dir, type Programs } from './wasi';
+import { File, urandom, type Dir } from './wasi/fs';
+import type { Programs } from './wasi/process';
 import { git, esbuild, tailwind, make, type NifSource } from './programs';
 import type { Vfs } from './vfs';
 
