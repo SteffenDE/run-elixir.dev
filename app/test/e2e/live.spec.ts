@@ -243,3 +243,45 @@ test('a guest sees the app in its own preview, LiveView and all', async ({ page,
   });
   await guest.context().close();
 });
+
+test('a guest follows the host until it opens a file itself, and can follow again', async ({
+  page,
+  browser,
+}) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  for (const name of ['a.txt', 'b.txt', 'c.txt'])
+    await writeText(page, `/work/${name}`, `${name}\n`);
+  const long = Array.from({ length: 300 }, (_, i) => `line ${i + 1}`).join('\n');
+  await writeText(page, '/work/long.txt', `${long}\n`);
+  const link = await startLive(page);
+  await page.keyboard.press('Escape');
+  const guest = await join(browser, link);
+  await expect(guest.getByRole('button', { name: /^Following Ada/ })).toBeVisible();
+  const activeTab = (p: Page) =>
+    p.locator('.editor .tab-list .tab[aria-selected="true"] .tab-name');
+
+  // The host's file opens for the guest.
+  await page.getByRole('treeitem', { name: 'a.txt', exact: true }).click();
+  await expect(activeTab(guest)).toHaveText('a.txt');
+
+  // The host's caret, far down a file, comes into the guest's view.
+  await page.getByRole('treeitem', { name: 'long.txt', exact: true }).click();
+  await expect(activeTab(guest)).toHaveText('long.txt');
+  await page.locator('.editor-scroll').click({ position: { x: 120, y: 12 } });
+  await page.keyboard.press('Control+End');
+  await expect(guest.locator('[data-person]')).toBeInViewport();
+
+  // The guest's own choice ends following; the host's next file stays there.
+  await guest.getByRole('treeitem', { name: 'b.txt', exact: true }).click();
+  await expect(activeTab(guest)).toHaveText('b.txt');
+  await expect(guest.getByRole('button', { name: 'Follow Ada' })).toBeVisible();
+  await page.getByRole('treeitem', { name: 'c.txt', exact: true }).click();
+  await page.waitForTimeout(1000);
+  await expect(activeTab(guest)).toHaveText('b.txt');
+
+  // Following again opens the host's file.
+  await guest.getByRole('button', { name: 'Follow Ada' }).click();
+  await expect(activeTab(guest)).toHaveText('c.txt');
+  await guest.context().close();
+});

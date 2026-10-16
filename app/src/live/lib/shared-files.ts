@@ -12,8 +12,10 @@ import * as Y from 'yjs';
 import { fromBase64Url, toBase64Url } from './crypto';
 import { useLive, type Cursor } from './store';
 
-// What the editor draws for another person's caret: their name.
+// What the editor draws for another person's caret: their name (and
+// their id, so a page following them finds it).
 export interface CaretInfo {
+  id: string;
   name: string;
 }
 
@@ -260,6 +262,7 @@ export function bind(
         path: file.path,
         anchor: relative(file.text, anchor),
         focus: relative(file.text, focus),
+        line: doc.positionAt(focus).line + 1,
       };
     },
     unbind() {
@@ -275,8 +278,9 @@ export function bind(
 
 // Another person's caret: a bar in their color with their name above.
 export function renderCaret(caret: EditorCaret<CaretInfo>): HTMLElement {
-  const { color, name } = caret.metadata;
+  const { color, name, id } = caret.metadata;
   const bar = document.createElement('div');
+  bar.dataset.person = id;
   bar.style.cssText = `position:absolute;left:-1px;top:0;width:2px;height:1lh;background:${color};`;
   const label = document.createElement('div');
   label.textContent = name;
@@ -302,7 +306,7 @@ export function caretsIn(file: SharedFile, editor: FileEditor): EditorCaret<Care
     carets.push({
       anchor: doc.positionAt(anchor),
       focus: doc.positionAt(focus),
-      metadata: { color: person.color, name: person.name },
+      metadata: { color: person.color, name: person.name, id },
     });
   }
   return carets;

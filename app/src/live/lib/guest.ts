@@ -13,7 +13,8 @@ import type { WorkspaceKind } from '@/shared/lib/projects';
 import type { Shared } from '@/shared/lib/share';
 import { linkKeys, type LinkSecrets } from './crypto';
 import { PROTOCOL, Peer, type Message, type Received } from './peer';
-import { setCursorSender } from './presence';
+import { follow, startFollowing } from './follow';
+import { setActiveSender, setCursorSender } from './presence';
 import {
   REMOTE,
   addSharedFile,
@@ -47,6 +48,7 @@ const requests = new Map<number, { resolve(r: Received): void; reject(e: Error):
 const terminals = new Map<number, Terminal>();
 let cwd: string[] = ['/work'];
 let onProject: ((project: GuestProject) => void) | null = null;
+let welcomed = false;
 // The preview: the app's requests go to this page's bridge (as in a
 // project's page), whose connections go through the relay to the host's
 // node. Its cookies, and its LiveView, are this guest's own.
@@ -127,10 +129,12 @@ export async function joinSession(
     },
   });
   setCursorSender((cursor) => void peer?.send({ t: 'cursor', cursor }));
+  setActiveSender((path) => void send({ t: 'active', path }));
 }
 
 export function leaveSession(): void {
   closeTunnels();
+  setActiveSender(null);
   peer?.close();
   peer = null;
   setCursorSender(null);
@@ -141,7 +145,9 @@ const hello = () => send({ t: 'hello', name, protocol: PROTOCOL });
 function send(message: Message, bytes: Uint8Array | null = null) {
   if (!peer?.host) return Promise.resolve();
   // Cursors go to everyone; the rest is for the host.
-  return peer.send(message, bytes, message.t === 'cursor' ? null : peer.host);
+  // Cursors and the active file go to everyone; the rest is for the host.
+  const everyone = message.t === 'cursor' || message.t === 'active';
+  return peer.send(message, bytes, everyone ? null : peer.host);
 }
 
 function request(message: Message, bytes: Uint8Array | null = null): Promise<Received> {
@@ -159,8 +165,11 @@ function news(event: string, payload: Record<string, unknown>) {
   const live = useLive.getState();
   if (event === 'admitted' && payload.id === live.me) live.set({ status: 'connecting' });
   else if (event === 'host') live.set({ status: payload.present ? 'live' : 'reconnecting' });
-  else if (event === 'left') live.setCursor(payload.id as string, null);
-  else if (event === 'kicked') end('refused', 'The host removed you from the session.');
+  else if (event === 'left') {
+    live.setCursor(payload.id as string, null);
+    live.setActive(payload.id as string, null);
+    if (live.following === payload.id) live.set({ following: null });
+  } else if (event === 'kicked') end('refused', 'The host removed you from the session.');
   else if (event === 'ended') end('ended', 'The host ended the session.');
 }
 
@@ -220,6 +229,10 @@ function receive({ from, message, bytes, signed }: Received) {
     useLive.getState().setCursor(from, (message.cursor as Cursor | null) ?? null);
     return;
   }
+  if (t === 'active') {
+    useLive.getState().setActive(from, typeof message.path === 'string' ? message.path : null);
+    return;
+  }
   if (!signed || from !== peer?.host) return;
   const store = useStore.getState();
   switch (t) {
@@ -258,11 +271,16 @@ function receive({ from, message, bytes, signed }: Received) {
         generation: useLive.getState().generation + 1,
         people: message.people as Person[],
         cursors: (message.cursors as Record<string, Cursor>) ?? {},
+        active: (message.active as Record<string, string | null>) ?? {},
       });
       onProject?.(message.project as GuestProject);
       setTerminals(message.terminals as number[]);
       // Open tabs come back from the host.
       for (const tab of store.tabs) void reopen(tab.path);
+      // A new guest follows the host; one welcomed again goes on as it was.
+      startFollowing();
+      if (!welcomed) follow(peer.host);
+      welcomed = true;
       return;
     }
     case 'people':

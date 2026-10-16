@@ -1,5 +1,6 @@
 import { RiGitForkLine, RiLogoutBoxRLine } from '@remixicon/react';
 import { useState } from 'react';
+import { follow } from '@/live/lib/follow';
 import { fork, leaveSession } from '@/live/lib/guest';
 import { useLive } from '@/live/lib/store';
 import { importProject } from '@/shared/lib/projects';
@@ -26,6 +27,10 @@ const STATUS: Record<string, string> = {
 export function GuestBar() {
   const status = useLive((state) => state.status);
   const mine = useLive((state) => state.mine);
+  const people = useLive((state) => state.people);
+  const following = useLive((state) => state.following);
+  const followed = people.find((person) => person.id === following) ?? null;
+  const host = people.find((person) => person.host);
   const [forking, setForking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const may = [mine.edit && 'edit', mine.terminal && 'use the terminals'].filter(Boolean);
@@ -37,7 +42,29 @@ export function GuestBar() {
           STATUS[status] ??
           (may.length ? `You may ${may.join(' and ')}` : 'You are watching')}
       </span>
-      <People />
+      {status === 'live' &&
+        (followed ? (
+          <button
+            type="button"
+            className="button following-button"
+            title={`${followed.name}'s file opens here, and their caret stays in view`}
+            onClick={() => follow(null)}
+          >
+            Following {followed.name} · Stop
+          </button>
+        ) : (
+          host && (
+            <button
+              type="button"
+              className="button"
+              title={`Open the file ${host.name} has open, and keep their caret in view`}
+              onClick={() => follow(host.id)}
+            >
+              Follow {host.name}
+            </button>
+          )
+        ))}
+      <People followable />
       {mine.fork && (
         <button
           type="button"

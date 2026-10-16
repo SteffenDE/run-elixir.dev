@@ -62,17 +62,23 @@ function useSharedFile(path: string, editor: FileEditor | null, holder: HTMLElem
     const unwatch = useLive.subscribe((state, before) => {
       if (state.cursors !== before.cursors || state.people !== before.people) draw();
     });
-    // The editor takes the selection's change first.
+    // The editor takes the selection's change first. Firefox does not tell
+    // the document of a selection in the editor's shadow root: keys and
+    // clicks in it say so too.
     const onSelection = () => {
       if (holder.contains(document.activeElement))
         setTimeout(() => publishCursor(bound.cursor()), 0);
     };
     document.addEventListener('selectionchange', onSelection);
+    holder.addEventListener('keyup', onSelection);
+    holder.addEventListener('mouseup', onSelection);
     return () => {
       bound.unbind();
       binding.current = null;
       unwatch();
       document.removeEventListener('selectionchange', onSelection);
+      holder.removeEventListener('keyup', onSelection);
+      holder.removeEventListener('mouseup', onSelection);
       editor.setCarets([]);
     };
   }, [path, editor, holder, files]);

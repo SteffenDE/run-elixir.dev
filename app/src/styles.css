@@ -1164,3 +1164,35 @@ button {
   background: var(--accent-soft);
   text-align: center;
 }
+
+/* Following someone in a live session. */
+.avatar-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+.people .avatar-button + .avatar-button,
+.people .avatar-button + .avatar,
+.people .avatar + .avatar-button {
+  margin-left: -6px;
+}
+
+.avatar-button.following .avatar {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.link-button[aria-pressed='true'] {
+  font-weight: 600;
+}

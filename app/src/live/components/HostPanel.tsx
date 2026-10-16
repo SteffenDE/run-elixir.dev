@@ -1,5 +1,6 @@
 import { RiCheckLine, RiCloseLine, RiFileCopyLine } from '@remixicon/react';
 import { useState } from 'react';
+import { follow } from '@/live/lib/follow';
 import {
   admit,
   endSession,
@@ -77,6 +78,7 @@ function Running() {
   const perGuest = useLive((state) => state.perGuest);
   const asking = useLive((state) => state.admit);
   const me = useLive((state) => state.me);
+  const following = useLive((state) => state.following);
   const [copied, setCopied] = useState(false);
   const guests = people.filter((person) => person.id !== me && !person.waiting);
   const waiting = people.filter((person) => person.waiting);
@@ -155,6 +157,15 @@ function Running() {
                 <span className="live-person">
                   <Avatar person={person} />
                   {person.name}
+                  <button
+                    type="button"
+                    className="link-button"
+                    aria-pressed={following === person.id}
+                    title={`Open the file ${person.name} has open, and keep their caret in view`}
+                    onClick={() => follow(following === person.id ? null : person.id)}
+                  >
+                    {following === person.id ? 'Following' : 'Follow'}
+                  </button>
                 </span>
                 <span className="live-actions">
                   {SWITCHES.map(([key, label, title]) => (

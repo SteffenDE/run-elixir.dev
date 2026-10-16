@@ -23,7 +23,8 @@ import { apexUrl } from '@/shared/lib/site';
 import type { Template } from '@/shared/lib/templates';
 import { fragment, newKeys, randomId, storedKeys, utf8, type StoredKeys } from './crypto';
 import { PROTOCOL, Peer, type Message, type Received } from './peer';
-import { setCursorSender } from './presence';
+import { startFollowing } from './follow';
+import { setActiveSender, setCursorSender } from './presence';
 import type { Connection } from '@/runtime/host/node';
 import type { Joined } from './relay';
 import {
@@ -221,7 +222,7 @@ function news(event: string, payload: Record<string, unknown>) {
         tunnels.delete(key);
         connection.close();
       }
-    useLive.getState().setCursor(id, null);
+    leftSession(id);
     publishPeople();
   } else if (event === 'replaced') {
     finish('The session moved to another tab.', false);
@@ -278,6 +279,7 @@ async function welcome(id: string) {
       initial: Object.fromEntries(terminals.map((term) => [term, initialLines(term)])),
       previewPort: state.previewPort,
       cursors: useLive.getState().cursors,
+      active: useLive.getState().active,
     },
     null,
     id,
@@ -380,6 +382,12 @@ function watch() {
     }
     return handled;
   };
+  setActiveSender((path) => {
+    const me = useLive.getState().me;
+    if (me) useLive.getState().setActive(me, path);
+    void send({ t: 'active', path });
+  });
+  startFollowing();
   setCursorSender((cursor) => {
     const me = useLive.getState().me;
     if (me) useLive.getState().setCursor(me, cursor);
@@ -441,6 +449,9 @@ async function receive({ from, message, bytes }: Received) {
   switch (t) {
     case 'cursor':
       useLive.getState().setCursor(from, (message.cursor as never) ?? null);
+      return;
+    case 'active':
+      useLive.getState().setActive(from, typeof path === 'string' ? path : null);
       return;
     case 'open':
       if (!below(path)) return refuse(from, req, 'not a project file');
@@ -621,6 +632,7 @@ function finish(reason: string | null, forget = true) {
   live.moved = undefined;
   live.removed = undefined;
   setCursorSender(null);
+  setActiveSender(null);
   dropAllSharedFiles();
   people.clear();
   if (forget && project?.id) {
@@ -637,6 +649,16 @@ function finish(reason: string | null, forget = true) {
     link: null,
     people: [],
     cursors: {},
+    active: {},
+    following: null,
     me: null,
   });
+}
+
+// Someone left: their cursor and file go, and following them ends.
+function leftSession(id: string) {
+  const state = useLive.getState();
+  state.setCursor(id, null);
+  state.setActive(id, null);
+  if (state.following === id) state.set({ following: null });
 }

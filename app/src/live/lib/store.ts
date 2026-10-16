@@ -25,6 +25,8 @@ export interface Cursor {
   path: string;
   anchor: string;
   focus: string;
+  // The caret's line (one-based), for following it.
+  line: number;
 }
 
 export type LiveStatus =
@@ -52,6 +54,12 @@ interface LiveState {
   // A guest's own.
   mine: Permissions;
   cursors: Record<string, Cursor>;
+  // The file each person has in front of them (their active tab), and
+  // whom this page follows (their file opens here, and their caret stays
+  // in view): a guest follows the host from the start.
+  active: Record<string, string | null>;
+  following: string | null;
+  setActive(id: string, path: string | null): void;
   // A guest's: bumped by each welcome, which starts the IDE over.
   generation: number;
   set(partial: Partial<LiveState>): void;
@@ -70,6 +78,9 @@ export const useLive = create<LiveState>((set) => ({
   admit: false,
   mine: { ...NONE },
   cursors: {},
+  active: {},
+  following: null,
+  setActive: (id, path) => set((state) => ({ active: { ...state.active, [id]: path } })),
   generation: 0,
   set: (partial) => set(partial),
   setCursor: (id, cursor) =>

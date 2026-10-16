@@ -237,8 +237,24 @@ Tailwind's new CSS reach the guests' previews.
 
 ### Presence
 
-Names (chosen on joining), colors (by the order people joined), and
-where each cursor is. The top bar shows who is in.
+Names (chosen on joining), colors (by the order people joined), where
+each cursor is (with its line), and the file each person has in front of
+them (their active tab, `active`). Both go from everyone to everyone,
+unsigned: they only say where someone is. The top bar shows who is in.
+
+### Following
+
+`live/lib/follow.ts`. Following someone, the file in front of them opens
+here at their caret's line, and as their caret moves it stays in view
+(scrolled to where the editor draws it; outside what the editor has
+rendered, the editor goes to its line). A guest follows the host from
+the start; the top bar says *Following NAME · Stop*, else offers *Follow
+NAME* (the host). Clicking anyone's initials in a guest's top bar follows
+them, or stops; the host follows a guest from the session's panel.
+
+Choosing another file here (the tree, a tab, a terminal's link) stops
+following: the active tab changed to a file that is not theirs. Typing in
+their file does not. Following again opens theirs.
 
 ### When the host goes away
 
@@ -267,8 +283,7 @@ a link's limits apply.
 - **Key rotation** after a kick (each guest sends an X25519 public key on
   joining; the host sends the new key to each). Until then the answer to
   a leaked link is ending the session and starting a new one.
-- **Presence on tabs and the tree** (who has which file open), and
-  *Follow* a participant.
+- **Presence on tabs and the tree** (who has which file open).
 - **A guest's preview cache:** every asset crosses the relay each time.
 - **Deploying on a site without a project domain**
   (elixir-playground.steffend.me): Caddy routes `/socket` only on
