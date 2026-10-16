@@ -64,6 +64,8 @@ export function FileTreePanel() {
     // the gutter in Chromium and WebKit; Firefox has its own branch.
     unsafeCSS:
       '[data-file-tree-search-container] { padding-block: 8px 4px; }' +
+      // The header's buttons sit at the search field's end (styles.css).
+      ' :host([data-editable]) [data-file-tree-search-container] { padding-inline-end: 64px; }' +
       ' @supports not (-moz-appearance: none) {' +
       ' [data-file-tree-virtualized-scroll="true"] { overflow-y: scroll; } }',
     composition: { contextMenu: { enabled: true, triggerMode: 'both' } },
@@ -186,6 +188,7 @@ export function FileTreePanel() {
     <FileTree
       model={model}
       className="file-tree"
+      data-editable={canEdit ? '' : undefined}
       header={
         canEdit && (
           <div className="tree-actions">

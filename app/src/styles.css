@@ -721,10 +721,17 @@ button {
 /* The file tree's header and context menu (slotted into the tree). */
 
 .tree-actions {
+  /* At the end of the search field's row (the tree's shadow root keeps
+     room for it). */
+  position: absolute;
+  top: 9px;
+  right: 8px;
+  z-index: 1;
+  /* As high as the search field, its buttons in its middle. */
+  height: 28px;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
   gap: 2px;
-  padding: 4px 6px 0;
 }
 
 .tree-actions .icon-button {

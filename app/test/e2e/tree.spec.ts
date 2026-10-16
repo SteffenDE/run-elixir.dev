@@ -24,8 +24,9 @@ test('files and folders are made, renamed, moved and deleted from the tree', asy
   await name(page, 'hello.ex');
   await expect(page.locator('.tab', { hasText: 'hello.ex' })).toBeVisible();
   await expect.poll(() => exists(page, '/work/hello.ex')).toBe(true);
-  // The row ends where the search field does, its menu button inside it
-  // (WebKit reserved no scrollbar gutter, and rows ran past the button).
+  // The row ends where the search row's buttons do, its menu button
+  // inside it (WebKit reserved no scrollbar gutter, and rows ran past the
+  // button).
   await item(page, 'hello.ex').hover();
   const edges = await item(page, 'hello.ex').evaluate((row) => {
     const root = row.getRootNode() as ShadowRoot;
@@ -33,10 +34,10 @@ test('files and folders are made, renamed, moved and deleted from the tree', asy
     return {
       row: row.getBoundingClientRect().right,
       button: right('[data-type="context-menu-trigger"]'),
-      search: right('[data-file-tree-search-input]'),
+      actions: document.querySelector('.tree-actions')!.getBoundingClientRect().right,
     };
   });
-  expect(Math.abs(edges.row - edges.search)).toBeLessThan(2);
+  expect(Math.abs(edges.row - edges.actions)).toBeLessThan(2);
   expect(edges.row - edges.button).toBeGreaterThan(4);
   expect(edges.row - edges.button).toBeLessThan(10);
 
