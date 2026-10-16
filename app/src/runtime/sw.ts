@@ -64,10 +64,13 @@ const FRAMES = ['/registry.html', '/storage.html'];
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
 // client id → key (hosts, preview windows, the app's documents), and
-// key → the host's client id.
+// key → the host's client id; and the app's documents (the preview's
+// frames), whose requests go to the app.
 const keys = new Map<string, string>();
 const hosts = new Map<string, string>();
+const previews = new Set<string>();
 let loading: Promise<void> | null = null;
+let loaded = false;
 
 function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -89,12 +92,16 @@ function load(): Promise<void> {
               if (!keys.has(id)) keys.set(id, key);
             for (const [key, id] of request.result?.hosts ?? [])
               if (!hosts.has(key)) hosts.set(key, id);
+            for (const id of request.result?.previews ?? []) previews.add(id);
             resolve();
           };
           request.onerror = () => resolve();
         }),
     )
-    .catch(() => {});
+    .catch(() => {})
+    .then(() => {
+      loaded = true;
+    });
   return loading;
 }
 
@@ -107,15 +114,26 @@ function save(): void {
       saving = null;
       if (keys.size > 256) {
         const live = new Set(
-          (await self.clients.matchAll({ includeUncontrolled: true })).map((c) => c.id),
+          (await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })).map(
+            (c) => c.id,
+          ),
         );
         for (const id of [...keys.keys()].slice(0, keys.size - 128))
           if (!live.has(id)) keys.delete(id);
       }
+      if (previews.size > 256) {
+        const live = new Set(
+          (await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })).map(
+            (c) => c.id,
+          ),
+        );
+        for (const id of [...previews].slice(0, previews.size - 128))
+          if (!live.has(id)) previews.delete(id);
+      }
       const db = await database();
       db.transaction('clients', 'readwrite')
         .objectStore('clients')
-        .put({ keys: [...keys], hosts: [...hosts] }, 'routes');
+        .put({ keys: [...keys], hosts: [...hosts], previews: [...previews] }, 'routes');
     })
     .catch(() => {});
 }
@@ -169,36 +187,27 @@ async function keyOf(event: FetchEvent): Promise<string | null> {
   return (focused ?? live[live.length - 1])[0];
 }
 
-// Whether each client is a preview's document (a nested frame), as first
-// seen. Only those requests are answered here; everything else goes
-// straight to the network, without passing through this worker.
-const nested = new Map<string, boolean>();
-
-async function isApp(id: string): Promise<boolean> {
-  if (!nested.has(id)) {
-    const client = await self.clients.get(id);
-    nested.set(id, client?.frameType === 'nested');
-  }
-  return nested.get(id)!;
-}
-
+// Only the preview's documents' requests are answered here (they were
+// the frames' navigations this worker answered, kept with the routes, as
+// a worker is stopped when idle); everything else goes straight to the
+// network. Never by asking the client what it is: Firefox answers
+// clients.get() for a worker on that worker's thread, which a node's
+// worker blocks in a synchronous request for a bundle of its files (that
+// comes here) — neither went on for minutes.
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   if (new URL(request.url).origin !== self.location.origin) return;
   if (request.mode === 'navigate') {
     if (request.destination !== 'iframe') return;
     // The site's own frames (frames.ts), never a preview.
-    if (FRAMES.includes(new URL(request.url).pathname)) {
-      nested.set(event.resultingClientId, false);
-      return;
-    }
-    nested.set(event.resultingClientId, true);
+    if (FRAMES.includes(new URL(request.url).pathname)) return;
+    previews.add(event.resultingClientId);
+    save();
     event.respondWith(app(event, true));
-  } else if (event.clientId && nested.get(event.clientId) !== false) {
-    // A client seen for the first time: decided once, here.
-    event.respondWith(
-      isApp(event.clientId).then((yes) => (yes ? app(event, false) : fetch(request))),
-    );
+  } else if (event.clientId && (!loaded || previews.has(event.clientId))) {
+    // Before the routes are read (a worker just started): read them first.
+    const id = event.clientId;
+    event.respondWith(load().then(() => (previews.has(id) ? app(event, false) : fetch(request))));
   }
 });
 

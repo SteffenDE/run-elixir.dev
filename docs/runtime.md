@@ -267,15 +267,21 @@ worker to claim it first. `Bridge.announce({ kind: 'preview', key })` is the
 popped-out preview window's. Both announce again when another worker takes
 over. The service worker:
 
-- answers iframe navigations, and requests from clients it first sees to be
-  nested frames (it decides once per client);
-- lets everything else go to the network without passing through it;
+- answers iframe navigations (but the site's own frames), and requests
+  from the documents those made, whose ids it keeps;
+- lets everything else go to the network without passing through it; until
+  it has read its routes (it just started), it fetches the rest itself;
+- never asks a client what it is (`clients.get`): Firefox answers that for a
+  worker on the worker's thread, which a node's worker blocks in its
+  synchronous request for a bundle (and that request comes here). Once the
+  service worker had stopped (idle, about 30 s) and asked, the two waited on
+  each other for minutes, and with them the whole node;
 - routes each request by key: a document's own (taken when it was
   navigated), else that of the client its referrer names (the project page,
   the popped-out window, or the app's previous document), else the only or
   the focused host's;
-- keeps which client has which key, and each key's host, in IndexedDB
-  (`playground-sw`), so a restart keeps routing;
+- keeps which client has which key, each key's host, and the preview's
+  documents in IndexedDB (`playground-sw`), so a restart keeps routing;
 - answers 503 when the key's page is gone;
 - adds `Cross-Origin-Embedder-Policy: require-corp` and
   `Cross-Origin-Resource-Policy: same-origin` to every answer, including

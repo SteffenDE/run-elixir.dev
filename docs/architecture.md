@@ -87,8 +87,8 @@ terminal. All of them are the shim's.
 
 1. The preview iframe asks for `/posts`. The service worker (`src/runtime/sw.ts`, served as `/sw.js`)
    answers only the preview's requests: iframe navigations, and requests
-   from clients it has seen to be nested frames. Everything else goes to the
-   network directly.
+   from the documents those made. Everything else goes to the network
+   directly.
 2. The service worker sends the request to the page running the preview's
    project. Each project page announces itself under its project's key, and
    each preview document takes the key of what navigated it; the routes
