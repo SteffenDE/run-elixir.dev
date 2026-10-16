@@ -8,7 +8,7 @@ import type { Vfs } from './vfs';
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
 // so Hex tool wrappers take their Linux paths; the esbuild and tailwind
 // packages run /usr/bin/esbuild and /usr/bin/tailwind (their :path,
-// worker.js), the programs below.
+// worker/index.ts), the programs below.
 export const ENV = {
   ROOTDIR: '/rotp',
   HOME: '/work',

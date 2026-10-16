@@ -340,7 +340,7 @@ export class Node {
     this.connections = new Map();
     this.next = 1;
     this.serve = serve;
-    // A threaded node's threads (worker.js runThreaded), by node: workers
+    // A threaded node's threads (worker/threaded.ts runThreaded), by node: workers
     // the page starts, since a worker busy serving them could not.
     this.threads = new Map();
     this.worker = worker('worker.js', base);
@@ -433,7 +433,7 @@ export class Node {
     if (this.channel) this.files!.disconnect(this.channel);
   }
 
-  // A program the node started (worker.js onPage).
+  // A program the node started (worker/channel.ts onPage).
   spawn({ id, name, args, cwd, env }: SpawnMessage): void {
     let exited = false;
     const process: PageProcess = {

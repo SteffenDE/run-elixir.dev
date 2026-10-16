@@ -32,7 +32,7 @@ several projects (one tab per project, [projects.md](projects.md)).
 ## The node
 
 A node is one Rust-OTP instance: `rotp.wasm` instantiated in a Web Worker
-(`src/runtime/worker.ts`) with the WASI imports from `src/runtime/wasi/`. The node
+(`src/runtime/worker/`) with the WASI imports from `src/runtime/wasi/`. The node
 sees an ordinary filesystem, TCP, child processes, a clock, random bytes and a
 terminal. All of them are the shim's.
 

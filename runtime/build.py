@@ -61,7 +61,7 @@ PHX_NEW = "1.8.15"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
 
-# As worker.js launches Elixir, with the page's esbuild and tailwind.
+# As worker/index.ts launches Elixir, with the page's esbuild and tailwind.
 ELIXIR = ["-noshell", "-elixir_root", "/rotp/lib", "-pa", "/rotp/lib/elixir/ebin",
           "-esbuild", "path", '<<"/usr/bin/esbuild">>', "-tailwind", "path", '<<"/usr/bin/tailwind">>']
 IEX = ELIXIR + ["-user", "elixir", "-extra", "--no-halt", "+iex"]
@@ -253,7 +253,7 @@ def app_files(app):
             relative = os.path.relpath(path, app)
             if relative.startswith("_build_rotp/") and relative.count("/") == 1:
                 # The native esbuild and tailwind: the node runs the page's
-                # (their :path, worker.js).
+                # (their :path, worker/index.ts).
                 continue
             relative = relative.replace("_build_rotp/", "_build/", 1)
             out.append(("work/playground/" + relative, path))
@@ -394,7 +394,7 @@ def main():
             if installed(relative):
                 files.append(("rotp/" + relative, os.path.join(INSTALL, relative)))
     files.append(("etc/ssl/certs/ca-certificates.crt", cacerts()))
-    # The terminal's terminfo entry (worker.js sets TERM): IEx's line
+    # The terminal's terminfo entry (setup.ts sets TERM): IEx's line
     # editing needs it.
     files.append(("usr/share/terminfo/x/xterm-256color",
                   os.path.join(ROOT, "crates/rotp/terminfo/x/xterm-256color")))

@@ -8,16 +8,18 @@
 // has the few builtins a playground needs. Ctrl+C (an interrupt frame)
 // stops the node. With `files`, /work and /tmp are files.js's, which every
 // shell (each in its own worker) and the page share.
-import { WASI, Exit } from './wasi';
-import { Dir, untar, mount, bundled, type Manifest } from './wasi/fs';
-import { Network } from './wasi/net';
-import { sharedClient, type Shared } from './wasi/shared';
-import type { Process, Program } from './wasi/process';
-import { ENV, prepare, programs } from './setup';
-import { channel as threadChannel, Host } from './threads';
-import { vfs } from './vfs';
-import type { NifSource } from './programs';
-import type { FilesChannel } from './host';
+import { WASI } from '../wasi';
+import { Dir, untar, mount, bundled, type Manifest } from '../wasi/fs';
+import { Network } from '../wasi/net';
+import { sharedClient, type Shared } from '../wasi/shared';
+import { ENV, prepare, programs } from '../setup';
+import { vfs } from '../vfs';
+import type { NifSource } from '../programs';
+import type { FilesChannel } from '../host';
+import { Channel, onPage } from './channel';
+import { backendNif, siteNif } from './nif';
+import { site } from './site';
+import { SCHEDULERS, runThreaded, sharedMemory } from './threaded';
 
 // What the page starts a node with (host.ts Node.start).
 interface Start {
@@ -35,158 +37,11 @@ interface Start {
   boots?: string[];
 }
 
-const FRAME = {
-  INPUT: 0,
-  OPEN: 1,
-  DATA: 2,
-  END: 3,
-  CLOSE: 4,
-  INTERRUPT: 5,
-  OUTPUT: 7,
-  EXIT: 8,
-  RESIZE: 9,
-};
-const RING = 1 << 20;
 const SHARED = ['/work', '/tmp'];
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
 
 class Interrupted extends Error {}
-
-// A path in the build this worker came from (b/ID/, build.py), or on the
-// site for an absolute one. Through a variable: Vite takes
-// new URL('…', import.meta.url) with the path written out for an asset of
-// the bundle.
-const site = (path: string) => new URL(path, import.meta.url);
-
-// A threaded node's memory: shared, and as large as it may grow here (a
-// shared memory reserves its maximum up front, which a phone may not
-// have room for), or null where there is no shared memory: the node then
-// runs single-threaded (rotp.wasm).
-function sharedMemory(): WebAssembly.Memory | null {
-  if (!globalThis.crossOriginIsolated) return null;
-  for (const maximum of [65536, 32768, 16384]) {
-    try {
-      return new WebAssembly.Memory({ initial: 1024, maximum, shared: true });
-    } catch {
-      // Too large a reservation: a smaller one.
-    }
-  }
-  return null;
-}
-
-// How many schedulers a threaded node runs.
-const SCHEDULERS = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1));
-let nodes = 0;
-
-// The page's frames: input, connections, interrupts, page programs.
-class Channel {
-  declare control: Int32Array;
-  declare ring: Uint8Array;
-  declare input: Uint8Array[];
-  declare network: Network | null;
-  declare interrupted: boolean;
-  declare size: number[];
-  declare raw: boolean;
-  declare processes: Map<number, Process>;
-
-  constructor(shared: SharedArrayBuffer) {
-    this.control = new Int32Array(shared, 0, 2);
-    this.ring = new Uint8Array(shared, 8, RING);
-    this.input = [];
-    this.network = null;
-    this.interrupted = false;
-    // The terminal's size (RESIZE frames) and whether the node set it to
-    // raw input.
-    this.size = [80, 24];
-    this.raw = false;
-    // Programs the page runs (host.ts programs), by id.
-    this.processes = new Map();
-  }
-  bytes(from: number, count: number): Uint8Array {
-    const out = new Uint8Array(count);
-    for (let i = 0; i < count; i++) out[i] = this.ring[(from + i) % RING];
-    return out;
-  }
-  pump(): void {
-    const written = Atomics.load(this.control, 0);
-    let read = Atomics.load(this.control, 1);
-    while (read !== written) {
-      const header = new DataView(this.bytes(read, 9).buffer);
-      const kind = header.getUint8(0);
-      const id = header.getUint32(1, true);
-      const length = header.getUint32(5, true);
-      const payload = this.bytes(read + 9, length);
-      read += 9 + length;
-      const net = this.network;
-      if (kind === FRAME.INPUT) this.input.push(payload);
-      else if (kind === FRAME.INTERRUPT) this.interrupted = true;
-      else if (kind === FRAME.RESIZE) {
-        const view = new DataView(payload.buffer);
-        this.size = [view.getUint16(0, true), view.getUint16(2, true)];
-      } else if (kind === FRAME.OPEN) {
-        if (!net || !net.accepted(id, (payload[0] << 8) | payload[1])) {
-          postMessage({ kind: 'net', op: 'refused', id });
-        }
-      } else if (kind === FRAME.OUTPUT) this.processes.get(id)?.write(payload);
-      else if (kind === FRAME.EXIT) {
-        this.processes.get(id)?.exit(payload[0]);
-        this.processes.delete(id);
-      } else if (kind === FRAME.DATA) net?.data(id, payload);
-      else if (kind === FRAME.END || kind === FRAME.CLOSE) net?.ended(id);
-    }
-    Atomics.store(this.control, 1, read);
-  }
-  // Until a frame comes or `ms` pass.
-  sleep(ms: number): void {
-    Atomics.wait(this.control, 0, Atomics.load(this.control, 1), ms);
-  }
-  take(max: number): Uint8Array {
-    const out: Uint8Array[] = [];
-    let count = 0;
-    while (this.input.length && count < max) {
-      const chunk = this.input[0];
-      const part = chunk.subarray(0, max - count);
-      out.push(part);
-      count += part.length;
-      if (part.length === chunk.length) this.input.shift();
-      else this.input[0] = chunk.subarray(part.length);
-    }
-    const bytes = new Uint8Array(count);
-    let at = 0;
-    for (const part of out) {
-      bytes.set(part, at);
-      at += part.length;
-    }
-    return bytes;
-  }
-  // The node set the terminal to raw input (IEx's line editing) or back:
-  // the page passes keys through instead of editing lines.
-  mode(raw: boolean): void {
-    if (raw === this.raw) return;
-    this.raw = raw;
-    postMessage({ kind: 'tty', raw });
-  }
-  // A line typed at the shell (blocking).
-  line(): string | null {
-    for (;;) {
-      this.pump();
-      if (this.interrupted) {
-        this.interrupted = false;
-        this.input = [];
-        return null;
-      }
-      const all = this.take(Infinity);
-      const newline = all.indexOf(10);
-      if (newline >= 0) {
-        if (newline + 1 < all.length) this.input.unshift(all.subarray(newline + 1));
-        return new TextDecoder().decode(all.subarray(0, newline));
-      }
-      if (all.length) this.input.unshift(all);
-      this.sleep(1000);
-    }
-  }
-}
 
 // Words, with '' and "" quoting.
 function words(line: string): string[] {
@@ -271,146 +126,6 @@ const HELP = `Commands: iex, elixir, mix, erl (each runs Rust-OTP), and
 cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
 `;
-
-// A program the page runs (host.ts programs): its output and exit come back
-// as frames; it is told when the node closes its port.
-let processes = 0;
-function onPage(channel: Channel, name: string): Program {
-  return (process, { args, cwd, env }) => {
-    const id = (processes += 1);
-    channel.processes.set(id, process);
-    process.onclose = () => {
-      channel.processes.delete(id);
-      postMessage({ kind: 'kill', id });
-    };
-    postMessage({ kind: 'spawn', id, name, args, cwd, env });
-  };
-}
-
-// A threaded node: the page runs its threads in workers (host.ts), which
-// this worker serves WASI calls for until the node ends; then the page
-// stops them.
-function runThreaded(
-  wasi: WASI,
-  module: WebAssembly.Module,
-  memory: WebAssembly.Memory,
-  pump: () => void,
-): number {
-  wasi.memory = memory;
-  const node = ++nodes;
-  const chan = threadChannel();
-  const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
-  const start = (tid: number, startArg: number) =>
-    postMessage({
-      kind: 'thread',
-      node,
-      start: { module, memory, chan, slot: tid, names, tid, startArg },
-    });
-  const host = new Host(wasi, chan, { spawn: start });
-  start(0, 0);
-  try {
-    for (;;) {
-      const status = host.wait(5);
-      if (status !== null) return status;
-      pump();
-    }
-  } catch (error) {
-    if (error instanceof Exit) return error.code;
-    throw error;
-  } finally {
-    postMessage({ kind: 'threads-end', node });
-  }
-}
-
-// GET url, synchronously: [status, bytes] (status 0 when it failed).
-function get(url: string | URL): [number, Uint8Array | null];
-function get(url: string | URL, binary: false): [number, string | null];
-function get(url: string | URL, binary = true): [number, Uint8Array | string | null] {
-  const request = new XMLHttpRequest();
-  request.open('GET', url, false);
-  if (binary) request.responseType = 'arraybuffer';
-  try {
-    request.send();
-  } catch {
-    return [0, null];
-  }
-  return [request.status, binary ? new Uint8Array(request.response) : request.responseText];
-}
-
-// A tar (ustar), and not the page a site answers a path it lacks with.
-const isTar = (bytes: Uint8Array | null): bytes is Uint8Array =>
-  (bytes?.length as number) > 262 &&
-  new TextDecoder().decode(bytes!.subarray(257, 262)) === 'ustar';
-
-// The site's own build of a package's NIF library, or null.
-function siteNif(name: string, version: string): Uint8Array | null {
-  const [status, tar] = get(site(`nif/${name}-${version}.tar`));
-  return status === 200 && isTar(tar) ? tar : null;
-}
-
-// What a backend build's status means, for the terminal.
-const NIF_STATUS: Record<string, string> = {
-  queued: 'waiting for a build machine',
-  running: 'building in a VM',
-  setting_up: 'no recipe builds it yet: an agent is working one out (this can take minutes)',
-};
-
-// The backend's build of a package's NIF library: asks until it is built
-// or failed, every 2 s, telling the terminal (say) and the page (a 'nif'
-// message: { name, version, status, error }) when its status changes.
-// Ctrl-C stops waiting (the node stops as it would). A tar, or why not.
-function backendNif(
-  channel: Channel,
-  name: string,
-  version: string,
-  report: (text: string) => void,
-): Uint8Array | string | null {
-  const api = site(`/api/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
-  const tell = (status: string | undefined, error: string | null = null) =>
-    postMessage({ kind: 'nif', name, version, status, error });
-  let last: string | null | undefined = null;
-  for (;;) {
-    const [code, body] = get(api, false);
-    let answer: { url?: string; error?: string; status?: string } | null = null;
-    try {
-      answer = JSON.parse(body as string);
-    } catch {}
-    if (code === 200 && answer?.url) {
-      const [status, tar] = get(new URL(answer.url, api));
-      if (status === 200 && isTar(tar)) {
-        if (last) report(`${name} ${version} is built`);
-        tell('succeeded');
-        return tar;
-      }
-      tell('failed', `the library did not download (${status})`);
-      return `the playground's build of ${name} ${version} did not download (${status})`;
-    }
-    if (code !== 202) {
-      const error =
-        answer?.error ??
-        (code
-          ? `the playground's backend answered ${code}`
-          : "the playground's backend could not be reached");
-      // A site without a backend answers its page: no build, as before.
-      if (code === 200 || (code === 404 && !answer)) return null;
-      tell(answer?.status ?? 'failed', error);
-      return `${name} ${version} could not be built for the playground: ${error}`;
-    }
-    if (answer?.status !== last) {
-      last = answer?.status;
-      report(`${name} ${version}: ${NIF_STATUS[last as string] ?? last}…`);
-      tell(last);
-    }
-    for (let waited = 0; waited < 2000; waited += 200) {
-      channel.sleep(200);
-      channel.pump();
-      if (channel.interrupted) {
-        tell('interrupted');
-        return `stopped waiting for ${name} ${version}'s build`;
-      }
-    }
-  }
-}
 
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
 // commands' files (build.py). command: one command by name, as the shell

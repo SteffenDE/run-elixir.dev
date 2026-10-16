@@ -16,7 +16,7 @@ site's root. `node.mjs` is bundled for Node.
 | File | Runs in | Role |
 | --- | --- | --- |
 | `wasi/` | worker, Node | WASI preview 1 for `rotp.wasm`. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
-| `worker.js` | worker | A node: boots `rotp.wasm`, runs one command or the shell, pumps the page's frames. |
+| `worker/` (`worker.js`) | worker | A node. `index.ts` boots `rotp.wasm` and runs one command or the shell; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's); `threaded.ts` serves a threaded node's threads. |
 | `files.js` | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host.ts` | page | `Node` (start, type into, interrupt, connect to a node; page programs) and `Files` (the shared filesystem from the page). |
