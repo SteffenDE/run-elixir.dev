@@ -40,6 +40,7 @@ JavaScript.
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
+| `beam/`, `worker/beam.ts` | worker, Node | OTP's own emulator built with Emscripten, for a site built with `PLAYGROUND_RUNTIME=otp` ([`../beam/README.md`](../beam/README.md#in-the-playground)): `run.ts` starts a node (the tree and the shared files through PROXYFS: `treefs.ts`, `sharedfs.ts`; TCP, ports, NIFs, the terminal); `args.ts` turns erl's arguments into the emulator's; `worker/beam.ts` runs it in the node's worker, which serves its threads and takes the page's frames as they come. |
 | `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser ([build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `playground/runtime`. |
 
 ## WASI (`wasi/`)
@@ -335,3 +336,11 @@ gives the PGlite (a promise), asked for on the first message. It buffers bytes i
 whole messages (the untyped startup message first), and answers SSLRequest
 and GSSENCRequest with `N`. Each batch goes to `db.execProtocolRaw`, in
 order, and the bytes come back. Terminate closes the connection.
+
+PGlite is one session, which every node's connections share, so they take
+turns: a connection that leaves it in a transaction holds it until a
+ReadyForQuery says idle. A transaction idle for a second lets waiting
+connections of a holder's node join it (Ecto's migrator holds its lock on
+one connection and migrates on another), not another node's: its unnamed
+statement would replace a holder's between Parse and Bind. A connection
+between a Parse and its Sync holds the session alone.

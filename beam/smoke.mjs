@@ -2,15 +2,16 @@
 //
 //   node playground/beam/smoke.mjs ['io:format("~p~n", [erlang:system_info(otp_release)])']
 //
-// The VM's file system is MEMFS: the patched tree's application ebins are
-// copied into /otp/lib/<app>/ebin before main runs.
+// The VM's file system is MEMFS: the dist's application ebins are copied
+// into /otp/lib/<app>/ebin before main runs.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
-const otp = join(root, "out/beam-wasm/otp");
-const dist = join(root, "out/beam-wasm/dist");
+// A dist build.sh wrote (BEAM_WASM; default the site's), with its otp/.
+const dist = process.env.BEAM_WASM ?? join(root, "out/beam-wasm/site");
+const otp = join(dist, "otp");
 const apps = (process.env.APPS ?? "kernel,stdlib,compiler").split(",");
 const expr =
   process.argv[2] ??

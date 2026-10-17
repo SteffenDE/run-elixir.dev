@@ -46,6 +46,7 @@ Vite build). See [build.md](build.md).
 | [git.md](git.md) | Plan: git in a project (clone, a diff view, push and its tokens), signing in, and the origins that keep a project's code from the account. |
 | [runtime.md](runtime.md) | `playground/app/src/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
 | [rotp-wasm.md](rotp-wasm.md) | What Rust-OTP does differently on `wasm32-wasip1`. |
+| [../beam/README.md](../beam/README.md) | Experiment: OTP's own emulator built with Emscripten as the runtime (`PLAYGROUND_RUNTIME=otp`): its patches, build, benchmarks, how it runs in the playground. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [backend.md](backend.md) | `playground/backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |

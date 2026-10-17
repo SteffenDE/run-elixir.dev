@@ -15,6 +15,15 @@ python3 -I playground/runtime/serve.py 8081
 `build.py app` rebuilds the Vite app and the runtime's bundles into an
 existing site, without the recording runs (seconds instead of a minute).
 
+`PLAYGROUND_RUNTIME=otp` builds the site for OTP's own emulator built with
+Emscripten instead of Rust-OTP: its build (`playground/beam/build.sh`), an
+installation laid out as Rust-OTP's in `target/otp` (OTP from that build,
+the host's Elixir, Hex, phx_new and rebar3), the template built by the
+host's Mix in `target/playground-cache-otp`, and `runtime.json` naming the
+runtime, which the worker reads
+([`../beam/README.md`](../beam/README.md#in-the-playground)). `build.py
+app` keeps a site's runtime; pass the same `PLAYGROUND_RUNTIME`.
+
 ## Requirements
 
 - **The native install:** `target/rotp`, from `elixir tools/rotp/install.exs`.

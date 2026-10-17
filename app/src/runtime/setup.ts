@@ -40,7 +40,12 @@ export function prepare(root: Dir): void {
   // ERL_INETRC; it has no inet_gethost).
   const text = (string: string) => new File(new TextEncoder().encode(string));
   root.put('etc/hosts', text('127.0.0.1 localhost\n::1 localhost\n'));
-  root.put('etc/inetrc', text('{lookup, [file]}.\n'));
+  root.put(
+    'etc/inetrc',
+    text(
+      '{lookup, [file]}.\n{host, {127,0,0,1}, ["localhost"]}.\n{host, {0,0,0,0,0,0,0,1}, ["localhost"]}.\n',
+    ),
+  );
   root.put('rotp/bin/mix', new File(new TextEncoder().encode('Mix.CLI.main()\n')));
   // Programs the node finds on PATH (os:find_executable, System.cmd): the
   // page's (/rotp/bin/mix is Mix's script, which mix runs).

@@ -1,8 +1,9 @@
 # Real BEAM in WebAssembly (experiment)
 
-An experiment on branch `sd-beam`: build OTP's own emulator (erts) with
-Emscripten, instead of running Rust-OTP (`playground/runtime`) in the
-playground.
+An experiment on branch `sd-beam`: OTP's own emulator (erts) built with
+Emscripten, as the playground's runtime beside Rust-OTP
+(`playground/runtime`). A site is built for one of them
+(`PLAYGROUND_RUNTIME=otp`, below); Rust-OTP stays the default.
 
 ## Provenance
 
@@ -11,68 +12,120 @@ playground.
 Apache License 2.0), `popcorn/patches` and `popcorn/emscripten` at commit
 `a64cbbc23cf1244a27d69a6d684e10c5040aa0e6`. Popcorn wrote them for
 OTP-29.0.6; all fourteen apply in order to OTP-29.1.1, our host version.
-`build.sh` follows Popcorn's `scripts/build-beam.sh`, without the crypto
-variant and the patch-regeneration tooling.
-
-The patches, in order:
+`build.sh` follows Popcorn's `scripts/build-beam.sh`, and `openssl.sh` its
+`build-openssl.sh`. Patches 0015 to 0021 are ours.
 
 | Patch | Effect |
 | --- | --- |
 | 0001 emscripten-support | configure detects `wasm32-*-emscripten`, `ERTS_EMSCRIPTEN` |
 | 0002 without-zstd | drops zstd from erts and stdlib |
-| 0003 without-native-sockets | no inet driver sockets |
+| 0003 without-native-sockets | no inet driver sockets (0016 brings TCP back) |
 | 0004 without-distribution | no `dist.c`, `net_kernel` stubs |
 | 0005 without-crash-dumps | no crash dump writer |
-| 0006 without-dynamic-loading | no `dlopen` for drivers and NIFs |
+| 0006 without-dynamic-loading | no `dlopen` for drivers and NIFs (0021 loads wasm NIFs) |
 | 0007 bootstrap-trim | smaller native bootstrap |
 | 0008 driver-start-callbacks | driver start hooks |
 | 0009 signal-shutdown | shutdown without signals |
-| 0010 disable-os-processes | no `open_port({spawn, ...})` |
+| 0010 disable-os-processes | no `open_port({spawn, ...})` (0018 replaces the driver) |
 | 0011 wasm-bridge | `wasm` module and NIF, JS callbacks, TTY over JS |
 | 0012 asn-one-erlang-fallback | asn1 without its NIF |
 | 0013 module-checksum-xxh | module MD5 replaced by xxhash |
 | 0014 no-jump-table | interpreter without computed goto |
-| 0015 wasm-process-main-returns | ours: `process_main` returns at each schedule |
+| 0015 wasm-process-main-returns | `process_main` returns at each schedule |
+| 0016 wasm-prim-socket | our `prim_socket` NIF (`socket/`), `host/*.c` linked into erts |
+| 0017 wasm-tty-mode-eof | the terminal's raw mode told to JS, the end of standard input |
+| 0018 wasm-spawn-driver | `spawn_driver_entry` is `host/wasm_spawn.c`'s; `erl_init` starts its pump |
+| 0019 wasm-system-architecture | `system_architecture` from `ROTP_SYSTEM_ARCHITECTURE` |
+| 0020 playground-https | `ssl:connect` through the page's fetch (`PLAYGROUND_HTTPS_GATEWAY`) |
+| 0021 wasm-nif-libraries | `load_nif` of a library built to WebAssembly (`host/wasm_nifs.c`) |
 
-Patch 0015 is ours. V8 moves a WebAssembly function to optimized
-(TurboFan) code only when it is next called, and a scheduler thread
-entered `process_main`, the interpreter loop, once for good: it ran as
-baseline (Liftoff) code, 64% of a profile. Returning at each schedule and
-being called again in a loop made compiling Ash 5.2 times as fast.
+Patch 0015: V8 moves a WebAssembly function to optimized (TurboFan) code
+only when it is next called, and a scheduler thread entered
+`process_main`, the interpreter loop, once for good: it ran as baseline
+(Liftoff) code, 64% of a profile. Returning at each schedule and being
+called again in a loop made compiling Ash 5.2 times as fast.
 
 ## Build
 
-Needs emsdk (Popcorn's CI uses 6.0.2, installed at `~/emsdk`), host
-Erlang, autoconf 2.72.
+Needs emsdk 6.0.2 (Popcorn's CI's, at `~/emsdk`), host Erlang 29.1.1,
+autoconf 2.72, and network access the first time.
 
-    playground/beam/build.sh debug        # or release
-    OTP_SOURCE=~/src/otp-29.1.1 playground/beam/build.sh debug
+    OTP_SOURCE=~/src/otp-29.1.1 OPT=-O2 DIST=out/beam-wasm/site playground/beam/build.sh release
 
-Output is in `out/beam-wasm/dist`: `beam.wasm`, the Emscripten loader
-`beam.mjs` (with pthread workers from `beam.emu.mjs`) and `vm.boot`.
-Logs are `out/beam-wasm/configure.log` and `out/beam-wasm/build.log`.
+`build.sh` runs `openssl.sh` (OpenSSL 3.0.15, for crypto, ssl and asn1,
+their NIFs linked in) and `ncurses.sh` (libtinfo with its terminals
+compiled in: prim_tty takes raw input, which IEx's line editing needs,
+only with termcap), clones OTP into `out/beam-wasm/<debug|releaseO2>/otp`,
+applies the patches (a commit each), copies `socket/` and `host/`'s C into
+the tree, and builds. A mode's tree keeps its stamps: changed patches
+clone it again, changed configure arguments configure again. `DIST` gets
+`beam.wasm` (4.9 MB), the loader `beam.mjs`, the threads' `beam.emu.mjs`,
+and `otp/`, the installation (each application's `ebin`, `priv` and
+`include`, `bin/start.boot`). The link: pthreads with `PROXY_TO_PTHREAD`,
+mimalloc, 4 GB, PROXYFS, and the JS libraries of `socket/`, `host/` and
+`emscripten/`. `EXTRA_LINK` adds flags (`-sNODERAWFS=1` for `elixir.mjs`).
+No `-O2` in a tree's path: erts' `zlib.mk` rewrites it in CFLAGS.
 
-## Under the playground's runtime: `beam-node.mjs`
+## In the playground
 
-`build.sh` links the playground's build: mimalloc, 4 GB, and
-`-lproxyfs.js`, through which `app/src/runtime/beam/treefs.ts` mounts the
-playground's tree (`wasi/fs.ts`, as Rust-OTP's WASI shim serves it) at
-each of its top directories. `dist/otp` is the installation (each
-application's `ebin` and `priv`, `bin/start.boot`). The Node harness
-`app/src/runtime/beam-node.ts` (`vite build -c vite.runtime.config.ts
---mode node`, into `app/dist-node`) mounts it at `/otp`, and host
-directories, read when first opened, with `MOUNT=VFSDIR:HOSTDIR,...`:
+    PLAYGROUND_RUNTIME=otp python3 -I playground/runtime/build.py
+    PLAYGROUND_RUNTIME=otp python3 -I playground/runtime/build.py app
 
-    MOUNT=/elixir:$ELIXIR/lib,/work/ash:$HOME/src/ash_bench,/bench:playground/beam \
-    CWD=/work/ash node playground/app/dist-node/beam-node.mjs out/beam-wasm/web \
-      -S 4:4 -MMscs 1536 -MMsco false -- -root /otp -bindir /otp/bin -progname erl \
-      -home /work -boot /otp/bin/start -noshell -kernel start_distribution false \
-      -elixir_root /elixir -pa /elixir/elixir/ebin -pa /elixir/mix/ebin \
-      -s elixir start_cli -extra /bench/bench_ash.exs ash _build
+`build.py` builds the site for this BEAM: `beam.mjs`, `beam.emu.mjs` and
+`beam.wasm` in place of `rotp*.wasm`, `runtime.json` naming the runtime,
+and an installation laid out as Rust-OTP's, at `/rotp` in the node
+(`target/otp`: OTP from the dist, the host's Elixir, Hex and phx_new
+archives and rebar3). The template is built by the host's Mix
+(`_build_otp`, in `target/playground-cache-otp`); the boot images are
+recorded on this BEAM. `node.ts` runs such a site under Node (the
+recording runs); the browser's worker runs it when `runtime.json` says
+`otp` (`worker/beam.ts`). Both go through `app/src/runtime/beam/run.ts`;
+`beam/args.ts` turns erl's arguments into the emulator's.
 
-Ash compiles so in 80.7 s (each file call proxied to the main thread,
-the output kept in memory). Renaming between two top directories (`/work`
-to `/tmp`) is `exdev`: they are separate mounts.
+- **Threads.** The module's main thread is the node's worker; erts' threads
+  are its pthreads, and each file and network call they make is proxied
+  to the worker, which must not block while the node runs: it takes the
+  page's frames as they come (`Atomics.waitAsync`). WebKit's waitAsync
+  wakes some 60 ms late (a node took a minute to start): there the worker
+  runs the proxied calls on a MessageChannel tick while the node runs.
+- **Memory.** On Emscripten `mmap` is malloc, whose heap erts' carriers
+  fragment past any limit (below); each node has a 1 GB super carrier
+  (`-MMscs 1024 -MMsco false`), which Emscripten zero-fills at start.
+- **Files.** PROXYFS mounts the node's tree (`beam/treefs.ts` over
+  `wasi/fs.ts`, lazily fetched files and all) at each top directory but
+  Emscripten's `/dev` and `/proc`, and `/work` and `/tmp` from files.js
+  (`beam/sharedfs.ts`). Hard links go through the trees (`host/host.js`;
+  Emscripten's always fail). Files are executable (`os:find_executable`).
+- **Network.** `gen_tcp` is `gen_tcp_socket` over our `prim_socket` NIF
+  (`socket/`, below) over the playground's `Network`. A project's nodes
+  reach each other's ports through the page (Mix's compile notices go
+  so). HTTPS: `ssl:connect` connects to a gateway port whose first line
+  names the host; the page answers its plain HTTP with fetch (patch 0020).
+- **Ports.** `host/wasm_spawn.c` runs the playground's programs
+  (`spawn.js`, the host's `Module.beamSpawn` over Rust-OTP's `Process`
+  and programs); `{spawn, Command}` is `/bin/sh -c`. Output and exit come
+  through a ring to the driver's event thread, which asks `erl_init`'s
+  `wasm_port_pump` to `port_control` the port, where they are delivered.
+- **NIFs.** A library built to WebAssembly by `playground/nif` (wasi-sdk,
+  `beamos_nif.c`) runs as with Rust-OTP: an instance of its own (`nif.ts`),
+  external terms both ways. `host/wasm_nifs.c` makes its entry from its
+  answer to `load`; every function is one proxy, which finds its function
+  by the process's current MFA.
+- **Terminal.** Popcorn's prim_tty over JS, with the raw mode reported
+  (`Module.onTtyMode`) and the end of input (a node without a terminal,
+  as under `node.ts`, reads a stream that ends).
+- **What it says it is.** `os:type()` is `{unix, linux}` (uname),
+  `system_architecture` `ROTP_SYSTEM_ARCHITECTURE`'s, and each node has a
+  process id of its own (Emscripten's is always 42; Mix tells nodes apart
+  by it).
+
+Status (2026-10-17): the Playwright suite in all three browsers (`SLOW=1`)
+passes but for Firefox's `preview` switch to another endpoint (Playwright's
+Firefox loses the preview frame, which the page sees navigate) and
+`shells` (Ecto's migrator against PGlite's one session, which Rust-OTP
+fails too in WebKit; `postgres.ts` keeps a connection between Parse and
+Sync alone now). `projects` takes `gen_tcp_socket`'s socket as `:gen_tcp.listen`'s
+answer, `bundles` a module no boot image has, `websocket` erts's banner.
 
 ## The network: `socket/`
 
@@ -88,40 +141,13 @@ thread through a ring in its memory, which sends the `select` messages.
 As esock does, one connection wakes one acceptor: `gen_tcp_socket`
 answers a `select` to its retry with `{error, timeout}`.
 
-`beam-node.mjs` passes its `Network` as `Module.beamNetwork`, writes
-`/etc/hosts` and an inetrc that resolves from it, and drives HTTP
-requests as `node.ts` does (`HTTP=4000/,4000/hello STOP_SERVED=500`).
-Bandit 1.13 serves a Plug so (2026-10-16): `200 OK` in 36 ms, then 1 ms
-per request.
-
-`crypto` (and `ssl`, `asn1`) are built: `openssl.sh` builds OpenSSL 3.0.15
-for WebAssembly as Popcorn does, and the NIFs are linked in
-(`--enable-static-nifs`); `beam.wasm` grows from 3.2 to 4.8 MB.
-
-## A Phoenix app (2026-10-16)
-
-A `mix phx.new hello --no-ecto --no-assets --no-mailer --no-dashboard
---no-gettext` app, its dependencies fetched and compiled on the host,
-runs `mix phx.server` on `beam-node.mjs` (host Elixir and `~/.mix` with
-Hex mounted, `VM_MIX_HOME`, `VM_MIX_OS_CONCURRENCY_LOCK=0`): Mix
-recompiles the app's 12 files over the tree, Bandit listens, and `GET /`
-is `200 OK` (16 kB, 38 ms in Phoenix). Found on the way:
-
-- **Hard links:** Emscripten's `linkat` always fails (`EMLINK`), and Mix's
-  compile lock needs them (`MIX_OS_CONCURRENCY_LOCK=0` for now). The tree
-  can link (Rust-OTP's WASI shim does); `linkat` needs overriding.
-- **The OS type** is `{unix, emscripten}`: `file_system` (live reload)
-  does not know it. Rust-OTP says Linux.
-- **Ports** (`open_port({spawn, ...})`) are off (patch 0010): esbuild,
-  tailwind and the rest of the page's programs wait for them.
-
 ## Smoke test
 
     ~/emsdk/node/*/bin/node playground/beam/smoke.mjs ['<erlang expr>']
-    APPS=kernel,stdlib,compiler,elixir node playground/beam/smoke.mjs '...'
+    BEAM_WASM=out/beam-wasm/site APPS=kernel,stdlib,compiler node playground/beam/smoke.mjs '...'
 
-The script copies application ebins from `out/beam-wasm/otp/lib` into
-MEMFS and boots with `-noshell -eval`. Observed 2026-10-16 (debug build,
+The script copies a dist's application ebins into MEMFS and boots with
+`-noshell -eval`. Observed 2026-10-16 (debug build,
 Node 24.19 from emsdk): `hello from 29 on "wasm32-unknown-emscripten"`,
 exit 0 in 2.3 s. The host's unmodified Elixir 1.20.4 ebin (compiled by
 OTP 29.1.1) loads too: `Code.eval_string` runs, 2.4 s to exit. Module
@@ -162,41 +188,3 @@ their time alike: `process_main` 57% and 49%, then `eq`,
 about 1.5 to 1.8 times throughout, a little more in the interpreter
 loop, whose dispatch is a `switch` there (patch 0014): WebAssembly has
 no computed goto.
-
-## Plan: the playground on this BEAM
-
-A proof of concept with what the playground's Rust-OTP node has, in this
-order: files and the network first (a Phoenix app's needs), then the
-terminal, ports, crypto and NIFs. What the playground provides today is
-mapped in [`../docs/runtime.md`](../docs/runtime.md); how each part maps:
-
-- **Files.** Today `rt/wasi/fs.ts` is the node's tree: boot images,
-  bundles fetched lazily by synchronous XHR, `/work` and `/tmp` served by
-  `files.js` over a SharedArrayBuffer. With `PROXY_TO_PTHREAD`
-  Emscripten's file system runs on the worker that loaded the module, so
-  a custom Emscripten file system (`node_ops`/`stream_ops`) over the same
-  tree keeps all of it. The images and bundles are rebuilt from stock
-  `.beam` files (OTP's from this tree, Elixir's and the template's
-  `_build` from the host), and the recording runs redone on this VM.
-- **Network.** Patch 0003 takes out the inet driver. OTP's other
-  `gen_tcp` backend, `gen_tcp_socket` (`-kernel inet_backend socket`), is
-  Erlang over `socket`, whose NIF is `prim_socket`. A `prim_socket` of
-  ours for TCP (open, bind, listen, accept, connect, send, recv,
-  setopt/getopt, close, with `select` messages when a call would block)
-  over the playground's `Network` keeps the page's side as it is (the
-  preview's requests, WebSockets, PGlite on 5432, the Hex fetcher).
-  HTTPS needs an `ssl` shim as `BeamOS.Ssl` is.
-- **NIFs.** As with Rust-OTP: each library a separate WebAssembly
-  instance with `playground/nif/beamos_nif.c`, called with copied terms.
-  The existing wasi-sdk builds stay. erts' `load_nif` (stubbed by patch
-  0006) asks JS for the instance and registers every function with one
-  proxy: erts sets the process's `current` to the function's MFA before
-  calling a NIF, so the proxy finds which one was called without a table
-  of stubs. Calls go to the one thread that holds the instances.
-- **Ports.** Patch 0010 takes out `open_port({spawn, ...})`; a static
-  driver speaking the playground's `/.proc` protocol to its programs.
-- **Crypto.** OpenSSL for WebAssembly, as Popcorn's
-  `scripts/build-openssl.sh` builds it.
-
-Open questions: Firefox and WebKit (only Node is measured), and the
-super carrier's memory, mapped (and zero-filled) whole at start.

@@ -21,6 +21,11 @@ playground/tests/run.sh --project=chromium terminal      # one browser, one file
 SLOW=1 playground/tests/run.sh --project=chromium shells # the slow ones too
 ```
 
+The tests run against whichever runtime the site was built for
+(`PLAYGROUND_RUNTIME=otp` for OTP's own emulator: [build.md](build.md));
+the few that see the runtime accept both. Debug a failure with that spec
+alone in one browser: the whole suite takes over an hour with `SLOW=1`.
+
 `run.sh` mounts the repository and runs `npx playwright test` in
 `playground/app` (its `node_modules` must be installed: `npm ci` there, in
 Docker). The config (`playwright.config.ts`) serves the site with

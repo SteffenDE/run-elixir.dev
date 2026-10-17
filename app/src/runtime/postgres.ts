@@ -58,19 +58,32 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
   // when it has been idle in their transaction (null while a reply is
   // awaited, or between Parse and Sync). One batch runs at a time.
   const holders = new Set<Connection>();
+  // The one connection between a Parse and its Sync: no other's messages
+  // may come between, also not a holder's that joined the transaction (its
+  // Parse would replace this one's unnamed statement: "unnamed prepared
+  // statement does not exist" at the Bind).
+  let midway: Connection | null = null;
   let idleSince: number | null = null;
   let running = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const waiting: Batch[] = [];
 
   const next = (): Batch | undefined => {
-    const turn = waiting.findIndex(
-      (batch) => !batch.connection || !holders.size || holders.has(batch.connection),
+    const turn = waiting.findIndex((batch) =>
+      midway
+        ? batch.connection === midway
+        : !batch.connection || !holders.size || holders.has(batch.connection),
     );
     if (turn >= 0) return waiting.splice(turn, 1)[0];
-    if (idleSince === null) return undefined;
+    if (idleSince === null || midway) return undefined;
     const late = Date.now() - idleSince >= JOIN_AFTER;
-    const joining = waiting.findIndex((batch) => !batch.startup);
+    // Only a holder's node's connections join (the migrator's other one):
+    // another node's would put its unnamed statements between a holder's
+    // Parse and Bind.
+    const nodes = new Set([...holders].map((holder) => holder.node));
+    const joining = waiting.findIndex(
+      (batch) => !batch.startup && !!batch.connection && nodes.has(batch.connection.node),
+    );
     if (late && joining >= 0) return waiting.splice(joining, 1)[0];
     if (!late && joining >= 0 && !timer)
       timer = setTimeout(
@@ -97,6 +110,7 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
       .then((out) => {
         if (!connection) return;
         const status = readyStatus(out);
+        midway = status === null && !terminate ? connection : null;
         if (status === 'I') {
           holders.clear();
           idleSince = null;
@@ -129,6 +143,7 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
   // A connection gone: its waiting messages are dropped, and the
   // transaction it held alone is rolled back (nothing else would end it).
   const gone = (connection: Connection) => {
+    if (midway === connection) midway = null;
     for (let i = waiting.length - 1; i >= 0; i--)
       if (waiting[i].connection === connection) waiting.splice(i, 1);
     if (!holders.delete(connection)) return;
