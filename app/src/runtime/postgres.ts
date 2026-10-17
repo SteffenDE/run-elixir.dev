@@ -51,9 +51,15 @@ interface Batch {
   bytes: Uint8Array;
   startup: boolean;
   terminate: boolean;
+  // When it came, for debug().
+  since?: number;
 }
 
-export function postgres(database: () => Promise<Database>): (connection: Connection) => void {
+// The handler for the nodes' connections, and what it is waiting on (for
+// window.playground.debug()).
+export type Postgres = ((connection: Connection) => void) & { debug(): unknown };
+
+export function postgres(database: () => Promise<Database>): Postgres {
   // The connections the session is with (none: anyone's turn), and since
   // when it has been idle in their transaction (null while a reply is
   // awaited, or between Parse and Sync). One batch runs at a time.
@@ -157,7 +163,30 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
     pump();
   };
 
-  return (connection) => {
+  // Connections by node and id, for debug().
+  const nodeNames = new WeakMap<object, number>();
+  let named = 0;
+  const name = (connection: Connection | null) => {
+    if (!connection) return 'session';
+    if (!nodeNames.has(connection.node)) nodeNames.set(connection.node, ++named);
+    return `node ${nodeNames.get(connection.node)}:${connection.id}`;
+  };
+  const ago = (time: number) => `${((Date.now() - time) / 1000).toFixed(1)} s`;
+  const debug = () => ({
+    running,
+    holders: [...holders].map(name),
+    midway: midway && name(midway),
+    idle: idleSince === null ? null : ago(idleSince),
+    waiting: waiting.map((batch) => ({
+      connection: name(batch.connection),
+      messages: String.fromCharCode(batch.bytes[0]),
+      bytes: batch.bytes.length,
+      startup: batch.startup,
+      for: batch.since === undefined ? null : ago(batch.since),
+    })),
+  });
+
+  const handle = (connection: Connection) => {
     let buffer = new Uint8Array(0);
     let started = false;
     let closed = false;
@@ -213,8 +242,15 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
         batch.set(m, at);
         at += m.length;
       }
-      waiting.push({ connection, bytes: batch, startup: !wasStarted, terminate });
+      waiting.push({
+        connection,
+        bytes: batch,
+        startup: !wasStarted,
+        terminate,
+        since: Date.now(),
+      });
       pump();
     };
   };
+  return Object.assign(handle, { debug });
 }

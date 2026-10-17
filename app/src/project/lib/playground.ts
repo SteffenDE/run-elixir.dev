@@ -605,6 +605,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
         bridge: bridge?.debug(),
         nodes: Object.fromEntries([...sessions].map(([id, s]) => [id, s.node.debug()])),
         commands: [...commands].map(([node, command]) => ({ command, ...node.debug() })),
+        postgres: serveDatabase.debug(),
       }),
     },
   });
