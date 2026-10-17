@@ -105,7 +105,11 @@ export function postgres(database: () => Promise<Database>): (connection: Connec
     const reply =
       terminate && bytes.length === 5
         ? Promise.resolve(new Uint8Array(0))
-        : database().then((db) => db.execProtocolRaw(bytes));
+        : // A copy: PGlite answers a startup with a view of its receive
+          // buffer, which the next batch overwrites before the node reads it
+          // (Postgrex then took another connection's BindComplete for its
+          // authentication).
+          database().then((db) => db.execProtocolRaw(bytes).then((out) => out.slice()));
     reply
       .then((out) => {
         if (!connection) return;
