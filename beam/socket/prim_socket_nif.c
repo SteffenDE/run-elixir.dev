@@ -923,6 +923,119 @@ static ERL_NIF_TERM counter_map(ErlNifEnv *env, Sock *sock)
     return map;
 }
 
+/* nif_supports(Key): what prim_socket.erl makes its tables of; ip, tcp
+ * and udp by number, and the options above by level and number. */
+static ERL_NIF_TERM option(ErlNifEnv *env, const char *name, int number)
+{
+    return enif_make_tuple2(env, enif_make_atom(env, name), enif_make_int(env, number));
+}
+
+static ERL_NIF_TERM level(ErlNifEnv *env, const char *name, int number,
+                          ERL_NIF_TERM *options, unsigned count)
+{
+    return enif_make_tuple3(env, enif_make_atom(env, name), enif_make_int(env, number),
+                            enif_make_list_from_array(env, options, count));
+}
+
+static ERL_NIF_TERM protocol(ErlNifEnv *env, const char *name, const char *upper, int number)
+{
+    return enif_make_tuple2(env,
+                            enif_make_list2(env, enif_make_atom(env, name),
+                                            enif_make_atom(env, upper)),
+                            enif_make_int(env, number));
+}
+
+static ERL_NIF_TERM nif_supports1(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    (void) argc;
+    if (enif_is_identical(argv[0], enif_make_atom(env, "protocols"))) {
+        ERL_NIF_TERM protocols[] = {
+            protocol(env, "ip", "IP", 0),
+            protocol(env, "tcp", "TCP", LEVEL_TCP),
+            protocol(env, "udp", "UDP", 17),
+        };
+        return enif_make_list_from_array(env, protocols, 3);
+    }
+    if (enif_is_identical(argv[0], enif_make_atom(env, "options"))) {
+        ERL_NIF_TERM socket[] = {
+            option(env, "reuseaddr", OPT_SOCKET_REUSEADDR),
+            option(env, "type", OPT_SOCKET_TYPE),
+            option(env, "broadcast", OPT_SOCKET_BROADCAST),
+            option(env, "sndbuf", OPT_SOCKET_SNDBUF),
+            option(env, "rcvbuf", OPT_SOCKET_RCVBUF),
+            option(env, "keepalive", OPT_SOCKET_KEEPALIVE),
+            option(env, "oobinline", OPT_SOCKET_OOBINLINE),
+            option(env, "priority", OPT_SOCKET_PRIORITY),
+            option(env, "linger", OPT_SOCKET_LINGER),
+            option(env, "reuseport", OPT_SOCKET_REUSEPORT),
+            option(env, "acceptconn", OPT_SOCKET_ACCEPTCONN),
+            option(env, "protocol", OPT_SOCKET_PROTOCOL),
+        };
+        ERL_NIF_TERM tcp[] = {
+            option(env, "nodelay", OPT_TCP_NODELAY),
+            option(env, "cork", OPT_TCP_CORK),
+            option(env, "keepidle", OPT_TCP_KEEPIDLE),
+            option(env, "keepintvl", OPT_TCP_KEEPINTVL),
+            option(env, "keepcnt", OPT_TCP_KEEPCNT),
+        };
+        ERL_NIF_TERM ip[] = {
+            option(env, "tos", OPT_IP_TOS),
+            option(env, "ttl", OPT_IP_TTL),
+        };
+        ERL_NIF_TERM ipv6[] = {
+            option(env, "v6only", OPT_IPV6_V6ONLY),
+        };
+        ERL_NIF_TERM levels[] = {
+            level(env, "socket", 1, socket, sizeof(socket) / sizeof(*socket)),
+            level(env, "tcp", LEVEL_TCP, tcp, sizeof(tcp) / sizeof(*tcp)),
+            level(env, "ip", LEVEL_IP, ip, sizeof(ip) / sizeof(*ip)),
+            level(env, "ipv6", LEVEL_IPV6, ipv6, sizeof(ipv6) / sizeof(*ipv6)),
+        };
+        return enif_make_list_from_array(env, levels, 4);
+    }
+    /* msg_flags, ioctl_requests, ioctl_flags: none. */
+    return enif_make_list(env, 0);
+}
+
+/* nif_info(): the library's, as socket:info/0 and gen_tcp_socket read it
+ * (counters' num_cnt_bits); no counts are kept. */
+static ERL_NIF_TERM nif_info0(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    (void) argc;
+    (void) argv;
+    const char *counter_names[] = {
+        "num_cnt_bits", "num_sockets", "num_tdgrams", "num_tstreams", "num_tseqpkgs",
+        "num_dlocal", "num_dinet", "num_dinet6", "num_pip", "num_ptcp", "num_pudp",
+        "num_psctp",
+    };
+    ERL_NIF_TERM keys[12], values[12], counters, info;
+    for (unsigned i = 0; i < 12; i++) {
+        keys[i] = enif_make_atom(env, counter_names[i]);
+        values[i] = enif_make_uint(env, i == 0 ? 64 : 0);
+    }
+    enif_make_map_from_arrays(env, keys, values, 12, &counters);
+    ERL_NIF_TERM info_keys[] = {
+        enif_make_atom(env, "debug"), enif_make_atom(env, "socket_debug"),
+        enif_make_atom(env, "eei"), enif_make_atom(env, "use_registry"),
+        enif_make_atom(env, "iow"), enif_make_atom(env, "counters"),
+        enif_make_atom(env, "iov_max"),
+    };
+    ERL_NIF_TERM info_values[] = {
+        atom_false, atom_false, atom_false, have_registry ? atom_true : atom_false,
+        atom_false, counters, enif_make_int(env, 1024),
+    };
+    enif_make_map_from_arrays(env, info_keys, info_values, 7, &info);
+    return info;
+}
+
+/* nif_supports(): no optional features. */
+static ERL_NIF_TERM nif_supports0(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    (void) argc;
+    (void) argv;
+    return enif_make_list(env, 0);
+}
+
 /* nif_info(SockRef) */
 static ERL_NIF_TERM nif_info1(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -1017,6 +1130,8 @@ static int load(ErlNifEnv *env, void **priv, ERL_NIF_TERM info)
 }
 
 static ErlNifFunc nif_funcs[] = {
+    {"nif_supports", 0, nif_supports0, 0},
+    {"nif_supports", 1, nif_supports1, 0},
     {"nif_open", 2, nif_open2, 0},
     {"nif_open", 4, nif_open4, 0},
     {"nif_bind", 2, nif_bind, 0},
@@ -1036,6 +1151,7 @@ static ErlNifFunc nif_funcs[] = {
     {"nif_getopt", 3, nif_getopt3, 0},
     {"nif_getopt", 5, nif_getopt5, 0},
     {"nif_setopt", 5, nif_setopt, 0},
+    {"nif_info", 0, nif_info0, 0},
     {"nif_info", 1, nif_info1, 0},
 };
 

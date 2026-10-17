@@ -1,17 +1,17 @@
 diff --git a/erts/emulator/Makefile.in b/erts/emulator/Makefile.in
-index ba65f98..c6b711d 100644
+index 8593d09..c6b711d 100644
 --- a/erts/emulator/Makefile.in
 +++ b/erts/emulator/Makefile.in
-@@ -1233,10 +1233,19 @@ NIF_OBJS = \
+@@ -1231,6 +1231,23 @@ NIF_OBJS = \
+ 	$(OBJDIR)/zlib_nif.o \
+ 	$(ESOCK_NIF_OBJS)
  
- ifeq ($(TARGET),wasm32-unknown-emscripten)
- # prim_socket over the playground's network: nifs/wasm/prim_socket_nif.c
--# (playground/beam/build.sh puts it there), not esock's.
--NIF_OBJS += $(OBJDIR)/prim_socket_nif.o
++ifeq ($(TARGET),wasm32-unknown-emscripten)
++# prim_socket over the playground's network: nifs/wasm/prim_socket_nif.c
 +# (playground/beam/build.sh puts it there) in place of esock's
 +# (ESOCK_NIF_OBJS), which would use Emscripten's emulated sockets.
- $(OBJDIR)/prim_socket_nif.o: nifs/wasm/prim_socket_nif.c
- 	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
++$(OBJDIR)/prim_socket_nif.o: nifs/wasm/prim_socket_nif.c
++	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 +# The playground's system calls (hard links, uname), spawn driver and
 +# NIF libraries: nifs/wasm/wasm_host.c, wasm_spawn.c and wasm_nifs.c.
 +RUN_OBJS += $(OBJDIR)/wasm_host.o $(OBJDIR)/wasm_spawn.o $(OBJDIR)/wasm_nifs.o
@@ -21,6 +21,8 @@ index ba65f98..c6b711d 100644
 +	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 +$(OBJDIR)/wasm_spawn.o: nifs/wasm/wasm_spawn.c
 +	$(V_CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
- endif
- 
++endif
++
  ifeq ($(TARGET),win32)
+ DRV_OBJS = \
+ 	$(OBJDIR)/registry_drv.o \
