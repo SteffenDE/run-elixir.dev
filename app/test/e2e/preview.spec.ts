@@ -191,6 +191,13 @@ serve.(serve)
     .toContain(4001);
 
   await bar.fill('localhost:4001/admin');
+  // Playwright's Firefox (Juggler) misses an iframe's navigation when the
+  // XPConnect wrapper of the frame's docShell was collected since it last
+  // looked at the frame (its navigation-started observer does not
+  // QueryInterface the subject): resolving the frame just before refreshes
+  // it. On the OTP site a few seconds without a look at the frame lose its
+  // next navigation (Rust-OTP's kept it over 30 s).
+  await expect(preview(page).locator('body')).toBeVisible();
   await bar.press('Enter');
   await expect(preview(page).locator('#second')).toHaveText('second endpoint', {
     timeout: 60_000,
