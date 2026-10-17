@@ -59,6 +59,9 @@ export interface BeamNode {
 
 // prim_tty's buffer (patch 0011), which the host keeps from overflowing.
 const STDIN_CAPACITY = 64 * 1024;
+// How long the module's thread runs its mailbox before the worker's other
+// events (WebKit; startBeam).
+const SLICE = 8;
 const encoder = new TextEncoder();
 
 // oxlint-disable-next-line typescript/no-explicit-any -- Emscripten's module.
@@ -113,13 +116,25 @@ export function startBeam(options: BeamOptions): BeamNode {
   let size = options.size;
   // Where Atomics.waitAsync wakes late (WebKit, some 60 ms: each of the
   // node's file calls took that long), this thread runs what the node's
-  // threads proxied to it on a tick of its own while the node runs.
+  // threads proxied to it while the node runs: for SLICE ms at a time,
+  // waiting on its pthread's first word, which a thread notifies when it
+  // puts a call in the mailbox; then a tick lets the worker's other events
+  // in. A tick per check was some 170,000 a second, which kept the worker's
+  // timers from firing, and WebKit freed the MessageEvents late: the page
+  // passed 16 GB and was killed.
   let polling = true;
+  let mailbox: Int32Array | null = null;
   const ticks = new MessageChannel();
   const poll = () => {
     if (!polling) return;
+    mailbox ??= new Int32Array(memory.buffer, c('pthread_self'), 1);
+    const until = performance.now() + SLICE;
     try {
-      c('_emscripten_check_mailbox');
+      for (;;) {
+        c('_emscripten_check_mailbox');
+        if (!polling || performance.now() >= until) break;
+        Atomics.wait(mailbox, 0, Atomics.load(mailbox, 0), 1);
+      }
     } catch (error) {
       // The node exited in a call it proxied: Emscripten unwinds by
       // throwing (its ExitStatus, or 'unwind'); onExit has run.
