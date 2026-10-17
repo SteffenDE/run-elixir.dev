@@ -25,6 +25,7 @@
 #include "global.h"
 #include "erl_nif.h"
 
+#include <pthread.h>
 #include <string.h>
 
 /* nifs.js: an instance for the library at `path` (its id, or 0), whose
@@ -40,6 +41,10 @@ typedef struct {
     ErlNifEntry entry;
     ERL_NIF_TERM *names;        /* atoms, by index */
 } WasmLibrary;
+
+/* nifs.js keeps one answer, from a request until wasm_nif_answer copies
+ * it out: one thread at a time, else another's request replaced it. */
+static pthread_mutex_t asking = PTHREAD_MUTEX_INITIALIZER;
 
 /* The library erts_load_nif is loading: its entry's load sets it as the
  * NIF's private data, on the same thread. */
@@ -70,12 +75,15 @@ static int ask(WasmLibrary *library, ErlNifEnv *env, ERL_NIF_TERM request,
     ErlNifBinary bin;
     if (!enif_term_to_binary(env, request, &bin))
         return 0;
+    pthread_mutex_lock(&asking);
     int size = wasm_nif_request(library->id, bin.data, (int) bin.size);
+    unsigned char *data = size < 0 ? NULL : enif_alloc(size ? size : 1);
+    if (data)
+        wasm_nif_answer(data);
+    pthread_mutex_unlock(&asking);
     enif_release_binary(&bin);
     if (size < 0)
         return 0;
-    unsigned char *data = enif_alloc(size ? size : 1);
-    wasm_nif_answer(data);
     int ok = enif_binary_to_term(env, data, size, answer, 0) > 0;
     enif_free(data);
     return ok;
