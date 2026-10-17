@@ -1,0 +1,181 @@
+diff --git a/erts/emulator/beam/erl_alloc.c b/erts/emulator/beam/erl_alloc.c
+index ddc489d..14bcdef 100644
+--- a/erts/emulator/beam/erl_alloc.c
++++ b/erts/emulator/beam/erl_alloc.c
+@@ -2224,6 +2224,7 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
+     Eterm res = THE_NON_VALUE;
+     ErtsAlcType_t ai;
+     int only_one_value = 0;
++    int without_alcu = 0;
+     ErtsAlcUFixInfo_t fi[ERTS_ALC_NO_FIXED_SIZES] = {{0,0}};
+ 
+     ERTS_LC_ASSERT(erts_thr_progress_is_blocking());
+@@ -2369,7 +2370,13 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
+ 	default:
+ 	    if (!erts_allctrs_info[ai].enabled
+ 		|| !erts_allctrs_info[ai].alloc_util) {
++#ifdef __EMSCRIPTEN__
++		/* The playground runs without them (+Mea min: their
++		 * carriers fragment the malloc heap); see below. */
++		without_alcu = 1;
++#else
+ 		return am_notsup;
++#endif
+ 	    }
+ 	    break;
+ 	}
+@@ -2391,6 +2398,35 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
+ 
+     want_tot_or_sys = want.total || want.system;
+ 
++#ifdef __EMSCRIPTEN__
++    if (without_alcu) {
++	/* Without alloc_util allocators to ask: the total is what malloc
++	 * (mimalloc) has committed, or the WebAssembly memory's size; the
++	 * processes are each process' memory; binaries and ETS tables but
++	 * their bookkeeping are counted in the system's share only. */
++	extern void mi_process_info(size_t *, size_t *, size_t *, size_t *,
++				    size_t *, size_t *, size_t *, size_t *)
++	    __attribute__((weak));
++	extern size_t emscripten_get_heap_size(void);
++	size_t committed = 0, ignore;
++	int ix, max = erts_ptab_max(&erts_proc);
++	if (mi_process_info)
++	    mi_process_info(&ignore, &ignore, &ignore, &ignore, &ignore,
++			    &committed, &ignore, &ignore);
++	size.total = committed ? committed : emscripten_get_heap_size();
++	size.processes = erts_ptab_mem_size(&erts_proc)
++	    + erts_bif_timer_memory_size();
++	for (ix = 0; ix < max; ix++) {
++	    Process *p = erts_pix2proc(ix);
++	    if (p)
++		size.processes += erts_process_memory(p, 0);
++	}
++	size.processes_used = size.processes;
++	size.binary = 0;
++	size.ets = 0;
++    }
++    else
++#endif
+     if (ERTS_MEM_NEED_ALL_ALCU) {
+ 	size.total = 0;
+ 
+@@ -2434,7 +2470,8 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
+ 
+ 
+ 
+-    if (want_tot_or_sys || want.processes || want.processes_used) {
++    if (!without_alcu
++	&& (want_tot_or_sys || want.processes || want.processes_used)) {
+ 	UWord tmp;
+ 
+ 	if (ERTS_MEM_NEED_ALL_ALCU)
+@@ -2491,7 +2528,7 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
+ 	    size.atom_used += atom_space;
+     }
+ 
+-    if (!ERTS_MEM_NEED_ALL_ALCU && want.binary)
++    if (!without_alcu && !ERTS_MEM_NEED_ALL_ALCU && want.binary)
+ 	size.binary = alcu_size(ERTS_ALC_A_BINARY, NULL, 0);
+ 
+     if (want.code) {
+@@ -2505,7 +2542,7 @@ erts_memory(fmtfn_t *print_to_p, void *print_to_arg, void *proc, Eterm earg)
+     }
+ 
+     if (want.ets) {
+-	if (!ERTS_MEM_NEED_ALL_ALCU)
++	if (!without_alcu && !ERTS_MEM_NEED_ALL_ALCU)
+ 	    size.ets = alcu_size(ERTS_ALC_A_ETS, NULL, 0);
+ 	size.ets += erts_get_ets_misc_mem_size();
+     }
+diff --git a/erts/preloaded/src/erlang.erl b/erts/preloaded/src/erlang.erl
+index 8db34aa..e13f851 100644
+--- a/erts/preloaded/src/erlang.erl
++++ b/erts/preloaded/src/erlang.erl
+@@ -13019,7 +13019,7 @@ disabled.
+       Type :: memory_type(),
+       Size :: non_neg_integer().
+ memory() ->
+-    case aa_mem_data(au_mem_data(?ALL_NEEDED_ALLOCS)) of
++    case memory_data() of
+ 	notsup ->
+ 	    erlang:error(notsup);
+ 	Mem ->
+@@ -13063,7 +13063,7 @@ See also [`erlang:memory/0`](`memory/0`).
+                    (TypeList :: [memory_type()]) -> [{memory_type(), non_neg_integer()}].
+ memory(Type) when erlang:is_atom(Type) ->
+     try
+-        case aa_mem_data(au_mem_data(?ALL_NEEDED_ALLOCS)) of
++        case memory_data() of
+             notsup -> error_with_info(notsup, [Type]);
+             Mem -> get_memval(Type, Mem)
+         end
+@@ -13072,7 +13072,7 @@ memory(Type) when erlang:is_atom(Type) ->
+     end;
+ memory(Types) when erlang:is_list(Types) ->
+     try
+-        case aa_mem_data(au_mem_data(?ALL_NEEDED_ALLOCS)) of
++        case memory_data() of
+             notsup -> error_with_info(notsup, [Types]);
+             Mem -> memory_1(Types, Mem)
+         end
+@@ -13082,6 +13082,35 @@ memory(Types) when erlang:is_list(Types) ->
+ memory(Arg) ->
+     badarg_with_info([Arg]).
+ 
++%% The allocators' data; where they are disabled (the Emscripten BEAM runs
++%% with +Mea min), what erts_memory() makes of the rest.
++memory_data() ->
++    case aa_mem_data(au_mem_data(?ALL_NEEDED_ALLOCS)) of
++        notsup ->
++            case erlang:system_info(memory) of
++                List when erlang:is_list(List) ->
++                    Get = fun (Key) ->
++                                  case lists:keyfind(Key, 1, List) of
++                                      {Key, Value} -> Value;
++                                      false -> 0
++                                  end
++                          end,
++                    #memory{total = Get(total),
++                            processes = Get(processes),
++                            processes_used = Get(processes_used),
++                            system = Get(system),
++                            atom = Get(atom),
++                            atom_used = Get(atom_used),
++                            binary = Get(binary),
++                            code = Get(code),
++                            ets = Get(ets)};
++                _ ->
++                    notsup
++            end;
++        Mem ->
++            Mem
++    end.
++
+ memory_1([Type | Types], Mem) ->
+     [{Type, get_memval(Type, Mem)} | memory_1(Types, Mem)];
+ memory_1([], _Mem) ->
+diff --git a/erts/emulator/beam/erl_bif_info.c b/erts/emulator/beam/erl_bif_info.c
+index 957a91c..c6c690c 100644
+--- a/erts/emulator/beam/erl_bif_info.c
++++ b/erts/emulator/beam/erl_bif_info.c
+@@ -3050,6 +3050,19 @@ BIF_RETTYPE system_info_1(BIF_ALIST_1)
+     else if (BIF_ARG_1 == am_alloc_util_allocators) {
+ 	BIF_RET(erts_alloc_util_allocators((void *) BIF_P));
+     }
++#ifdef __EMSCRIPTEN__
++    else if (BIF_ARG_1 == am_memory) {
++	/* erlang:memory/0,1 where the allocators are disabled (+Mea min):
++	 * what erts_memory() makes of the rest (erl_alloc.c). */
++	Eterm res;
++	erts_proc_unlock(BIF_P, ERTS_PROC_LOCK_MAIN);
++	erts_thr_progress_block();
++	erts_proc_lock(BIF_P, ERTS_PROC_LOCK_MAIN);
++	res = erts_memory(NULL, NULL, BIF_P, THE_NON_VALUE);
++	erts_thr_progress_unblock();
++	BIF_RET(res);
++    }
++#endif
+     else if (BIF_ARG_1 == am_os_version) {
+ 	BIF_RET(ERTS_GLOBAL_LIT_OS_VERSION);
+     }

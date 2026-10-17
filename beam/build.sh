@@ -92,11 +92,11 @@ autoconf_once() {
 }
 
 # The native bootstrap embeds erts/preloaded/ebin/*.beam, including the
-# patch stack's new wasm and erl_init modules, so compile those first with
-# the host erlc, then again with the bootstrap's.
+# patch stack's new wasm and erl_init modules and those it changes, so
+# compile those first with the host erlc, then again with the bootstrap's.
 compile_preloaded() {
     local erlc="$1"
-    for module in wasm erl_init prim_inet prim_socket; do
+    for module in wasm erl_init prim_inet prim_socket erlang; do
         local beam="${OTP_DIR}/erts/preloaded/ebin/${module}.beam"
         local src="${OTP_DIR}/erts/preloaded/src/${module}.erl"
         [[ "${beam}" -nt "${src}" && "${beam}" -nt "${erlc}" ]] && continue
