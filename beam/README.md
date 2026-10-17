@@ -13,7 +13,7 @@ Apache License 2.0), `popcorn/patches` and `popcorn/emscripten` at commit
 `a64cbbc23cf1244a27d69a6d684e10c5040aa0e6`. Popcorn wrote them for
 OTP-29.0.6; all fourteen apply in order to OTP-29.1.1, our host version.
 `build.sh` follows Popcorn's `scripts/build-beam.sh`, and `openssl.sh` its
-`build-openssl.sh`. Patches 0015 to 0021 are ours.
+`build-openssl.sh`. Patches 0015 to 0022 are ours.
 
 | Patch | Effect |
 | --- | --- |
@@ -38,6 +38,7 @@ OTP-29.0.6; all fourteen apply in order to OTP-29.1.1, our host version.
 | 0019 wasm-system-architecture | `system_architecture` from `ROTP_SYSTEM_ARCHITECTURE` |
 | 0020 playground-https | `ssl:connect` through the page's fetch (`PLAYGROUND_HTTPS_GATEWAY`) |
 | 0021 wasm-nif-libraries | `load_nif` of a library built to WebAssembly (`host/wasm_nifs.c`) |
+| 0022 memory-without-alloc-util | `erlang:memory/0,1` with erts' allocators off (`+Mea min`) |
 
 Patch 0015: V8 moves a WebAssembly function to optimized (TurboFan) code
 only when it is next called, and a scheduler thread entered
@@ -139,6 +140,17 @@ was stopped (low memory on the machine); the rest, mostly WebKit's and
 the `domain` project's, did not run. `projects` takes
 `gen_tcp_socket`'s socket as `:gen_tcp.listen`'s answer, `bundles` a
 module no boot image has, `websocket` erts's banner.
+
+Status (2026-10-17, end of day): WebKit's `mix test` no longer passes
+16 GB (the page's poll took a message per mailbox check; now it polls in
+8 ms slices) and nodes run on mimalloc alone (`+Mea min`, patch 0022).
+The full `SLOW=1` run in Chromium, Firefox and WebKit (two workers):
+177 passed, 9 skipped, 3 failed, all WebKit. `share`'s Phoenix link
+carried the asset watchers' output (fixed, 037fde2). `livetest` and
+`git` stalled together, both with the other running; alone, each passes.
+Two rare WebKit stalls remain, both more often with two pages at once:
+a new node hanging in `new WebAssembly.Memory`, and a node's worker
+stopping in the middle of `mix test` ([log](../../docs/log/2026-10-17.md)).
 
 ## The network: `socket/`
 
