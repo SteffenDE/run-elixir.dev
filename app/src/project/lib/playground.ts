@@ -505,13 +505,16 @@ async function applyShared(shared: Shared): Promise<void> {
 }
 
 // What this project changed over its template, to share: its sources, not
-// its builds, dependencies or database.
+// its builds, dependencies or database. priv/static/assets is the asset
+// watchers' output (git ignores it too), which the importing project's
+// server builds again.
 export async function shareable(name: string, template?: Template): Promise<Shared> {
-  const [{ changed: written, removed }, site] = await Promise.all([
+  const [{ changed, removed }, site] = await Promise.all([
     running().changes(HIDDEN),
     fetch(`${BUILD}fs/version`).then((response) => response.text()),
   ]);
   const relative = (path: string) => path.slice(WORK.length + 1);
+  const written = changed.filter(({ path }) => !path.includes('/priv/static/assets/'));
   return {
     v: 1,
     kind: kind === 'phoenix' ? 'phoenix' : 'empty',
