@@ -29,10 +29,12 @@ export function spawn(node: Node, { id, name, args, cwd, env }: SpawnMessage): v
       if (exited) return;
       exited = true;
       node.running.delete(id);
+      node.spawned.delete(id);
       node.frame(FRAME.EXIT, id, new Uint8Array([code & 255]));
     },
   };
   node.running.set(id, process);
+  node.spawned.set(id, { command: [name, ...args].join(' '), started: Date.now() });
   Promise.resolve()
     // Page programs come with shared files.
     .then(() => node.programs[name](process, { args, cwd, env, fs: node.fs! }))

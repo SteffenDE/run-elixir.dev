@@ -152,6 +152,8 @@ export class Node {
   // (how many of each kind, and when last).
   recent: Connection[] = [];
   fromWorker: Record<string, { count: number; last: number }> = {};
+  // The page programs it runs: their command lines, and since when.
+  spawned = new Map<number, { command: string; started: number }>();
 
   // base: where the site's runtime files are; onoutput(bytes),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
@@ -230,6 +232,7 @@ export class Node {
       else if (data.kind === 'kill') {
         this.running.get(data.id)?.onkill?.();
         this.running.delete(data.id);
+        this.spawned.delete(data.id);
       }
     };
     // A worker that does not load (or throws outside its own handler).
@@ -349,6 +352,9 @@ export class Node {
       serving: [...this.serving],
       open: [...this.connections.values()].map((c) => c.describe()),
       recent: this.recent.map((c) => c.describe()),
+      programs: [...this.spawned.values()].map(
+        ({ command, started }) => `${command} (${ago(started).replace(' ago', '')})`,
+      ),
       fromWorker: Object.fromEntries(
         Object.entries(this.fromWorker).map(([kind, { count, last }]) => [
           kind,
