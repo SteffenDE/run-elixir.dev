@@ -13,6 +13,7 @@ export const FRAME = {
   OUTPUT: 7,
   EXIT: 8,
   RESIZE: 9,
+  PEERS: 10,
 };
 export const RING = 1 << 20;
 
@@ -26,6 +27,8 @@ export class Channel {
   declare size: number[];
   declare raw: boolean;
   declare processes: Map<number, Process>;
+  // The ports the project's other nodes listen on (PEERS frames).
+  declare peers: Set<number>;
 
   constructor(shared: SharedArrayBuffer) {
     this.control = new Int32Array(shared, 0, 2);
@@ -39,6 +42,7 @@ export class Channel {
     this.raw = false;
     // Programs the page runs (host/programs.ts), by id.
     this.processes = new Map();
+    this.peers = new Set();
   }
   bytes(from: number, count: number): Uint8Array {
     const out = new Uint8Array(count);
@@ -65,6 +69,11 @@ export class Channel {
         if (!net || !net.accepted(id, (payload[0] << 8) | payload[1])) {
           postMessage({ kind: 'net', op: 'refused', id });
         }
+      } else if (kind === FRAME.PEERS) {
+        this.peers = new Set();
+        for (let at = 0; at + 1 < payload.length; at += 2)
+          this.peers.add((payload[at] << 8) | payload[at + 1]);
+        if (net) net.peers = this.peers;
       } else if (kind === FRAME.OUTPUT) this.processes.get(id)?.write(payload);
       else if (kind === FRAME.EXIT) {
         this.processes.get(id)?.exit(payload[0]);

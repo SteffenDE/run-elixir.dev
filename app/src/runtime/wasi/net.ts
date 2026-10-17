@@ -91,6 +91,9 @@ export class Network {
   declare next: number;
   // Told when a connection waits on the listener on a port (as notify).
   declare onqueue?: Map<number, () => void>;
+  // Ports the project's other nodes listen on: a connection there goes
+  // to the page, which takes it to that node.
+  declare peers: Set<number>;
 
   constructor(remote: Remote = { ports: [], open() {}, send() {}, end() {}, close() {} }) {
     this.remote = remote;
@@ -98,16 +101,21 @@ export class Network {
     this.waiting = new Map(); // id -> Endpoint, until accepted
     this.endpoints = new Map(); // id -> Endpoint, for the page's
     this.next = 2;
+    this.peers = new Set();
   }
   // A listener's queue, on `port` or (0) a free one: { queue, port }.
   // listening(port, true, ephemeral): ephemeral when the port was given,
   // not asked for (Mix's lock listens so; a web server names its port).
   listen(port: number): { queue: Waiting[]; port: number } | null {
     const ephemeral = port === 0;
+    // A port another node of the project holds is taken, as a machine's
+    // ports are (Mix's pub/sub takes a listen there for its subscriber
+    // being gone).
+    const taken = (p: number) => this.listeners.has(p) || this.peers.has(p);
     if (ephemeral)
       do port = nextEphemeral();
-      while (this.listeners.has(port));
-    if (this.listeners.has(port)) return null;
+      while (taken(port));
+    if (taken(port)) return null;
     const queue: Waiting[] = [];
     this.listeners.set(port, queue);
     this.remote.listening?.(port, true, ephemeral);
@@ -153,7 +161,7 @@ export class Network {
       this.onqueue?.get(port)?.();
       return mine;
     }
-    if (!this.remote.ports.includes(port)) return null;
+    if (!this.remote.ports.includes(port) && !this.peers.has(port)) return null;
     const id = (this.next += 2);
     const r = this.remote;
     const endpoint = new Endpoint({

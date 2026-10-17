@@ -288,8 +288,44 @@ function database(): Promise<PGlite> {
 // What every node serves and runs on the page. The Hex tailwind and
 // esbuild packages' binaries are this page's; sh and rebar3 start nodes of
 // their own.
+// Every node of the project (its shells and the commands they run). Each
+// may connect to what the others listen on, as processes on one machine
+// do: Mix's compile notices go so between a shell and the server, which
+// reloads the modules another compiled.
+const nodes = new Set<Node>();
+
+function updatePeers(): void {
+  for (const node of nodes)
+    node.peers(
+      [...nodes].filter((other) => other !== node).flatMap((other) => [...other.listening]),
+    );
+}
+
+// A connection a node opened to another node's port: joined to one the
+// page opens there.
+function routePeer(connection: Connection, port: number): boolean {
+  const target = [...nodes].find((node) => node !== connection.node && node.listening.has(port));
+  if (!target) return false;
+  const other = target.connect(port);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    connection.close();
+    other.close();
+  };
+  connection.ondata = (bytes) => other.write(bytes);
+  other.ondata = (bytes) => connection.write(bytes);
+  connection.onend = () => other.end();
+  other.onend = () => connection.end();
+  connection.onclose = close;
+  other.onclose = close;
+  return true;
+}
+
 function nodeServices() {
   return {
+    peer: routePeer,
     serve: { 5432: postgres(database), [HEX_PORT]: hex },
     // make waiting for the backend to build a NIF library (NifBuildDialog).
     onnif: (build: NifBuild) => useStore.getState().setNifBuild(build),
@@ -322,13 +358,20 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
     files,
     ...nodeServices(),
     onoutput: output,
-    onexit: exit,
+    onexit(code) {
+      nodes.delete(node);
+      updatePeers();
+      exit(code);
+    },
     onstatus(text) {
       if (!text.startsWith('failed')) return;
       output(encoder.encode(`${command[0]}: ${text}\n`));
       exit(1);
     },
+    onlistening: updatePeers,
   });
+  nodes.add(node);
+  updatePeers();
   // The port's directory, not the node's own (its PWD came with its env).
   node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
   return node;
@@ -373,12 +416,17 @@ export function openTerminal(initial: string[] = []): number {
         useStore.getState().failedToStart(text.replace(/^failed: /, ''));
       } else useStore.getState().setStatus(text);
     },
-    onlistening: updateListening,
+    onlistening() {
+      updateListening();
+      updatePeers();
+    },
     onterminal(raw) {
       session.discipline.raw(raw);
     },
   });
   sessions.set(id, session);
+  nodes.add(session.node);
+  updatePeers();
   session.node.start({
     shell: true,
     initial,
@@ -392,8 +440,11 @@ export function openTerminal(initial: string[] = []): number {
 
 export function closeTerminal(id: number): void {
   if (id === FIRST_SESSION) return;
-  sessions.get(id)?.node.stop();
+  const node = sessions.get(id)?.node;
+  node?.stop();
+  if (node) nodes.delete(node);
   sessions.delete(id);
+  updatePeers();
   useStore.getState().removeTerminal(id);
   updateListening();
 }
@@ -423,6 +474,7 @@ previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessag
 export async function shutdown(): Promise<void> {
   await files?.flush().catch(() => {});
   for (const session of sessions.values()) session.node.stop();
+  nodes.clear();
   sessions.clear();
   files?.worker.terminate();
   files = null;

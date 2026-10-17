@@ -20,6 +20,8 @@ export const FRAME = {
   OUTPUT: 7,
   EXIT: 8,
   RESIZE: 9,
+  // The ports the project's other nodes listen on (u16s, big-endian).
+  PEERS: 10,
 } as const;
 export const RING = 1 << 20;
 export const CHUNK = 1 << 16;
@@ -139,6 +141,9 @@ export class Node {
   connections: Map<number, Connection>;
   next: number;
   serve: Record<number, (connection: Connection) => void>;
+  // A connection the node opened to a port another node listens on: taken
+  // there (project/lib/playground.ts), or false.
+  peer: (connection: Connection, port: number) => boolean;
   threads: Map<number, Worker[]>;
   worker: Worker;
   channel: FilesChannel | null = null;
@@ -177,7 +182,9 @@ export class Node {
     onlistening = (_port: number, _on: boolean) => {},
     onterminal = (_raw: boolean) => {},
     onnif = (_build: NifBuild) => {},
+    peer = (_connection: Connection, _port: number) => false,
   }) {
+    this.peer = peer;
     this.https = https;
     this.files = files;
     this.listening = new Set();
@@ -303,6 +310,14 @@ export class Node {
   }
 
   // A connection to the node's listener on `port`.
+  // The ports the project's other nodes listen on, which the node may
+  // connect to (peer).
+  peers(ports: number[]): void {
+    const payload = new Uint8Array(ports.length * 2);
+    ports.forEach((port, i) => payload.set([port >> 8, port & 255], i * 2));
+    this.frame(FRAME.PEERS, 0, payload);
+  }
+
   connect(port: number): Connection {
     const id = (this.next += 2);
     const connection = new Connection(this, id);
@@ -357,7 +372,7 @@ export class Node {
       }
       const handler = this.serve[port!];
       if (handler) handler(connection);
-      else connection.close();
+      else if (!this.peer(connection, port!)) connection.close();
     } else if (!connection) {
       return;
     } else if (op === 'data') {

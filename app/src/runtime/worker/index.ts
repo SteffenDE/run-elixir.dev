@@ -212,6 +212,7 @@ onmessage = async ({
           postMessage({ kind: 'listening', port, on, ephemeral }),
       });
       channel.network = network;
+      network.peers = channel.peers;
       channel.interrupted = false;
       if (beam) {
         try {

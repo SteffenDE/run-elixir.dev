@@ -118,7 +118,15 @@ export function startBeam(options: BeamOptions): BeamNode {
   const ticks = new MessageChannel();
   const poll = () => {
     if (!polling) return;
-    c('_emscripten_check_mailbox');
+    try {
+      c('_emscripten_check_mailbox');
+    } catch (error) {
+      // The node exited in a call it proxied: Emscripten unwinds by
+      // throwing (its ExitStatus, or 'unwind'); onExit has run.
+      const name = (error as Error)?.name;
+      if (name !== 'ExitStatus' && error !== 'unwind') throw error;
+      return;
+    }
     ticks.port2.postMessage(null);
   };
   ticks.port1.onmessage = poll;
