@@ -119,13 +119,20 @@ recording runs); the browser's worker runs it when `runtime.json` says
   process id of its own (Emscripten's is always 42; Mix tells nodes apart
   by it).
 
-Status (2026-10-17): the Playwright suite in all three browsers (`SLOW=1`)
-passes but for Firefox's `preview` switch to another endpoint (Playwright's
-Firefox loses the preview frame, which the page sees navigate) and
-`shells` (Ecto's migrator against PGlite's one session, which Rust-OTP
-fails too in WebKit; `postgres.ts` keeps a connection between Parse and
-Sync alone now). `projects` takes `gen_tcp_socket`'s socket as `:gen_tcp.listen`'s
-answer, `bundles` a module no boot image has, `websocket` erts's banner.
+Status (2026-10-17, later): `shells` passes in WebKit too: the page made
+a Postgres handler per node, so the server's and a shell's connections
+never took turns in PGlite's one session, and PGlite's startup reply (a
+view of its buffer) was overwritten before the node read it; both fixed
+in `app/src/runtime` and the project page, for Rust-OTP as well.
+Firefox's endpoint switch was Playwright's: Juggler loses an iframe's
+navigation once the wrapper of the frame's docShell has been collected
+(its observer does not QueryInterface it), which happens within seconds
+on this site; the test looks at the frame just before. A full `SLOW=1`
+run on this site had 150 of 189 tests passed and none failed when it
+was stopped (low memory on the machine); the rest, mostly WebKit's and
+the `domain` project's, did not run. `projects` takes
+`gen_tcp_socket`'s socket as `:gen_tcp.listen`'s answer, `bundles` a
+module no boot image has, `websocket` erts's banner.
 
 ## The network: `socket/`
 
