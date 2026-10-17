@@ -1,8 +1,17 @@
 diff --git a/erts/emulator/nifs/common/prim_tty_nif.c b/erts/emulator/nifs/common/prim_tty_nif.c
-index 4aba419..6a36b65 100644
+index 4aba419..d205338 100644
 --- a/erts/emulator/nifs/common/prim_tty_nif.c
 +++ b/erts/emulator/nifs/common/prim_tty_nif.c
-@@ -136,6 +136,7 @@ typedef struct {
+@@ -70,6 +70,8 @@
+ #endif
+ #ifdef __EMSCRIPTEN__
+ #include <emscripten/emscripten.h>
++/* term.h's capability macro, which the terminal's size below would name. */
++#undef columns
+ #endif
+ 
+ #if defined IOV_MAX
+@@ -136,6 +138,7 @@ typedef struct {
      size_t head;
      size_t size;
      int notified;
@@ -10,7 +19,7 @@ index 4aba419..6a36b65 100644
      int columns;
      int rows;
  } PopcornStdin;
-@@ -143,6 +144,9 @@ typedef struct {
+@@ -143,6 +146,9 @@ typedef struct {
  static PopcornStdin popcorn_stdin;
  
  extern void js_bridge_on_stdin_consumed(int size);
@@ -20,7 +29,7 @@ index 4aba419..6a36b65 100644
  
  static void popcorn_stdin_notify_locked(void) {
      TTYResource *tty = popcorn_stdin.tty;
-@@ -171,8 +175,14 @@ int popcornStdinEnqueue(const unsigned char *data, int size) {
+@@ -171,8 +177,14 @@ int popcornStdinEnqueue(const unsigned char *data, int size) {
      size_t first;
  
      ASSERT(data != NULL && size > 0);
@@ -36,7 +45,7 @@ index 4aba419..6a36b65 100644
  
      tail = (popcorn_stdin.head + popcorn_stdin.size) % POPCORN_STDIN_CAPACITY;
      first = MIN((size_t)size, POPCORN_STDIN_CAPACITY - tail);
-@@ -184,6 +194,18 @@ int popcornStdinEnqueue(const unsigned char *data, int size) {
+@@ -184,6 +196,18 @@ int popcornStdinEnqueue(const unsigned char *data, int size) {
      return 0;
  }
  
@@ -55,7 +64,7 @@ index 4aba419..6a36b65 100644
  EMSCRIPTEN_KEEPALIVE
  int popcornTtyResize(int columns, int rows) {
      TTYResource *tty;
-@@ -191,6 +213,8 @@ int popcornTtyResize(int columns, int rows) {
+@@ -191,6 +215,8 @@ int popcornTtyResize(int columns, int rows) {
      ERL_NIF_TERM message;
  
      ASSERT(columns > 0 && columns <= 65535 && rows > 0 && rows <= 65535);
@@ -64,7 +73,7 @@ index 4aba419..6a36b65 100644
      enif_mutex_lock(popcorn_stdin.lock);
      popcorn_stdin.columns = columns;
      popcorn_stdin.rows = rows;
-@@ -744,11 +768,14 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
+@@ -744,11 +770,14 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
          size_t first;
          size_t consumed;
  
@@ -81,7 +90,7 @@ index 4aba419..6a36b65 100644
          first = MIN(consumed, POPCORN_STDIN_CAPACITY - popcorn_stdin.head);
          memcpy(bin.data, popcorn_stdin.data + popcorn_stdin.head, first);
          memcpy(bin.data + first, popcorn_stdin.data, consumed - first);
-@@ -756,7 +783,7 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
+@@ -756,7 +785,7 @@ static ERL_NIF_TERM tty_read_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
              (popcorn_stdin.head + consumed) % POPCORN_STDIN_CAPACITY;
          popcorn_stdin.size -= consumed;
          res = (ssize_t)consumed;
@@ -90,7 +99,7 @@ index 4aba419..6a36b65 100644
              popcorn_stdin_notify_locked();
          enif_mutex_unlock(popcorn_stdin.lock);
          if (consumed > 0)
-@@ -1231,6 +1258,7 @@ static ERL_NIF_TERM tty_init_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
+@@ -1231,6 +1260,7 @@ static ERL_NIF_TERM tty_init_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM ar
  
  #ifdef __EMSCRIPTEN__
      tty->tty = enif_is_identical(input, atom_raw) ? enabled : disabled;
@@ -98,7 +107,7 @@ index 4aba419..6a36b65 100644
      enif_self(env, &tty->self);
      enif_monitor_process(env, tty, &tty->self, NULL);
      return atom_ok;
-@@ -1377,7 +1405,7 @@ static ERL_NIF_TERM tty_select_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM
+@@ -1377,7 +1407,7 @@ static ERL_NIF_TERM tty_select_nif(ErlNifEnv* env, int argc, const ERL_NIF_TERM
      tty->select_ref = enif_make_copy(tty->select_env, argv[1]);
      enif_self(env, &tty->reader);
      tty->has_reader = 1;

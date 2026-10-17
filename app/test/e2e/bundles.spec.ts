@@ -20,7 +20,8 @@ test('bundles that fail to download at first still load', async ({
   await page.goto('/iex');
   await expect.poll(() => output(page), { timeout: 120_000 }).toContain('iex(1)>');
   await page.locator('.terminal-host:not([hidden])').click();
-  await page.keyboard.type('Enum.sum([1, 2, 3]) + String.length("abc")\n');
+  // :array is in no boot image: its module comes in a bundle.
+  await page.keyboard.type('Enum.sum([1, 2, 3]) + :array.size(:array.new(3))\n');
   await expect.poll(() => output(page), { timeout: 60_000 }).toContain('9');
   expect([...tries.values()].some((count) => count > 2)).toBe(true);
 });

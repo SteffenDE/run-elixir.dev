@@ -36,7 +36,8 @@ test('LiveDashboard connects over the WebSocket', async ({ page }) => {
   await page.locator('.preview-bar input').press('Enter');
   await syncLV(preview(page));
   // Its home page: the system information and limits.
-  await expect(preview(page).getByText('[rust-otp]')).toBeVisible();
+  // The banner names the runtime: Rust-OTP, or OTP's own emulator's erts.
+  await expect(preview(page).getByText(/\[rust-otp\]|\[erts-[\d.]+\]/)).toBeVisible();
   await expect(preview(page).getByText('System limits')).toBeVisible();
   await expect
     .poll(() => page.evaluate(() => /Transport: :websocket/.test(window.playground.output)))

@@ -25,8 +25,10 @@
 #include "atom.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <stdint.h>
 #include <string.h>
+#include <unistd.h>
 #include <emscripten/threading.h>
 
 /* spawn.js: each returns an id, a count or a negative errno. */
@@ -183,8 +185,11 @@ static ErlDrvData spawn_start(ErlDrvPort port, char *name, SysDriverOpts *opts)
     erts_osenv_foreach_native(&opts->envir, &env, add_variable);
     add(&args, "", 0, 0);
     add(&env, "", 0, 0);
-    int id = wasm_spawn_start(program, args.data, args.count, opts->wd ? opts->wd : "",
-                              env.data, env.count);
+    /* Without {cd, Dir}, where the node is (file:set_cwd), as a child
+     * process starts in its parent's directory. */
+    char cwd[PATH_MAX];
+    const char *wd = opts->wd ? opts->wd : getcwd(cwd, sizeof(cwd)) ? cwd : "";
+    int id = wasm_spawn_start(program, args.data, args.count, wd, env.data, env.count);
     erts_free(ERTS_ALC_T_TMP, args.data);
     erts_free(ERTS_ALC_T_TMP, env.data);
     if (id < 0) {

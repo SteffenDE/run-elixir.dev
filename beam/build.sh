@@ -121,19 +121,23 @@ bootstrap() {
 configure_wasm() {
     local stamp="${OTP_DIR}/.stamp-configure"
     local openssl="${ROOT}/out/beam-wasm/openssl"
+    # termcap from ncurses.sh's libtinfo: prim_tty's raw input (IEx's line
+    # editing) needs it.
+    local ncurses="${ROOT}/out/beam-wasm/ncurses"
     if [[ "${MODE}" == debug ]]; then
         export CFLAGS="-O0 -g -pthread"
     else
         export CFLAGS="${OPT} -flto -pthread"
     fi
-    export LDFLAGS="-pthread -flto"
+    CFLAGS+=" -I${ncurses}/include/ncurses -I${ncurses}/include"
+    export LDFLAGS="-pthread -flto -L${ncurses}/lib"
     export ac_cv_func_pthread_create=yes ac_cv_header_pthread_h=yes
     export ac_cv_sizeof_short=2 ac_cv_sizeof_int=4 ac_cv_sizeof_long=4
     export ac_cv_sizeof_long_long=8 ac_cv_sizeof_void_p=4 ac_cv_c_bigendian=no
     # Kept: what projects start or compile with (runtime_tools for
     # phx.new's apps, mnesia for Ash's, parsetools for yecc and leex).
     local without=(common_test diameter edoc eldap eunit ftp jinterface reltool
-        snmp tftp termcap wx debugger dialyzer et megaco observer odbc
+        snmp tftp wx debugger dialyzer et megaco observer odbc
         os_mon ssh javac threadnames dynamic-trace)
     local args=(--host=wasm32-unknown-emscripten
         --build="$("${OTP_DIR}/make/autoconf/config.guess")"
@@ -208,7 +212,7 @@ build() {
     log "wrote ${DIST} (beam.wasm $(du -h "${DIST}/beam.wasm" | cut -f1))"
 }
 
-# An installation to mount: each application's ebin and priv under
+# An installation to mount: each application's ebin, priv and include under
 # otp/lib, without its version (the boot script's paths have none), and the
 # boot script as otp/bin/start.boot.
 install_libs() {
@@ -220,13 +224,16 @@ install_libs() {
         [[ "${name}" == preloaded ]] && name=erts
         mkdir -p "${DIST}/otp/lib/${name}"
         cp -r "${app}ebin" "${DIST}/otp/lib/${name}/"
-        if [[ -d "${app}priv" ]]; then cp -r "${app}priv" "${DIST}/otp/lib/${name}/"; fi
+        for part in priv include; do
+            if [[ -d "${app}${part}" ]]; then cp -r "${app}${part}" "${DIST}/otp/lib/${name}/"; fi
+        done
     done
     mkdir -p "${DIST}/otp/bin"
     cp "${DIST}/vm.boot" "${DIST}/otp/bin/start.boot"
 }
 
 "${HERE}/openssl.sh" -j "${JOBS}"
+"${HERE}/ncurses.sh" -j "${JOBS}"
 checkout_and_patch
 autoconf_once
 bootstrap
