@@ -65,6 +65,9 @@ let projectId: string | null = null;
 // Started on the first connection to 5432; a stored project's is kept in
 // IndexedDB.
 let db: Promise<PGlite> | null = null;
+// Postgres on 5432 for every node: one handler, so that the nodes'
+// connections take turns in PGlite's one session.
+let serveDatabase = postgres(database);
 let nextSession = 1;
 export const FIRST_SESSION = 1;
 // The port the preview shows: Phoenix's, else the first one listened on.
@@ -326,7 +329,7 @@ function routePeer(connection: Connection, port: number): boolean {
 function nodeServices() {
   return {
     peer: routePeer,
-    serve: { 5432: postgres(database), [HEX_PORT]: hex },
+    serve: { 5432: serveDatabase, [HEX_PORT]: hex },
     // make waiting for the backend to build a NIF library (NifBuildDialog).
     onnif: (build: NifBuild) => useStore.getState().setNifBuild(build),
     // The node's HTTPS (ssl to a host name), by the page's fetch().
@@ -481,6 +484,7 @@ export async function shutdown(): Promise<void> {
   const pglite = await db?.catch(() => null);
   await pglite?.close().catch(() => {});
   db = null;
+  serveDatabase = postgres(database);
 }
 
 // A shared project's changes, over this project's template.
