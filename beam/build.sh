@@ -167,8 +167,9 @@ build() {
     flags+=" -sINCOMING_MODULE_JS_API=arguments,wasmMemory,preRun,print,printErr,onExit,onAbort,locateFile,stdin"
     flags+=" -sEXPORTED_RUNTIME_METHODS=ENV,FS,ccall,stringToNewUTF8,lengthBytesUTF8,FS_mkdirTree,FS_createDataFile"
     # popcorn*: patch 0011's and 0017's terminal; emscripten_force_exit
-    # stops a node (Ctrl+C).
-    flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_emscripten_force_exit','_popcornStdinEnqueue','_popcornStdinEof','_popcornTtyResize']"
+    # stops a node (Ctrl+C); _emscripten_check_mailbox runs the calls the
+    # threads proxied (beam/run.ts polls it where waitAsync wakes late).
+    flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_emscripten_force_exit','_popcornStdinEnqueue','_popcornStdinEof','_popcornTtyResize','__emscripten_check_mailbox']"
     flags+=" -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sMALLOC=mimalloc"
     # PROXYFS mounts the playground's tree (app/src/runtime/beam/treefs.ts).
     flags+=" -lproxyfs.js"

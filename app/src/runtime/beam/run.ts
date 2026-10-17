@@ -111,11 +111,23 @@ export function startBeam(options: BeamOptions): BeamNode {
     }
   };
   let size = options.size;
+  // Where Atomics.waitAsync wakes late (WebKit, some 60 ms: each of the
+  // node's file calls took that long), this thread runs what the node's
+  // threads proxied to it on a tick of its own while the node runs.
+  let polling = true;
+  const ticks = new MessageChannel();
+  const poll = () => {
+    if (!polling) return;
+    c('_emscripten_check_mailbox');
+    ticks.port2.postMessage(null);
+  };
+  ticks.port1.onmessage = poll;
 
   const done = new Promise<number>((resolve, reject) => {
     const finish = (status: number) => {
       if (exited) return;
       exited = true;
+      polling = false;
       if (retry) clearTimeout(retry);
       resolve(status);
     };
@@ -191,7 +203,10 @@ export function startBeam(options: BeamOptions): BeamNode {
               step(`changing to ${options.cwd}`, () => FS.chdir(options.cwd));
             },
           ],
-        }).then(() => flush()),
+        }).then(() => {
+          flush();
+          if (lateWaitAsync()) poll();
+        }),
       )
       .catch(reject);
   });
@@ -295,4 +310,11 @@ function nifHost(options: BeamOptions) {
     },
     call: (id: number, request: Uint8Array) => get().call(id, request),
   };
+}
+
+// WebKit's Atomics.waitAsync, which Emscripten waits on for its threads'
+// calls, wakes late (Chromium's and Firefox's do not).
+function lateWaitAsync(): boolean {
+  const agent = globalThis.navigator?.userAgent ?? '';
+  return /AppleWebKit/.test(agent) && !/Chrom(e|ium)|Gecko\/\d/.test(agent);
 }

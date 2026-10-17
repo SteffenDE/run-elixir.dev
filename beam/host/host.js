@@ -2,6 +2,10 @@
 // playground's trees, app/src/runtime/beam/treefs.ts and sharedfs.ts, have
 // a link of their own; Emscripten's file system has none).
 addToLibrary({
+  wasm_host_pid__proxy: 'sync',
+  wasm_host_pid__sig: 'i',
+  wasm_host_pid: () => Module['beamPid'] ?? 1000 + Math.floor(Math.random() * 30000),
+
   wasm_host_linkat__proxy: 'sync',
   wasm_host_linkat__sig: 'iipipi',
   wasm_host_linkat__deps: ['$FS', '$SYSCALLS', '$PATH', '$ERRNO_CODES'],
