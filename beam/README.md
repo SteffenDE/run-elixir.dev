@@ -87,10 +87,16 @@ recording runs); the browser's worker runs it when `runtime.json` says
   to the worker, which must not block while the node runs: it takes the
   page's frames as they come (`Atomics.waitAsync`). WebKit's waitAsync
   wakes some 60 ms late (a node took a minute to start): there the worker
-  runs the proxied calls on a MessageChannel tick while the node runs.
+  runs the proxied calls itself, 8 ms at a time waiting on its pthread's
+  first word (which a thread notifies when it posts a call), then lets the
+  worker's other events in. A tick per check (some 170,000 a second) kept
+  its timers from firing, and WebKit freed the MessageEvents so late that
+  the page passed its 16 GB limit and was killed.
 - **Memory.** On Emscripten `mmap` is malloc, whose heap erts' carriers
-  fragment past any limit (below); each node has a 1 GB super carrier
-  (`-MMscs 1024 -MMsco false`), which Emscripten zero-fills at start.
+  fragment past any limit (below), so the nodes run without erts' own
+  allocators (`+Mea min`): mimalloc takes every allocation. Patch 0022
+  answers `erlang:memory/0,1` then (mimalloc's committed bytes, each
+  process' memory; binaries and ETS tables counted as system).
 - **Files.** PROXYFS mounts the node's tree (`beam/treefs.ts` over
   `wasi/fs.ts`, lazily fetched files and all) at each top directory but
   Emscripten's `/dev` and `/proc`, and `/work` and `/tmp` from files.js
@@ -187,6 +193,27 @@ large lists reproduce it: 1620 MB of wasm memory against 302 MB RSS
 natively. A super carrier keeps carriers in one region erts manages
 itself; Emscripten zero-fills it when it is mapped, so it costs its
 whole size up front.
+
+Without erts' allocators (`+Mea min`) there are no carriers: every block
+is mimalloc's, whose size classes reuse what is freed. Eight tasks
+building and dropping lists and binaries for 2400 rounds (2026-10-17,
+Node, four schedulers):
+
+| Flags | Wasm memory | Time |
+| --- | --- | --- |
+| none | the 4 GB cap within 10 s, then stuck | - |
+| `-MMscs 1024 -MMsco false` | 1147 MB | 128.4 s |
+| one carrier size (`-Musmbcs 8192 -Mulmbcs 8192 -Musbct 4096 -MMmcs 0`) | 777 MB | - |
+| the same with `-sMALLOC=dlmalloc` | 870 MB | - |
+| `-Mea min` | 191 MB | 130.7 s |
+
+In WebKit the playground's `mix test` page (livetest.spec.ts) peaked at
+3.9 GB instead of 7.3 GB; with one carrier size it passed 8.5 GB. Less
+is also safer there: a page process gets 15 shared memories of 4 GB at
+most (the next throws), JSC collects synchronously when a new memory
+would pass its committed-bytes limit, and a node starting during the
+1 GB super carriers' days once hung inside `new WebAssembly.Memory`
+(which of the two is not proven).
 
 Sampled with `perf` (Node `--perf-basic-prof`, a `--profiling-funcs`
 link), the wasm BEAM with patch 0015 and the native interpreter spend

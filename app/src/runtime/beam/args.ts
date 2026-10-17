@@ -8,10 +8,11 @@
 // Emulator flags without a value.
 const BARE = new Set(['+B', '+Bc', '+Bd', '+Bi', '+c', '+d', '+r']);
 
-// The super carrier: on Emscripten `mmap` is malloc, whose heap carriers of
-// changing sizes fragment past any limit; erts places them in this region
-// itself, and outside it once it is full (playground/beam/README.md).
-const EMULATOR = ['-MMscs', '1024', '-MMsco', 'false'];
+// No allocators of erts' own: on Emscripten `mmap` is malloc, whose heap
+// their carriers of changing sizes fragment past any limit, and a super
+// carrier costs its whole size up front (playground/beam/README.md);
+// mimalloc takes each allocation itself.
+const EMULATOR = ['-Mea', 'min'];
 
 export function beamArgs(args: string[], home = '/work'): string[] {
   const emulator = [...EMULATOR];
