@@ -54,6 +54,9 @@ export async function runBeam(run: BeamRun): Promise<number> {
     shared: run.shared,
     network: run.network,
     programs: run.programs,
+    // A port no program listens on (one below Network's ephemeral ones).
+    httpsGateway: 49151,
+    tty: true,
     size: [channel.size[0], channel.size[1]],
     onMode: (raw) => channel.mode(raw),
     stdout: run.stdout,

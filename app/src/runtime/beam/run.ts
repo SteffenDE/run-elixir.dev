@@ -10,6 +10,8 @@
 // while the node runs.
 import type { Dir } from '../wasi/fs';
 import { Process, type Programs } from '../wasi/process';
+import { WASI } from '../wasi';
+import { Nifs } from '../nif';
 import type { Network } from '../wasi/net';
 import type { SharedCall } from '../wasi/shared';
 import { SharedFs } from './sharedfs';
@@ -29,6 +31,12 @@ export interface BeamOptions {
   network: Network;
   // The programs ports run (open_port spawn: playground/beam/host).
   programs?: Programs;
+  // HTTPS by the page's fetch (network.remote.https): ssl connects through
+  // this port of the network (patch 0020, playground/beam/socket).
+  httpsGateway?: number;
+  // Whether standard input is a terminal (IEx then edits its lines in raw
+  // mode); otherwise it is a stream that ends, as a pipe's (node.ts).
+  tty: boolean;
   // The terminal's size, and its mode as the shell sets it.
   size: [columns: number, rows: number];
   onMode?: (raw: boolean) => void;
@@ -115,8 +123,13 @@ export function startBeam(options: BeamOptions): BeamNode {
       .then(({ default: createModule }) =>
         createModule({
           arguments: options.args,
+          // Not a terminal: /dev/stdin a device of its own (prim_tty reads
+          // through Popcorn's buffer either way).
+          ...(options.tty ? {} : { stdin: () => null }),
           wasmMemory: memory,
           beamNetwork: options.network,
+          beamHttpsGateway: options.httpsGateway,
+          beamNifs: nifHost(options),
           beamSocketTrace: options.trace,
           onTtyChunk: (fd: number, chunk: Uint8Array) =>
             (fd === 2 ? options.stderr : options.stdout)(chunk),
@@ -173,6 +186,8 @@ export function startBeam(options: BeamOptions): BeamNode {
                 COLUMNS: String(size[0]),
                 LINES: String(size[1]),
               });
+              if (options.httpsGateway && options.network.remote.https)
+                ENV.PLAYGROUND_HTTPS_GATEWAY = String(options.httpsGateway);
               step(`changing to ${options.cwd}`, () => FS.chdir(options.cwd));
             },
           ],
@@ -249,5 +264,35 @@ function spawn(
       process.closed = true;
       process.onclose?.();
     },
+  };
+}
+
+// NIF libraries built to WebAssembly (playground/beam/host/wasm_nifs.c):
+// each an instance as Rust-OTP's are (nif.ts), with a WASI of their own
+// over the node's files. open answers an id, or why not.
+function nifHost(options: BeamOptions) {
+  let nifs: Nifs | null = null;
+  const get = () => {
+    nifs ??= new Nifs(
+      new WASI({
+        args: ['nif'],
+        env: options.env,
+        root: options.root,
+        stdin: () => new Uint8Array(0),
+        stdout: options.stdout,
+        stderr: options.stderr,
+        sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
+        fetch: options.fs.fetch,
+        shared: options.shared ?? null,
+      }),
+    );
+    return nifs;
+  };
+  return {
+    open(bytes: Uint8Array<ArrayBuffer>): number | string {
+      const text = new TextDecoder().decode(get().create(bytes));
+      return text.startsWith('error ') ? text.slice(6) : Number(text);
+    },
+    call: (id: number, request: Uint8Array) => get().call(id, request),
   };
 }

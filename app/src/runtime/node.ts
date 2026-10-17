@@ -229,6 +229,7 @@ if (beam) {
       const path = `${dir}/nif/${name}-${version}.tar`;
       return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
     }),
+    tty: !!process.env.TTY,
     size: [80, 24],
     onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,
     stdout: (bytes) => process.stdout.write(bytes),

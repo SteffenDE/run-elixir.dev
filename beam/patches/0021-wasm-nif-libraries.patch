@@ -1,0 +1,26 @@
+diff --git a/erts/emulator/beam/erl_nif.c b/erts/emulator/beam/erl_nif.c
+index c61a101..636f7a3 100644
+--- a/erts/emulator/beam/erl_nif.c
++++ b/erts/emulator/beam/erl_nif.c
+@@ -4774,9 +4774,18 @@ Eterm erts_load_nif(Process *c_p, ErtsCodePtr I, Eterm filename, Eterm args)
+     }
+ #ifdef __EMSCRIPTEN__
+     if (!is_static) {
+-        ret = load_nif_error(c_p, "load_failed",
+-                             "Dynamic loading is not supported in browser");
+-        goto error;
++        /* A NIF library built to WebAssembly, as the playground has them
++         * (nifs/wasm/wasm_nifs.c): an entry of its own making, taken as a
++         * static one's. */
++        extern ErlNifEntry *erts_wasm_nif_entry(Process *, const char *, Eterm,
++                                                char *, size_t);
++        char why[512];
++        entry = erts_wasm_nif_entry(c_p, lib_name, args, why, sizeof(why));
++        if (entry == NULL) {
++            ret = load_nif_error(c_p, "load_failed", "%s", why);
++            goto error;
++        }
++        is_static = 1;
+     }
+ #endif
+     this_mi = &module_p->curr;

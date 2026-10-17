@@ -78,11 +78,61 @@ addToLibrary({
     return beamSocketConnection(endpoint);
   },
 
+  // HTTPS by the page's fetch (the playground's ssl, patch 0020): a
+  // connection to Module.beamHttpsGateway names its host and port in its
+  // first line, then is the page's HTTPS connection there (Network.https),
+  // over which the node writes plain HTTP.
+  $beamHttpsGateway: (network) => {
+    let real = null;
+    let failed = false;
+    let head = new Uint8Array(0);
+    const gateway = {
+      notify: null,
+      get inbox() {
+        return real ? real.inbox : [];
+      },
+      get eof() {
+        return failed || (real ? real.eof : false);
+      },
+      take: (max) => (real ? real.take(max) : new Uint8Array(0)),
+      peer: {
+        send(bytes) {
+          if (real) return real.peer.send(bytes);
+          const joined = new Uint8Array(head.length + bytes.length);
+          joined.set(head);
+          joined.set(bytes, head.length);
+          const newline = joined.indexOf(10);
+          if (newline < 0) {
+            head = joined;
+            return;
+          }
+          const target = new TextDecoder().decode(joined.subarray(0, newline)).trim();
+          const at = target.lastIndexOf(':');
+          real = network.https(target.slice(0, at), Number(target.slice(at + 1)));
+          if (!real) {
+            failed = true;
+            gateway.notify?.();
+            return;
+          }
+          real.notify = () => gateway.notify?.();
+          const rest = joined.subarray(newline + 1);
+          if (rest.length) real.peer.send(rest);
+        },
+        end: () => real?.peer.end(),
+        close: () => real?.peer.close(),
+      },
+    };
+    return gateway;
+  },
+
   wasm_socket_connect__proxy: 'sync',
   wasm_socket_connect__sig: 'ii',
-  wasm_socket_connect__deps: ['$beamSocketConnection'],
+  wasm_socket_connect__deps: ['$beamSocketConnection', '$beamHttpsGateway'],
   wasm_socket_connect: (port) => {
-    const endpoint = Module['beamNetwork']?.connect(port);
+    const network = Module['beamNetwork'];
+    if (network?.remote.https && port === Module['beamHttpsGateway'])
+      return beamSocketConnection(beamHttpsGateway(network));
+    const endpoint = network?.connect(port);
     if (!endpoint) return -14;
     return beamSocketConnection(endpoint);
   },
