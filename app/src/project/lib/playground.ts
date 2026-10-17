@@ -350,6 +350,9 @@ function nodeServices() {
   };
 }
 
+// The nodes for commands nodes ran, and their command lines (for debug()).
+const commands = new Map<Node, string>();
+
 // A node for one command a node ran (sh, rebar3), in its own worker.
 const startNode: StartNode = (command, { cwd, env }, output, exit) => {
   if (!files) {
@@ -363,6 +366,7 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
     onoutput: output,
     onexit(code) {
       nodes.delete(node);
+      commands.delete(node);
       updatePeers();
       exit(code);
     },
@@ -374,6 +378,7 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
     onlistening: updatePeers,
   });
   nodes.add(node);
+  commands.set(node, command.join(' '));
   updatePeers();
   // The port's directory, not the node's own (its PWD came with its env).
   node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
@@ -599,6 +604,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       debug: () => ({
         bridge: bridge?.debug(),
         nodes: Object.fromEntries([...sessions].map(([id, s]) => [id, s.node.debug()])),
+        commands: [...commands].map(([node, command]) => ({ command, ...node.debug() })),
       }),
     },
   });
