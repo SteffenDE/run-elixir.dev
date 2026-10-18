@@ -308,9 +308,21 @@ from the others':
   IDE's page stood for while it was the preview's origin);
 - the preview is another origin than the IDE's, so the injected script
   tells the IDE where the preview's first frame is (`playground-location`:
-  its path and port, as it loads and as it navigates), and reloads its
-  stylesheets when asked (`playground-css`); `PreviewFrame` follows the
-  frame to a port it went to by itself.
+  its path and port, as it loads and as it navigates, addressed to the
+  IDE's origin so that a frame of the app's own tells its parent nothing),
+  and reloads its stylesheets when asked (`playground-css`);
+  `PreviewFrame` follows the frame to a port it went to by itself;
+- a preview document's request to another of the project's port origins
+  (a `fetch` there goes to the network, not to that origin's service
+  worker) is answered by its own origin's service worker, through its
+  relay, from that port: the request stays cross-origin, so the app's
+  CORS answers it (Livebook fetches its iframe page from 8081 to check
+  its checksum);
+- the scripts go into documents only (`destination` document, iframe or
+  frame), not into HTML fetched as data;
+- every node has `PLAYGROUND_PREVIEW_ORIGIN` (the origins, with `{port}`)
+  and `LIVEBOOK_IFRAME_URL` (Livebook 0.19's iframe page on 8081's
+  origin; another version of it sets its own).
 
 Without a project domain (and in Safari's one-origin fallback, and a live
 session's guest), the preview stays the page's origin and shows one port

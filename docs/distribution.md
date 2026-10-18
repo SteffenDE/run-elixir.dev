@@ -140,19 +140,28 @@ took, beyond distribution:
   output, and the last that ended: Livebook's runtime's output goes
   nowhere else.
 
-Not yet: Livebook's iframe endpoint (8081, JavaScript outputs such as
-Kino's) in the preview, which shows one port; `Mix.install` in a notebook
-(Hex through the page, as `mix deps.get`); NIF packages notebooks ask for
-(the backend's builds); memory with two nodes (not measured).
+**As a user installs it** (Playwright's `livebook-domain`, `@slow`, about
+3 minutes in Chromium): `mix escript.install hex livebook 0.19.10` builds
+it in the tab (about 2 minutes), `livebook server` is a command (an
+escript on `PATH`: `$MIX_HOME/escripts` is on it, and the shell and a
+port's program run an escript found there), `Mix.install([:kino])` in the
+setup cell builds Kino on the standalone runtime, and a `Kino.HTML`
+output shows in Livebook's iframe endpoint, its port (8081) on an origin
+of its own on the project domain (runtime.md, *a preview origin per
+port*; `LIVEBOOK_IFRAME_URL` from the page).
 
-The way there: a Livebook project kind, like Phoenix's, with Livebook in
-the template (its escript, or its app built at build time), its server
-started on open with the preview on 8080, and notebooks on the
-standalone runtime.
+Not yet: NIF packages notebooks ask for (the backend's builds); `sh -c`
+with `rm` and the shell's other file commands (rebar3 removes its plugins'
+directories that way; their plugins then do not load, which the build
+survives); memory with two nodes (not measured); without a project
+domain, Kino's outputs (the preview is one origin there).
+
+No Livebook project kind (2026-10-18): what people use Livebook for
+(Nx, EXLA, Explorer) needs native code the playground does not build,
+Livebook is easy to have elsewhere, and installing it as above works.
 
 ## Estimate (what is left)
 
 | Step | Work |
 | --- | --- |
-| A Livebook kind (its escript in the build, the server started on open, the preview on 8080) | 1 day |
-| The iframe endpoint in the preview (Kino's outputs), `Mix.install` in a notebook | 1–3 days |
+| `rm` and the other file commands in `sh -c` | ½ day |
