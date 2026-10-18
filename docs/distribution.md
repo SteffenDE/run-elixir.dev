@@ -11,7 +11,7 @@ terminal and `Node.connect(:a@localhost)` in another, and the reason to
 want it, Livebook, whose server is one node and whose notebooks run in a
 second (its standalone runtime) that connects back.
 
-## Where it stands (2026-10-18, branch `dist-poc`)
+## The proof of concept (2026-10-18)
 
 Two nodes on the Emscripten BEAM, two emulators in one Node process over
 one `Network` (`beam-node.ts` with `---` between their arguments), connect
@@ -49,27 +49,40 @@ What it took:
   host `nohost` (its inet driver UDP socket fails). Both say `localhost`
   now, so `-sname a` is `a@localhost`. (`build.sh` compiles `prim_net`
   as a preloaded module of the patch stack's now.)
-- **No epmd.** A node's port comes from its name (`beam/dist/
-  playground_epmd.erl`, `-epmd_module playground_epmd`): the PoC's way,
-  not the playground's (below).
+- **epmd.** At first a node's port came from its name (an
+  `-epmd_module` of the PoC's); the page's epmd (below) replaced it.
 
-## For the playground
+## In the playground (built)
 
-1. **The flags on every node** (`beam/args.ts`): `-proto_dist inet_epmd
-   -inet_epmd socket` beside `-kernel inet_backend socket`, which it has.
-   A node without `-sname`/`-name` is not distributed and pays nothing.
-2. **epmd on the page.** The project's nodes are workers whose ports the
-   page connects (`playground.ts` routes a connection to whichever node
-   listens on the port, ephemeral ones included). An epmd server there,
-   on port 4369 as `serve` already gives PGlite 5432, answers
-   `ALIVE2_REQ`, `PORT_PLEASE2_REQ` and `NAMES_REQ` for all of them, so
-   OTP's own `erl_epmd` works unchanged, and so does every custom epmd
-   module that falls back to it (Livebook's). `playground_epmd` then goes.
-3. **Tests:** the Node harness's two nodes (above, as a check job), and a
-   Playwright test with two terminals, `iex --sname a` and `iex --sname
-   b`, `Node.ping(:a@localhost)`: across workers, through the page.
-4. **Size and speed:** `beam.wasm` with `dist.c` live again and kernel's
-   distribution modules; node start without `-sname` unchanged.
+- **The flags on every node** (`beam/args.ts`): `-proto_dist inet_epmd
+  -inet_epmd socket` beside `-kernel inet_backend socket`. A node without
+  `-sname` or `-name` is not distributed and pays nothing.
+- **bin/elixir's options in the shell** (`worker/index.ts` launcher):
+  `--sname`, `--name`, `--cookie`, `--hidden`, `--erl "…"`, `--boot`,
+  `--erl-config`, `--logger-*-reports`, read up to the first argument that
+  is none, as bin/elixir reads them, so `iex --sname a` (and Livebook's
+  `elixir --erl … --hidden --cookie … --eval …`) start distributed.
+- **epmd on the page** (`app/src/runtime/epmd.ts`), on 4369 for every
+  node as `serve` gives PGlite 5432: `ALIVE2_REQ` (a name is registered
+  while its connection lasts), `PORT_PLEASE2_REQ` and `NAMES_REQ`. OTP's
+  own `erl_epmd` asks it, as would every custom epmd module that falls
+  back to it (Livebook's). The page routes a connection to whichever node
+  listens on the port, so a node in one worker reaches another's. A
+  stopped node's connections end on the page (`Node.stop`), so its name
+  goes and its peers see `nodedown`.
+- **One cookie for the project's nodes**: the page's `PLAYGROUND_COOKIE`
+  (random per page), given as `-setcookie` to a node whose command line
+  names none. `auth` would make `~/.erlang.cookie` and insist on its
+  mode, which the node's files do not keep (their modes are fixed and
+  `chmod` does nothing).
+- **Tests:** `beam/dist/two-nodes.sh` (the Node harness, its epmd the
+  page's) and Playwright's `distribution` (two shells, Chromium, Firefox
+  and WebKit, about 9 s each).
+- **Size:** `beam.wasm` 5,167,786 bytes, 44 KB (0.9 %) more than without
+  distribution (17 KB gzipped); `boot.tar.gz` 45 KB more.
+
+Not yet: `iex --remsh` and `--rpc-eval` (Elixir's CLI has them; untried),
+long names other than at `127.0.0.1`, file modes.
 
 ## Livebook
 
@@ -80,8 +93,7 @@ What Livebook (0.19.10) needs, from its source:
   `-epmd_module Elixir.Livebook.Runtime.EPMD` and the parent's port in its
   arguments, and reports its own port back by message. Both delegate the
   rest to `:erl_epmd` and take a failed registration as fine. So the
-  playground must not set `-epmd_module` itself: epmd on the page (2.)
-  fits, a playground-wide `playground_epmd` would not.
+  playground sets no `-epmd_module` of its own: its epmd is the page's.
 - **Long names at 127.0.0.1** (`livebook_…@127.0.0.1`), which the hosts
   file and the carrier take.
 - **A child node by `Port.open({:spawn_executable, elixir}, …)`**: the
@@ -101,14 +113,9 @@ emulator and memory; not measured yet), Livebook's file system (`/work`), its
 Mix.install in notebooks (Hex through the page, as `mix deps.get`), and
 NIF packages notebooks ask for (the backend's builds).
 
-## Estimate
+## Estimate (what is left)
 
 | Step | Work |
 | --- | --- |
-| Patches (0004 gone, 0023), the release build, the full test suite on it | ½ day |
-| Flags on every node, epmd on the page, the two tests | 1–2 days |
 | Livebook running in a project by hand (fetch, compile, `livebook server`, a notebook on the standalone runtime) and what that turns up | 2–4 days |
 | A Livebook kind with a prebuilt template | 1–2 days |
-
-About one to two weeks to Livebook as a project kind; distribution for
-`iex --sname` shells alone, two to three days.

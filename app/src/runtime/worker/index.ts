@@ -92,19 +92,90 @@ const ELIXIR = [
   'path',
   '<<"/usr/bin/tailwind">>',
 ];
+// bin/elixir's options, up to the first argument that is none: those for
+// erl (--sname a, --cookie c, --hidden, --erl "flags", …) as erl's, and
+// the others, with what follows, for Elixir's CLI.
+const ELIXIR_TAKES: Record<string, number> = {
+  '+elixirc': 0,
+  '+iex': 0,
+  '-v': 0,
+  '--no-halt': 0,
+  '--color': 0,
+  '--no-color': 0,
+  '-e': 1,
+  '-r': 1,
+  '-pr': 1,
+  '-pa': 1,
+  '-pz': 1,
+  '--eval': 1,
+  '--remsh': 1,
+  '--dot-iex': 1,
+  '--dbg': 1,
+  '--rpc-eval': 2,
+};
+function launcher(args: string[]): { erl: string[]; cli: string[] } {
+  const erl: string[] = [];
+  const cli: string[] = [];
+  let i = 0;
+  while (i < args.length) {
+    const [arg, value] = [args[i], args[i + 1]];
+    if (arg in ELIXIR_TAKES) {
+      cli.push(...args.slice(i, i + 1 + ELIXIR_TAKES[arg]));
+      i += 1 + ELIXIR_TAKES[arg];
+    } else if (arg === '--hidden') {
+      erl.push('-hidden');
+      i += 1;
+    } else if (arg === '--erl' && value !== undefined) {
+      erl.push(...words(value));
+      i += 2;
+    } else if ((arg === '--sname' || arg === '--name') && value !== undefined) {
+      erl.push(arg.slice(1), value);
+      i += 2;
+    } else if (arg === '--cookie' && value !== undefined) {
+      erl.push('-setcookie', value);
+      i += 2;
+    } else if (arg === '--boot' && value !== undefined) {
+      erl.push('-boot', value);
+      i += 2;
+    } else if (arg === '--erl-config' && value !== undefined) {
+      erl.push('-config', value);
+      i += 2;
+    } else if (
+      (arg === '--logger-otp-reports' || arg === '--logger-sasl-reports') &&
+      value !== undefined
+    ) {
+      if (value === 'true' || value === 'false')
+        erl.push('-logger', `handle_${arg.slice(9, -8)}_reports`, value);
+      i += 2;
+    } else break;
+  }
+  return { erl, cli: [...cli, ...args.slice(i)] };
+}
+
+// The project's cookie (PLAYGROUND_COOKIE, from the page) for a node whose
+// command line names none, so that the project's nodes connect.
+function cookie(argv: string[], env: Record<string, string>): string[] {
+  const project = env.PLAYGROUND_COOKIE;
+  return project && !argv.includes('-setcookie') ? ['-setcookie', project] : [];
+}
+
 function command(name: string, args: string[]): string[] | null {
   switch (name) {
     case 'erl':
       return args;
-    case 'elixir':
-      return [...ELIXIR, '-s', 'elixir', 'start_cli', '-extra', ...args];
-    case 'mix':
-      return [...ELIXIR, '-s', 'elixir', 'start_cli', '-extra', '/rotp/bin/mix', ...args];
+    case 'elixir': {
+      const { erl, cli } = launcher(args);
+      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', ...cli];
+    }
+    case 'mix': {
+      const { erl, cli } = launcher(args);
+      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', '/rotp/bin/mix', ...cli];
+    }
     case 'iex': {
+      const { erl, cli } = launcher(args);
       // iex -S mix ARGS runs Mix's script under IEx.
-      const rest =
-        args[0] === '-S' && args[1] === 'mix' ? ['/rotp/bin/mix', ...args.slice(2)] : args;
-      return [...ELIXIR, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
+      const rest = cli[0] === '-S' && cli[1] === 'mix' ? ['/rotp/bin/mix', ...cli.slice(2)] : cli;
+      return [...ELIXIR, ...erl, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
     }
     case 'escript':
       if (!args.length) return null;
@@ -199,7 +270,7 @@ onmessage = async ({
       try {
         return await runBeam({
           module: runtime('beam.mjs').href,
-          argv: ['+S', String(SCHEDULERS), ...argv],
+          argv: ['+S', String(SCHEDULERS), ...cookie(argv, env), ...argv],
           env: { ...ENV, ...env, PWD: cwd },
           cwd,
           root,

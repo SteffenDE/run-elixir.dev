@@ -72,6 +72,12 @@ let serveDatabase = postgres(database);
 // epmd on 4369 for every node: the project's node names and their
 // distribution ports (docs/distribution.md).
 let serveNames = serveEpmd(new EpmdRegistry());
+// The project's nodes' cookie (worker/index.ts gives it to a node whose
+// command line names none): auth would keep one in ~/.erlang.cookie, but
+// the node's files have no modes to keep it private with.
+const COOKIE = Array.from(crypto.getRandomValues(new Uint8Array(15)), (byte) =>
+  String.fromCharCode(65 + (byte % 26)),
+).join('');
 let nextSession = 1;
 export const FIRST_SESSION = 1;
 // The port the preview shows: Phoenix's, else the first one listened on.
@@ -446,7 +452,7 @@ export function openTerminal(initial: string[] = []): number {
     initial,
     cwd: setup.cwd,
     boots: setup.boots,
-    env: hexEnv,
+    env: { ...hexEnv, PLAYGROUND_COOKIE: COOKIE },
   });
   useStore.getState().addTerminal(id);
   return id;
