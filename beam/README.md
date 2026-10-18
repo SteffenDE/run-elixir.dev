@@ -1,9 +1,9 @@
-# Real BEAM in WebAssembly (experiment)
+# Real BEAM in WebAssembly
 
-An experiment on branch `sd-beam`: OTP's own emulator (erts) built with
-Emscripten, as the playground's runtime beside Rust-OTP
-(`runtime/`). A site is built for one of them
-(`PLAYGROUND_RUNTIME=otp`, below); Rust-OTP stays the default.
+OTP's own emulator (erts) built with Emscripten: the playground's runtime
+(`runtime/`, below). It began as an experiment beside Rust-OTP (beamos's
+branch `sd-beam`), which the playground ran before (the `rotp` branch);
+comparisons with Rust-OTP below are from then.
 
 ## Provenance
 
@@ -69,19 +69,18 @@ No `-O2` in a tree's path: erts' `zlib.mk` rewrites it in CFLAGS.
 
 ## In the playground
 
-    PLAYGROUND_RUNTIME=otp python3 -I runtime/build.py
-    PLAYGROUND_RUNTIME=otp python3 -I runtime/build.py app
+    python3 -I runtime/build.py
+    python3 -I runtime/build.py app
 
 `build.py` builds the site for this BEAM: `beam.mjs`, `beam.emu.mjs` and
-`beam.wasm` in place of `rotp*.wasm`, `runtime.json` naming the runtime,
-and an installation laid out as Rust-OTP's, at `/rotp` in the node
-(`target/otp`: OTP from the dist, the host's Elixir, Hex and phx_new
-archives and rebar3). The template is built by the host's Mix
-(`_build_otp`, in `target/cache-otp`); the boot images are
-recorded on this BEAM. `node.ts` runs such a site under Node (the
-recording runs); the browser's worker runs it when `runtime.json` says
-`otp` (`worker/beam.ts`). Both go through `app/src/runtime/beam/run.ts`;
-`beam/args.ts` turns erl's arguments into the emulator's.
+`beam.wasm`, and an installation laid out as Rust-OTP's was, at `/rotp`
+in the node (`target/otp`: OTP from the dist, the host's Elixir, Hex and
+phx_new archives and rebar3). The template is built by the host's Mix
+(`_build_otp`, in `target/cache-otp`); the boot images are recorded on
+this BEAM. `node.ts` runs the site under Node (the recording runs); the
+browser's worker runs it (`worker/beam.ts`). Both go through
+`app/src/runtime/beam/run.ts`; `beam/args.ts` turns erl's arguments into
+the emulator's.
 
 - **Threads.** The module's main thread is the node's worker; erts' threads
   are its pthreads, and each file and network call they make is proxied
@@ -109,12 +108,12 @@ recording runs); the browser's worker runs it when `runtime.json` says
   so). HTTPS: `ssl:connect` connects to a gateway port whose first line
   names the host; the page answers its plain HTTP with fetch (patch 0020).
 - **Ports.** `host/wasm_spawn.c` runs the playground's programs
-  (`spawn.js`, the host's `Module.beamSpawn` over Rust-OTP's `Process`
-  and programs); `{spawn, Command}` is `/bin/sh -c`. Output and exit come
+  (`spawn.js`, the host's `Module.beamSpawn` over the playground's
+  `Process` and programs, `wasi/process.ts`); `{spawn, Command}` is `/bin/sh -c`. Output and exit come
   through a ring to the driver's event thread, which asks `erl_init`'s
   `wasm_port_pump` to `port_control` the port, where they are delivered.
 - **NIFs.** A library built to WebAssembly by `nif/` (wasi-sdk,
-  `beamos_nif.c`) runs as with Rust-OTP: an instance of its own (`nif.ts`),
+  `beamos_nif.c`) runs in an instance of its own (`nif.ts`),
   external terms both ways. `host/wasm_nifs.c` makes its entry from its
   answer to `load`; every function is one proxy, which finds its function
   by the process's current MFA.

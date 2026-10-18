@@ -1,15 +1,16 @@
 # Elixir Playground
 
-Elixir in the browser: Rust-OTP (`crates/rotp`) compiled to `wasm32-wasip1`,
-booting OTP and Elixir from an in-memory filesystem in Web Workers. One
-site (elixir-playground.steffend.me) with projects kept in the browser:
-Phoenix projects (a `phx.new` app, its server, PGlite, Tailwind on the
-page), empty projects, and a temporary IEx.
+Elixir in the browser: OTP's own emulator built to WebAssembly with
+Emscripten (`beam/`), booting OTP and Elixir from an in-memory filesystem
+in Web Workers. One site (elixir-playground.steffend.me) with projects
+kept in the browser: Phoenix projects (a `phx.new` app, its server,
+PGlite, Tailwind on the page), empty projects, and a temporary IEx.
 
 - `app/`: the site's page, a React app (home page, project IDE) built with
-  Vite, its runtime (`app/src/runtime`: the WASI shim, workers, shared
+  Vite, its runtime (`app/src/runtime`: the node's tree, workers, shared
   files and their storage, the service worker, bridges), and its
   Playwright tests (`app/test/e2e`).
+- `beam/`: the emulator's build (OTP's erts with our patches).
 - `runtime/`: the site's build (`build.py`) and a server for it
   (`serve.py`).
 - `nif/`: an erl_nif for NIF libraries built to WebAssembly, and the

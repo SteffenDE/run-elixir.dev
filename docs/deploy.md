@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-18
 ---
 
 # Deploying the site
@@ -10,8 +10,9 @@ The site is static. A push to the `deploy` branch builds it on a
 Forgejo runner and makes it live on the server as a new release
 (`.forgejo/workflows/deploy.yml`, `deploy/`):
 
-1. **Build** (`build-site.sh`): the native Rust-OTP install, the NIF
-   libraries, then the site, with `PLAYGROUND_DOMAIN` from the
+1. **Build** (`build-site.sh`): the NIF libraries, then the site with
+   the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.1 and
+   Elixir 1.20.4), with `PLAYGROUND_DOMAIN` from the
    repository's variables.
 2. **Upload** (`upload.sh SITE user@host`): the server seeds
    `releases/RID.partial` with the live release's files, hard-linked, and
@@ -20,12 +21,12 @@ Forgejo runner and makes it live on the server as a new release
    file (rsync renames it into place), so the live release is never
    written to.
 3. **Activate** (`playground-deploy activate RID`, on the server): the
-   release must hold the pages, its build's `rotp.wasm`, `worker.js` and
+   release must hold the pages, its build's `beam.wasm`, `worker.js` and
    `fs/`, and a `playground.json` naming `DOMAIN`. It keeps the builds of
    the newest `KEEP_BUILDS` releases (`b/ID/`, for pages loaded before),
    then `current` is pointed at it in one rename. The site is checked as
    served (the isolation headers, the page naming this build, its
-   `rotp.wasm` as WebAssembly, `sw.js` no-cache); if that fails, the
+   `beam.wasm` as WebAssembly, `sw.js` no-cache); if that fails, the
    previous release is live again and the deploy fails. Then Cloudflare
    drops its copies of the pages, and releases beyond `KEEP_RELEASES` go.
 
@@ -75,7 +76,7 @@ installs what is missing (QEMU, `cloud-localds`, rsync and rrsync), then:
   KVM, Ubuntu 24.04's cloud image (checked against its `SHA256SUMS`) under
   a qcow2 disk of `RUNNER_DISK`, and user-mode networking, so the host's
   network is not changed. Its first boot (cloud-init) runs
-  `runner/provision.sh`: Docker, rustup with the wasm targets, mise with the
+  `runner/provision.sh`: Docker, emsdk 6.0.2, mise with the
   repository's Erlang and Elixir, and forgejo-runner (13.2.0, checked
   against its digest) running as a service as that runner, with the label
   `beamos-build:host`. The VM reaches this machine's sshd at `10.0.2.2`,
@@ -102,7 +103,8 @@ Another runner needs the label `beamos-build` with the host executor
 `DOCKER`) and needs the repository's toolchain on the runner's user, as
 `runner/provision.sh` installs it. It builds in a checkout of its own
 that it keeps (`DEPLOY_BUILD_DIR`, default `~/run-elixir.dev-deploy`), so
-`target/` stays warm between deploys. It reaches the server through the
+`target/` and `out/` (the BEAM's build, the template) stay warm between
+deploys. It reaches the server through the
 repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 `DEPLOY_SSH_KEY` (the private key) and `DEPLOY_KNOWN_HOSTS` (the server's
 `ssh-keyscan` line).
@@ -139,13 +141,13 @@ that caches more.
 - **The service worker at the site's root.** `/sw.js` controls the scope
   `/`. Serve it with `Cache-Control: no-cache`, so that an update reaches
   browsers.
-- **Compression.** `rotp.wasm`, the JavaScript and the bundles (`.tar`,
+- **Compression.** `beam.wasm`, the JavaScript and the bundles (`.tar`,
   uncompressed on purpose: the node reads them synchronously) should be
   compressed in transit. `fs/boot.tar.gz` is gzipped already. Caddy does not
   compress `application/x-tar` or `application/wasm` by default.
 - **Caching.**
   - `_playground/` (the IDE's Vite assets) is content-hashed, and `b/ID/`
-    (the runtime's JavaScript, `rotp*.wasm`, `fs/`, `nif/`) is named by a
+    (the runtime's JavaScript, `beam*`, `fs/`, `nif/`) is named by a
     digest of its contents ([build.md](build.md#what-the-site-is)): both
     can be cached for good.
   - The pages (`index.html`, `preview.html`, `registry.html`,

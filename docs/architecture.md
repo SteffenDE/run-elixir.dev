@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-14
+last_updated: 2026-10-18
 ---
 
 # Architecture
@@ -14,7 +14,7 @@ several projects (one tab per project, [projects.md](projects.md)).
 ```
  project page (React IDE, app)
  ├─ host/ Node ────────────────► worker.js  (one per shell / terminal tab)
- │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi/
+ │    frames in a SharedArrayBuffer ring;      the Emscripten BEAM
  │    messages back                            its own /rotp, /dev, /usr
  ├─ host/ Files ───────────────► files.js   (one; runs no node)
  │    messages                                 /work and /tmp, shared;
@@ -31,43 +31,35 @@ several projects (one tab per project, [projects.md](projects.md)).
 
 ## The node
 
-A node is one Rust-OTP instance: `rotp.wasm` instantiated in a Web Worker
-(`src/runtime/worker/`) with the WASI imports from `src/runtime/wasi/`. The node
-sees an ordinary filesystem, TCP, child processes, a clock, random bytes and a
-terminal. All of them are the shim's.
+A node is one Emscripten BEAM: OTP's erts built with Emscripten
+(`beam.mjs`, `beam.emu.mjs`, `beam.wasm`; [../beam/README.md](../beam/README.md)),
+loaded in a Web Worker (`src/runtime/worker/`, `src/runtime/beam/`). The
+node sees an ordinary filesystem (PROXYFS over the worker's tree), TCP,
+child processes, a clock, random bytes and a terminal.
 
-- **Schedulers in workers of their own.** Where the page is cross-origin
-  isolated and a shared memory of up to 4, 2 or 1 GiB can be had, the
-  worker loads `rotp-threads.wasm` (`wasm32-wasip1-threads`) and runs the
-  node with as many schedulers as the machine has cores, at most four.
-  The worker then runs no WebAssembly: it keeps the WASI state and serves
-  the threads' calls (`src/runtime/threads.ts`), and the page starts a worker
-  for each thread (`src/runtime/thread.ts`), since a worker busy serving could
-  not start them; the page stops them when the node ends. Elsewhere, or
-  when `rotp-threads.wasm` does not load, the worker runs `rotp.wasm` with
-  one scheduler itself. Chromium before 157 (V8 before 15.7) checks
-  `memory.copy`'s bounds against a size of the memory each thread learns
-  late after another grew it; rotp's allocator (`crates/thread-cache`)
-  brings the thread up to date for a block it hands out.
-- **A busy worker.** The worker is busy for as long as the node runs. Its
-  event loop does not turn. Everything that must reach a running node goes
-  through shared memory: input, network data, interrupts and the output of
-  page programs. The worker reads it whenever the node polls, sleeps or
-  reads the clock (a threaded node's host, at least every 5 ms).
+- **Threads of its own.** The emulator runs `PROXY_TO_PTHREAD`: its
+  schedulers (as many as the machine has cores, at most four: `+S`) and
+  its other threads are Emscripten's workers on one shared memory (up to
+  4, 2 or 1 GiB, as can be had). The node's worker is the module's main
+  thread: every file and network call the threads make is proxied to it,
+  so it never blocks while the node runs. It takes the page's frames as
+  they come (`Atomics.waitAsync` on the ring's write count); where that
+  wakes late (WebKit), it runs the proxied calls in 8 ms slices.
 - **The shell.** A worker runs a small shell. `elixir`, `iex`, `mix` and `erl`
-  each start a fresh instance of the compiled module, as a Unix shell starts
-  processes; `cd`, `ls`, `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are
-  builtins. A line ending in `\` goes on in the next, as in sh. Ctrl+C
-  makes the next poll throw out of the instance.
-- **One node per worker.** A worker cannot interleave two nodes, so each
+  each start a fresh node, as a Unix shell starts processes; `cd`, `ls`,
+  `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are builtins. A line
+  ending in `\` goes on in the next, as in sh. Ctrl+C stops the node
+  (status 130).
+- **One node per worker.** A worker runs one node at a time, so each
   terminal tab is a worker of its own.
-- **NIFs.** A NIF library built to WebAssembly runs beside the node, in its
-  worker, in an instance of its own; the node reaches it through `/.nif`
-  files, in external terms ([nif.md](nif.md)).
+- **NIFs.** A NIF library built to WebAssembly runs beside the node, on
+  the worker's thread, in an instance of its own; erts reaches it through
+  one proxy NIF, in external terms ([nif.md](nif.md)).
 
 ## Files
 
-- **`/rotp`** is the Rust-OTP installation (OTP, Elixir, Mix, Hex, phx_new).
+- **`/rotp`** is the installation (OTP, Elixir, Mix, Hex, phx_new; the
+  name is Rust-OTP's).
   Every worker has its own copy: its project kind's boot images unpacked
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
   on first use (see [build.md](build.md)).
@@ -164,7 +156,7 @@ The Node harness keeps a stub that answers only the lock check.
 
 ## Programs
 
-When the node spawns a program (`open_port`, `System.cmd`), the shim runs a
+When the node spawns a program (`open_port`, `System.cmd`), the worker runs a
 JavaScript one instead:
 
 - **In the worker, synchronously:** `git`, as far as Mix asks a git

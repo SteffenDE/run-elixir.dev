@@ -1,14 +1,14 @@
 ---
 kind: index
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # Playground documentation
 
-The Elixir Playground runs Rust-OTP (`crates/rotp`), compiled to
-`wasm32-wasip1`, in the browser: OTP 29 and Elixir 1.20 boot in Web Workers
-from an in-memory filesystem. One static site
+The Elixir Playground runs OTP's own emulator, built to WebAssembly with
+Emscripten (`beam/`), in the browser: OTP 29 and Elixir 1.20 boot in Web
+Workers from an in-memory filesystem. One static site
 (`app`, its runtime in `src/runtime`; elixir-playground.steffend.me)
 holds every project:
 
@@ -32,9 +32,13 @@ python3 -I runtime/build.py        # → target/site
 python3 -I runtime/serve.py 8081   # http://localhost:8081/
 ```
 
-The build needs the native Rust-OTP install (`target/rotp`, from
-`tools/rotp/install.exs`) and Docker (for Node, the recording runs and the
-Vite build). See [build.md](build.md).
+The build needs emsdk 6.0.2 (`~/emsdk`), the host's Erlang 29.1.1 and
+Elixir 1.20.4, and Docker (for Node, the recording runs and the Vite
+build). See [build.md](build.md).
+
+The playground on Rust-OTP (beamos's `crates/rotp`, compiled to
+`wasm32-wasip1`) lives on in the local `rotp` branch, built against a
+beamos checkout (`BEAMOS`, or `../beamos`).
 
 ## Documents
 
@@ -44,9 +48,8 @@ Vite build). See [build.md](build.md).
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
 | [collaboration.md](collaboration.md) | Plan: *Share* as a link or a live session; the encrypted relay, permissions, editing with Yjs, terminals and preview for guests. |
 | [git.md](git.md) | Plan: git in a project (clone, a diff view, push and its tokens), signing in, and the origins that keep a project's code from the account. |
-| [runtime.md](runtime.md) | `app/src/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
-| [rotp-wasm.md](rotp-wasm.md) | What Rust-OTP does differently on `wasm32-wasip1`. |
-| [../beam/README.md](../beam/README.md) | Experiment: OTP's own emulator built with Emscripten as the runtime (`PLAYGROUND_RUNTIME=otp`): its patches, build, benchmarks, how it runs in the playground. |
+| [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
+| [../beam/README.md](../beam/README.md) | The runtime: OTP's own emulator built with Emscripten, its patches, build, benchmarks, how it runs in the playground. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [backend.md](backend.md) | `backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |

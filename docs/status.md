@@ -1,10 +1,20 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # Status
+
+The site runs OTP's own emulator built with Emscripten
+([../beam/README.md](../beam/README.md)) since 2026-10-18; numbers marked
+*Rust-OTP* were measured on the runtime before it (the `rotp` branch).
+The two compared on 2026-10-17 (beamos's docs/log/2026-10-17.md): a
+Phoenix project's server runs in 4.2–6.1 s cold (Rust-OTP 7.7–9.4 s),
+`mix compile --force` in the template takes 5.1–6.4 s (7.1–9.1 s), a
+node's start 1.9–2.1 s (0.9–1.0 s); 41 MB gzipped downloads over the
+whole probe (31 MB), the `.beam` files keeping their `Dbgi` and `Docs`
+chunks; the same memory.
 
 ## Works
 
@@ -13,18 +23,18 @@ last_updated: 2026-10-16
   database kept in IndexedDB over the template; several projects in
   several tabs, one tab per project with a handover; deleting a project
   deletes its storage.
-- **Temporary IEx.** Answers about 1.4 s after load (Chromium). Modules
+- **Temporary IEx.** Answers about 1.2–1.4 s after load (Chromium). Modules
   load lazily; colours, IEx's own line editing (tab completion, history,
   the terminal's width), Ctrl+C.
 - **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
-  compiled and used in about 20 s in Chromium and Firefox).
+  compiled and used in about 20 s in Chromium and Firefox; *Rust-OTP*).
 - **NIFs built to WebAssembly** ([nif.md](nif.md)): a package the site
   has a build of (bcrypt_elixir 3.3.2, argon2_elixir 4.1.3, picosat_elixir
   0.2.3; lazy_html 0.1.13, C++ with exceptions, which the Phoenix
   template's tests use) compiles in a
   project, its `make` unpacking the library, and its NIFs run in the
   node's worker (fetched, built and used in about 13–16 s in each
-  browser).
+  browser; *Rust-OTP*).
 - **Live sessions** ([collaboration.md](collaboration.md)): *Share*
   starts one; guests join with the link and see the project as it runs
   in the host's tab, its tree, terminals, files and preview (their own
@@ -44,12 +54,11 @@ last_updated: 2026-10-16
   dialog. Tested with the API stubbed (Chromium); bcrypt_elixir and
   argon2_elixir built through production. No real agent session has run
   yet.
-- **Several schedulers** (`rotp-threads.wasm`, `min(4,
-  hardwareConcurrency)`; [architecture.md](architecture.md)): Ecto's
-  `deps.compile` about 1.9× faster than one scheduler in each browser
-  (Chromium 24.1 s). Without cross-origin isolation's shared memory a node
-  runs one scheduler from `rotp.wasm`.
-- **An Ash app** (`mix igniter.new … --install ash,ash_phoenix,
+- **Several schedulers** (`+S`, `min(4, hardwareConcurrency)`;
+  [architecture.md](architecture.md#the-node)): erts' threads are
+  Emscripten's workers on one shared memory, which needs the page's
+  cross-origin isolation (the site always sends it).
+- **An Ash app** (*Rust-OTP*; `mix igniter.new … --install ash,ash_phoenix,
   ash_postgres,ash_authentication,ash_authentication_phoenix,ash_admin
   --auth-strategy magic_link --setup --yes`) is generated, compiled and
   installed: 2299 s in Chromium on a 12-core AMD machine with four
@@ -66,7 +75,7 @@ last_updated: 2026-10-16
   it makes a new project with them (Phoenix included).
 - **A project per origin** with a project domain (`p-ID.DOMAIN`; the apex
   keeps the list): [projects.md](projects.md#a-project-domain).
-- **Rust-OTP programs and shell lines from a node:** `System.cmd("mix", …)`,
+- **Node programs and shell lines from a node:** `System.cmd("mix", …)`,
   `System.shell` lines and rebar3 run as nodes of their own, so a phx.new
   1.6 app's deps (rebar3's included) compile, and its server runs.
 - **HTTPS from a node** by the page's `fetch()`, to sites with CORS (hex.pm's
@@ -75,7 +84,7 @@ last_updated: 2026-10-16
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
 - **Phoenix projects** (Chromium, Firefox and WebKit):
-  - The server runs about 7 s after load. Pages serve in about 200–400 ms,
+  - The server runs about 4–6 s after load. Pages serve in about 200–400 ms,
     and static files in milliseconds.
   - Ecto through PGlite.
   - LiveView over WebSockets (the bridge's).
@@ -89,18 +98,20 @@ last_updated: 2026-10-16
   - Several shells: `mix phx.gen.live`, `mix ecto.migrate` and others run in
     one while the server runs in another.
   - `mix test`, LiveView tests too (lazy_html as a NIF): about 5 minutes
-    the first time, for the test environment's dependencies (Chromium).
+    the first time (*Rust-OTP*), for the test environment's dependencies;
+    2.0 minutes with them compiled (Chromium).
   - The preview pops out into its own window.
-  - After a reload, the server is back in about 6 s without recompiling
-    dependencies.
+  - After a reload, the server is back in about 4–5 s without
+    recompiling dependencies.
 
 ## Known gaps
 
-**In Rust-OTP**
-- **LiveDashboard shows less than on ERTS:** no OS data (no `os_mon`),
-  no sockets (Rust-OTP's sockets are not ports), 0 atoms (atoms are
-  values, not table entries), no allocators, and memory sizes Rust-OTP
-  does not measure (every process reports a fresh process's 2.6 KB).
+**In the emulator**
+- **WebKit:** two rare stalls, more often with two pages at once: a new
+  node hanging in `new WebAssembly.Memory`, and a node's worker stopping
+  in the middle of `mix test` ([../beam/README.md](../beam/README.md)).
+- **A node's start** takes about 2 s, twice Rust-OTP's, which every
+  shell command and `System.cmd("mix", …)` pays.
 - `file_system` finds no `inotifywait`, so Phoenix's live reload is off, and
   boot logs the warning. A small `inotifywait` program fed by `files.js`
   changes would quiet it and could drive live reload, now that its socket
@@ -119,10 +130,9 @@ last_updated: 2026-10-16
   missing; rustler_precompiled packages still try to download.
 
 **In the playground**
-- **Compiling is about 7× BEAM** (the Ash app above, before the day's later
-  fixes), most of it the interpreter: a new app's deps take minutes. The
-  plans: prebuilt deps, and a faster interpreter
-  (beamos's docs/design/interpreter.md).
+- **Compiling is about 2.3× native BEAM** (Ash under Node, four
+  schedulers: [../beam/README.md](../beam/README.md#ash-benchmark-2026-10-16)):
+  a new app's deps take minutes. The plan: prebuilt deps.
 - **git in the shell:** `clone` and fast-forward `pull` from GitHub,
   GitLab and Codeberg, besides what Mix asks; no commits, diffs or pushes
   yet ([git.md](git.md)).
@@ -144,8 +154,9 @@ last_updated: 2026-10-16
 - **`mix ecto.migrate` right after `mix deps.get`** of a new dependency
   (after `phx.gen.auth`) fails to start `ecto_sql` (`eex.app` not found):
   compiling the new dependencies pruned `eex` from the code path before
-  the app's own compile adds it back. Only in the browser (host OTP and
-  native Rust-OTP in the same sequence pass); not yet understood. `mix
+  the app's own compile adds it back. Seen on Rust-OTP in the browser
+  (host OTP and native Rust-OTP in the same sequence pass), not yet
+  rechecked on the emulator; not yet understood. `mix
   compile` first avoids it.
 - **PGlite is one session:** a pool's connections, and two shells, take
   turns by transaction ([architecture.md](architecture.md#the-database)); a
@@ -154,7 +165,7 @@ last_updated: 2026-10-16
   written a second after they change).
 - **A new site build** drops a Phoenix project's kept template build; Mix
   recompiles its changed sources. An empty project's `_build` is kept as it
-  is, even if a new `rotp.wasm` would compile differently.
+  is, even if a new OTP or Elixir would compile differently.
 - **Long sessions:** each node's frame ring counts bytes in an Int32, so a
   session that sends it 2 GB would wrap.
 - **esbuild's options** are the common ones (ide.md); plugins, a metafile
@@ -164,9 +175,9 @@ last_updated: 2026-10-16
   plain split, not the oxide scanner.
 
 **In the build**
-- **Phoenix's tailwind download** (`mix assets.setup`) through Rust-OTP's
-  httpc was killed downloading the 100 MB binary natively; `build.py`
-  uses curl.
+- **Phoenix's tailwind and esbuild** come from curl in `build.py` (on
+  Rust-OTP, `mix assets.setup`'s httpc was killed downloading the
+  100 MB binary).
 - **No gate job** builds or tests the playground yet.
 - **The browser tests** fetch and compile the runtime afresh in every test
   ([testing.md](testing.md#not-yet-caching-the-runtime-between-tests)).
@@ -192,4 +203,4 @@ last_updated: 2026-10-16
 8. Live sessions: what is left
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.
-9. Compile speed: within 3–4× of BEAM on the Ash app (now about 7×).
+9. WebKit's two stalls; a faster node start.

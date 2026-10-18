@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # Testing
@@ -21,9 +21,7 @@ tests/run.sh --project=chromium terminal      # one browser, one file
 SLOW=1 tests/run.sh --project=chromium shells # the slow ones too
 ```
 
-The tests run against whichever runtime the site was built for
-(`PLAYGROUND_RUNTIME=otp` for OTP's own emulator: [build.md](build.md));
-the few that see the runtime accept both. Debug a failure with that spec
+Debug a failure with that spec
 alone in one browser: the whole suite takes over an hour with `SLOW=1`.
 
 `run.sh` mounts the repository and runs `npx playwright test` in
@@ -91,7 +89,7 @@ one out. `tree` fails a focus check under heavy load (four workers and all
 three browsers), in Chromium too, and passes alone.
 
 Playwright before 1.64 shipped a Firefox (141) without an optimizing
-WebAssembly compiler, which ran `rotp.wasm` about 10× slower than Chromium
+WebAssembly compiler, which ran Rust-OTP's `rotp.wasm` about 10× slower than Chromium
 (`Enum.reduce(1..3_000_000, 0, &+/2)`: 8.6 s against 0.9 s); Firefox 157
 has one.
 
@@ -113,9 +111,9 @@ localStorage.setItem('playground-trace', 'net'); // then reload
 ## Without a browser: `node.mjs`
 
 The Node harness ([build.md](build.md#the-node-harness-srcruntimenodets)) runs
-the site's node with the same shim. It is the quickest way to see what a
-node does: boot errors, a request's status and headers, which files are
-fetched, every WASI call. For example, IEx with input:
+the site's node as the browser's worker does. It is the quickest way to
+see what a node does: boot errors, a request's status and headers, which
+files are fetched. For example, IEx with input:
 
 ```sh
 printf '1 + 1\n' | docker run --rm -i -v $PWD/target/node:/w:ro \
@@ -129,12 +127,8 @@ programs (Tailwind), the service worker, PGlite.
 
 ## After changing the runtime
 
-- **Native Rust-OTP:** `ROTP_INSTALL=$PWD/target/rotp python3 -I
-  scripts/test-rotp.py`, plus clippy for both targets:
-  - `CARGO_TARGET_DIR=target/clippy cargo clippy -q -p rotp --all-targets --
-    -D warnings`
-  - `CARGO_TARGET_DIR=target/wasm cargo clippy -q --target wasm32-wasip1 -p
-    rotp -- -D warnings`
+- **The BEAM:** `beam/smoke.mjs` and `beam/elixir.mjs` under emsdk's Node
+  ([`../beam/README.md`](../beam/README.md)).
 - **The erl_nif layer** (`nif/`): `python3 -I nif/test/test.py`
   over the built site ([nif.md](nif.md)).
 - **The app and the runtime:** `npm run lint`, `npm run format:check`,
@@ -145,7 +139,7 @@ programs (Tailwind), the service worker, PGlite.
 ## Not yet: caching the runtime between tests
 
 A fresh context starts with an empty HTTP cache, so every test fetches and
-compiles `rotp.wasm` and unpacks its boot images again. Fetching from
+compiles `beam.wasm` and unpacks its boot images again. Fetching from
 `serve.py` is cheap; compiling and unpacking per worker is not. A
 persistent context per Playwright worker (one profile, its IndexedDB and
 storage cleared between tests) would keep the HTTP cache and the compiled

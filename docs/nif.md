@@ -1,16 +1,18 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-15
+last_updated: 2026-10-18
 ---
 
 # NIFs (`nif/`)
 
-Rust-OTP loads no native libraries. In the playground a NIF library is a
-WebAssembly module instead: the package's C or C++, built with wasi-sdk against
-an erl_nif of our own, run by the node's worker in an instance of its own.
-The node and the library exchange external terms (`term_to_binary`), so
-nothing in Rust-OTP's runtime needs to know about NIFs.
+The Emscripten BEAM links no native libraries. In the playground a NIF
+library is a WebAssembly module instead: the package's C or C++, built
+with wasi-sdk against an erl_nif of our own, run in an instance of its
+own beside the node. The node and the library exchange external terms
+(`term_to_binary`), so erts needs only one proxy NIF for them (patch
+0021). The layer was written for Rust-OTP, which runs the same builds
+(the `rotp` branch).
 
 ## The erl_nif layer (`beamos_nif.c`)
 
@@ -25,9 +27,9 @@ into a WASI reactor. The layer implements the API over terms of its own:
   or frees it.
 - **External terms** cross both ways. Integers beyond 64 bits, bitstrings,
   funs, ports and references stay their external bytes.
-- **References** a library makes (resources', `enif_make_ref`'s) are the
-  node's own kind: Rust-OTP's are `nonode@nohost` and a 61-bit counter in
-  three words, which it decodes exactly only within that layout. The layer
+- **References** a library makes (resources', `enif_make_ref`'s) are
+  `nonode@nohost`'s in three words, laid out as Rust-OTP's: a 61-bit
+  counter, which it decodes exactly only within that layout. The layer
   sets bit 59, which the node's counter never reaches, bit 58 for a plain
   reference, a 16-bit nonce of the instance's (so another instance's do
   not match) and a 34-bit id. A resource that has crossed is kept for
@@ -74,30 +76,23 @@ list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
    could not build it, or there is no backend (a page answers), `make`
    fails (status 2) and says why, as does the dialog; `make clean` does
    nothing.
-2. **Stubs.** The installation's `compile` runs one more pass before the
-   backend (`BeamOS.Nif.core_pass/2`): in a module that calls
-   `erlang:load_nif`, every function (but `module_info`, `__info__` and
-   those that call `load_nif`) first asks `BeamOS.Nif.call(Module, Name,
-   Args)`, and runs its own body when that answers `none`. ERTS too
-   replaces whatever the library names, whatever the stub's body:
-   `nif_error`, a helper that calls it (lazy_html's `err!()`), `raise`.
-3. **`erlang:load_nif(Path, Info)`** (`BeamOS.HostedOs`, `BeamOS.Nif`):
-   reads `Path.so`; WebAssembly loads through `/.nif/new`
-   ([runtime.md](runtime.md#nif-libraries-nif)), then `{load, Info,
-   self()}` runs the library's load. The library gets the node's WASI
-   (its files, environment and terminal); a WASI function the node lacks
-   answers ENOSYS, so the library loads and only a call that needs it
-   fails (setting files' times does nothing, as for the node). Its functions are kept in
-   `persistent_term` under the module `ERL_NIF_INIT` names. Anything else
-   fails as before, and the caller's on_load with it. ERTS's errors:
-   `load`, `bad_lib`, `load_failed`.
-4. **Calls** go to `/.nif/ID` as `{call, Index, Args, self()}`; `raise`
+2. **`erlang:load_nif(Path, Info)`**: erts cannot link `Path.so`, so it
+   asks `erts_wasm_nif_entry` (patch 0021, `beam/host/wasm_nifs.c`):
+   `nifs.js` reads the file and opens it as an instance (`nif.ts`, with a
+   WASI of its own over the node's files and environment: a WASI
+   function it lacks answers ENOSYS, so the library loads and only a call
+   that needs it fails), then `{load, Info, self()}` runs the library's
+   load. Its answer makes an `ErlNifEntry` whose every function is one
+   proxy, which finds its function by the process's current MFA. erts's
+   errors on failure.
+3. **Calls** go to the library as `{call, Index, Args, self()}`; `raise`
    raises its reason as an error, as ERTS does; messages the library sent
-   are sent from the caller. A library that traps is gone: its calls raise
-   `{nif_failed, {M, F, A}, Why}`.
+   are sent from the caller. A library that traps is gone: its calls
+   raise `nif_library_failed`. Dirty NIFs run as the others.
 
-A call blocks the node's one scheduler while it runs, as a long NIF does on
-ERTS without dirty schedulers.
+Calls go one at a time (`nifs.js` keeps one answer), on the module's
+main thread: a call blocks its scheduler while it runs, as a long NIF
+does on ERTS without dirty schedulers.
 
 ## Building (`build.py`)
 
@@ -171,4 +166,3 @@ and `clock_res_get`.
   page's layer ([backend.md](backend.md#plan-one-source-of-nif-builds));
   and the template's test build prebuilt, so a Phoenix project's first
   `mix test` does not compile for minutes.
-- Native Rust-OTP could run the same builds under a WebAssembly engine.

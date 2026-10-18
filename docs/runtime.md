@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-18
 ---
 
 # The runtime (`app/src/runtime`)
@@ -12,11 +12,11 @@ oxlint and oxfmt (`npm run lint`, `format:check`), erasable syntax only
 ([build.md](build.md#steps)). The page's parts (`host/`, `bridge.ts`, …)
 go into the app, which imports them as `@/runtime/…`. The scripts that
 load by URL go into the build as entries of their own, under their
-names: `worker.js` (`worker/index.ts`), `files.js` and `thread.js` (what
-they share in `chunks/`), and `sw.js`, at the site's root. `node.ts` is
+names: `worker.js` (`worker/index.ts`) and `files.js` (what they share in
+`chunks/`), and `sw.js`, at the site's root. `node.ts` is
 bundled for Node, as `node.mjs`.
 
-**The WASI calls stay cheap.** The calls are closures, built once per
+**The WASI calls stay cheap** (NIF libraries'). The calls are closures, built once per
 node (`functions()`, `sharedCalls`, `positioned`) and wrapped once in
 `unsigned()`; classes declare their fields (`declare`), so types add no
 code, and a call goes through no more functions than it did as
@@ -24,47 +24,45 @@ JavaScript.
 
 | File | Runs in | Role |
 | --- | --- | --- |
-| `wasi/` | worker, Node | WASI preview 1 for `rotp.wasm`. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
-| `worker/` (`worker.js`) | worker | A node. `index.ts` boots `rotp.wasm` and runs one command or the shell; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's); `threaded.ts` serves a threaded node's threads. |
+| `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
+| `worker/` (`worker.js`) | worker | A node. `index.ts` unpacks the boot images and runs one command or the shell, each node through `beam.ts`; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's). |
 | `files.ts` (`files.js`) | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
-| `threads.ts`, `thread.ts`, `thread-node.ts` | worker, Node | A threaded node: the host that serves its threads' WASI calls, and each thread's entry in a worker (the browser's, Node's). |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
-| `nif.ts` | worker, Node | NIF libraries built to WebAssembly (`/.nif`), each in an instance beside the node. |
+| `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
-| `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on a `/.net/https` connection with a fetch of `https://NAME[:PORT]/path`. |
+| `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on an HTTPS connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
-| `beam/`, `worker/beam.ts` | worker, Node | OTP's own emulator built with Emscripten, for a site built with `PLAYGROUND_RUNTIME=otp` ([`../beam/README.md`](../beam/README.md#in-the-playground)): `run.ts` starts a node (the tree and the shared files through PROXYFS: `treefs.ts`, `sharedfs.ts`; TCP, ports, NIFs, the terminal); `args.ts` turns erl's arguments into the emulator's; `worker/beam.ts` runs it in the node's worker, which serves its threads and takes the page's frames as they come. |
+| `beam/`, `worker/beam.ts` | worker, Node | The node: OTP's own emulator built with Emscripten ([`../beam/README.md`](../beam/README.md#in-the-playground)): `run.ts` starts a node (the tree and the shared files through PROXYFS: `treefs.ts`, `sharedfs.ts`; TCP, ports, NIFs, the terminal); `args.ts` turns erl's arguments into the emulator's; `worker/beam.ts` runs it in the node's worker, which serves its threads and takes the page's frames as they come. |
 | `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser ([build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `runtime/`. |
 
-## WASI (`wasi/`)
+## The node's tree and WASI (`wasi/`)
 
-`rotp.wasm` imports 33 functions from `wasi_snapshot_preview1`: args,
-environ, clock, random, `poll_oneoff`, `proc_exit`, the `fd_*` calls, the
-`path_*` calls, and `sock_accept` and `sock_shutdown`, which are refused.
-`new WASI({...}).imports` provides them, and the rest of preview 1 for NIF
-libraries ([nif.md](nif.md)) but `fd_renumber`, `sock_recv` and
-`sock_send` (a library importing one gets ENOSYS from `nif.ts`):
+The Emscripten BEAM mounts the node's tree through PROXYFS
+(`beam/treefs.ts` over `fs.ts`) and the shared directories through
+`beam/sharedfs.ts` ([../beam/README.md](../beam/README.md#in-the-playground)).
+NIF libraries ([nif.md](nif.md)) get WASI preview 1 over the same tree:
+`new WASI({...}).imports` provides it but `fd_renumber`, `sock_recv` and
+`sock_send` (a library importing one gets ENOSYS from `nif.ts`), with
 `fd_pread`, `fd_pwrite` and `fd_tell` on top of the descriptor's
 position (kept by the call; a write at an offset does not append),
 `fd_allocate`, `clock_res_get` (1 µs), `proc_raise` (the program ends,
 128 + the signal), and `fd_datasync`, `fd_advise`,
 `fd_fdstat_set_rights` and the `*_filestat_set_times` calls, which do
-nothing:
+nothing.
 
-- **Filesystem.** `Dir`, `File` and `Symlink` objects under one preopen,
-  `/`. wasi-libc turns every path into one relative to it. Hard links are
-  the same `File` under two names (Mix's lock takes one). Errors are WASI
-  errno numbers.
-- **Symbolic links** (`path_symlink`, `path_readlink`): `lookup()`
-  follows the ones in the middle of a path, and a last one when the call's
-  `LOOKUP_SYMLINKS` flag says to (wasi-libc's `stat` and `open` set it,
+- **Filesystem.** `Dir`, `File` and `Symlink` objects under one root,
+  `/`. Hard links are the same `File` under two names (Mix's lock takes
+  one). Errors are WASI errno numbers (`treefs.ts` names them for
+  Emscripten).
+- **Symbolic links:** `lookup()` follows the ones in the middle of a
+  path, and a last one when the call says to (`stat` and `open` do,
   `lstat` and `O_NOFOLLOW` do not); a relative target is read from the
   link's directory, `..` is the physical parent, and 40 links in a row are
   `ELOOP`. The shared files (`files.js`) resolve the same way and keep a
@@ -76,22 +74,11 @@ nothing:
   path goes to one or the other by its prefix. Mix links a build's `priv`
   to the project's, as natively, so Phoenix serves new assets at once and
   no longer warns.
-- **Terminal.** With `tty: true`, the standard streams are character devices
-  without seek or tell rights, which is wasi-libc's test for `isatty`. The
-  node then treats them as a terminal (colours, IEx's prompt).
-- **Raw input** (`/.tty`, with a `terminal`): the node writes `raw` or
-  `cooked` to `/.tty/mode`, and reads `/.tty/size` as `COLUMNS ROWS`
-  (`tty.rs`). worker.js tells the page of a mode change (a `tty` message;
-  back to cooked when the node ends) and keeps the size the page sends in
-  RESIZE frames. With TERM=xterm-256color and the entry at
-  `/usr/share/terminfo/x/xterm-256color`, IEx edits its own lines: tab
+- **Terminal.** Popcorn's prim_tty over JS (patches 0011, 0017): the node
+  reports raw or cooked input (`onTtyMode`), worker.js tells the page (a
+  `tty` message; back to cooked when the node ends) and passes on the size
+  the page sends in RESIZE frames. IEx edits its own lines: tab
   completion, its history, line wrapping by the terminal's width.
-- **Standard input** is a callback. It answers bytes, `null` when nothing is
-  waiting (EAGAIN: the node polls again) or an empty array at its end.
-- **Sleep.** `poll_oneoff` with a clock calls `sleep(ms)`. The worker sleeps
-  on its frame ring, so a frame wakes it. Every read, sleep and clock read
-  first calls `pump()`, which takes in the page's frames, and an interrupt
-  throws from there.
 - **Lazy files.** `mount(manifest, root)` lists files without their bytes.
   `load(node, fetch)` fetches one the first time it is opened, with
   `fetch(source, bundle)`. `bundled(get)` turns a synchronous bundle getter
@@ -101,58 +88,37 @@ nothing:
   Mix sees sources older than its manifests.
 - **`/dev/urandom`** is a `Device` over `crypto.getRandomValues`.
 
-### TCP: `/.net`
+### TCP (`net.ts`)
 
-The node's sockets (`crates/rotp/src/host/wasm_net.rs`) are files that
-`path_open` recognises:
+`gen_tcp` runs over our `prim_socket` NIF (`beam/socket`) over `Network`,
+which keeps listeners and connections. A connect reaches the node's own
+listener, or a port the page serves (`remote.ports`, for example 5432);
+else ECONNREFUSED. Connections from the page have odd ids and the node's
+own even ones. `remote.listening(port, on, ephemeral)` reports listeners
+to the page; a listener is ephemeral when it asked for port 0. HTTPS that
+the page carries (`remote.https`): `ssl:connect` to a host name connects to
+a gateway port whose first line names the host, and the connection is
+then plain HTTP/1.1 to the page (patch 0020); without it the node's `ssl`
+does TLS itself.
 
-| Path | Meaning |
-| --- | --- |
-| `/.net/listen/IP/PORT` | Listen (`PORT` 0: any free port). The file's size is the port; each read gives one waiting connection as `ID IP PORT`, or EAGAIN. |
-| `/.net/conn/ID` | That connection. |
-| `/.net/connect/IP/PORT` | Connect: to the node's own listener, or to a port the page serves (`remote.ports`, for example 5432); else ECONNREFUSED. |
-| `/.net/https/NAME/PORT` | HTTPS to NAME that the page carries (`remote.https`): a connection to the page whose bytes are plain HTTP/1.1; else ENOENT, and the node's `ssl` does TLS itself. |
+### Programs (`process.ts`)
 
-A connection's reads return what the peer sent: EAGAIN while it has sent
-nothing, 0 once it has ended. Writes go to the peer, truncating the file
-ends this side's output, and closing it closes the connection. `Network`
-keeps listeners and connections. Connections from the page have odd ids and
-the node's own even ones. `remote.listening(port, on, ephemeral)` reports listeners to
-the page; a listener is ephemeral when it asked for port 0.
+A port's program (`open_port`'s `{spawn, Command}`, `System.cmd`) runs
+through `Module.beamSpawn` (`beam/host`). It is looked up by its base
+name, then by the part before the first `-` (so
+`_build/tailwind-linux-x64-4.3.3` is `tailwind`). A program is
+`(process, { args, cwd, env }) => …` that writes to and exits its
+`Process`; closing the port calls `process.onclose`. No program by that
+name means ENOENT, which the node reports as `enoent`.
 
-### Child processes: `/.proc/spawn`
+### NIF libraries
 
-`crates/rotp/src/host/wasm_proc.rs` opens `/.proc/spawn` and writes one
-request. It is NUL-terminated fields: program, working directory, argument
-count, the arguments, variable count, `NAME=VALUE` variables. After that the
-file is the process:
-
-- reads give its output (EAGAIN while there is none, 0 at its end);
-- writes go to its input, and truncating the file closes the input;
-- its size is 0 while it runs and the exit status + 1 once it has exited.
-
-The program is looked up by its base name, then by the part before the first
-`-` (so `_build/tailwind-linux-x64-4.3.3` is `tailwind`). A program is
-`(process, { args, cwd, env }) => …` that writes to and exits its `Process`.
-Closing the port calls `process.onclose`. No program by that name means
-ENOENT, which the node reports as `enoent`.
-
-### NIF libraries: `/.nif`
-
-`BeamOS.Nif` (the installation's `erlang:load_nif`) runs NIF libraries
-built to WebAssembly ([nif.md](nif.md)) through two kinds of file, each
-opened for one exchange: the node writes its request, and its reads give
-the answer, then 0.
-
-| Path | Request | Answer |
-| --- | --- | --- |
-| `/.nif/new` | A library's bytes. | Its id, or `error WHY`. |
-| `/.nif/ID` | An external term for the library. | The library's external term, or `{error, Why}` once it trapped or exited (it is gone then). |
-
-`nif.ts` (`Nifs`) instantiates each library with the node's own WASI
-imports and runs it synchronously, in the node's worker. While a library
-runs, the WASI calls work on its memory instead of the node's: it sees
-the node's files, environment and terminal.
+`erlang:load_nif` of a library built to WebAssembly (patch 0021,
+`beam/host/wasm_nifs.c`) asks `nifs.js`, which hands its bytes to
+`nif.ts` (`Nifs`): an instance of its own with a WASI of its own over the
+node's files and environment, run synchronously on the module's main
+thread. Requests and answers are external terms ([nif.md](nif.md)); a
+library that trapped or exited is gone.
 
 ### Shared files
 
@@ -235,7 +201,7 @@ the shell with `initial` commands typed first, or one command (erl's
 | `nif` | `make` waits for the backend to build a package's NIF library, or stopped waiting: `{ name, version, status, error }` (`onnif`; [nif.md](nif.md#in-the-node)). |
 
 `https: (connection, { host, port }) => …` answers the node's
-`/.net/https` connections; the playground's is `https.ts`'s
+HTTPS connections; the playground's is `https.ts`'s
 `httpsByFetch()`. It reads requests with a body (Content-Length or
 chunked) and answers each with `fetch()`: the browser does TLS, checks the
 certificate, follows redirects, decompresses, and leaves out request
