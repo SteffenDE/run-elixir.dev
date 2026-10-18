@@ -76,7 +76,7 @@ function join(cwd: string, path: string): string {
 }
 
 // Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix), and
-// escript's (bin/escript; a script's %%! flags are not read). The Hex
+// escript's (bin/escript, with the flags of the script's %%! line). The Hex
 // esbuild and tailwind packages run the page's programs (their :path,
 // unless a project's config sets one), so no project downloads them.
 const ELIXIR = [
@@ -159,7 +159,22 @@ function cookie(argv: string[], env: Record<string, string>): string[] {
   return project && !argv.includes('-setcookie') ? ['-setcookie', project] : [];
 }
 
-function command(name: string, args: string[]): string[] | null {
+// An escript's %%! line (its second or third), as erl's flags: Mix
+// puts `-escript main MODULE` there, and an app its own (Livebook its
+// -epmd_module).
+function escriptFlags(script: Uint8Array | null): string[] {
+  if (!script) return [];
+  const head = new TextDecoder().decode(script.subarray(0, 4096)).split('\n').slice(1, 3);
+  const line = head.find((l) => l.startsWith('%%!'));
+  return line ? words(line.slice(3).trim()) : [];
+}
+
+// read(path): a file's bytes, or null (an escript's, for its %%! line).
+function command(
+  name: string,
+  args: string[],
+  read: (path: string) => Uint8Array | null = () => null,
+): string[] | null {
   switch (name) {
     case 'erl':
       return args;
@@ -184,6 +199,7 @@ function command(name: string, args: string[]): string[] | null {
         '-noshell',
         '-boot',
         '/rotp/bin/no_dot_erlang',
+        ...escriptFlags(read(args[0])),
         '-run',
         'escript',
         'start',
@@ -253,7 +269,13 @@ onmessage = async ({
       siteNif(name, version) ?? backendNif(channel, name, version, report);
 
     // One node, until it halts or is interrupted.
-    const run = async (argv: string[], cwd: string): Promise<number> => {
+    // extra: a command line's NAME=value assignments, for it alone.
+    const run = async (
+      argv: string[],
+      cwd: string,
+      extra: Record<string, string> = {},
+    ): Promise<number> => {
+      const vars = { ...env, ...extra };
       const network = new Network({
         ports,
         https,
@@ -270,8 +292,8 @@ onmessage = async ({
       try {
         return await runBeam({
           module: runtime('beam.mjs').href,
-          argv: ['+S', String(SCHEDULERS), ...cookie(argv, env), ...argv],
-          env: { ...ENV, ...env, PWD: cwd },
+          argv: ['+S', String(SCHEDULERS), ...cookie(argv, vars), ...argv],
+          env: { ...ENV, ...vars, PWD: cwd },
           cwd,
           root,
           fetch: fetchFile,
@@ -316,13 +338,16 @@ onmessage = async ({
 
     say('status', 'running');
     if (!shell) {
-      const argv = named ? command(named[0], named.slice(1)) : args;
+      const cwd = env.PWD || start;
+      const argv = named
+        ? command(named[0], named.slice(1), (path) => fs.read(join(cwd, path)))
+        : args;
       if (!argv) {
         text(`${named![0]}: command not found\n`);
         say('exit', 127);
         return;
       }
-      say('exit', await run(argv, env.PWD || start));
+      say('exit', await run(argv, cwd));
       return;
     }
     let cwd = fs.stat(start)?.dir ? start : '/work';
@@ -351,12 +376,24 @@ onmessage = async ({
         text('^C\n');
         continue;
       }
-      const [name, ...rest] = words(line);
-      if (!name) continue;
+      // NAME=value before a command: in its environment, as in sh; alone,
+      // in the shell's from then on.
+      const parts = words(line);
+      const assigned: Record<string, string> = {};
+      while (parts.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(parts[0])) {
+        const assignment = parts.shift()!;
+        const at = assignment.indexOf('=');
+        assigned[assignment.slice(0, at)] = assignment.slice(at + 1);
+      }
+      const [name, ...rest] = parts;
+      if (!name) {
+        Object.assign(env, assigned);
+        continue;
+      }
       try {
-        const argv = command(name, rest);
+        const argv = command(name, rest, (path) => fs.read(join(cwd, path)));
         if (argv) {
-          const status = await run(argv, cwd);
+          const status = await run(argv, cwd, assigned);
           if (status === 130) text('\n');
           continue;
         }
