@@ -12,6 +12,9 @@
  * erl_init starts (wasm_port_pump), and that process calls
  * erlang:port_control(Port, 1, []): the port's output, exit status and
  * end are delivered in `control`, in the port's own context.
+ * With {packet, N}, as ERTS's spawn driver does: what the port is sent
+ * goes to the program behind an N-byte length, and the program's output
+ * comes to the port a packet at a time.
  */
 #ifdef HAVE_CONFIG_H
 #  include "config.h"
@@ -53,6 +56,9 @@ typedef struct {
     int exit_status;            /* report it ({exit_status, N}) */
     int reported;
     int ended;
+    int packet;                 /* {packet, N}: N, or 0 */
+    char *pending;              /* output not yet a whole packet */
+    size_t pending_length, pending_capacity;
 } Spawned;
 
 /* Ports by spawn.js id, for the event thread. */
@@ -202,6 +208,7 @@ static ErlDrvData spawn_start(ErlDrvPort port, char *name, SysDriverOpts *opts)
     spawned->port_term = driver_mk_port(port);
     spawned->id = id;
     spawned->exit_status = opts->exit_status;
+    spawned->packet = opts->packet_bytes;
     table_put(id, spawned->port_term);
     /* What the program did before the table had it. */
     pump(spawned->port_term);
@@ -213,13 +220,55 @@ static void spawn_stop(ErlDrvData data)
     Spawned *spawned = (Spawned *) data;
     table_put(spawned->id, 0);
     wasm_spawn_kill(spawned->id);
+    if (spawned->pending)
+        driver_free(spawned->pending);
     driver_free(spawned);
 }
 
 static void spawn_output(ErlDrvData data, char *buffer, ErlDrvSizeT length)
 {
     Spawned *spawned = (Spawned *) data;
+    if (spawned->packet) {
+        unsigned char header[4];
+        for (int i = 0; i < spawned->packet; i++)
+            header[i] = (unsigned char) (length >> (8 * (spawned->packet - 1 - i)));
+        wasm_spawn_write(spawned->id, header, spawned->packet);
+    }
     wasm_spawn_write(spawned->id, buffer, (int) length);
+}
+
+/* The program's output: as it comes, or with {packet, N} each whole packet. */
+static void deliver(Spawned *spawned, const char *data, size_t length)
+{
+    if (!spawned->packet) {
+        driver_output(spawned->port, (char *) data, length);
+        return;
+    }
+    if (spawned->pending_length + length > spawned->pending_capacity) {
+        size_t capacity = spawned->pending_capacity ? spawned->pending_capacity : CHUNK;
+        while (capacity < spawned->pending_length + length)
+            capacity *= 2;
+        spawned->pending = spawned->pending ? driver_realloc(spawned->pending, capacity)
+                                            : driver_alloc(capacity);
+        spawned->pending_capacity = capacity;
+    }
+    memcpy(spawned->pending + spawned->pending_length, data, length);
+    spawned->pending_length += length;
+    size_t at = 0;
+    for (;;) {
+        size_t n = (size_t) spawned->packet;
+        if (spawned->pending_length - at < n)
+            break;
+        size_t size = 0;
+        for (size_t i = 0; i < n; i++)
+            size = (size << 8) | (unsigned char) spawned->pending[at + i];
+        if (spawned->pending_length - at - n < size)
+            break;
+        driver_output(spawned->port, spawned->pending + at + n, size);
+        at += n + size;
+    }
+    memmove(spawned->pending, spawned->pending + at, spawned->pending_length - at);
+    spawned->pending_length -= at;
 }
 
 /* PUMP_OP: the program's output, then its exit status and end. */
@@ -233,7 +282,7 @@ static ErlDrvSSizeT spawn_control(ErlDrvData data, unsigned int command, char *b
     char *chunk = driver_alloc(CHUNK);
     int n;
     while ((n = wasm_spawn_read(spawned->id, chunk, CHUNK)) > 0)
-        driver_output(spawned->port, chunk, n);
+        deliver(spawned, chunk, (size_t) n);
     driver_free(chunk);
     if (n < 0) {
         int status = wasm_spawn_status(spawned->id);
