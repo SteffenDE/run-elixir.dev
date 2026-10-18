@@ -3,8 +3,9 @@
 # (app/src/runtime/beam-node.ts), connected by OTP's distribution
 # (docs/distribution.md): a@localhost waits with a registered echo
 # process; b@localhost pings it, calls it (rpc, erpc with a fun), sends
-# to the echo, sends it 1 MB, registers a global name a sees, and stops
-# it, seeing nodedown.
+# to the echo, sends it 1 MB, registers a global name a sees, lists the
+# names epmd knows, and stops a, seeing nodedown. epmd is the harness's,
+# as the page's (app/src/runtime/epmd.ts), which OTP's erl_epmd asks.
 #
 #   beam/dist/two-nodes.sh [DIST]
 #
@@ -16,13 +17,9 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
 DIST=${1:-$ROOT/out/beam-wasm/releaseO1/dist}
 NODE=${NODE:-$(ls -d ~/emsdk/node/*/bin/node | tail -n 1)}
-EBIN=$(mktemp -d)
-trap 'rm -rf "$EBIN"' EXIT
-erlc -o "$EBIN" "$HERE/playground_epmd.erl"
 
 common=(-- -root /otp -bindir /otp/bin -progname erl -home /tmp -boot /otp/bin/start -noshell
-        -pa /dist -kernel inet_backend socket -setcookie poc
-        -proto_dist inet_epmd -inet_epmd socket -epmd_module playground_epmd)
+        -kernel inet_backend socket -setcookie poc -proto_dist inet_epmd -inet_epmd socket)
 a='register(echo, spawn(fun Loop() -> receive {From, M} -> From ! {echo, node(), M}, Loop() end end)),
    io:format("a: ~p alive ~p~n", [node(), is_alive()]).'
 b='timer:sleep(3000),
@@ -40,9 +37,10 @@ b='timer:sleep(3000),
    yes = global:register_name(b_global, self()),
    timer:sleep(500),
    io:format("b: global on a ~p~n", [erpc:call(a@localhost, global, whereis_name, [b_global]) =:= self()]),
+   io:format("b: names ~p~n", [net_adm:names()]),
    monitor_node(a@localhost, true),
    rpc:cast(a@localhost, init, stop, []),
    receive {nodedown, N} -> io:format("b: nodedown ~p~n", [N]) after 10000 -> io:format("b: no nodedown~n") end,
    init:stop().'
-MOUNT=/dist:$EBIN timeout 60 "$NODE" "$ROOT/app/dist-node/beam-node.mjs" "$DIST" \
+timeout 60 "$NODE" "$ROOT/app/dist-node/beam-node.mjs" "$DIST" \
   -S 2:2 "${common[@]}" -sname a -eval "$a" --- -S 2:2 "${common[@]}" -sname b -eval "$b"

@@ -2,8 +2,9 @@
 // build.py), for the Emscripten BEAM, which takes the emulator's own: what
 // erlexec would pass. `+Flag value` before -extra becomes the
 // emulator's `-Flag value`, and init gets the installation's root (/rotp),
-// boot script and home, and gen_tcp the socket backend (beam/
-// socket).
+// boot script and home, gen_tcp the socket backend (beam/
+// socket), and distribution, for a node given -sname or -name, its carrier
+// over the socket module (docs/distribution.md).
 
 // Emulator flags without a value.
 const BARE = new Set(['+B', '+Bc', '+Bd', '+Bi', '+c', '+d', '+r']);
@@ -44,6 +45,10 @@ export function beamArgs(args: string[], home = '/work'): string[] {
     home,
     '-kernel',
     'inet_backend',
+    'socket',
+    '-proto_dist',
+    'inet_epmd',
+    '-inet_epmd',
     'socket',
     ...boot,
     ...init,

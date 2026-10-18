@@ -278,6 +278,12 @@ export class Node {
   // Stop the node and its worker.
   stop(): void {
     this.worker.terminate();
+    // Its connections end with it, so their other ends hear so: a peer
+    // node's, epmd's registration (epmd.ts), the database's session.
+    for (const connection of [...this.connections.values()]) {
+      this.forget(connection);
+      connection.onclose('close');
+    }
     if (this.channel) this.files!.disconnect(this.channel);
   }
 

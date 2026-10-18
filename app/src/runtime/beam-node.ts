@@ -10,7 +10,8 @@
 //
 // TCP is the playground's Network (wasi/net.ts), as Module.beamNetwork
 // (beam/socket); start the node with -kernel inet_backend
-// socket. Arguments separated by `---` start that many nodes, each its own
+// socket. epmd is the page's (epmd.ts), on 4369. Arguments separated by
+// `---` start that many nodes, each its own
 // emulator, over the same tree and Network (so they reach each other's
 // ports); their output lines start with [N]. HTTP=PORT/PATH,... GETs each path once the node listens on the
 // port, prints each response's status line, and STOP_SERVED=MS stops the
@@ -18,7 +19,8 @@
 import { existsSync, readFileSync, readdirSync, statSync, type Stats } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 import { Dir, File, mount } from './wasi/fs';
-import { Network } from './wasi/net';
+import { Network, type Remote } from './wasi/net';
+import { EPMD_PORT, EpmdRegistry, epmdSession } from './epmd';
 import { TreeFs } from './beam/treefs';
 
 const [dist, ...rest] = process.argv.slice(2);
@@ -74,6 +76,30 @@ const { default: createModule } = await import(
 );
 
 const network = new Network();
+// epmd on 4369, as the page has it (epmd.ts), and the HTTP request being
+// asked (HTTP=), if any: the page's side of the nodes' connections.
+const names = new EpmdRegistry();
+const epmd = new Map<number, ReturnType<typeof epmdSession>>();
+let http: Pick<Remote, 'send' | 'end' | 'close'> | null = null;
+const epmdEnd = (id: number) => {
+  epmd.get(id)?.closed();
+  epmd.delete(id);
+  network.ended(id);
+};
+network.remote = {
+  ports: [EPMD_PORT],
+  open(id, port) {
+    if (port !== EPMD_PORT) return;
+    const answer = (bytes: Uint8Array) => queueMicrotask(() => network.data(id, bytes));
+    epmd.set(
+      id,
+      epmdSession(names, answer, () => queueMicrotask(() => epmdEnd(id))),
+    );
+  },
+  send: (id, bytes) => (epmd.has(id) ? epmd.get(id)!.data(bytes) : http?.send(id, bytes)),
+  end: (id) => (epmd.has(id) ? epmdEnd(id) : http?.end(id)),
+  close: (id) => (epmd.has(id) ? epmdEnd(id) : http?.close(id)),
+};
 const requests = (process.env.HTTP || '')
   .split(',')
   .filter(Boolean)
@@ -100,8 +126,7 @@ const ask = () => {
       setTimeout(() => process.exit(0), Number(process.env.STOP_SERVED));
   };
   const id = (nextId += 2);
-  network.remote = {
-    ports: [],
+  http = {
     send: (_, bytes) => {
       const joined = new Uint8Array(response.length + bytes.length);
       joined.set(response);
@@ -110,7 +135,6 @@ const ask = () => {
     },
     end: finish,
     close: finish,
-    open() {},
   };
   network.accepted(id, next.port);
   network.data(

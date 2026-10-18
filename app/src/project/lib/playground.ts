@@ -18,6 +18,7 @@ import { lineDiscipline } from '@/runtime/terminal';
 import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
+import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { httpsByFetch } from '@/runtime/https';
 import { built, tailwind } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
@@ -68,6 +69,9 @@ let db: Promise<PGlite> | null = null;
 // Postgres on 5432 for every node: one handler, so that the nodes'
 // connections take turns in PGlite's one session.
 let serveDatabase = postgres(database);
+// epmd on 4369 for every node: the project's node names and their
+// distribution ports (docs/distribution.md).
+let serveNames = serveEpmd(new EpmdRegistry());
 let nextSession = 1;
 export const FIRST_SESSION = 1;
 // The port the preview shows: Phoenix's, else the first one listened on.
@@ -329,7 +333,7 @@ function routePeer(connection: Connection, port: number): boolean {
 function nodeServices() {
   return {
     peer: routePeer,
-    serve: { 5432: serveDatabase, [HEX_PORT]: hex },
+    serve: { 5432: serveDatabase, [HEX_PORT]: hex, [EPMD_PORT]: serveNames },
     // make waiting for the backend to build a NIF library (NifBuildDialog).
     onnif: (build: NifBuild) => useStore.getState().setNifBuild(build),
     // The node's HTTPS (ssl to a host name), by the page's fetch().
@@ -492,6 +496,7 @@ export async function shutdown(): Promise<void> {
   await pglite?.close().catch(() => {});
   db = null;
   serveDatabase = postgres(database);
+  serveNames = serveEpmd(new EpmdRegistry());
 }
 
 // A shared project's changes, over this project's template.
