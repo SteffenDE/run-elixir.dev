@@ -51,7 +51,8 @@ has everything else (`src/shared/lib/site.ts`):
 | `DOMAIN/phoenix`, `/empty`, `/import#DATA` | Make a project, then go to its origin. |
 | `DOMAIN/iex` | A temporary IEx, on the apex (it keeps nothing). |
 | `DOMAIN/ID/` | An older link: goes to `p-ID.DOMAIN/`. |
-| `p-ID.DOMAIN/` | The project: its IDE, nodes and preview. |
+| `p-ID.DOMAIN/` | The project: its IDE and nodes. |
+| `v-ID-PORT.DOMAIN/` | The project's preview of its app's PORT, in the IDE ([runtime.md](runtime.md)); opened by itself, not found. |
 | Any other `NAME.DOMAIN/` | Reserved (`www`, `phoenix`, …): not found, with a button to `DOMAIN/`. |
 
 A project's subdomain is `p-` and its id (`p-` and a chosen name could

@@ -256,8 +256,9 @@ over. The service worker:
   documents in IndexedDB (`playground-sw`), so a restart keeps routing;
 - answers 503 when the key's page is gone;
 - adds `Cross-Origin-Embedder-Policy: require-corp` and
-  `Cross-Origin-Resource-Policy: same-origin` to every answer, including
-  errors, which the isolated page needs to frame them.
+  `Cross-Origin-Resource-Policy: same-site` to every answer, including
+  errors, which the isolated page needs to frame them (on a project
+  domain, from a port's origin of the same site).
 
 `new Bridge({ connect })` answers the service worker's requests. For each
 one it:
@@ -283,6 +284,37 @@ one it:
   redirect to another port) switches it, tells the IDE (`onport`), and
   redirects to the path;
 - answers a page that reloads every two seconds while nothing listens.
+
+**On a project domain, a preview origin per port.** The preview shows
+port PORT of the app on `v-ID-PORT.DOMAIN` (`site.ts` `previewOrigin`),
+so several ports show at once (Livebook's page and its iframe endpoint's
+outputs, on another port) and each is kept from the IDE's origin and
+from the others':
+
+- the IDE has a hidden `relay.html` frame on each port's origin
+  (`project/lib/previewOrigins.ts`, made as a server listens there); its
+  page (`frames/relay.ts`) registers that origin's service worker, is its
+  host, and passes the preview's requests and WebSockets to the IDE on a
+  MessagePort, with the port and the origin's `document.cookie`;
+- `new Bridge({ connect }, port, origins)` with `origins`
+  (`v-ID-{port}.DOMAIN`) takes each request's port from it; cookies the
+  app's JavaScript may read come back to the relay to set on its origin
+  (HttpOnly ones stay in the bridge's jar, one per project, as a browser
+  keeps cookies whatever the port);
+- links and redirects to another port go to that port's origin, not
+  through `SWITCH`; a `frame-ancestors` in the app's
+  `Content-Security-Policy` takes the IDE's origin too, and `X-Frame-Options:
+  SAMEORIGIN` goes (Phoenix's and Livebook's say `'self'`, which the
+  IDE's page stood for while it was the preview's origin);
+- the preview is another origin than the IDE's, so the injected script
+  tells the IDE where the preview's first frame is (`playground-location`:
+  its path and port, as it loads and as it navigates), and reloads its
+  stylesheets when asked (`playground-css`); `PreviewFrame` follows the
+  frame to a port it went to by itself.
+
+Without a project domain (and in Safari's one-origin fallback, and a live
+session's guest), the preview stays the page's origin and shows one port
+at a time.
 
 **WebSockets.** A service worker sees no WebSocket connection. The
 injected `WebSocket` (the browser's API: `onopen`/`onmessage`/`onclose`,

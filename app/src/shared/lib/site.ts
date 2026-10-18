@@ -4,7 +4,11 @@
 // has the projects' list, new ones and links, and each project runs on an
 // origin of its own (p-ID.DOMAIN): its files, database, service worker,
 // cookies and preview are its own, and the preview's requests can only
-// be its. The two talk through hidden frames (frames.ts).
+// be its. The two talk through hidden frames (frames.ts). A project's
+// preview has an origin per port of its app (v-ID-PORT.DOMAIN): the app's
+// pages on one port are kept from the IDE's and from its other ports' (as
+// Livebook's notebook outputs, on its second port, are meant to be), and
+// several ports show at once.
 import { isId } from './projects';
 
 interface Site {
@@ -16,9 +20,12 @@ interface Site {
   stray: boolean;
   // Which live session this origin is a guest's page for (l-ID.DOMAIN).
   live: string | null;
+  // Which project's preview, and of which port, this origin is
+  // (v-ID-PORT.DOMAIN).
+  preview: { project: string; port: number } | null;
 }
 
-let site: Site = { domain: null, project: null, stray: false, live: null };
+let site: Site = { domain: null, project: null, stray: false, live: null, preview: null };
 
 // A project's subdomain: p- and its id (p- and a chosen name, later). Every
 // other name under the domain is reserved (www, phoenix, ...).
@@ -28,6 +35,13 @@ const PREFIX = 'p-';
 // preview reaches nothing else of the site (docs/collaboration.md).
 const LIVE = 'l-';
 const subdomain = (id: string) => `${PREFIX}${id}`;
+// A project's preview of one port of its app: v-, its id and the port.
+const PREVIEW = /^v-([a-z0-9]{10})-(\d{1,5})$/;
+function previewName(name: string): { project: string; port: number } | null {
+  const match = name.match(PREVIEW);
+  const port = match ? Number(match[2]) : 0;
+  return match && isId(match[1]) && port > 0 && port < 65536 ? { project: match[1], port } : null;
+}
 function idOf(name: string): string | null {
   return name.startsWith(PREFIX) && isId(name.slice(PREFIX.length))
     ? name.slice(PREFIX.length)
@@ -44,12 +58,13 @@ export async function loadSite(): Promise<void> {
   const host = location.host;
   if (host === domain) {
     if (window.parent === window && apexOnOneOrigin()) return;
-    site = { domain, project: null, stray: false, live: null };
+    site = { domain, project: null, stray: false, live: null, preview: null };
   } else if (host.endsWith(`.${domain}`)) {
     const name = host.slice(0, -domain.length - 1);
     const live = name.startsWith(LIVE) ? name.slice(LIVE.length) : null;
-    const id = live ? null : idOf(name);
-    site = { domain, project: id, stray: id === null && !live, live };
+    const preview = previewName(name);
+    const id = live || preview ? null : idOf(name);
+    site = { domain, project: id, stray: id === null && !live && !preview, live, preview };
   }
   // Another name for the site (an address): one origin, as without.
 }
@@ -62,6 +77,27 @@ export const projectOrigin = () => site.project;
 export const strayOrigin = () => site.stray;
 // This page is a live session's guest origin (l-ID.DOMAIN).
 export const liveOrigin = () => site.live !== null;
+// This page is on a project's preview origin: which project and port.
+export const previewSite = () => site.preview;
+
+// Where this project's preview shows a port of its app, with {port} for
+// it, on a project's own origin (v-ID-PORT.DOMAIN); null without one (the
+// preview is this origin's, and shows one port at a time).
+export function previewOrigins(): string | null {
+  return site.domain && site.project
+    ? `${location.protocol}//v-${site.project}-{port}.${site.domain}`
+    : null;
+}
+export const previewOrigin = (port: number) =>
+  previewOrigins()?.replace('{port}', String(port)) ?? null;
+
+// The project and port a preview origin is, on the project domain.
+export function previewOf(origin: string): { project: string; port: number } | null {
+  if (!site.domain) return null;
+  const { protocol, host } = new URL(origin);
+  if (protocol !== location.protocol || !host.endsWith(`.${site.domain}`)) return null;
+  return previewName(host.slice(0, -site.domain.length - 1));
+}
 
 // Where a guest joins live session `session` (its link's fragment follows):
 // an origin of its own on a project domain, else the site's /live/ID.

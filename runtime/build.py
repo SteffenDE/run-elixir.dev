@@ -405,8 +405,8 @@ def page(out):
 # What stays at the site's root, by name: the pages, the service worker
 # (its scope is /), the site's configuration, the content-hashed Vite
 # assets, the builds and the runtimes.
-ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "sw.js", "playground.json",
-              "_playground", "b", "r"}
+ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "relay.html", "sw.js",
+              "playground.json", "_playground", "b", "r"}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif"}

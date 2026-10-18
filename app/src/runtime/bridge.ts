@@ -115,15 +115,27 @@ function webSocketShim() {
 // The preview's links, as the app means them. The app believes it is at
 // http://localhost:PORT, so it writes absolute links there (a magic link
 // in a mail): they go to their path here, or, on another port (a second
-// endpoint), through the bridge's switch to it (SWITCH). Its top is the preview's first
+// endpoint), to that port's origin (`origins`, with {port}), or through
+// the bridge's switch to it (SWITCH). Its top is the preview's first
 // frame, not the IDE's page: Swoosh's mailbox opens a mail's links in
 // _top, which would navigate the IDE away. Changed as they are clicked or
 // submitted, not in the HTML.
-function linkShim(port: number) {
+//
+// The preview's first frame tells the IDE where it is (it may be another
+// origin, whose location the IDE cannot read), and reloads its
+// stylesheets when the IDE asks.
+function linkShim(port: number, origins: string | null) {
   const marked = window as Window & { playgroundApp?: boolean };
   marked.playgroundApp = true;
+  const pattern = origins
+    ? new RegExp(
+        '^' + origins.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace('\\{port\\}', '(\\d+)') + '$',
+      )
+    : null;
+  const other = (url: URL) => pattern !== null && pattern.test(url.origin);
   const app = (url: URL) =>
     url.origin === location.origin ||
+    other(url) ||
     (url.protocol === 'http:' && ['localhost', '127.0.0.1'].includes(url.hostname));
   const parentOf = (win: Window): Window | null => {
     try {
@@ -140,13 +152,17 @@ function linkShim(port: number) {
     for (let up = parentOf(win); up; up = parentOf(win)) win = up;
     return win;
   };
-  const path = (url: URL) =>
-    (url.origin === location.origin || Number(url.port || 80) === port
-      ? ''
-      : `/__playground/port/${url.port || 80}`) +
-    url.pathname +
-    url.search +
-    url.hash;
+  const rest = (url: URL) => url.pathname + url.search + url.hash;
+  // Where a link of the app's goes in the preview.
+  const path = (url: URL) => {
+    if (url.origin === location.origin || other(url))
+      return url.origin === location.origin ? rest(url) : url.href;
+    const to = Number(url.port || 80);
+    if (to === port) return rest(url);
+    return origins
+      ? origins.replace('{port}', String(to)) + rest(url)
+      : `/__playground/port/${to}${rest(url)}`;
+  };
   addEventListener(
     'click',
     (event) => {
@@ -191,6 +207,30 @@ function linkShim(port: number) {
     },
     true,
   );
+  if (window.parent === window || parentOf(window)) return;
+  const tell = () =>
+    window.parent.postMessage(
+      { kind: 'playground-location', port, path: rest(new URL(location.href)) },
+      '*',
+    );
+  for (const name of ['pushState', 'replaceState'] as const) {
+    const original = history[name];
+    history[name] = function (this: History, ...args: Parameters<History['pushState']>) {
+      original.apply(this, args);
+      tell();
+    };
+  }
+  addEventListener('popstate', tell);
+  addEventListener('hashchange', tell);
+  tell();
+  addEventListener('message', (event) => {
+    if (event.source !== window.parent || event.data?.kind !== 'playground-css') return;
+    for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel=stylesheet]')) {
+      const url = new URL(link.href);
+      url.searchParams.set('vsn', String(Date.now()));
+      link.href = url.href;
+    }
+  });
 }
 
 // A preview's request for this path switches the bridge to the port, then
@@ -198,7 +238,8 @@ function linkShim(port: number) {
 // and the path bar's localhost:PORT/….
 const SWITCH = /^\/__playground\/port\/(\d+)(\/.*)?$/;
 
-const shims = (port: number) => `<script>(${webSocketShim})();(${linkShim})(${port})</script>`;
+const shims = (port: number, origins: string | null) =>
+  `<script>(${webSocketShim})();(${linkShim})(${port}, ${JSON.stringify(origins)})</script>`;
 
 function concat(chunks: Uint8Array[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
@@ -225,18 +266,24 @@ function dechunk(body: Uint8Array): Uint8Array<ArrayBuffer> {
   return concat(parts);
 }
 
-// A request from the preview (sw.js), and what answers it.
+// A request from the preview (sw.js), and what answers it. Through a
+// preview origin's relay (frames/relay.ts): the app's port the origin
+// shows, and that origin's document.cookie; the answer then has the
+// cookies the app's JavaScript may read, for the relay to set there.
 export interface PreviewRequest {
   method: string;
   path: string;
   headers: [string, string][];
   body: ArrayBuffer | null;
+  port?: number;
+  cookie?: string;
 }
 export interface PreviewResponse {
   status: number;
   reason: string;
   headers: [string, string][];
   body: Uint8Array<ArrayBuffer>;
+  cookies?: string[];
 }
 
 // A request or WebSocket under way, for debug().
@@ -251,6 +298,10 @@ interface Flight {
 export class Bridge {
   declare node: { connect(port: number): Connection };
   declare port: number;
+  // Where the preview shows a port, with {port} for it (site.ts
+  // previewOrigins), or null: the preview is this page's origin, and shows
+  // one port at a time (`port`, SWITCH).
+  declare origins: string | null;
   // Told when a preview switched to another port (SWITCH).
   declare onport: ((port: number) => void) | null;
   declare cookies: Map<string, string>;
@@ -277,9 +328,14 @@ export class Bridge {
     return Object.assign(flight, { done });
   }
 
-  constructor(node: { connect(port: number): Connection }, port = 4000) {
+  constructor(
+    node: { connect(port: number): Connection },
+    port = 4000,
+    origins: string | null = null,
+  ) {
     this.node = node;
     this.port = port;
+    this.origins = origins;
     this.onport = null;
     this.cookies = new Map();
     navigator.serviceWorker.addEventListener('message', async (event) => {
@@ -294,31 +350,40 @@ export class Bridge {
   }
 
   // The cookie header for a request: the app's HttpOnly cookies and those in
-  // document.cookie.
-  cookieHeader(): string | null {
+  // document.cookie (`jar`: a preview origin's, from its relay).
+  cookieHeader(jar?: string): string | null {
     const cookies = [...this.cookies].map(([k, v]) => `${k}=${v}`);
-    if (typeof document !== 'undefined' && document.cookie) cookies.push(document.cookie);
+    const page = jar ?? (typeof document !== 'undefined' ? document.cookie : '');
+    if (page) cookies.push(page);
     return cookies.length ? `cookie: ${cookies.join('; ')}` : null;
   }
 
   // A preview's WebSocket (webSocketShim): the opening handshake on a
   // connection to the app, then frames both ways. `port` speaks
   // { open | message | close } to the preview and hears { send | close }.
-  websocket({ path, protocols }: { path: string; protocols: string[] }, port: MessagePort): void {
+  websocket(
+    {
+      path,
+      protocols,
+      port: to = this.port,
+      cookie: jar,
+    }: { path: string; protocols: string[]; port?: number; cookie?: string },
+    port: MessagePort,
+  ): void {
     const flight = this.flight('websocket', path) as Flight & { done(): void };
-    const connection = this.node.connect(this.port);
+    const connection = this.node.connect(to);
     const key = btoa(String.fromCharCode(...crypto.getRandomValues(new Uint8Array(16))));
     const lines = [
       `GET ${path} HTTP/1.1`,
-      `host: localhost:${this.port}`,
+      `host: localhost:${to}`,
       'upgrade: websocket',
       'connection: Upgrade',
       `sec-websocket-key: ${key}`,
       'sec-websocket-version: 13',
-      `origin: http://localhost:${this.port}`,
+      `origin: http://localhost:${to}`,
     ];
     if (protocols.length) lines.push(`sec-websocket-protocol: ${protocols.join(', ')}`);
-    const cookie = this.cookieHeader();
+    const cookie = this.cookieHeader(jar);
     if (cookie) lines.push(cookie);
     connection.write(new TextEncoder().encode(lines.join('\r\n') + '\r\n\r\n'));
 
@@ -479,8 +544,16 @@ export class Bridge {
     );
   }
 
-  request({ method, path, headers, body }: PreviewRequest): Promise<PreviewResponse> {
-    const switched = path.match(SWITCH);
+  request({
+    method,
+    path,
+    headers,
+    body,
+    port,
+    cookie: jar,
+  }: PreviewRequest): Promise<PreviewResponse> {
+    const switched = port === undefined && path.match(SWITCH);
+    const to = port ?? this.port;
     if (switched) {
       this.port = Number(switched[1]);
       this.onport?.(this.port);
@@ -494,7 +567,7 @@ export class Bridge {
     return new Promise((resolve) => {
       const lines = [
         `${method} ${path} HTTP/1.1`,
-        `host: localhost:${this.port}`,
+        `host: localhost:${to}`,
         'connection: close',
         // The page's own (which it cannot name) do not reach the app; gzip
         // is what a browser takes, and parse() decompresses it (an app's
@@ -505,13 +578,13 @@ export class Bridge {
         if (!['host', 'connection', 'cookie', 'accept-encoding', 'content-length'].includes(name))
           lines.push(`${name}: ${value}`);
       }
-      const cookie = this.cookieHeader();
+      const cookie = this.cookieHeader(jar);
       if (cookie) lines.push(cookie);
       const payload = body ? new Uint8Array(body) : null;
       if (payload) lines.push(`content-length: ${payload.length}`);
       const chunks: Uint8Array[] = [];
       const flight = this.flight('http', `${method} ${path}`) as Flight & { done(): void };
-      const connection = this.node.connect(this.port);
+      const connection = this.node.connect(to);
       flight.state = 'waiting for the answer';
       let done = false;
       const finish = (refused: boolean) => {
@@ -534,7 +607,7 @@ export class Bridge {
           });
           return;
         }
-        void this.parse(concat(chunks)).then(resolve);
+        void this.parse(concat(chunks), to, jar === undefined ? undefined : []).then(resolve);
       };
       connection.ondata = (bytes) => {
         flight.bytes += bytes.length;
@@ -551,7 +624,14 @@ export class Bridge {
     });
   }
 
-  async parse(raw: Uint8Array<ArrayBuffer>): Promise<PreviewResponse> {
+  // port: the app's port that answered; cookies: where cookies the app's
+  // JavaScript may read go (for a preview origin's relay), else
+  // document.cookie.
+  async parse(
+    raw: Uint8Array<ArrayBuffer>,
+    port = this.port,
+    cookies?: string[],
+  ): Promise<PreviewResponse> {
     let split = -1;
     for (let i = 0; i + 3 < raw.length; i++) {
       if (raw[i] === 13 && raw[i + 1] === 10 && raw[i + 2] === 13 && raw[i + 3] === 10) {
@@ -574,17 +654,30 @@ export class Bridge {
       if (at < 0) continue;
       const name = line.slice(0, at).trim().toLowerCase();
       const value = line.slice(at + 1).trim();
-      if (name === 'set-cookie') this.remember(value);
-      // A redirect to the app's absolute URL: its path, here (through
-      // SWITCH for another port).
+      if (name === 'set-cookie') this.remember(value, cookies);
+      // A redirect to the app's absolute URL: its path, here (another port's
+      // origin, or through SWITCH).
       if (name === 'location') {
         const app = value.match(/^http:\/\/(?:localhost|127\.0\.0\.1)(?::(\d+))?(\/.*)?$/);
         if (app) {
-          const port = Number(app[1] ?? 80);
+          const to = Number(app[1] ?? 80);
           const path = app[2] ?? '/';
-          headers.push([name, port === this.port ? path : `/__playground/port/${port}${path}`]);
+          headers.push([name, to === port ? path : this.elsewhere(to, path)]);
           continue;
         }
+      }
+      // On a port's own origin the app is framed by the IDE, which stands
+      // in for the browser around localhost: what the app lets frame it
+      // ('self', SAMEORIGIN) takes the IDE's origin too.
+      if (this.origins && name === 'x-frame-options' && /^sameorigin$/i.test(value)) continue;
+      if (this.origins && name === 'content-security-policy') {
+        headers.push([
+          name,
+          value.replace(/frame-ancestors([^;]*)/i, (directive, sources: string) =>
+            /'none'/.test(sources) ? directive : `${directive} ${location.origin}`,
+          ),
+        ]);
+        continue;
       }
       headers.push([name, value]);
     }
@@ -602,14 +695,23 @@ export class Bridge {
     if (type.startsWith('text/html')) {
       const html = new TextDecoder().decode(body);
       const at = html.search(/<head[^>]*>/i);
-      const scripts = shims(this.port);
+      const scripts = shims(port, this.origins);
       const injected = at < 0 ? scripts + html : html.replace(/<head[^>]*>/i, (m) => m + scripts);
       body = new TextEncoder().encode(injected);
     }
-    return { status: Number(status), reason, headers, body };
+    return { status: Number(status), reason, headers, body, cookies };
   }
 
-  remember(cookie: string): void {
+  // Where the preview goes for `path` on another of the app's ports.
+  elsewhere(port: number, path: string): string {
+    return this.origins
+      ? this.origins.replace('{port}', String(port)) + path
+      : `/__playground/port/${port}${path}`;
+  }
+
+  // cookies: where one the app's JavaScript may read goes (a preview
+  // origin's, by its relay), else document.cookie.
+  remember(cookie: string, cookies?: string[]): void {
     const [pair, ...attributes] = cookie.split(';');
     const at = pair.indexOf('=');
     const name = pair.slice(0, at).trim();
@@ -622,16 +724,16 @@ export class Bridge {
         (key.toLowerCase() === 'expires' && Date.parse(v) < Date.now())
       );
     });
-    if (flags.includes('httponly') || typeof document === 'undefined') {
+    if (flags.includes('httponly') || (typeof document === 'undefined' && !cookies)) {
       if (expired) this.cookies.delete(name);
       else this.cookies.set(name, value);
       // A browser keeps one cookie of a name: an HttpOnly one replaces, or
       // expires, one the app's JavaScript set (LiveView's reload status,
       // which Plug's delete_resp_cookie expires as HttpOnly).
-      if (typeof document !== 'undefined' && hasCookie(name)) {
-        const path = attributes.map((a) => a.trim()).find((a) => /^path=/i.test(a)) ?? 'path=/';
+      const path = attributes.map((a) => a.trim()).find((a) => /^path=/i.test(a)) ?? 'path=/';
+      if (cookies) cookies.push(`${name}=; ${path}; max-age=0`);
+      else if (typeof document !== 'undefined' && hasCookie(name))
         document.cookie = `${name}=; ${path}; max-age=0`;
-      }
       return;
     }
     // The app's JavaScript may read it: the browser keeps it. Secure and
@@ -640,7 +742,9 @@ export class Bridge {
     const kept = attributes
       .map((a) => a.trim())
       .filter((a) => !/^(secure|samesite|domain)/i.test(a));
-    document.cookie = [`${name}=${value}`, ...kept, ...(expired ? ['max-age=0'] : [])].join('; ');
+    const set = [`${name}=${value}`, ...kept, ...(expired ? ['max-age=0'] : [])].join('; ');
+    if (cookies) cookies.push(set);
+    else document.cookie = set;
   }
 }
 

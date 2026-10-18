@@ -112,33 +112,26 @@ JavaScript in the preview.
 The rule: **no project's code runs on the origin that holds the account,
 and project pages hold capabilities, not credentials.**
 
-### A preview origin per project
+### A preview origin per project (built, per port)
 
-The preview moves to `v-ID.DOMAIN`, and only the site's own code runs on
-`p-ID`. Then a frame that trusts `p-ID` for project ID means it.
+Built as an origin per port of the app (2026-10-18): `v-ID-PORT.DOMAIN`,
+with a hidden relay frame of that origin in the IDE that passes its
+service worker's requests to the IDE's bridge ([runtime.md](runtime.md),
+*On a project domain, a preview origin per port*). The app's code then
+runs on `v-ID-PORT`, and only the site's on `p-ID`, so a frame that trusts
+`p-ID` for project ID means it.
 
-- **Not `sandbox`.** With `allow-same-origin` and `allow-scripts` on the
-  IDE's origin, the preview removes the attribute. Without
-  `allow-same-origin` its origin is opaque: no service worker controls it
-  (its subresources would go to the network), and `document.cookie` and
-  `localStorage` throw (Phoenix's session, LiveView).
-- **v-ID's own service worker** answers the preview as `sw.ts` does now. A
-  service worker messages only clients of its origin, so the IDE embeds a
-  hidden `v-ID` frame that passes requests to the IDE over a transferred
-  `MessagePort` (as `frames.ts` does). That frame also keeps the app's
-  `document.cookie` (`bridge.ts`), which needs the preview's origin.
-- **Storage:** the relay frame, the preview and its service worker are
-  always under a `p-ID` page, so in every browser they share one partition,
-  Safari's included (which keys by the page's origin: a partition, but the
-  same one for all three). The pop-out stays `p-ID/preview.html` embedding
-  the preview, and finds the IDE over a `BroadcastChannel` as now. A `v-ID`
-  page opened as a tab of its own would be a partition of its own and is
-  never offered.
+- **Not `sandbox`.** Without `allow-same-origin` an origin is opaque: no
+  service worker controls it, and `document.cookie` and `localStorage`
+  throw (Phoenix's session, LiveView).
+- **Cookies:** those the app's JavaScript reads are the port origin's
+  (the relay frame keeps them); HttpOnly ones stay in the bridge, one jar
+  per project.
 - **Left open:** the preview may still `postMessage` its parent, so the
-  IDE checks `event.origin` on every message. In Safari's fallback the
-  page is the apex; whether Safari runs a service worker in a cross-origin
-  frame there wants checking by hand. A site without a project domain keeps
-  the same-origin preview.
+  IDE checks `event.source` and, for a relay, `event.origin`. Whether
+  Safari runs a service worker in a cross-origin frame wants checking by
+  hand (its one-origin fallback keeps the same-origin preview). A site
+  without a project domain keeps the same-origin preview.
 
 ### The account's origin
 

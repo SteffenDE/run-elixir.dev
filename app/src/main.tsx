@@ -16,6 +16,7 @@ import {
   liveOrigin,
   liveUrl,
   loadSite,
+  previewSite,
   onDomain,
   oneOriginUrl,
   projectOrigin,
@@ -43,6 +44,8 @@ const SHORTCUTS: Record<string, Kind> = { phoenix: 'phoenix', empty: 'empty' };
 async function page(path: string): Promise<ReactNode> {
   await loadSite();
   if (strayOrigin()) return <NotFound />;
+  // A preview origin (v-ID-PORT) opened by itself: the app is shown in the IDE.
+  if (previewSite()) return <NotFound />;
   if (liveOrigin() && !path.startsWith('/live/')) return <NotFound />;
   const own = projectOrigin();
   if (own) return projectPage(own, path);

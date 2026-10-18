@@ -5,6 +5,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PreviewFrame } from '@/project/components/PreviewFrame';
 import { Bridge } from '@/runtime/bridge';
+import { loadSite, previewOrigin } from '@/shared/lib/site';
 import {
   previewChannel,
   previewKey,
@@ -50,16 +51,20 @@ function PreviewWindow() {
           setNavigation((n) => n + 1);
         }}
         onReload={() => setReload((n) => n + 1)}
+        originOf={previewOrigin}
       />
     </div>
   );
 }
 
-// The service worker routes this window's preview to the project's page.
-void Bridge.announce({ kind: 'preview', key: previewKey }).then(() =>
-  createRoot(document.getElementById('root')!).render(
-    <StrictMode>
-      <PreviewWindow />
-    </StrictMode>,
-  ),
-);
+// The service worker routes this window's preview to the project's page
+// (on a project domain, a port's origin's to its relay there).
+void loadSite()
+  .then(() => Bridge.announce({ kind: 'preview', key: previewKey }))
+  .then(() =>
+    createRoot(document.getElementById('root')!).render(
+      <StrictMode>
+        <PreviewWindow />
+      </StrictMode>,
+    ),
+  );

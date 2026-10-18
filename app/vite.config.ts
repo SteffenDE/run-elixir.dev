@@ -23,6 +23,7 @@ export default defineConfig({
         preview: 'preview.html',
         registry: 'registry.html',
         storage: 'storage.html',
+        relay: 'relay.html',
       },
     },
   },

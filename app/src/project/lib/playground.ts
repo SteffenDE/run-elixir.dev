@@ -19,6 +19,8 @@ import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
+import { previewOrigins } from '@/shared/lib/site';
+import { previewRelay } from './previewOrigins';
 import { httpsByFetch } from '@/runtime/https';
 import { built, tailwind } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
@@ -276,6 +278,8 @@ function updateListening(): void {
     ? null
     : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : sorted[0]));
   if (bridge && port !== null) bridge.port = port;
+  // On a project domain, every port a server listens on has its origin.
+  for (const each of ports) void previewRelay(each, () => bridge).catch(() => {});
   if (port !== useStore.getState().previewPort) useStore.getState().setPreviewPort(port);
 }
 
@@ -406,6 +410,14 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
   node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
   return node;
 };
+
+// The preview, on a project domain (PreviewFrame's prepare and onPort): a
+// port's origin once its relay is ready, and the port the preview went to.
+export const previewReady = (port: number) => previewRelay(port, () => bridge);
+export function previewShows(port: number): void {
+  chosenPort = port;
+  updateListening();
+}
 
 // A shell in a new terminal tab (the first runs `initial`).
 export function openTerminal(initial: string[] = []): number {
@@ -603,9 +615,11 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   }
   void refreshTree();
   // The preview's requests go to whichever node listens on the port.
-  bridge = new Bridge({
-    connect: (port: number) => nodeOn(port)!.connect(port),
-  });
+  bridge = new Bridge(
+    { connect: (port: number) => nodeOn(port)!.connect(port) },
+    PREVIEW_PORT,
+    previewOrigins(),
+  );
   chosenPort = null;
   bridge.onport = (port) => {
     chosenPort = port;
