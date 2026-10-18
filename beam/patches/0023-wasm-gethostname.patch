@@ -1,0 +1,37 @@
+diff --git a/erts/preloaded/src/prim_net.erl b/erts/preloaded/src/prim_net.erl
+index 69d9e51..221337b 100644
+--- a/erts/preloaded/src/prim_net.erl
++++ b/erts/preloaded/src/prim_net.erl
+@@ -399,8 +399,13 @@ debug(D) ->
+       HostName :: string(),
+       Reason   :: term().
+ 
++%% Without esock (no prim_net NIF), as in the playground, every node is
++%% on the one host, localhost: inet:gethostname/0, which global asks
++%% whenever a node connects, and -sname without a host.
+ gethostname() ->
+-    nif_gethostname().
++    try nif_gethostname()
++    catch error:notsup -> {ok, "localhost"}
++    end.
+ 
+ 
+ %% ===========================================================================
+diff --git a/lib/kernel/src/inet_config.erl b/lib/kernel/src/inet_config.erl
+index bbad464..341c4c4 100644
+--- a/lib/kernel/src/inet_config.erl
++++ b/lib/kernel/src/inet_config.erl
+@@ -227,7 +227,12 @@ set_hostname() ->
+ 	    inet_udp:close(U),
+ 	    set_hostname(Res);
+ 	_ ->
+-	    set_hostname({ok, []})
++	    %% No inet driver (the playground's BEAM): net's answer
++	    %% (prim_net's, localhost without its NIF).
++	    case net:gethostname() of
++		{ok, _} = Res -> set_hostname(Res);
++		_ -> set_hostname({ok, []})
++	    end
+     end.
+ 
+ set_hostname({ok,Name}) when length(Name) > 0 ->

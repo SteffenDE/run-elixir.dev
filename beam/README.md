@@ -13,14 +13,15 @@ Apache License 2.0), `popcorn/patches` and `popcorn/emscripten` at commit
 `a64cbbc23cf1244a27d69a6d684e10c5040aa0e6`. Popcorn wrote them for
 OTP-29.0.6; all fourteen apply in order to OTP-29.1.1, our host version.
 `build.sh` follows Popcorn's `scripts/build-beam.sh`, and `openssl.sh` its
-`build-openssl.sh`. Patches 0015 to 0022 are ours.
+`build-openssl.sh`. Patches 0015 to 0023 are ours; Popcorn's 0004
+(without-distribution, which stubbed `dist.c` and left the distribution
+modules out of kernel) is gone ([distribution.md](../docs/distribution.md)).
 
 | Patch | Effect |
 | --- | --- |
 | 0001 emscripten-support | configure detects `wasm32-*-emscripten`, `ERTS_EMSCRIPTEN` |
 | 0002 without-zstd | drops zstd from erts and stdlib |
 | 0003 without-native-sockets | no inet driver sockets (0016 brings TCP back) |
-| 0004 without-distribution | no `dist.c`, `net_kernel` stubs |
 | 0005 without-crash-dumps | no crash dump writer |
 | 0006 without-dynamic-loading | no `dlopen` for drivers and NIFs (0021 loads wasm NIFs) |
 | 0007 bootstrap-trim | smaller native bootstrap |
@@ -39,6 +40,7 @@ OTP-29.0.6; all fourteen apply in order to OTP-29.1.1, our host version.
 | 0020 playground-https | `ssl:connect` through the page's fetch (`PLAYGROUND_HTTPS_GATEWAY`) |
 | 0021 wasm-nif-libraries | `load_nif` of a library built to WebAssembly (`host/wasm_nifs.c`) |
 | 0022 memory-without-alloc-util | `erlang:memory/0,1` with erts' allocators off (`+Mea min`) |
+| 0023 wasm-gethostname | the host is `localhost` without `prim_net`'s NIF (`global`, `-sname`) |
 
 Patch 0015: V8 moves a WebAssembly function to optimized (TurboFan) code
 only when it is next called, and a scheduler thread entered

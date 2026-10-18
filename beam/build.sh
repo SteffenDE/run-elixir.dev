@@ -96,7 +96,7 @@ autoconf_once() {
 # compile those first with the host erlc, then again with the bootstrap's.
 compile_preloaded() {
     local erlc="$1"
-    for module in wasm erl_init prim_inet prim_socket erlang; do
+    for module in wasm erl_init prim_inet prim_socket prim_net erlang; do
         local beam="${OTP_DIR}/erts/preloaded/ebin/${module}.beam"
         local src="${OTP_DIR}/erts/preloaded/src/${module}.erl"
         [[ "${beam}" -nt "${src}" && "${beam}" -nt "${erlc}" ]] && continue
