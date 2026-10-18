@@ -11,6 +11,7 @@
 import type { Dir } from '../wasi/fs';
 import { Process, type Programs } from '../wasi/process';
 import { WASI } from '../wasi';
+import { vfs } from '../vfs';
 import { Nifs } from '../nif';
 import type { Network } from '../wasi/net';
 import type { SharedCall } from '../wasi/shared';
@@ -283,7 +284,18 @@ function spawn(
     args = [];
   }
   const base = program.split('/').pop()!;
-  const run = programs[base] ?? programs[base.split('-')[0]] ?? programs['*']?.(base);
+  let run = programs[base] ?? programs[base.split('-')[0]] ?? programs['*']?.(base);
+  // An escript by its path (mix escript.install's, found on PATH): the
+  // escript program runs it, as its #! line says.
+  if (!run && program.startsWith('/') && programs.escript) {
+    const head = vfs(options.root, options.fs.fetch, options.shared ?? null)
+      .read(program)
+      ?.subarray(0, 64);
+    if (head && /^#!.*\bescript\b/.test(new TextDecoder().decode(head))) {
+      run = programs.escript;
+      args = [program, ...args];
+    }
+  }
   if (!run) return null;
   const process = new Process();
   process.notify = notify;

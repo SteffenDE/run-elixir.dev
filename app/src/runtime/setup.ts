@@ -14,7 +14,8 @@ export const ENV = {
   HOME: '/work',
   LANG: 'C.UTF-8',
   TERM: 'xterm-256color',
-  PATH: '/usr/bin:/rotp/bin',
+  // Mix's escripts (mix escript.install) are commands too.
+  PATH: '/usr/bin:/rotp/bin:/work/.mix/escripts',
   MIX_HOME: '/work/.mix',
   MIX_ARCHIVES: '/rotp/mix/archives',
   ROTP_OS_TYPE: 'linux',

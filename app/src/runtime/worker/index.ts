@@ -169,6 +169,24 @@ function escriptFlags(script: Uint8Array | null): string[] {
   return line ? words(line.slice(3).trim()) : [];
 }
 
+// A command that is an escript on PATH (mix escript.install's, in
+// $MIX_HOME/escripts), as a shell finds it: escript's command line for it.
+function escriptOnPath(
+  name: string,
+  args: string[],
+  env: Record<string, string>,
+  read: (path: string) => Uint8Array | null,
+): string[] | null {
+  if (name.includes('/')) return null;
+  for (const dir of (env.PATH ?? '').split(':').filter(Boolean)) {
+    const path = `${dir}/${name}`;
+    const head = read(path)?.subarray(0, 64);
+    if (head && new TextDecoder().decode(head).match(/^#!.*\bescript\b/))
+      return command('escript', [path, ...args], read);
+  }
+  return null;
+}
+
 // read(path): a file's bytes, or null (an escript's, for its %%! line).
 function command(
   name: string,
@@ -391,7 +409,10 @@ onmessage = async ({
         continue;
       }
       try {
-        const argv = command(name, rest, (path) => fs.read(join(cwd, path)));
+        const read = (path: string) => fs.read(join(cwd, path));
+        const argv =
+          command(name, rest, read) ??
+          escriptOnPath(name, rest, { ...ENV, ...env, ...assigned }, read);
         if (argv) {
           const status = await run(argv, cwd, assigned);
           if (status === 130) text('\n');
