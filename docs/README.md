@@ -50,6 +50,7 @@ beamos checkout (`BEAMOS`, or `../beamos`).
 | [git.md](git.md) | Plan: git in a project (clone, a diff view, push and its tokens), signing in, and the origins that keep a project's code from the account. |
 | [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
 | [../beam/README.md](../beam/README.md) | The runtime: OTP's own emulator built with Emscripten, its patches, build, benchmarks, how it runs in the playground. |
+| [distribution.md](distribution.md) | Plan: Erlang distribution between a project's nodes, and Livebook; the proof of concept and an estimate. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [backend.md](backend.md) | `backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |
