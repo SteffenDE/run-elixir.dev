@@ -54,7 +54,11 @@ function run(
       done(code);
     },
   );
-  process.onkill = () => node.stop();
+  // Its port closed: the node runs on, as an OS process outlives its
+  // port (Livebook's runtime node is started from a process that then
+  // ends), until it ends by itself or the node that started it stops.
+  process.onkill = () => {};
+  process.onowner = () => node.stop();
 }
 
 // A command line's commands, as far as the playground runs them: words

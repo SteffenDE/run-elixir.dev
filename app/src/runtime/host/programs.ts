@@ -6,7 +6,10 @@ import { CHUNK, FRAME, type Node, type SpawnMessage } from './node';
 export interface PageProcess {
   write(data: string | Uint8Array): void;
   exit(code?: number): void;
+  // The node closed its port.
   onkill: (() => void) | null;
+  // The node that started it stopped.
+  onowner?: (() => void) | null;
 }
 
 export type PageProgram = (

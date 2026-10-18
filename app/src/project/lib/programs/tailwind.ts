@@ -29,7 +29,10 @@ const BINARY = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|eot|mp4|webm|zip|gz|bea
 export interface Process {
   write(data: string | Uint8Array): void;
   exit(code?: number): void;
+  // The node closed its port.
   onkill: (() => void) | null;
+  // The node that started it stopped.
+  onowner?: (() => void) | null;
 }
 
 export interface Context {

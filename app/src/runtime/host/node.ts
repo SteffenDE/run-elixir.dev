@@ -278,6 +278,9 @@ export class Node {
   // Stop the node and its worker.
   stop(): void {
     this.worker.terminate();
+    // What it started on the page goes with it.
+    for (const process of this.running.values()) process.onowner?.();
+    this.running.clear();
     // Its connections end with it, so their other ends hear so: a peer
     // node's, epmd's registration (epmd.ts), the database's session.
     for (const connection of [...this.connections.values()]) {
