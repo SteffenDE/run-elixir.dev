@@ -78,10 +78,13 @@ export class Files implements FileSystem {
   worker: Worker;
   ready: Promise<void>;
 
-  // boots, template, store: what files.js starts with (its 'start').
+  // base: where files.js is; runtime: the site's files (build.ts
+  // RUNTIME), by default base. boots, template, store: what files.js
+  // starts with (its 'start').
   // onwarning(message): a change that was not kept.
   constructor({
     base = './',
+    runtime = null as string | null,
     boots = ['boot'],
     template = [] as string[],
     store = null as string | null,
@@ -109,7 +112,7 @@ export class Files implements FileSystem {
     });
     this.worker.postMessage({
       kind: 'start',
-      base: new URL(base, location.href).href,
+      runtime: new URL(runtime ?? base, location.href).href,
       doorbell: this.doorbell,
       boots,
       template,

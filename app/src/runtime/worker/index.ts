@@ -19,12 +19,14 @@ import type { FilesChannel } from '../host/files';
 import { Channel, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, siteNif } from './nif';
-import { site } from './site';
+import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
 // What the page starts a node with (host/node.ts Node.start).
 interface Start {
   shared: SharedArrayBuffer;
+  // Where the BEAM, the files and the NIF libraries are.
+  runtime: string;
   files: FilesChannel | null;
   shell: boolean;
   args?: string[];
@@ -132,6 +134,7 @@ Ctrl+C stops what is running.
 onmessage = async ({
   data: {
     shared,
+    runtime: runtimeUrl,
     files,
     shell,
     args,
@@ -145,14 +148,15 @@ onmessage = async ({
     boots = ['boot'],
   },
 }: MessageEvent<Start>) => {
+  setRuntime(runtimeUrl);
   try {
     say('status', 'Loading OTP and Elixir…');
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest] = await Promise.all([
       Promise.all(
-        boots.map((boot) => fetch(site(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
+        boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
       ),
-      fetch(site('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
+      fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -169,7 +173,7 @@ onmessage = async ({
       : null;
     const channel = new Channel(shared);
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
-    const fetchFile = bundled((bundle) => fetchBundle(site(`fs/bundles/${bundle}.tar`)));
+    const fetchFile = bundled((bundle) => fetchBundle(runtime(`fs/bundles/${bundle}.tar`)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
@@ -194,7 +198,7 @@ onmessage = async ({
       channel.interrupted = false;
       try {
         return await runBeam({
-          module: site('beam.mjs').href,
+          module: runtime('beam.mjs').href,
           argv: ['+S', String(SCHEDULERS), ...argv],
           env: { ...ENV, ...env, PWD: cwd },
           cwd,

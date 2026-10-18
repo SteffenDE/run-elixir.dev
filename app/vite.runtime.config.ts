@@ -1,9 +1,10 @@
 import { defineConfig, type UserConfig } from 'vite';
 
 // The runtime's scripts that load by URL, bundled: the node's worker and
-// the shared files' worker, which go into the build (b/ID/, runtime/build.py) under their names, and the service
-// worker, which stays at the site's root (its scope is /). The page's
-// own parts of the runtime (host.ts, bridge.ts, …) are in the app's build.
+// the shared files' worker, which go into the build (b/ID/,
+// runtime/build.py) under their names, and the service worker, which
+// stays at the site's root (its scope is /). The page's own parts of the
+// runtime (host.ts, bridge.ts, …) are in the app's build.
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness instead: node.mjs, and beam-node.mjs (beam/), into dist-node/

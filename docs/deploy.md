@@ -16,17 +16,19 @@ Forgejo runner and makes it live on the server as a new release
    repository's variables.
 2. **Upload** (`upload.sh SITE user@host`): the server seeds
    `releases/RID.partial` with the live release's files, hard-linked, and
-   this build's `b/ID/` with the live build's; rsync then sends what
+   this build's `b/ID/` and runtime's `r/RID/` with the live ones' (a
+   runtime the live release has already is there as it is); rsync then sends what
    differs by checksum and deletes what is gone. A changed file is a new
    file (rsync renames it into place), so the live release is never
    written to.
 3. **Activate** (`playground-deploy activate RID`, on the server): the
-   release must hold the pages, its build's `beam.wasm`, `worker.js` and
-   `fs/`, and a `playground.json` naming `DOMAIN`. It keeps the builds of
-   the newest `KEEP_BUILDS` releases (`b/ID/`, for pages loaded before),
+   release must hold the pages, its build's `worker.js`, its runtime's
+   `beam.wasm` and `fs/`, and a `playground.json` naming `DOMAIN`. It
+   keeps the builds and runtimes of the newest `KEEP_BUILDS` releases
+   (`b/ID/`, `r/RID/`, for pages loaded before),
    then `current` is pointed at it in one rename. The site is checked as
    served (the isolation headers, the page naming this build, its
-   `beam.wasm` as WebAssembly, `sw.js` no-cache); if that fails, the
+   runtime's `beam.wasm` as WebAssembly, `sw.js` no-cache); if that fails, the
    previous release is live again and the deploy fails. Then Cloudflare
    drops its copies of the pages, and releases beyond `KEEP_RELEASES` go.
 
@@ -112,8 +114,8 @@ repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 ### Cloudflare
 
 The pages are HTML and JSON, which Cloudflare does not cache unless told
-to, and `sw.js` is no-cache; `b/` and `_playground/` are new names with
-each build and cached for good. So nothing needs purging for a deploy to
+to, and `sw.js` is no-cache; `b/`, `r/` and `_playground/` are new names
+when their contents change and cached for good. So nothing needs purging for a deploy to
 be seen; the purge of the apex's pages is a safety net for a cache rule
 that caches more.
 
@@ -146,16 +148,17 @@ that caches more.
   compressed in transit. `fs/boot.tar.gz` is gzipped already. Caddy does not
   compress `application/x-tar` or `application/wasm` by default.
 - **Caching.**
-  - `_playground/` (the IDE's Vite assets) is content-hashed, and `b/ID/`
-    (the runtime's JavaScript, `beam*`, `fs/`, `nif/`) is named by a
-    digest of its contents ([build.md](build.md#what-the-site-is)): both
-    can be cached for good.
+  - `_playground/` (the IDE's Vite assets) is content-hashed, `b/ID/`
+    (the runtime's JavaScript) and `r/RID/` (`beam*`, `fs/`, `nif/`) are
+    named by digests of their contents ([build.md](build.md#what-the-site-is)):
+    all can be cached for good, and a deploy of JavaScript alone keeps
+    `r/RID/`.
   - The pages (`index.html`, `preview.html`, `registry.html`,
     `storage.html`), `sw.js` and `playground.json` keep their names, so they
     should revalidate (ETag or Last-Modified, which Caddy's file_server
-    sends). A page names its build, so it never mixes an older build's
-    files with a newer one's.
-  - Keep the previous build's `b/ID/` for a while after a deploy: a tab
+    sends). A page names its build and runtime, so it never mixes an older
+    build's files with a newer one's.
+  - Keep the previous build's `b/ID/` and `r/RID/` for a while after a deploy: a tab
     opened before it keeps loading from there.
 - **Projects outlive deploys.** They are kept in the browser, over the
   template of the site that made them; a new build changes `fs/version`,

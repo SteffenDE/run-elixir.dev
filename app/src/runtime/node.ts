@@ -1,7 +1,7 @@
 // The Emscripten BEAM (beam/run.ts) in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
 // SITE is a site build.py made (target/site), or one of its
-// builds (b/ID). Standard input is read whole first and then ends.
+// runtimes (r/RID). Standard input is read whole first and then ends.
 import { readFile } from 'node:fs/promises';
 import {
   existsSync,
@@ -22,9 +22,10 @@ import { TreeFs } from './beam/treefs';
 import { vfs } from './vfs';
 
 const [site, ...args] = process.argv.slice(2);
-// A versioned site's build (b/ID/, build.py), or a flat one.
-const builds = existsSync(`${site}/fs`) ? [] : readdirSync(`${site}/b`);
-const dir = builds.length ? `${site}/b/${builds[0]}` : site;
+// A versioned site's runtime (r/RID/: the BEAM, fs/, nif/; build.py), or
+// a flat site.
+const runtimes = existsSync(`${site}/fs`) ? [] : readdirSync(`${site}/r`);
+const dir = runtimes.length ? `${site}/r/${runtimes[0]}` : site;
 const t0 = performance.now();
 let t2 = Infinity;
 const root = new Dir();

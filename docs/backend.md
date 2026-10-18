@@ -178,7 +178,7 @@ The GitHub OAuth app's callback is
 The site still ships its own builds of four packages (`nif/`, from
 build.py), and `make` takes those first. They match the page by
 construction: built with the same erl_nif layer as its `nif.ts`, in the
-same versioned build (`b/ID/`). The backend builds with the layer its
+same versioned runtime (`r/RID/`). The backend builds with the layer its
 root disk has, and a request does not say which one the page expects; a
 change to `beamos_nif.c` would let them drift apart. The plan, so that the
 backend is the only source:

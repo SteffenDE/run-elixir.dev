@@ -42,13 +42,15 @@ rebar3), and builds the template with the host's Mix in
 ```
 target/site/
   index.html, preview.html,  the app's Vite build (assets in _playground/), each
-  registry.html, storage.html  naming its build: <meta name="playground-build">
+  registry.html, storage.html  naming its build and runtime: <meta name="playground-build">,
+                               <meta name="playground-runtime">
   sw.js                      the service worker, at the root for its scope /
   playground.json            the project domain, if any
   _playground/               the Vite assets, content-hashed
-  b/ID/                      the build, ID a digest of what is in it:
+  b/ID/                      the build's JavaScript, ID a digest of it and RID:
     worker.js files.js         the runtime's workers, bundled (Vite),
     chunks/                      and what they share
+  r/RID/                     the runtime, RID a digest of what is in it:
     beam.mjs, beam.emu.mjs     the emulator's loader and its threads'
     beam.wasm                  the emulator, 4.9 MB
     fs/boot.tar.gz             what IEx reads first
@@ -61,13 +63,17 @@ target/site/
 ```
 
 The build's files keep their names from one build to the next, so they
-live under a path of their own (`b/ID/`), which the page reads from its
-`<meta>` (`app/src/shared/lib/build.ts`): a page loaded before a deploy
-keeps loading its own build, never a newer `beam.wasm` with its older
-filesystem, for as long as the server keeps the older build
-([deploy.md](deploy.md)). `build.py` builds flat and moves the build
-there last; `build.py app` lays it flat again first. The Node harness
-takes the site or one build.
+live under paths of their own, which the page reads from its `<meta>`s
+(`app/src/shared/lib/build.ts` BUILD and RUNTIME, which it gives the
+workers): `b/ID/` for the runtime's JavaScript and `r/RID/` for the BEAM
+and what it reads. RID depends on those files alone, so a build that
+changes only JavaScript (`build.py app`) keeps it, and browsers keep the
+BEAM, the boot images and the bundles cached across that deploy. A page
+loaded before a deploy keeps loading its own build and runtime, never a
+newer `beam.wasm` with its older filesystem, for as long as the server
+keeps them ([deploy.md](deploy.md)). `build.py` builds flat and moves
+both there last; `build.py app` lays them flat again first. The Node
+harness takes the site or one runtime directory.
 
 Every project unpacks `boot.tar.gz`; a Phoenix project also unpacks
 `boot-phoenix.tar.gz`. The manifest lists the second image's files too, so

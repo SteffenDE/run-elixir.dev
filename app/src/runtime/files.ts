@@ -613,19 +613,19 @@ onmessage = async ({ data }) => {
       // files (/work/playground for a Phoenix project); store: the
       // IndexedDB database the project's changes are kept in.
       const {
-        base,
+        runtime,
         boots = ['boot'],
         template = [],
         store = null,
-      }: { base: string; boots?: string[]; template?: string[]; store?: string | null } = data;
+      }: { runtime: string; boots?: string[]; template?: string[]; store?: string | null } = data;
       const [images, manifest, version] = await Promise.all([
         Promise.all(
           boots.map((boot) =>
-            fetch(new URL(`fs/${boot}.tar.gz`, base)).then((r) => r.arrayBuffer()),
+            fetch(new URL(`fs/${boot}.tar.gz`, runtime)).then((r) => r.arrayBuffer()),
           ),
         ),
-        fetch(new URL('fs/manifest.json', base)).then((r) => r.json()),
-        fetch(new URL('fs/version', base)).then((r) => (r.ok ? r.text() : '')),
+        fetch(new URL('fs/manifest.json', runtime)).then((r) => r.json()),
+        fetch(new URL('fs/version', runtime)).then((r) => (r.ok ? r.text() : '')),
       ]);
       root = new Dir();
       const shared = (path: string) =>
@@ -657,7 +657,7 @@ onmessage = async ({ data }) => {
         );
         overlay = { db, version: version.trim(), whiteouts };
       }
-      fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, base)));
+      fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, runtime)));
       doorbell = new Int32Array(data.doorbell);
       postMessage({ kind: 'ready' });
       loop ??= serve();

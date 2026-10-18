@@ -4,10 +4,10 @@
 # it takes, from SSH_ORIGINAL_COMMAND:
 #
 #   rsync --server …        an upload, through rrsync, into releases/ only
-#   prepare RID BUILD       releases/RID.partial, seeded from the live release
+#   prepare RID BUILD RUNTIME  releases/RID.partial, seeded from the live release
 #   activate RID            check it, make it live, check the site, purge
 #   rollback                the release before the live one, live again
-#   status                  the live release and its build
+#   status                  the live release, its build and runtime
 #
 # Run by hand, the same as arguments. Its configuration is
 # /etc/playground-deploy.env (PLAYGROUND_DEPLOY_CONFIG):
@@ -16,7 +16,8 @@
 #   DOMAIN=run-elixir.dev             checked in playground.json and served
 #   CHECK_RESOLVE=127.0.0.1           where the check reaches the origin
 #                                     (empty: no check)
-#   KEEP_RELEASES=5 KEEP_BUILDS=3     releases kept; builds (b/ID) carried
+#   KEEP_RELEASES=5 KEEP_BUILDS=3     releases kept; builds (b/ID) and
+#                                     runtimes (r/RID) carried
 #   CF_ZONE_ID=… CF_API_TOKEN=…       Cloudflare, to purge the pages (a token
 #                                     with Zone → Cache Purge only)
 set -euo pipefail
@@ -29,7 +30,8 @@ CHECK_RESOLVE=${CHECK_RESOLVE-127.0.0.1}
 KEEP_RELEASES=${KEEP_RELEASES:-5}
 KEEP_BUILDS=${KEEP_BUILDS:-3}
 RELEASES=$SITE/releases
-# The pages and what keeps its name; everything else is under b/ID.
+# The pages and what keeps its name; everything else is under b/ID (the
+# runtime's JavaScript) and r/RID (the BEAM, fs/, nif/).
 PAGES=(index.html preview.html registry.html storage.html sw.js playground.json)
 
 die() {
@@ -37,9 +39,12 @@ die() {
   exit 1
 }
 
-build_of() {
-  sed -n 's/.*<meta name="playground-build" content="\([0-9a-f]*\)".*/\1/p' "$1/index.html" 2>/dev/null | head -n 1
+# What a release's (or a page's) <meta name="playground-$2"> names.
+meta_of() {
+  sed -n "s/.*<meta name=\"playground-$2\" content=\"\([0-9a-f]*\)\".*/\1/p" "$1" 2>/dev/null | head -n 1
 }
+build_of() { meta_of "$1/index.html" build; }
+runtime_of() { meta_of "$1/index.html" runtime; }
 
 valid_rid() { [[ $1 =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7,40}$ ]] || die "not a release: $1"; }
 valid_build() { [[ $1 =~ ^[0-9a-f]{16}$ ]] || die "not a build: $1"; }
@@ -58,9 +63,10 @@ swap() {
 }
 
 prepare() {
-  local rid=$1 build=$2 old partial
+  local rid=$1 build=$2 runtime=$3 old partial
   valid_rid "$rid"
   valid_build "$build"
+  valid_build "$runtime"
   partial=$RELEASES/$rid.partial
   rm -rf "$partial"
   mkdir -p "$partial"
@@ -70,13 +76,19 @@ prepare() {
     if [ -n "$old" ] && [ -d "$partial/b/$old" ] && [ ! -e "$partial/b/$build" ]; then
       cp -al "$partial/b/$old" "$partial/b/$build"
     fi
+    # A runtime the live release has already is there as it is; a new one
+    # starts from the live one's files, which rsync then updates.
+    old=$(runtime_of "$SITE/current")
+    if [ -n "$old" ] && [ -d "$partial/r/$old" ] && [ ! -e "$partial/r/$runtime" ]; then
+      cp -al "$partial/r/$old" "$partial/r/$runtime"
+    fi
   fi
 }
 
 # The site as served: the pages' isolation headers, this build named, its
-# WebAssembly, and the service worker revalidated.
+# runtime's WebAssembly, and the service worker revalidated.
 check() {
-  local build=$1 base page headers
+  local build=$1 runtime=$2 base page headers
   [ -n "$DOMAIN" ] && [ -n "$CHECK_RESOLVE" ] || return 0
   base=https://$DOMAIN
   local curl=(curl -fsS --max-time 30 --resolve "$DOMAIN:443:$CHECK_RESOLVE")
@@ -86,11 +98,13 @@ check() {
   grep -qi '^cross-origin-opener-policy: same-origin' <<<"$headers" || { echo "check: no COOP" >&2; return 1; }
   grep -qi '^cross-origin-embedder-policy: require-corp' <<<"$headers" || { echo "check: no COEP" >&2; return 1; }
   if ! grep -q "content=\"$build\"" "$page"; then
-    echo "check: / is build $(sed -n 's/.*<meta name="playground-build" content="\([0-9a-f]*\)".*/\1/p' "$page" | head -n 1 | grep . || echo '(none named)'), not $build: is Caddy's root $SITE/current?" >&2
+    echo "check: / is build $(meta_of "$page" build | grep . || echo '(none named)'), not $build: is Caddy's root $SITE/current?" >&2
     return 1
   fi
-  "${curl[@]}" -o /dev/null -w '%{content_type}\n' "$base/b/$build/beam.wasm" | grep -q '^application/wasm' ||
-    { echo "check: b/$build/beam.wasm is not served as WebAssembly" >&2; return 1; }
+  if [ -n "$runtime" ]; then
+    "${curl[@]}" -o /dev/null -w '%{content_type}\n' "$base/r/$runtime/beam.wasm" | grep -q '^application/wasm' ||
+      { echo "check: r/$runtime/beam.wasm is not served as WebAssembly" >&2; return 1; }
+  fi
   "${curl[@]}" -o /dev/null -D - "$base/sw.js" | grep -qi '^cache-control: no-cache' ||
     { echo "check: sw.js is not no-cache" >&2; return 1; }
 }
@@ -109,29 +123,37 @@ purge() {
 }
 
 activate() {
-  local rid=$1 partial release build previous keep name page
+  local rid=$1 partial release build runtime previous keep name page top
   valid_rid "$rid"
   partial=$RELEASES/$rid.partial
   release=$RELEASES/$rid
   [ -d "$partial" ] || die "no upload for $rid"
   build=$(build_of "$partial")
   [ -n "$build" ] || die "$rid: index.html names no build"
-  for page in "${PAGES[@]}" "b/$build/beam.wasm" "b/$build/worker.js" "b/$build/fs/manifest.json" "b/$build/fs/version"; do
+  runtime=$(runtime_of "$partial")
+  [ -n "$runtime" ] || die "$rid: index.html names no runtime"
+  for page in "${PAGES[@]}" "b/$build/worker.js" "r/$runtime/beam.wasm" "r/$runtime/fs/manifest.json" \
+              "r/$runtime/fs/version"; do
     [ -s "$partial/$page" ] || die "$rid: $page is missing"
   done
   if [ -n "$DOMAIN" ]; then
     grep -q "\"domain\": *\"$DOMAIN\"" "$partial/playground.json" || die "$rid: playground.json does not name $DOMAIN"
   fi
-  # The builds of the newest releases, this one's first, stay.
-  keep=$({ echo "$build"; for name in $(releases); do build_of "$RELEASES/$name"; done; } | awk 'NF && !seen[$0]++' | head -n "$KEEP_BUILDS")
-  for name in "$partial"/b/*/; do
-    name=$(basename "$name")
-    grep -qx "$name" <<<"$keep" || rm -rf "${partial:?}/b/$name"
+  # The builds and runtimes of the newest releases, this one's first, stay.
+  for top in b:build r:runtime; do
+    keep=$({ meta_of "$partial/index.html" "${top#*:}"
+             for name in $(releases); do meta_of "$RELEASES/$name/index.html" "${top#*:}"; done
+           } | awk 'NF && !seen[$0]++' | head -n "$KEEP_BUILDS")
+    for name in "$partial/${top%%:*}"/*/; do
+      [ -d "$name" ] || continue
+      name=$(basename "$name")
+      grep -qx "$name" <<<"$keep" || rm -rf "${partial:?}/${top%%:*}/$name"
+    done
   done
   mv "$partial" "$release"
   previous=$(live || true)
   swap "$rid"
-  if ! check "$build"; then
+  if ! check "$build" "$runtime"; then
     if [ -n "$previous" ]; then
       swap "$previous"
     else
@@ -145,7 +167,7 @@ activate() {
     [ "$name" = "$rid" ] || rm -rf "${RELEASES:?}/$name"
   done
   find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name '*.partial' -mmin +60 -exec rm -rf {} +
-  echo "live: $rid (build $build)"
+  echo "live: $rid (build $build, runtime $runtime)"
 }
 
 rollback() {
@@ -154,7 +176,7 @@ rollback() {
   before=$(releases | grep -A1 -x "$current" | sed -n 2p)
   [ -n "$before" ] || die "no release before $current"
   swap "$before"
-  check "$(build_of "$RELEASES/$before")" || echo "playground-deploy: warning: $before failed its check" >&2
+  check "$(build_of "$RELEASES/$before")" "$(runtime_of "$RELEASES/$before")" || echo "playground-deploy: warning: $before failed its check" >&2
   purge
   echo "live: $before (build $(build_of "$RELEASES/$before"))"
 }
@@ -174,9 +196,9 @@ mkdir -p "$RELEASES"
 exec 9>"$SITE/.deploy.lock"
 flock -w 600 9 || die "another deploy holds the lock"
 case "${words[0]:-} ${#words[@]}" in
-  "prepare 3") prepare "${words[1]}" "${words[2]}" ;;
+  "prepare 4") prepare "${words[1]}" "${words[2]}" "${words[3]}" ;;
   "activate 2") activate "${words[1]}" ;;
   "rollback 1") rollback ;;
-  "status 1") echo "live: $(live) (build $(build_of "$SITE/current"))" ;;
+  "status 1") echo "live: $(live) (build $(build_of "$SITE/current"), runtime $(runtime_of "$SITE/current"))" ;;
   *) die "unknown command: ${words[*]:-}" ;;
 esac

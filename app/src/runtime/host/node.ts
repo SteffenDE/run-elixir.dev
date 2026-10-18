@@ -143,6 +143,7 @@ export class Node {
   // there (project/lib/playground.ts), or false.
   peer: (connection: Connection, port: number) => boolean;
   worker: Worker;
+  runtime: string;
   channel: FilesChannel | null = null;
   retry: ReturnType<typeof setTimeout> | null = null;
   // For debug(): connections that ended lately, and what the worker sent
@@ -152,7 +153,8 @@ export class Node {
   // The page programs it runs: their command lines, and since when.
   spawned = new Map<number, { command: string; started: number }>();
 
-  // base: where the site's runtime files are; onoutput(bytes),
+  // base: where the site's runtime scripts are; runtime: its BEAM, files
+  // and NIF libraries (build.ts RUNTIME), by default base; onoutput(bytes),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
   // ports the node may connect to on the page; https: (connection,
   // { host, port }) => ..., HTTPS the page carries for the node
@@ -171,6 +173,7 @@ export class Node {
   // unsupported, interrupted).
   constructor({
     base = './',
+    runtime = null as string | null,
     onoutput = (_bytes: Uint8Array) => {},
     onstatus = (_text: string) => {},
     onexit = (_code: number) => {},
@@ -197,6 +200,7 @@ export class Node {
     this.connections = new Map();
     this.next = 1;
     this.serve = serve;
+    this.runtime = new URL(runtime ?? base, location.href).href;
     this.worker = worker('worker.js', base);
     this.worker.onmessage = ({ data }: MessageEvent<NodeMessage>) => {
       const seen = (this.fromWorker[data.kind] ??= { count: 0, last: 0 });
@@ -251,6 +255,7 @@ export class Node {
     this.channel = this.files?.connect() ?? null;
     this.worker.postMessage({
       shared: this.shared,
+      runtime: this.runtime,
       files: this.channel,
       shell,
       args,

@@ -15,7 +15,7 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files, type SearchQuery, type SearchResult } from '@/runtime/host/files';
 import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
 import { lineDiscipline } from '@/runtime/terminal';
-import { BUILD } from '@/shared/lib/build';
+import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
 import { httpsByFetch } from '@/runtime/https';
@@ -361,6 +361,7 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
   }
   const node = new Node({
     base: BUILD,
+    runtime: RUNTIME,
     files,
     ...nodeServices(),
     onoutput: output,
@@ -410,6 +411,7 @@ export function openTerminal(initial: string[] = []): number {
   );
   session.node = new Node({
     base: BUILD,
+    runtime: RUNTIME,
     files,
     ...nodeServices(),
     onoutput(bytes) {
@@ -511,7 +513,7 @@ async function applyShared(shared: Shared): Promise<void> {
 export async function shareable(name: string, template?: Template): Promise<Shared> {
   const [{ changed, removed }, site] = await Promise.all([
     running().changes(HIDDEN),
-    fetch(`${BUILD}fs/version`).then((response) => response.text()),
+    fetch(`${RUNTIME}fs/version`).then((response) => response.text()),
   ]);
   const relative = (path: string) => path.slice(WORK.length + 1);
   const written = changed.filter(({ path }) => !path.includes('/priv/static/assets/'));
@@ -562,6 +564,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   store.setStatus('Starting the files…');
   files = new Files({
     base: BUILD,
+    runtime: RUNTIME,
     boots: setup.boots,
     template: setup.template,
     store: id ? filesStore(id) : null,
