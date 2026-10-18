@@ -1,5 +1,6 @@
-// WASI preview 1 for rotp.wasm, over an in-memory filesystem: the imports
-// Rust std (wasm32-wasip1) makes, for a Web Worker and for Node alike.
+// WASI preview 1 for NIF libraries built to WebAssembly (beam/run.ts,
+// nif.ts), over an in-memory filesystem, for a Web Worker and for Node
+// alike. It once ran Rust-OTP's whole node (the rotp branch).
 // One preopen, "/", holds everything; there are no links or owners.
 // Standard input is a callback that answers bytes, null when none is
 // waiting (EAGAIN: the node polls again) or an empty array at its end.
@@ -160,7 +161,7 @@ export class WASI {
     return new Uint8Array(this.memory!.buffer, ptr, len);
   }
   string(ptr: number, len: number): string {
-    // A copy: TextDecoder takes no view of a shared memory (threads.ts).
+    // A copy: TextDecoder takes no view of a shared memory.
     return new TextDecoder().decode(this.bytes(ptr, len).slice());
   }
 

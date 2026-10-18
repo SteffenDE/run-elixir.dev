@@ -1,7 +1,5 @@
-// A node on the Emscripten BEAM in this worker (a build for
-// PLAYGROUND_RUNTIME=otp, runtime.json): beam/run.ts with the page's
-// frames, which Rust-OTP's node reads as it runs (channel.pump in its WASI
-// calls). This one runs in threads of its own, whose file and network
+// A node on the Emscripten BEAM in this worker: beam/run.ts with the
+// page's frames. It runs in threads of its own, whose file and network
 // calls this worker serves, so the frames are taken here as they come
 // (Atomics.waitAsync on the ring's write count) and the worker never
 // blocks while the node runs.
@@ -28,6 +26,24 @@ export interface BeamRun {
   memory: WebAssembly.Memory | null;
   stdout: (bytes: Uint8Array) => void;
 }
+
+// The node's memory: shared, and as large as it may grow here (a shared
+// memory reserves its maximum up front, which a phone may not have room
+// for), or null where there is no shared memory.
+export function sharedMemory(): WebAssembly.Memory | null {
+  if (!globalThis.crossOriginIsolated) return null;
+  for (const maximum of [65536, 32768, 16384]) {
+    try {
+      return new WebAssembly.Memory({ initial: 1024, maximum, shared: true });
+    } catch {
+      // Too large a reservation: a smaller one.
+    }
+  }
+  return null;
+}
+
+// How many schedulers a node runs.
+export const SCHEDULERS = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1));
 
 // Atomics.waitAsync (ES2024; not in the library this targets).
 const waitAsync = (

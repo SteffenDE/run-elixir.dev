@@ -123,8 +123,6 @@ type NodeMessage =
   | NetMessage
   | { kind: 'listening'; port: number; on: boolean; ephemeral: boolean }
   | SpawnMessage
-  | { kind: 'thread'; node: number; start: unknown }
-  | { kind: 'threads-end'; node: number }
   | { kind: 'kill'; id: number };
 
 export class Node {
@@ -144,7 +142,6 @@ export class Node {
   // A connection the node opened to a port another node listens on: taken
   // there (project/lib/playground.ts), or false.
   peer: (connection: Connection, port: number) => boolean;
-  threads: Map<number, Worker[]>;
   worker: Worker;
   channel: FilesChannel | null = null;
   retry: ReturnType<typeof setTimeout> | null = null;
@@ -200,9 +197,6 @@ export class Node {
     this.connections = new Map();
     this.next = 1;
     this.serve = serve;
-    // A threaded node's threads (worker/threaded.ts runThreaded), by node: workers
-    // the page starts, since a worker busy serving them could not.
-    this.threads = new Map();
     this.worker = worker('worker.js', base);
     this.worker.onmessage = ({ data }: MessageEvent<NodeMessage>) => {
       const seen = (this.fromWorker[data.kind] ??= { count: 0, last: 0 });
@@ -221,14 +215,6 @@ export class Node {
         else this.serving.delete(data.port);
         onlistening(data.port, data.on);
       } else if (data.kind === 'spawn') spawn(this, data);
-      else if (data.kind === 'thread') {
-        const thread = worker('thread.js', base);
-        thread.onerror = (event) =>
-          onstatus(`failed: ${event.message || 'a thread did not start'}`);
-        thread.postMessage(data.start);
-        if (!this.threads.has(data.node)) this.threads.set(data.node, []);
-        this.threads.get(data.node)!.push(thread);
-      } else if (data.kind === 'threads-end') this.stopThreads(data.node);
       else if (data.kind === 'kill') {
         this.running.get(data.id)?.onkill?.();
         this.running.delete(data.id);
@@ -284,15 +270,8 @@ export class Node {
     return this.files;
   }
 
-  // Stop a threaded node's threads.
-  stopThreads(node: number): void {
-    for (const thread of this.threads.get(node) ?? []) thread.terminate();
-    this.threads.delete(node);
-  }
-
   // Stop the node and its worker.
   stop(): void {
-    for (const node of [...this.threads.keys()]) this.stopThreads(node);
     this.worker.terminate();
     if (this.channel) this.files!.disconnect(this.channel);
   }

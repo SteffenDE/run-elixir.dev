@@ -17,7 +17,7 @@ export class Process {
   // The node closed its port.
   declare onclose?: () => void;
   // Told when the program writes or exits (the Emscripten BEAM's ports:
-  // beam/host/spawn.js); Rust-OTP polls instead.
+  // beam/host/spawn.js).
   declare notify?: (() => void) | null;
 
   constructor() {

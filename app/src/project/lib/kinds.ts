@@ -35,7 +35,7 @@ export function setup(kind: WorkspaceKind): Setup {
       firstTab: 'Server',
       alwaysPreview: true,
       showFiles: true,
-      running: 'Phoenix 1.8 on Rust-OTP (WebAssembly), with PGlite',
+      running: 'Phoenix 1.8 on OTP (WebAssembly), with PGlite',
     };
   }
   return {
@@ -46,7 +46,7 @@ export function setup(kind: WorkspaceKind): Setup {
     firstTab: kind === 'iex' ? 'IEx' : 'Shell',
     alwaysPreview: false,
     showFiles: kind !== 'iex',
-    running: 'Elixir 1.20 on Rust-OTP (WebAssembly)',
+    running: 'Elixir 1.20 on OTP (WebAssembly)',
   };
 }
 

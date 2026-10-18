@@ -260,8 +260,8 @@ export function startBeam(options: BeamOptions): BeamNode {
   };
 }
 
-// A port's program, by its base name or the first part of it, as Rust-OTP
-// finds it (wasi/process.ts): its output to read (null once it has ended),
+// A port's program, by its base name or the first part of it (wasi/
+// process.ts): its output to read (null once it has ended),
 // its exit status, its input, and how to stop it. null: no such program.
 const EMPTY = new Uint8Array(0);
 function spawn(
@@ -306,7 +306,7 @@ function spawn(
 }
 
 // NIF libraries built to WebAssembly (beam/host/wasm_nifs.c):
-// each an instance as Rust-OTP's are (nif.ts), with a WASI of their own
+// each an instance of its own (nif.ts), with a WASI of their own
 // over the node's files. open answers an id, or why not.
 function nifHost(options: BeamOptions) {
   let nifs: Nifs | null = null;

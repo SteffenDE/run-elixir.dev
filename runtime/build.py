@@ -3,10 +3,12 @@
     python3 -I runtime/build.py
     python3 -I runtime/build.py app   # just the page and the runtime's JavaScript
 
-The site is the app's Vite build (app, made in Docker), which
-bundles the runtime's workers too, rotp.wasm, and a filesystem under fs/: the
-installation (beamos's target/rotp, BEAMOS) at /rotp and the Phoenix template, a phx.new
-app, at /work/playground.
+The site is the app's Vite build (app/, made in Docker), which bundles
+the runtime's workers too, OTP's own emulator built with Emscripten
+(beam/build.sh: beam.mjs, beam.emu.mjs and beam.wasm), and a filesystem
+under fs/: the installation (target/otp, at /rotp in the node: OTP's
+applications from that build, the host's Elixir, Hex, phx_new and
+rebar3) and the Phoenix template, a phx.new app, at /work/playground.
 
 - fs/boot.tar.gz: what IEx reads first, recorded by running it in the
   WebAssembly node under Node (docker run node:24) with every file fetched
@@ -28,21 +30,14 @@ app, at /work/playground.
 
 Built flat, the site is then versioned: what keeps its name across builds
 but the pages, the service worker and playground.json (the runtime's
-JavaScript, rotp*.wasm, fs/, nif/) moves to b/ID/, ID a digest of it, and
+JavaScript, beam*, fs/, nif/) moves to b/ID/, ID a digest of it, and
 each page names its build in <meta name="playground-build"> (the app's
 src/shared/lib/build.ts). A page loaded before a deploy keeps loading its
 own build's files while the server still has them.
 
-The template is generated once into target/cache with the
-native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
-deps fetched and compiled, assets built.
-
-PLAYGROUND_RUNTIME=otp builds the site for OTP's own emulator built with
-Emscripten (beam/) instead of Rust-OTP: beam.mjs, beam.emu.mjs
-and beam.wasm in place of rotp*.wasm, an installation laid out as Rust-OTP's
-(target/otp, at /rotp in the node: OTP's applications from that build, the
-host's Elixir, Hex, phx_new and rebar3), the template built by the host's
-Mix, and runtime.json saying which the build runs.
+The template is generated once into target/cache-otp with the host's
+Mix (the same OTP and Elixir): phx_new (PHX_NEW below), the playground's
+configuration, deps fetched and compiled, assets built.
 """
 import hashlib
 import json
@@ -55,17 +50,11 @@ import tarfile
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# The beamos checkout Rust-OTP comes from (crates/rotp, and its native
-# installation in target/rotp): BEAMOS, or beside this repository.
-BEAMOS = os.environ.get("BEAMOS") or os.path.join(os.path.dirname(ROOT), "beamos")
-RUNTIME = os.environ.get("PLAYGROUND_RUNTIME", "rotp")
-assert RUNTIME in ("rotp", "otp"), RUNTIME
-OTP = RUNTIME == "otp"
-INSTALL = os.path.join(ROOT, "target", "otp") if OTP else os.path.join(BEAMOS, "target", "rotp")
-CACHE = os.path.join(ROOT, "target", "playground-cache-otp" if OTP else "playground-cache")
-# The template's build directory: Rust-OTP's beside the host's, or the
-# host Mix's own for the Emscripten BEAM (same OTP, same code).
-BUILD = "_build_otp" if OTP else "_build_rotp"
+INSTALL = os.path.join(ROOT, "target", "otp")
+CACHE = os.path.join(ROOT, "target", "cache-otp")
+# The template's build directory, the host Mix's own (the node runs the
+# same OTP and Elixir, so the same code).
+BUILD = "_build_otp"
 # beam/build.sh's output for the site.
 BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
@@ -92,17 +81,6 @@ RECORD = {
 }
 
 
-# rotp.wasm for wasm32-wasip1, or (directory "wasm-threads") its threaded
-# build for wasm32-wasip1-threads, which worker.js prefers where shared
-# memory is (threads.ts).
-def build_wasm(target="wasm32-wasip1", directory="wasm"):
-    env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(BEAMOS, "target", directory),
-               CARGO_PROFILE_RELEASE_DEBUG="false", CARGO_PROFILE_RELEASE_STRIP="true")
-    subprocess.run(["cargo", "build", "--release", "--target", target, "-p", "rotp"],
-                   cwd=BEAMOS, env=env, check=True)
-    return os.path.join(BEAMOS, "target", directory, target, "release", "rotp.wasm")
-
-
 # Mozilla's CA certificates (curl.se's extract), where OTP looks for the
 # system's on Linux (public_key:cacerts_get/0): clients such as httpc and
 # Mint ask for them before connecting, also when the host carries the TLS.
@@ -125,28 +103,23 @@ def cacerts():
 
 def installed(relative):
     parts = relative.split("/")
-    if OTP and parts[0] == "lib" and len(parts) > 1:
-        # The Emscripten BEAM's installation has versionless directories.
+    if parts[0] == "lib" and len(parts) > 1:
+        # The applications' directories are versionless.
         return f"{parts[1]}-".startswith(APPS) or parts[1] in APPS
-    
     if parts[0] == "bin":
         return relative.endswith(".boot")
     if parts[0] == "releases":
         return True
     if parts[0] == "mix":
-        # Mix archives built for Rust-OTP (Hex, phx_new), and rebar3.
+        # Mix archives (Hex, phx_new), and rebar3.
         return len(parts) > 2 and parts[1] == "archives" or relative == "mix/rebar3"
-    if parts[0] == "lib" and len(parts) > 1:
-        return parts[1].startswith(APPS) and (len(parts) < 3 or parts[2] in ("ebin", "priv", "include"))
     return False
 
 
-def rotp_env():
-    """The environment the template is made in: the native Rust-OTP's, or
-    the host's Elixir with its own build directory."""
-    if OTP:
-        return dict(os.environ, MIX_BUILD_ROOT=BUILD)
-    return dict(os.environ, PATH=os.path.join(INSTALL, "bin") + os.pathsep + os.environ["PATH"])
+def mix_env():
+    """The environment the template is made in: the host's Elixir with its
+    own build directory."""
+    return dict(os.environ, MIX_BUILD_ROOT=BUILD)
 
 
 def host_elixir():
@@ -157,7 +130,7 @@ def host_elixir():
 
 def otp_install():
     """The Emscripten BEAM (beam/build.sh, release) and its
-    installation in INSTALL, laid out as Rust-OTP's: lib/APP/{ebin,priv,
+    installation in INSTALL: lib/APP/{ebin,priv,
     include}, bin/*.boot, releases/, mix/archives and mix/rebar3."""
     subprocess.run([os.path.join(ROOT, "beam", "build.sh"), "release"], check=True,
                    env=dict(os.environ, OPT="-O2", DIST=BEAM_DIST))
@@ -237,20 +210,16 @@ def configure(app):
 
 
 def compiler_stamp():
-    """The Rust-OTP that compiles the template: its backend decides the code;
-    or the host's OTP and Elixir that do."""
-    if OTP:
-        versions = subprocess.run(["elixir", "--version"], capture_output=True, check=True).stdout
-        return hashlib.sha256(versions).hexdigest()
-    with open(os.path.join(INSTALL, "bin", "rotp"), "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
+    """The host's OTP and Elixir, which compile the template."""
+    versions = subprocess.run(["elixir", "--version"], capture_output=True, check=True).stdout
+    return hashlib.sha256(versions).hexdigest()
 
 
 def phoenix_app():
     """The phx.new app, generated once into the cache; built again when
-    configure changes it or another Rust-OTP compiled it."""
+    configure changes it or another OTP or Elixir compiled it."""
     app = os.path.join(CACHE, "playground")
-    env = rotp_env()
+    env = mix_env()
     stamp = os.path.join(CACHE, "playground.compiler")
     if os.path.exists(os.path.join(app, "priv", "static", "assets", "css", "app.css")):
         built = open(stamp).read() if os.path.exists(stamp) else None
@@ -264,9 +233,6 @@ def phoenix_app():
             subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
         return app
     os.makedirs(CACHE, exist_ok=True)
-    if not OTP and not os.path.isdir(os.path.join(INSTALL, "mix", "archives", f"phx_new-{PHX_NEW}")):
-        subprocess.run(["mix", "archive.install", "hex", "phx_new", PHX_NEW, "--force"],
-                       cwd=CACHE, env=env, check=True)
     shutil.rmtree(app, ignore_errors=True)
     subprocess.run(["mix", "phx.new", "playground", "--no-install"], cwd=CACHE, env=env, check=True,
                    input=b"n\n")
@@ -299,7 +265,7 @@ def phoenix_app():
 
 def app_files(app):
     """(path in the node, path here) for the app at /work/playground: _build
-    is BUILD (_build_rotp or _build_otp); deps keep only the .git files Mix
+    is BUILD (_build_otp); deps keep only the .git files Mix
     asks git about."""
     out = []
     # The build links each dependency's priv (and some src) to deps/; WASI has
@@ -468,16 +434,9 @@ def main():
         return
     shutil.rmtree(out, ignore_errors=True)
     page(out)
-    if OTP:
-        otp_install()
-        for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
-            shutil.copy(os.path.join(BEAM_DIST, name), os.path.join(out, name))
-    else:
-        shutil.copy(build_wasm(), os.path.join(out, "rotp.wasm"))
-        shutil.copy(build_wasm("wasm32-wasip1-threads", "wasm-threads"), os.path.join(out, "rotp-threads.wasm"))
-    # Which runtime the build's nodes run (worker/index.ts).
-    with open(os.path.join(out, "runtime.json"), "w") as f:
-        json.dump({"runtime": RUNTIME}, f)
+    otp_install()
+    for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
+        shutil.copy(os.path.join(BEAM_DIST, name), os.path.join(out, name))
 
     files = []  # (path in the node, path here)
     for directory, dirs, names in os.walk(INSTALL):
@@ -519,7 +478,7 @@ def main():
     # The template's files go only in the Phoenix image; an empty project
     # has none of them.
     needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(
-        ("rotp/releases/", "rotp/lib/erts/" if OTP else "rotp/lib/erts-"))
+        ("rotp/releases/", "rotp/lib/erts/"))
     images = {
         "boot": [(path, here) for path, here in files
                  if not path.startswith("work/") and (path in fetched["boot"] or needed(path))],
@@ -554,8 +513,7 @@ def main():
     with open(os.path.join(fs, "version"), "w") as f:
         f.write(digest.hexdigest()[:16] + "\n")
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
-    wasm = ("beam.wasm",) if OTP else ("rotp.wasm", "rotp-threads.wasm")
-    print(f"{out}: " + ", ".join(f"{name} {mb(os.path.join(out, name))}" for name in wasm) + "; " + "; ".join(
+    print(f"{out}: " + ", ".join(f"{name} {mb(os.path.join(out, name))}" for name in ("beam.wasm",)) + "; " + "; ".join(
         f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"
         for boot in RECORD) + f"; {len(lazy)} lazy files in {bundles} bundles")
     print(f"{out}: build {version(out)}")

@@ -13,7 +13,7 @@ export class Endpoint {
   declare eof: boolean;
   declare peer: Peer;
   // Told when data or the end comes (the Emscripten BEAM's sockets:
-  // beam/socket/socket.js); Rust-OTP polls instead.
+  // beam/socket/socket.js).
   declare notify?: (() => void) | null;
 
   constructor(peer: Peer) {

@@ -1,7 +1,7 @@
 import { expect, test } from './fixtures';
 import { newProject, prompted, readText, run, writeText } from './helpers';
 
-test('shell commands and Rust-OTP programs run as nodes, and rebar3 builds a dependency', async ({
+test('shell commands and node programs run as nodes, and rebar3 builds a dependency', async ({
   page,
 }) => {
   test.setTimeout(900_000);

@@ -1,6 +1,6 @@
-// erl's command line as the playground gives it to Rust-OTP (worker/
-// index.ts, build.py), for the Emscripten BEAM, which takes the emulator's
-// own: what erlexec would pass. `+Flag value` before -extra becomes the
+// erl's command line as the playground gives it (worker/index.ts,
+// build.py), for the Emscripten BEAM, which takes the emulator's own: what
+// erlexec would pass. `+Flag value` before -extra becomes the
 // emulator's `-Flag value`, and init gets the installation's root (/rotp),
 // boot script and home, and gen_tcp the socket backend (beam/
 // socket).

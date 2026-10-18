@@ -1,7 +1,8 @@
 // The node's tree (wasi/fs.ts) for the Emscripten BEAM: the `node:fs`-like
 // object Emscripten's PROXYFS mounts (beam/, -lproxyfs.js), so
 // the C library's file calls reach the same Dir/File/Symlink tree, lazily
-// fetched files and all, that Rust-OTP's WASI shim serves.
+// fetched files and all, that the shared files and NIF libraries' WASI
+// serve.
 //
 // PROXYFS calls these on the module's main thread (the worker that loaded
 // it: with PROXY_TO_PTHREAD every thread's file calls are proxied there)

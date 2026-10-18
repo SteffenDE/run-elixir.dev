@@ -104,8 +104,8 @@ export function HomePage() {
           Elixir <span>Playground</span>
         </h1>
         <p className="muted home-lead">
-          OTP and Elixir on Rust-OTP, compiled to WebAssembly: everything runs in this tab. Projects
-          are kept in this browser.
+          OTP and Elixir compiled to WebAssembly: everything runs in this tab. Projects are kept in
+          this browser.
         </p>
         <h2>New</h2>
         <div className="new-projects">

@@ -195,8 +195,8 @@ serve.(serve)
   // XPConnect wrapper of the frame's docShell was collected since it last
   // looked at the frame (its navigation-started observer does not
   // QueryInterface the subject): resolving the frame just before refreshes
-  // it. On the OTP site a few seconds without a look at the frame lose its
-  // next navigation (Rust-OTP's kept it over 30 s).
+  // it. A few seconds without a look at the frame lose its next
+  // navigation.
   await expect(preview(page).locator('body')).toBeVisible();
   await bar.press('Enter');
   await expect(preview(page).locator('#second')).toHaveText('second endpoint', {

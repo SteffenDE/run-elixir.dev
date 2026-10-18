@@ -1,4 +1,4 @@
-// Programs that are Rust-OTP itself, each run as a node of its own over the
+// Programs that are OTP's and Elixir's commands, each run as a node of its own over the
 // project's files, as the shell runs its commands: `sh -c 'mix deps.get'`
 // (open_port's {spawn, Command}, System.shell; phx.new runs Mix that way)
 // and rebar3, the escript Mix builds rebar3 dependencies with.
@@ -13,7 +13,7 @@ export type StartNode = (
   exit: (code: number) => void,
 ) => { stop(): void };
 
-// The commands a shell line can run: Rust-OTP's.
+// The commands a shell line can run: OTP's and Elixir's.
 const NODE_COMMANDS = new Set(['mix', 'elixir', 'iex', 'erl', 'escript']);
 
 // Words, with '' and "" quoting (as the playground's shell splits them).
@@ -87,7 +87,7 @@ const join = (cwd: string, path: string) => {
   return '/' + out.join('/');
 };
 
-// sh -c LINE: its Rust-OTP commands and cd, one after another while they
+// sh -c LINE: its node commands and cd, one after another while they
 // succeed; anything else is not found (127), as a shell without the
 // program says.
 export const shProgram =
@@ -113,7 +113,7 @@ export const shProgram =
     next(0);
   };
 
-// A Rust-OTP command run as a program (System.cmd("mix", ...) finds
+// A node command run as a program (System.cmd("mix", ...) finds
 // /rotp/bin/mix on PATH; igniter.new runs `mix deps.get` that way).
 export const commandProgram =
   (start: StartNode, name: string) =>

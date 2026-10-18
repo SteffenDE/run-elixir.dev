@@ -1,9 +1,7 @@
-// rotp.wasm under wasi/ in Node, as the browser runs it:
+// The Emscripten BEAM (beam/run.ts) in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
 // SITE is a site build.py made (target/site), or one of its
 // builds (b/ID). Standard input is read whole first and then ends.
-// A site built for the Emscripten BEAM (beam.mjs, PLAYGROUND_RUNTIME=otp)
-// runs that instead (beam/run.ts), with the same erl arguments.
 import { readFile } from 'node:fs/promises';
 import {
   existsSync,
@@ -13,11 +11,14 @@ import {
   writeFileSync,
   type Stats,
 } from 'node:fs';
-import { WASI, Exit } from './wasi';
+import { Exit } from './wasi';
 import { Dir, File, untar, mount, bundled, type FsNode } from './wasi/fs';
 import { Network } from './wasi/net';
 import { ENV, prepare, programs } from './setup';
+import { pathToFileURL } from 'node:url';
 import { beamArgs } from './beam/args';
+import { startBeam } from './beam/run';
+import { TreeFs } from './beam/treefs';
 import { vfs } from './vfs';
 
 const [site, ...args] = process.argv.slice(2);
@@ -66,10 +67,7 @@ let fetched = 0;
 const recorded: string[] = [];
 prepare(root);
 const t1 = performance.now();
-const beam = existsSync(`${dir}/beam.mjs`);
-const module = beam ? null : await WebAssembly.compile(await readFile(`${dir}/rotp.wasm`));
-let input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
-const wait = new Int32Array(new SharedArrayBuffer(4));
+const input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 // Mounted host files, or the site's bundles.
 const fromBundles = bundled(
   (bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)),
@@ -151,135 +149,48 @@ const pump = () => {
   );
   current = request;
 };
-const wasi = new WASI({
-  args: ['erl', ...args],
-  env: {
-    ...ENV,
-    PWD: process.env.CWD || '/work',
-    ...(Object.fromEntries(
-      Object.entries(process.env).filter(([k]) => k.startsWith('ROTP_')),
-    ) as Record<string, string>),
-  },
+// The Emscripten BEAM: its threads call back into this one, so the
+// harness's own work (pump) runs on a timer.
+const env = {
+  ...ENV,
+  PWD: process.env.CWD || '/work',
+  ERL_INETRC: '/etc/inetrc',
+};
+const beam = startBeam({
+  module: pathToFileURL(`${dir}/beam.mjs`).href,
+  args: beamArgs(args, env.HOME),
+  env,
+  cwd: env.PWD,
   root,
-  // TTY=1: the standard streams are an 80x24 terminal that takes raw
-  // input; its mode changes go to standard error.
-  ...(process.env.TTY
-    ? {
-        tty: true,
-        terminal: { mode: (mode) => console.error(`[tty ${mode}]`), size: () => [80, 24] },
-      }
-    : {}),
-  // NO_EOF=1: once read, standard input waits instead of ending (IEx
-  // halts at its end).
-  stdin(max) {
-    if (!input.length && process.env.NO_EOF) return null;
-    const part = input.subarray(0, max);
-    input = input.subarray(part.length);
-    return part;
-  },
-  stdout: (bytes) => process.stdout.write(bytes),
-  stderr: (bytes) => process.stderr.write(bytes),
-  sleep: (ms) => Atomics.wait(wait, 0, 0, Math.min(ms, 5)),
+  fs: new TreeFs(root, fetchFile),
   network,
-  pump,
   programs: programs(vfs(root, fetchFile), (name, version) => {
     const path = `${dir}/nif/${name}-${version}.tar`;
     return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
   }),
-  fetch: fetchFile,
+  tty: !!process.env.TTY,
+  size: [80, 24],
+  onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,
+  stdout: (bytes) => process.stdout.write(bytes),
+  stderr: (bytes) => process.stderr.write(bytes),
+  trace: !!process.env.TRACE_NET,
 });
-// TRACE_WASI=1: every WASI call and its result, on standard error.
-if (process.env.TRACE_WASI) {
-  const calls = wasi.imports.wasi_snapshot_preview1;
-  for (const [name, fn] of Object.entries(calls)) {
-    calls[name] = (...a) => {
-      const r = fn(...a);
-      console.error(`wasi ${name}(${a.join(',')}) = ${r}`);
-      return r;
-    };
-  }
-}
-// A threaded node (rotp.wasm for wasm32-wasip1-threads, which imports its
-// memory) runs its threads in workers on a shared memory, and this thread
-// serves their WASI calls (threads.ts); otherwise the node runs here.
-const threaded =
-  !!module &&
-  WebAssembly.Module.imports(module).some((i) => i.module === 'env' && i.name === 'memory');
-let status: number | null;
-if (beam) {
-  // The Emscripten BEAM: its threads call back into this one, so the
-  // harness's own work (pump) runs on a timer.
-  const { startBeam } = await import('./beam/run');
-  const { TreeFs } = await import('./beam/treefs');
-  const { pathToFileURL } = await import('node:url');
-  const env = {
-    ...ENV,
-    PWD: process.env.CWD || '/work',
-    ERL_INETRC: '/etc/inetrc',
-  };
-  const node = startBeam({
-    module: pathToFileURL(`${dir}/beam.mjs`).href,
-    args: beamArgs(args, env.HOME),
-    env,
-    cwd: env.PWD,
-    root,
-    fs: new TreeFs(root, fetchFile),
-    network,
-    programs: programs(vfs(root, fetchFile), (name, version) => {
-      const path = `${dir}/nif/${name}-${version}.tar`;
-      return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
-    }),
-    tty: !!process.env.TTY,
-    size: [80, 24],
-    onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,
-    stdout: (bytes) => process.stdout.write(bytes),
-    stderr: (bytes) => process.stderr.write(bytes),
-    trace: !!process.env.TRACE_NET,
-  });
-  t2 = performance.now();
-  if (input.length) node.input(input);
-  if (!process.env.NO_EOF) node.end();
-  const timer = setInterval(() => {
-    try {
-      pump();
-    } catch (error) {
-      if (!(error instanceof Exit)) throw error;
-      node.kill(error.code);
-    }
-  }, 5);
+t2 = performance.now();
+if (input.length) beam.input(input);
+if (!process.env.NO_EOF) beam.end();
+const timer = setInterval(() => {
   try {
-    status = await node.done;
-  } finally {
-    clearInterval(timer);
-  }
-} else if (threaded) {
-  const { Worker } = await import('node:worker_threads');
-  const { channel, Host } = await import('./threads');
-  const memory = new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
-  wasi.memory = memory;
-  const chan = channel();
-  const names = Object.keys(wasi.imports.wasi_snapshot_preview1);
-  const start = (tid: number, startArg: number) =>
-    new Worker(new URL('./thread-node.mjs', import.meta.url), {
-      workerData: { module, memory, chan, slot: tid, names, tid, startArg },
-    });
-  const host = new Host(wasi, chan, { spawn: start });
-  t2 = performance.now();
-  start(0, 0);
-  try {
-    for (;;) {
-      status = host.wait(5);
-      if (status !== null) break;
-      pump();
-    }
+    pump();
   } catch (error) {
     if (!(error instanceof Exit)) throw error;
-    status = error.code;
+    beam.kill(error.code);
   }
-} else {
-  const instance = await WebAssembly.instantiate(module!, wasi.imports);
-  t2 = performance.now();
-  status = wasi.start(instance);
+}, 5);
+let status: number;
+try {
+  status = await beam.done;
+} finally {
+  clearInterval(timer);
 }
 // SNAPSHOT=VFSDIR:HOSTDIR: what the node wrote below VFSDIR, copied to
 // HOSTDIR with its modification times.
@@ -309,4 +220,4 @@ if (process.env.RECORD)
 console.error(
   `[${files} files + ${fetched} fetched in ${Math.round(t1 - t0)} ms, compiled in ${Math.round(t2 - t1)} ms, ran ${Math.round(performance.now() - t2)} ms, exit ${status}]`,
 );
-process.exit(status!);
+process.exit(status);

@@ -19,7 +19,7 @@ export const ENV = {
   MIX_ARCHIVES: '/rotp/mix/archives',
   ROTP_OS_TYPE: 'linux',
   ROTP_SYSTEM_ARCHITECTURE: 'x86_64-pc-linux-gnu',
-  // cc_precompiler's target (lazy_html's): Rust-OTP's own on WebAssembly,
+  // cc_precompiler's target (lazy_html's): the node's own on WebAssembly,
   // which no package lists, so elixir_make runs make (programs.ts) rather
   // than downloading the x86_64 Linux build.
   TARGET_ARCH: 'wasm32',

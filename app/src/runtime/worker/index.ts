@@ -1,4 +1,4 @@
-// A playground node in a Web Worker: rotp.wasm over wasi/, as one
+// A playground node in a Web Worker: the Emscripten BEAM (beam.ts), as one
 // command or under a small shell. host/ is the page's side: frames come
 // in through its SharedArrayBuffer ring (the worker sleeps on the ring's
 // write count, so a frame wakes it) and everything goes back as messages.
@@ -9,7 +9,6 @@
 // run as they would for a node. Ctrl+C (an interrupt frame) stops the
 // node or the program. With `files`, /work and /tmp are files.js's, which
 // every shell (each in its own worker) and the page share.
-import { WASI } from '../wasi';
 import { Dir, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
 import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
@@ -21,8 +20,7 @@ import { Channel, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, siteNif } from './nif';
 import { site } from './site';
-import { SCHEDULERS, runThreaded, sharedMemory } from './threaded';
-import { runBeam } from './beam';
+import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
 // What the page starts a node with (host/node.ts Node.start).
 interface Start {
@@ -43,8 +41,6 @@ interface Start {
 const SHARED = ['/work', '/tmp'];
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
-
-class Interrupted extends Error {}
 
 // Words, with '' and "" quoting.
 function words(line: string): string[] {
@@ -125,7 +121,7 @@ function command(name: string, args: string[]): string[] | null {
   return null;
 }
 
-const HELP = `Commands: iex, elixir, mix, erl (each runs Rust-OTP), git (clone,
+const HELP = `Commands: iex, elixir, mix, erl (each runs OTP), git (clone,
 pull), and cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
 Ctrl+C stops what is running.
 `;
@@ -151,30 +147,12 @@ onmessage = async ({
 }: MessageEvent<Start>) => {
   try {
     say('status', 'Loading OTP and Elixir…');
-    // The threaded build where shared memory is; the single-threaded one
-    // otherwise, or when the threaded one does not load.
-    const compile = (name: string) => WebAssembly.compileStreaming(fetch(site(name)));
-    const threaded = sharedMemory() !== null;
-    // Which runtime the build runs (build.py): Rust-OTP, or OTP's own
-    // emulator (worker/beam.ts), which loads itself as it starts.
-    const { runtime } = (await fetch(site('runtime.json')).then(
-      (r) => (r.ok ? r.json() : { runtime: 'rotp' }),
-      () => ({ runtime: 'rotp' }),
-    )) as { runtime: string };
-    const beam = runtime === 'otp';
-    const [images, manifest, [module, threads]] = await Promise.all([
+    // The emulator (beam.mjs) loads itself as a node starts.
+    const [images, manifest] = await Promise.all([
       Promise.all(
         boots.map((boot) => fetch(site(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
       ),
       fetch(site('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
-      beam
-        ? ([null, true] as const)
-        : threaded
-          ? compile('rotp-threads.wasm').then(
-              (m) => [m, true] as const,
-              () => compile('rotp.wasm').then((m) => [m, false] as const),
-            )
-          : compile('rotp.wasm').then((m) => [m, false] as const),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -214,75 +192,25 @@ onmessage = async ({
       channel.network = network;
       network.peers = channel.peers;
       channel.interrupted = false;
-      if (beam) {
-        try {
-          return await runBeam({
-            module: site('beam.mjs').href,
-            argv: ['+S', String(SCHEDULERS), ...argv],
-            env: { ...ENV, ...env, PWD: cwd },
-            cwd,
-            root,
-            fetch: fetchFile,
-            shared: sharedFs,
-            network,
-            programs: {
-              ...programs(fs, nif),
-              ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
-            },
-            channel,
-            memory: sharedMemory(),
-            stdout: (bytes) => say('out', bytes),
-          });
-        } finally {
-          channel.interrupted = false;
-          channel.mode(false);
-          channel.network = null;
-          for (const port of network.listeners.keys())
-            postMessage({ kind: 'listening', port, on: false });
-          for (const id of network.endpoints.keys()) postMessage({ kind: 'net', op: 'close', id });
-        }
-      }
-      const pump = () => {
-        channel.pump();
-        if (channel.interrupted) throw new Interrupted();
-      };
-      // A threaded node runs as many schedulers as SCHEDULERS says.
-      const memory = threads ? sharedMemory() : null;
-      const wasi = new WASI({
-        args: memory ? ['erl', '+S', String(SCHEDULERS), ...argv] : ['erl', ...argv],
-        env: { ...ENV, ...env, PWD: cwd },
-        root,
-        tty: true,
-        terminal: {
-          mode: (mode) => channel.mode(mode === 'raw'),
-          size: () => channel.size,
-        },
-        network,
-        pump,
-        fetch: fetchFile,
-        shared: sharedFs,
-        programs: {
-          ...programs(fs, nif),
-          ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
-        },
-        stdin(max) {
-          pump();
-          return channel.input.length ? channel.take(max) : null;
-        },
-        stdout: (bytes) => say('out', bytes),
-        stderr: (bytes) => say('out', bytes),
-        sleep: (ms) => channel.sleep(ms),
-      });
       try {
-        if (memory) return runThreaded(wasi, module!, memory, pump);
-        if (threads) throw new Error('no room for a shared memory for the node');
-        const instance = await WebAssembly.instantiate(module!, wasi.imports);
-        return wasi.start(instance);
-      } catch (error) {
-        if (error instanceof Interrupted) return 130;
-        throw error;
+        return await runBeam({
+          module: site('beam.mjs').href,
+          argv: ['+S', String(SCHEDULERS), ...argv],
+          env: { ...ENV, ...env, PWD: cwd },
+          cwd,
+          root,
+          fetch: fetchFile,
+          shared: sharedFs,
+          network,
+          programs: {
+            ...programs(fs, nif),
+            ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
+          },
+          channel,
+          memory: sharedMemory(),
+          stdout: (bytes) => say('out', bytes),
+        });
       } finally {
-        // The interrupt that stopped the node is spent.
         channel.interrupted = false;
         channel.mode(false);
         channel.network = null;

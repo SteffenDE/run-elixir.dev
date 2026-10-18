@@ -22,13 +22,12 @@ echo 'runner ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/runner
 chmod 440 /etc/sudoers.d/runner
 systemctl enable --now docker
 
-# Rust (rust-toolchain.toml picks the toolchain; the site's wasm targets
-# are added here) and mise's Erlang and Elixir, the versions the
-# repository is built with.
+# emsdk 6.0.2 (beam/build.sh) and mise's Erlang and Elixir, the versions
+# the BEAM is built from.
 sudo -iu runner bash -eu <<'USER'
-[ -x ~/.cargo/bin/rustup ] || curl -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
-~/.cargo/bin/rustup update stable
-~/.cargo/bin/rustup target add --toolchain stable wasm32-wasip1 wasm32-wasip1-threads
+[ -d ~/emsdk ] || git clone -q https://github.com/emscripten-core/emsdk.git ~/emsdk
+~/emsdk/emsdk install 6.0.2
+~/emsdk/emsdk activate 6.0.2
 [ -x ~/.local/bin/mise ] || curl -sSf https://mise.run | sh
 ~/.local/bin/mise use -g -y erlang@29.1.1 elixir@1.20.4-otp-29
 USER
@@ -59,8 +58,8 @@ Wants=network-online.target
 [Service]
 User=runner
 WorkingDirectory=/home/runner
-# The build's tools: rustup's cargo, mise's Erlang and Elixir.
-Environment=PATH=/home/runner/.cargo/bin:/home/runner/.local/bin:/home/runner/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
+# The build's tools: mise's Erlang and Elixir (beam/build.sh finds emsdk).
+Environment=PATH=/home/runner/.local/bin:/home/runner/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/local/bin/forgejo-runner daemon --url $FORGEJO_URL --uuid $FORGEJO_UUID \\
   --token-url file:///home/runner/.runner-token --label beamos-build:host
 Restart=always
