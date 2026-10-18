@@ -21,7 +21,7 @@ on:
 
 jobs:
   deploy:
-    runs-on: beamos-build
+    runs-on: run-elixir-build
     timeout-minutes: 120
     env:
       PLAYGROUND_DOMAIN: ${{ vars.PLAYGROUND_DOMAIN }}

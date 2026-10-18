@@ -79,7 +79,7 @@ installs what is missing (QEMU, `cloud-localds`, rsync and rrsync), then:
   `runner/provision.sh`: Docker, emsdk 6.0.2, mise with the
   repository's Erlang and Elixir, and forgejo-runner (13.2.0, checked
   against its digest) running as a service as that runner, with the label
-  `beamos-build:host`. The VM reaches this machine's sshd at `10.0.2.2`,
+  `run-elixir-build:host`. The VM reaches this machine's sshd at `10.0.2.2`,
   as ssh's host `playground-prod`, with the deploy key and this machine's
   host key. Stopping the service powers the VM off (ACPI).
 
@@ -98,8 +98,8 @@ repository's variable `PLAYGROUND_DOMAIN`.
 
 ### The runner elsewhere
 
-Another runner needs the label `beamos-build` with the host executor
-(`beamos-build:host`): the build runs Docker itself (`sudo -n docker`, or
+Another runner needs the label `run-elixir-build` with the host executor
+(`run-elixir-build:host`): the build runs Docker itself (`sudo -n docker`, or
 `DOCKER`) and needs the repository's toolchain on the runner's user, as
 `runner/provision.sh` installs it. It builds in a checkout of its own
 that it keeps (`DEPLOY_BUILD_DIR`, default `~/run-elixir.dev-deploy`), so

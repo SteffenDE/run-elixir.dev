@@ -32,7 +32,7 @@ sudo -iu runner bash -eu <<'USER'
 ~/.local/bin/mise use -g -y erlang@29.1.1 elixir@1.20.4-otp-29
 USER
 
-# The Forgejo runner, with the host executor (beamos-build:host).
+# The Forgejo runner, with the host executor (run-elixir-build:host).
 version=${RUNNER_VERSION:-13.2.0}
 if ! /usr/local/bin/forgejo-runner --version 2>/dev/null | grep -q "$version"; then
   base=https://code.forgejo.org/forgejo/runner/releases/download/v$version
@@ -51,7 +51,7 @@ fi
   { echo "provision: no runner (FORGEJO_UUID, FORGEJO_TOKEN) to run as" >&2; exit 1; }
 cat > /etc/systemd/system/forgejo-runner.service <<UNIT
 [Unit]
-Description=Forgejo runner (beamos-build)
+Description=Forgejo runner (run-elixir-build)
 After=network-online.target docker.service
 Wants=network-online.target
 
@@ -61,7 +61,7 @@ WorkingDirectory=/home/runner
 # The build's tools: mise's Erlang and Elixir (beam/build.sh finds emsdk).
 Environment=PATH=/home/runner/.local/bin:/home/runner/.local/share/mise/shims:/usr/local/bin:/usr/bin:/bin
 ExecStart=/usr/local/bin/forgejo-runner daemon --url $FORGEJO_URL --uuid $FORGEJO_UUID \\
-  --token-url file:///home/runner/.runner-token --label beamos-build:host
+  --token-url file:///home/runner/.runner-token --label run-elixir-build:host
 Restart=always
 RestartSec=10
 
