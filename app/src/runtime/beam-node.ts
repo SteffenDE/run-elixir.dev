@@ -10,7 +10,9 @@
 //
 // TCP is the playground's Network (wasi/net.ts), as Module.beamNetwork
 // (beam/socket); start the node with -kernel inet_backend
-// socket. HTTP=PORT/PATH,... GETs each path once the node listens on the
+// socket. Arguments separated by `---` start that many nodes, each its own
+// emulator, over the same tree and Network (so they reach each other's
+// ports); their output lines start with [N]. HTTP=PORT/PATH,... GETs each path once the node listens on the
 // port, prints each response's status line, and STOP_SERVED=MS stops the
 // node that long after the last.
 import { existsSync, readFileSync, readdirSync, statSync, type Stats } from 'node:fs';
@@ -19,7 +21,11 @@ import { Dir, File, mount } from './wasi/fs';
 import { Network } from './wasi/net';
 import { TreeFs } from './beam/treefs';
 
-const [dist, ...args] = process.argv.slice(2);
+const [dist, ...rest] = process.argv.slice(2);
+const nodes = rest.reduce<string[][]>(
+  (all, arg) => (arg === '---' ? [...all, []] : (all[all.length - 1].push(arg), all)),
+  [[]],
+);
 const t0 = performance.now();
 const root = new Dir();
 const hostFiles = new Map<string, string>();
@@ -66,7 +72,6 @@ if (!existsSync(`${dist}/beam.mjs`)) throw new Error(`${dist}: no beam.mjs`);
 const { default: createModule } = await import(
   /* @vite-ignore */ pathToFileURL(`${dist}/beam.mjs`).href
 );
-const wasmMemory = new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
 
 const network = new Network();
 const requests = (process.env.HTTP || '')
@@ -117,38 +122,43 @@ const ask = () => {
 };
 if (requests.length) ask();
 let t2 = Infinity;
-const status = await new Promise<number>((resolve) => {
-  createModule({
-    arguments: args,
-    wasmMemory,
-    beamNetwork: network,
-    // TRACE_NET=1: socket.js's calls and events, on standard error.
-    beamSocketTrace: !!process.env.TRACE_NET,
-    print: (line: string) => process.stdout.write(line + '\n'),
-    printErr: (line: string) => {
-      if (!line.includes('Heap resize call')) process.stderr.write(line + '\n');
-    },
-    onExit: resolve,
-    preRun: [
-      // The tree's top directories, each a PROXYFS mount over `fs`.
-      // oxlint-disable-next-line typescript/no-explicit-any -- Emscripten's module.
-      (module: any) => {
-        const { FS, ENV } = module;
-        ENV.ERL_INETRC = '/etc/inetrc';
-        // VM_NAME=VALUE: NAME=VALUE in the node's environment.
-        for (const [name, value] of Object.entries(process.env))
-          if (name.startsWith('VM_')) ENV[name.slice(3)] = value;
-        for (const name of root.entries.keys()) {
-          const at = `/${name}`;
-          if (!FS.analyzePath(at).exists) FS.mkdir(at);
-          FS.mount(FS.filesystems.PROXYFS, { root: at, fs }, at);
-        }
-        FS.chdir(process.env.CWD || '/work');
-        t2 = performance.now();
+// One node until it exits: its status.
+const start = (args: string[], index: number) =>
+  new Promise<number>((resolve) => {
+    const tag = nodes.length > 1 ? `[${index}] ` : '';
+    createModule({
+      arguments: args,
+      wasmMemory: new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true }),
+      beamNetwork: network,
+      // TRACE_NET=1: socket.js's calls and events, on standard error.
+      beamSocketTrace: !!process.env.TRACE_NET,
+      print: (line: string) => process.stdout.write(tag + line + '\n'),
+      printErr: (line: string) => {
+        if (!line.includes('Heap resize call')) process.stderr.write(tag + line + '\n');
       },
-    ],
+      onExit: resolve,
+      preRun: [
+        // The tree's top directories, each a PROXYFS mount over `fs`.
+        // oxlint-disable-next-line typescript/no-explicit-any -- Emscripten's module.
+        (module: any) => {
+          const { FS, ENV } = module;
+          ENV.ERL_INETRC = '/etc/inetrc';
+          // VM_NAME=VALUE: NAME=VALUE in the node's environment.
+          for (const [name, value] of Object.entries(process.env))
+            if (name.startsWith('VM_')) ENV[name.slice(3)] = value;
+          for (const name of root.entries.keys()) {
+            const at = `/${name}`;
+            if (!FS.analyzePath(at).exists) FS.mkdir(at);
+            FS.mount(FS.filesystems.PROXYFS, { root: at, fs }, at);
+          }
+          FS.chdir(process.env.CWD || '/work');
+          t2 = Math.min(t2, performance.now());
+        },
+      ],
+    });
   });
-});
+// The highest status of them all.
+const status = Math.max(...(await Promise.all(nodes.map(start))));
 console.error(
   `[${fetched} fetched, tree in ${Math.round(t1 - t0)} ms, started in ${Math.round(t2 - t1)} ms, ran ${Math.round(performance.now() - t2)} ms, exit ${status}]`,
 );
