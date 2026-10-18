@@ -6,13 +6,19 @@
 #     docker compose up --build -d
 #
 # The VM's artifacts (kernel, root disk, sandbox-netd) are built on their own
-# into SANDBOX_DIR (data/sandbox by default), so the image stays small;
+# into SANDBOX_DIR (DATA_DIR/sandbox by default), so the image stays small;
 # after building them anew, restart the app.
 #
 # The app listens on 127.0.0.1:${PORT:-4000} and redirects to HTTPS unless
 # the request says it came over HTTPS: Caddy in front terminates TLS (see
 # docs/backend.md). Migrations and the seed templates run when
 # the app starts. (After SCA's.)
+#
+# The database, the app's data and the VM's artifacts are below DATA_DIR
+# (./data by default; outside the checkout, they outlive it). The project
+# has a name of its own, so a checkout elsewhere is another project.
+
+name: run-elixir-backend
 
 services:
   db:
@@ -23,7 +29,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: playground
     volumes:
-      - ./data/db:/var/lib/postgresql/data
+      - ${DATA_DIR:-./data}/db:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD", "pg_isready", "--username", "playground", "--dbname", "playground"]
       interval: 5s
@@ -66,7 +72,7 @@ services:
       - ${KVM_GID:?set KVM_GID in .env, see getent group kvm}
     volumes:
       # Hex tarballs and built libraries (PLAYGROUND_DATA_DIR). Owned by
-      # nobody (65534): sudo chown 65534 data/playground
-      - ./data/playground:/var/lib/playground
+      # nobody (65534): sudo chown 65534 DATA_DIR/playground
+      - ${DATA_DIR:-./data}/playground:/var/lib/playground
       # The VM's artifacts, from sandbox/build.
-      - ${SANDBOX_DIR:-./data/sandbox}:/var/lib/playground-sandbox:ro
+      - ${SANDBOX_DIR:-${DATA_DIR:-./data}/sandbox}:/var/lib/playground-sandbox:ro

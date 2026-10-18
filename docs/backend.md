@@ -153,15 +153,21 @@ Firecracker's binary is the Dockerfile's `firecracker` stage. Without an
 `docker-compose.yml` runs the release and Postgres on a machine with KVM.
 The VM's artifacts stay out of the image: `sandbox/build` builds them from
 the Dockerfile's stages into a directory the app mounts read-only
-(`SANDBOX_DIR`, `data/sandbox` by default):
+(`SANDBOX_DIR`, `DATA_DIR/sandbox` by default). `DATA_DIR` (`./data` by
+default) holds the database, the app's data and those artifacts; on the
+server it is outside the checkout (`/datapool/run-elixir/backend-data`),
+so a new clone takes them over:
 
 ```sh
 cd backend
-cp .env.example .env               # and fill it in
-sandbox/build data/sandbox         # the kernel takes a while
-mkdir -p data/playground && sudo chown 65534 data/playground
+cp .env.example .env               # and fill it in (DATA_DIR=…)
+sandbox/build "$DATA_DIR/sandbox"  # the kernel takes a while
+mkdir -p "$DATA_DIR/playground" && sudo chown 65534 "$DATA_DIR/playground"
 docker compose up --build -d
 ```
+
+The compose project is `run-elixir-backend`, whichever directory the
+checkout is in.
 
 After building the artifacts anew (a new erl_nif layer, say), restart the
 app: it reads the toolchain once. It listens on `127.0.0.1:PORT`; Caddy
