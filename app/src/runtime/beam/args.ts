@@ -50,6 +50,17 @@ export function beamArgs(args: string[], home = '/work'): string[] {
     'inet_epmd',
     '-inet_epmd',
     'socket',
+    // os_mon's memsup only: its port program is the node's (programs.ts);
+    // cpu_sup's and disksup's (df through sh) are not.
+    '-os_mon',
+    'start_cpu_sup',
+    'false',
+    '-os_mon',
+    'start_disksup',
+    'false',
+    '-os_mon',
+    'start_os_sup',
+    'false',
     ...boot,
     ...init,
   ];

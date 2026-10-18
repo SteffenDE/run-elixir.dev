@@ -16,6 +16,9 @@ export class Process {
   declare closed: boolean;
   // The node closed its port.
   declare onclose?: () => void;
+  // What the node sends the program, as it comes; without it, `input`
+  // keeps it.
+  declare oninput?: (bytes: Uint8Array) => void;
   // Told when the program writes or exits (the Emscripten BEAM's ports:
   // beam/host/spawn.js).
   declare notify?: (() => void) | null;
@@ -44,6 +47,8 @@ export interface ProgramContext {
   cwd: string;
   env: Record<string, string>;
   root: Dir;
+  // The node's memory, where the program may look (memsup).
+  memory?: WebAssembly.Memory;
 }
 export type Program = (process: Process, context: ProgramContext) => void;
 // '*': a program for any other name, or none.

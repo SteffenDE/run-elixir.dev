@@ -135,10 +135,11 @@ configure_wasm() {
     export ac_cv_sizeof_short=2 ac_cv_sizeof_int=4 ac_cv_sizeof_long=4
     export ac_cv_sizeof_long_long=8 ac_cv_sizeof_void_p=4 ac_cv_c_bigendian=no
     # Kept: what projects start or compile with (runtime_tools for
-    # phx.new's apps, mnesia for Ash's, parsetools for yecc and leex).
+    # phx.new's apps, mnesia for Ash's, parsetools for yecc and leex,
+    # os_mon for Livebook's memsup, whose port program is the page's).
     local without=(common_test diameter edoc eldap eunit ftp jinterface reltool
         snmp tftp wx debugger dialyzer et megaco observer odbc
-        os_mon ssh javac threadnames dynamic-trace)
+        ssh javac threadnames dynamic-trace)
     local args=(--host=wasm32-unknown-emscripten
         --build="$("${OTP_DIR}/make/autoconf/config.guess")"
         --prefix=/otp --disable-jit --disable-sctp --disable-kernel-poll

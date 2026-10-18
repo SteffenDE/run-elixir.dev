@@ -183,7 +183,7 @@ export function startBeam(options: BeamOptions): BeamNode {
             cwd: string,
             env: Record<string, string>,
             notify: () => void,
-          ) => spawn(options, program, args, cwd, env, notify),
+          ) => spawn(options, memory, program, args, cwd, env, notify),
           onExit: finish,
           onAbort: (what: unknown) => reject(new Error(`the node aborted: ${what}`)),
           preRun: [
@@ -266,6 +266,7 @@ export function startBeam(options: BeamOptions): BeamNode {
 const EMPTY = new Uint8Array(0);
 function spawn(
   options: BeamOptions,
+  memory: WebAssembly.Memory,
   program: string,
   args: string[],
   cwd: string,
@@ -273,13 +274,21 @@ function spawn(
   notify: () => void,
 ) {
   const programs = options.programs ?? {};
+  // sh -c with one word, quoted or not (os_mon's {spawn, "\"…/memsup\""}):
+  // the node's program of that name, which sh would just run.
+  const alone =
+    program.endsWith('/sh') && args[0] === '-c' && args[1]?.match(/^\s*"?([^\s"]+)"?\s*$/);
+  if (alone && programs[alone[1].split('/').pop()!]) {
+    program = alone[1];
+    args = [];
+  }
   const base = program.split('/').pop()!;
   const run = programs[base] ?? programs[base.split('-')[0]] ?? programs['*']?.(base);
   if (!run) return null;
   const process = new Process();
   process.notify = notify;
   try {
-    run(process, { args, cwd: cwd || env.PWD || '/', env, root: options.root });
+    run(process, { args, cwd: cwd || env.PWD || '/', env, root: options.root, memory });
   } catch (error) {
     process.write(`${program}: ${(error as Error).message}\n`);
     process.exit(1);
@@ -296,7 +305,8 @@ function spawn(
       return chunk.subarray(0, max);
     },
     status: () => process.status ?? -1,
-    write: (bytes: Uint8Array) => process.input.push(bytes),
+    write: (bytes: Uint8Array) =>
+      process.oninput ? process.oninput(bytes) : process.input.push(bytes),
     kill() {
       process.notify = null;
       process.closed = true;

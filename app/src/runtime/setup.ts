@@ -2,7 +2,7 @@
 // environment, the files around the installation, and its programs.
 import { File, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
-import { git, esbuild, tailwind, make, type NifSource } from './programs';
+import { git, esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
 
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
@@ -67,6 +67,7 @@ export function prepare(root: Dir): void {
 // library build (make), or null.
 export const programs = (fs: Vfs, nif: NifSource = () => null): Programs => ({
   git: git(fs),
+  memsup,
   esbuild,
   tailwind,
   make: make(fs, nif),

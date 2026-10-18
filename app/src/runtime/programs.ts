@@ -134,3 +134,45 @@ export const make =
     );
     process.exit(0);
   };
+
+// memsup, os_mon's port program for memory data (memsup.erl; the spawn
+// driver frames its {packet, 1}): the node's memory as the system's. Its
+// total is what the node's memory may grow to (4 GiB), its free what of
+// that the node has not taken yet.
+const SHOW_MEM = 1;
+const SHOW_SYSTEM_MEM = 2;
+const MEM_SYSTEM_TOTAL = 1;
+const MEM_TOTAL = 2;
+const MEM_FREE = 3;
+const MEM_AVAIL = 12;
+export const memsup: Program = (process, { memory }) => {
+  const encoder = new TextEncoder();
+  const packet = (bytes: Uint8Array) => process.write(new Uint8Array([bytes.length, ...bytes]));
+  const value = (n: number) => packet(encoder.encode(n.toString(16)));
+  const total = 4 * 1024 ** 3;
+  const used = () => memory?.buffer.byteLength ?? 0;
+  let pending = new Uint8Array(0);
+  process.oninput = (bytes) => {
+    pending = new Uint8Array([...pending, ...bytes]);
+    while (pending.length && pending.length >= 1 + pending[0]) {
+      const request = pending[1];
+      pending = pending.subarray(1 + pending[0]);
+      if (request === SHOW_MEM) {
+        value(used());
+        value(total);
+      } else if (request === SHOW_SYSTEM_MEM) {
+        for (const [tag, n] of [
+          [MEM_SYSTEM_TOTAL, total],
+          [MEM_TOTAL, total],
+          [MEM_FREE, total - used()],
+          [MEM_AVAIL, total - used()],
+        ]) {
+          packet(new Uint8Array([tag]));
+          value(n);
+        }
+        packet(new Uint8Array([0]));
+      } else return process.exit(0);
+    }
+  };
+  process.onclose = () => process.exit(0);
+};
