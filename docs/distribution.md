@@ -105,17 +105,54 @@ What Livebook (0.19.10) needs, from its source:
 - **Its page:** a LiveView app on a port, which the preview shows (as
   Phoenix's, WebSocket included).
 
-The way there: a Livebook project kind, like Phoenix's, with Livebook
-fetched and compiled into the template at build time (compiling it in
-the tab would take minutes), its server started on open, and notebooks
-on the standalone runtime. Open: memory with two nodes (each its own
-emulator and memory; not measured yet), Livebook's file system (`/work`), its
-Mix.install in notebooks (Hex through the page, as `mix deps.get`), and
-NIF packages notebooks ask for (the backend's builds).
+### Running (2026-10-18)
+
+Livebook 0.19.10's escript, built natively, runs in an empty project
+(`LIVEBOOK_TOKEN_ENABLED=false escript livebook server`): its pages in
+the preview, and a notebook's cell evaluated on its standalone runtime
+(Playwright's `livebook`, `@slow`, about 12–16 s in Chromium, Firefox
+and WebKit; it skips without `/livebook-escript` in the site). What that
+took, beyond distribution:
+
+- **escript's `%%!` line** (`worker/index.ts`): Mix puts `-escript main
+  MODULE` there, and Livebook its `-epmd_module`; the shell's escript
+  passes them to erl, as bin/escript does.
+- **`NAME=value command`** in the shell, as in sh (Livebook's settings
+  are environment variables), and alone, for the shell's later commands.
+- **os_mon** in the build (it was configured out): Livebook starts it and
+  asks memsup for the system's memory. memsup's port program is the
+  node's (`programs.ts` memsup: the node's memory as the system's, its
+  total the 4 GiB it may grow to); cpu_sup, disksup and os_sup do not
+  start (`-os_mon start_cpu_sup false`, …: their programs are not the
+  playground's). The spawn driver frames `{packet, N}` as ERTS's does
+  (`host/wasm_spawn.c`), and `sh -c "PROGRAM"` with one word runs that
+  program, as sh would.
+- **gzip in the preview** (`bridge.ts`): Livebook's static files are only
+  gzipped (Plug.Static serves them to a client that accepts gzip, 404 to
+  others); the bridge asks for gzip and decompresses, since a response
+  the service worker makes is not decompressed for the page.
+- **A node outlives its port** (`programs/node.ts`): Livebook opens the
+  runtime's port from a process that then ends, which closes the port; an
+  OS process would run on, and the playground's node now does too, until
+  it ends by itself or the node that started it stops. It used to be
+  stopped, which looked like `noconnection` to Livebook.
+- **window.playground.debug()** keeps the end of each command node's
+  output, and the last that ended: Livebook's runtime's output goes
+  nowhere else.
+
+Not yet: Livebook's iframe endpoint (8081, JavaScript outputs such as
+Kino's) in the preview, which shows one port; `Mix.install` in a notebook
+(Hex through the page, as `mix deps.get`); NIF packages notebooks ask for
+(the backend's builds); memory with two nodes (not measured).
+
+The way there: a Livebook project kind, like Phoenix's, with Livebook in
+the template (its escript, or its app built at build time), its server
+started on open with the preview on 8080, and notebooks on the
+standalone runtime.
 
 ## Estimate (what is left)
 
 | Step | Work |
 | --- | --- |
-| Livebook running in a project by hand (fetch, compile, `livebook server`, a notebook on the standalone runtime) and what that turns up | 2–4 days |
-| A Livebook kind with a prebuilt template | 1–2 days |
+| A Livebook kind (its escript in the build, the server started on open, the preview on 8080) | 1 day |
+| The iframe endpoint in the preview (Kino's outputs), `Mix.install` in a notebook | 1–3 days |
