@@ -22,6 +22,19 @@ echo 'runner ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/runner
 chmod 440 /etc/sudoers.d/runner
 systemctl enable --now docker
 
+# autoconf 2.72, which OTP's otp_build update_configure (beam/build.sh)
+# insists on; Ubuntu 24.04's is 2.71. In /usr/local, before /usr on the
+# runner's PATH.
+autoconf=2.72
+if ! /usr/local/bin/autoconf --version 2>/dev/null | grep -q " $autoconf\$"; then
+  curl -sSfLo /tmp/autoconf.tar.xz "https://ftp.gnu.org/gnu/autoconf/autoconf-$autoconf.tar.xz"
+  echo "ba885c1319578d6c94d46e9b0dceb4014caafe2490e437a0dbca3f270a223f5a  /tmp/autoconf.tar.xz" | sha256sum -c -
+  rm -rf /tmp/autoconf && mkdir /tmp/autoconf
+  tar -xJf /tmp/autoconf.tar.xz -C /tmp/autoconf --strip-components=1
+  (cd /tmp/autoconf && ./configure -q --prefix=/usr/local && make -s && make -s install)
+  rm -rf /tmp/autoconf /tmp/autoconf.tar.xz
+fi
+
 # emsdk 6.0.2 (beam/build.sh) and mise's Erlang and Elixir, the versions
 # the BEAM is built from.
 sudo -iu runner bash -eu <<'USER'
