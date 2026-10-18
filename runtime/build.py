@@ -131,6 +131,27 @@ def host_elixir():
     return os.path.dirname(os.path.dirname(os.path.realpath(elixir)))
 
 
+def host_mix():
+    """Where the host's Mix keeps its archives and its rebar3 (as it says:
+    MIX_HOME, MIX_ARCHIVES, ~/.mix), with Hex, phx_new (PHX_NEW) and rebar3
+    there: what is missing is installed (a fresh machine, such as the
+    deploy's runner, has none of them)."""
+    env = mix_env()
+    where = subprocess.run(["elixir", "-e", "IO.puts(Mix.path_for(:archives)); "
+                            "IO.puts(Mix.Rebar.local_rebar_path(:rebar3))"],
+                           check=True, capture_output=True, text=True, env=env).stdout.split("\n")
+    archives, rebar3 = where[0], where[1]
+    listed = lambda: os.listdir(archives) if os.path.isdir(archives) else []
+    run = lambda *args: subprocess.run(["mix", *args, "--force"], check=True, env=env)
+    if not any(name.startswith("hex-") for name in listed()):
+        run("local.hex")
+    if not any(name.startswith(f"phx_new-{PHX_NEW}") for name in listed()):
+        run("archive.install", "hex", "phx_new", PHX_NEW)
+    if not os.path.isfile(rebar3):
+        run("local.rebar")
+    return archives, rebar3
+
+
 def otp_install():
     """The Emscripten BEAM (beam/build.sh, release) and its
     installation in INSTALL: lib/APP/{ebin,priv,
@@ -156,14 +177,13 @@ def otp_install():
         f.write(version + "\n")
     # Mix's archives and rebar3 as the host's Mix installs them (the same
     # OTP runs them).
-    mix = os.path.expanduser("~/.mix")
+    host_archives, rebar3 = host_mix()
     archives = os.path.join(INSTALL, "mix", "archives")
     os.makedirs(archives)
-    for name in os.listdir(os.path.join(mix, "archives")):
+    for name in os.listdir(host_archives):
         if name.startswith(("hex-", f"phx_new-{PHX_NEW}")):
-            shutil.copytree(os.path.join(mix, "archives", name), os.path.join(archives, name))
-    rebar3 = [os.path.join(mix, "elixir", d, "rebar3") for d in sorted(os.listdir(os.path.join(mix, "elixir")))]
-    shutil.copy([r for r in rebar3 if os.path.isfile(r)][-1], os.path.join(INSTALL, "mix", "rebar3"))
+            shutil.copytree(os.path.join(host_archives, name), os.path.join(archives, name))
+    shutil.copy(rebar3, os.path.join(INSTALL, "mix", "rebar3"))
 
 
 # The playground's settings for a phx.new app's config/dev.exs: one
