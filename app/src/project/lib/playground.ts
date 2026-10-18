@@ -360,8 +360,13 @@ function nodeServices() {
   };
 }
 
-// The nodes for commands nodes ran, and their command lines (for debug()).
+// The nodes for commands nodes ran, and their command lines (for debug()),
+// with the end of their output (which may go nowhere else: Livebook's
+// runtime node's, say), and the last that ended.
 const commands = new Map<Node, string>();
+const tails = new Map<Node, string>();
+const ended: { command: string; code: number; output: string }[] = [];
+const TAIL = 4096;
 
 // A node for one command a node ran (sh, rebar3), in its own worker.
 const startNode: StartNode = (command, { cwd, env }, output, exit) => {
@@ -374,10 +379,16 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
     runtime: RUNTIME,
     files,
     ...nodeServices(),
-    onoutput: output,
+    onoutput(bytes) {
+      tails.set(node, ((tails.get(node) ?? '') + new TextDecoder().decode(bytes)).slice(-TAIL));
+      output(bytes);
+    },
     onexit(code) {
+      ended.push({ command: commands.get(node) ?? '', code, output: tails.get(node) ?? '' });
+      if (ended.length > 10) ended.shift();
       nodes.delete(node);
       commands.delete(node);
+      tails.delete(node);
       updatePeers();
       exit(code);
     },
@@ -621,7 +632,12 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       debug: () => ({
         bridge: bridge?.debug(),
         nodes: Object.fromEntries([...sessions].map(([id, s]) => [id, s.node.debug()])),
-        commands: [...commands].map(([node, command]) => ({ command, ...node.debug() })),
+        commands: [...commands].map(([node, command]) => ({
+          command,
+          output: tails.get(node) ?? '',
+          ...node.debug(),
+        })),
+        ended,
         postgres: serveDatabase.debug(),
       }),
     },

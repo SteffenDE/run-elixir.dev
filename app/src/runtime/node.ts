@@ -152,10 +152,16 @@ const pump = () => {
 };
 // The Emscripten BEAM: its threads call back into this one, so the
 // harness's own work (pump) runs on a timer.
-const env = {
+// VM_NAME=VALUE: NAME=VALUE in the node's environment.
+const env: Record<string, string> = {
   ...ENV,
   PWD: process.env.CWD || '/work',
   ERL_INETRC: '/etc/inetrc',
+  ...Object.fromEntries(
+    Object.entries(process.env)
+      .filter(([name]) => name.startsWith('VM_'))
+      .map(([name, value]) => [name.slice(3), value ?? '']),
+  ),
 };
 const beam = startBeam({
   module: pathToFileURL(`${dir}/beam.mjs`).href,
