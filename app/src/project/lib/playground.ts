@@ -19,7 +19,7 @@ import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
-import { previewOrigins } from '@/shared/lib/site';
+import { previewOrigin, previewOrigins } from '@/shared/lib/site';
 import { previewRelay } from './previewOrigins';
 import { httpsByFetch } from '@/runtime/https';
 import { built, tailwind } from '@/project/lib/programs/tailwind';
@@ -411,6 +411,20 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
   return node;
 };
 
+// On a project domain, where the preview shows a port, for the app:
+// PLAYGROUND_PREVIEW_ORIGIN (with {port}), and Livebook's iframe endpoint
+// (its notebooks' JavaScript outputs; 0.19's iframe page is v6, and a
+// Livebook with another one sets its own LIVEBOOK_IFRAME_URL).
+function previewEnv(): Record<string, string> {
+  const origins = previewOrigins();
+  return origins
+    ? {
+        PLAYGROUND_PREVIEW_ORIGIN: origins,
+        LIVEBOOK_IFRAME_URL: `${previewOrigin(8081)}/iframe/v6.html`,
+      }
+    : {};
+}
+
 // The preview, on a project domain (PreviewFrame's prepare and onPort): a
 // port's origin once its relay is ready, and the port the preview went to.
 export const previewReady = (port: number) => previewRelay(port, () => bridge);
@@ -475,7 +489,7 @@ export function openTerminal(initial: string[] = []): number {
     initial,
     cwd: setup.cwd,
     boots: setup.boots,
-    env: { ...hexEnv, PLAYGROUND_COOKIE: COOKIE },
+    env: { ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
   });
   useStore.getState().addTerminal(id);
   return id;

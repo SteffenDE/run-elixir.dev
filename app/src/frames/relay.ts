@@ -24,7 +24,10 @@ async function start(port: MessagePort): Promise<void> {
         for (const cookie of response.cookies ?? []) document.cookie = cookie;
         reply.postMessage(response, [response.body.buffer]);
       };
-      port.postMessage({ ...data, port: preview!.port, cookie: document.cookie }, [channel.port2]);
+      // Its own port, or a sibling preview origin's (sw.ts).
+      port.postMessage({ ...data, port: data.port ?? preview!.port, cookie: document.cookie }, [
+        channel.port2,
+      ]);
     } else if (data?.kind === 'websocket') {
       port.postMessage({ ...data, port: preview!.port, cookie: document.cookie }, [event.ports[0]]);
     }

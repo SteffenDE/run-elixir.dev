@@ -199,9 +199,26 @@ async function keyOf(event: FetchEvent): Promise<string | null> {
 // clients.get() for a worker on that worker's thread, which a node's
 // worker blocks in a synchronous request for a bundle of its files (that
 // comes here) — neither went on for minutes.
+// On a project's preview origin (v-ID-PORT.DOMAIN, site.ts), the port
+// another of the project's preview origins shows, else null: a request
+// there from the preview (another port's page or data, which a fetch to
+// that origin would ask the network for) goes to the app's port too.
+const PREVIEW = /^v-([a-z0-9]{10})-(\d{1,5})\.(.+)$/;
+function sibling(url: URL): number | null {
+  const own = self.location.host.match(PREVIEW);
+  const other = url.protocol === self.location.protocol ? url.host.match(PREVIEW) : null;
+  return own && other && own[1] === other[1] && own[3] === other[3] ? Number(other[2]) : null;
+}
+
 self.addEventListener('fetch', (event) => {
   const { request } = event;
-  if (new URL(request.url).origin !== self.location.origin) return;
+  const url = new URL(request.url);
+  if (url.origin !== self.location.origin) {
+    const port = request.mode === 'navigate' ? null : sibling(url);
+    if (port !== null && event.clientId && previews.has(event.clientId))
+      event.respondWith(app(event, false, port));
+    return;
+  }
   if (request.mode === 'navigate') {
     if (request.destination !== 'iframe') return;
     // The site's own frames (frames.ts), never a preview.
@@ -222,8 +239,9 @@ async function host(key: string | null | undefined): Promise<Client | null | und
   return id ? self.clients.get(id) : null;
 }
 
-// The app's answer to a request, through its page (bridge.ts).
-async function app(event: FetchEvent, navigation: boolean): Promise<Response> {
+// The app's answer to a request, through its page (bridge.ts); `port`: a
+// sibling preview origin's.
+async function app(event: FetchEvent, navigation: boolean, port?: number): Promise<Response> {
   const { request } = event;
   const key = await keyOf(event);
   if (navigation) remember(event.resultingClientId, key);
@@ -247,6 +265,8 @@ async function app(event: FetchEvent, navigation: boolean): Promise<Response> {
       path: url.pathname + url.search,
       headers: [...request.headers],
       body,
+      destination: request.destination,
+      ...(port === undefined ? {} : { port }),
     },
     [channel.port2],
   );

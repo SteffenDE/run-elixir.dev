@@ -121,10 +121,12 @@ function webSocketShim() {
 // _top, which would navigate the IDE away. Changed as they are clicked or
 // submitted, not in the HTML.
 //
-// The preview's first frame tells the IDE where it is (it may be another
-// origin, whose location the IDE cannot read), and reloads its
-// stylesheets when the IDE asks.
-function linkShim(port: number, origins: string | null) {
+// The preview's first frame tells the IDE (at `ide`, its origin) where it
+// is (it may be another origin, whose location the IDE cannot read), and
+// reloads its stylesheets when the IDE asks. Addressed to the IDE's
+// origin, so that a frame of the app's own (Livebook's outputs, in its
+// page) tells its parent nothing.
+function linkShim(port: number, origins: string | null, ide: string) {
   const marked = window as Window & { playgroundApp?: boolean };
   marked.playgroundApp = true;
   const pattern = origins
@@ -211,7 +213,7 @@ function linkShim(port: number, origins: string | null) {
   const tell = () =>
     window.parent.postMessage(
       { kind: 'playground-location', port, path: rest(new URL(location.href)) },
-      '*',
+      ide,
     );
   for (const name of ['pushState', 'replaceState'] as const) {
     const original = history[name];
@@ -239,7 +241,9 @@ function linkShim(port: number, origins: string | null) {
 const SWITCH = /^\/__playground\/port\/(\d+)(\/.*)?$/;
 
 const shims = (port: number, origins: string | null) =>
-  `<script>(${webSocketShim})();(${linkShim})(${port}, ${JSON.stringify(origins)})</script>`;
+  `<script>(${webSocketShim})();(${linkShim})(${port}, ${JSON.stringify(origins)}, ${JSON.stringify(
+    location.origin,
+  )})</script>`;
 
 function concat(chunks: Uint8Array[]): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
@@ -275,6 +279,10 @@ export interface PreviewRequest {
   path: string;
   headers: [string, string][];
   body: ArrayBuffer | null;
+  // What asks (Request.destination): a document gets the injected scripts,
+  // HTML that is fetched as data does not (Livebook checks its iframe
+  // page's checksum).
+  destination?: string;
   port?: number;
   cookie?: string;
 }
@@ -549,6 +557,7 @@ export class Bridge {
     path,
     headers,
     body,
+    destination,
     port,
     cookie: jar,
   }: PreviewRequest): Promise<PreviewResponse> {
@@ -607,7 +616,9 @@ export class Bridge {
           });
           return;
         }
-        void this.parse(concat(chunks), to, jar === undefined ? undefined : []).then(resolve);
+        const page =
+          destination === undefined || ['document', 'iframe', 'frame'].includes(destination);
+        void this.parse(concat(chunks), to, jar === undefined ? undefined : [], page).then(resolve);
       };
       connection.ondata = (bytes) => {
         flight.bytes += bytes.length;
@@ -631,6 +642,7 @@ export class Bridge {
     raw: Uint8Array<ArrayBuffer>,
     port = this.port,
     cookies?: string[],
+    page = true,
   ): Promise<PreviewResponse> {
     let split = -1;
     for (let i = 0; i + 3 < raw.length; i++) {
@@ -692,7 +704,7 @@ export class Bridge {
       headers.splice(encoding, 1);
     }
     const type = headers.find(([n]) => n === 'content-type')?.[1] ?? '';
-    if (type.startsWith('text/html')) {
+    if (page && type.startsWith('text/html')) {
       const html = new TextDecoder().decode(body);
       const at = html.search(/<head[^>]*>/i);
       const scripts = shims(port, this.origins);
