@@ -496,6 +496,10 @@ export class Bridge {
         `${method} ${path} HTTP/1.1`,
         `host: localhost:${this.port}`,
         'connection: close',
+        // The page's own (which it cannot name) do not reach the app; gzip
+        // is what a browser takes, and parse() decompresses it (an app's
+        // static files may be only gzipped, as Livebook's are).
+        'accept-encoding: gzip',
       ];
       for (const [name, value] of headers) {
         if (!['host', 'connection', 'cookie', 'accept-encoding', 'content-length'].includes(name))
@@ -530,7 +534,7 @@ export class Bridge {
           });
           return;
         }
-        resolve(this.parse(concat(chunks)));
+        void this.parse(concat(chunks)).then(resolve);
       };
       connection.ondata = (bytes) => {
         flight.bytes += bytes.length;
@@ -547,7 +551,7 @@ export class Bridge {
     });
   }
 
-  parse(raw: Uint8Array<ArrayBuffer>): PreviewResponse {
+  async parse(raw: Uint8Array<ArrayBuffer>): Promise<PreviewResponse> {
     let split = -1;
     for (let i = 0; i + 3 < raw.length; i++) {
       if (raw[i] === 13 && raw[i + 1] === 10 && raw[i + 2] === 13 && raw[i + 3] === 10) {
@@ -586,6 +590,14 @@ export class Bridge {
     }
     if (headers.some(([n, v]) => n === 'transfer-encoding' && /chunked/i.test(v)))
       body = dechunk(body);
+    // A response the service worker makes is not decompressed for the
+    // preview, so it goes as it is.
+    const encoding = headers.findIndex(([n, v]) => n === 'content-encoding' && v === 'gzip');
+    if (encoding >= 0) {
+      const plain = new Blob([body]).stream().pipeThrough(new DecompressionStream('gzip'));
+      body = new Uint8Array(await new Response(plain).arrayBuffer());
+      headers.splice(encoding, 1);
+    }
     const type = headers.find(([n]) => n === 'content-type')?.[1] ?? '';
     if (type.startsWith('text/html')) {
       const html = new TextDecoder().decode(body);
