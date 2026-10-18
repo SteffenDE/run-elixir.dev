@@ -8,7 +8,7 @@ socket at /socket (live sessions' relay, docs/collaboration.md), from
 production's unless --api names another backend (http://localhost:4000,
 say).
 
-    python3 -I playground/runtime/serve.py [PORT] [--domain DOMAIN] [--api URL]
+    python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--api URL]
 
 With --domain (for example playground.localhost:8082: browsers resolve
 *.localhost to this machine, and with two labels the apex and its
@@ -30,7 +30,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
@@ -187,7 +187,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
-directory = os.path.join(ROOT, "target", "playground", "site")
+directory = os.path.join(ROOT, "target", "site")
 args = sys.argv[1:]
 DOMAIN = args[args.index("--domain") + 1] if "--domain" in args else None
 API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir.dev").rstrip("/")

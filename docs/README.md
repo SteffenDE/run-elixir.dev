@@ -9,7 +9,7 @@ last_updated: 2026-10-16
 The Elixir Playground runs Rust-OTP (`crates/rotp`), compiled to
 `wasm32-wasip1`, in the browser: OTP 29 and Elixir 1.20 boot in Web Workers
 from an in-memory filesystem. One static site
-(`playground/app`, its runtime in `src/runtime`; elixir-playground.steffend.me)
+(`app`, its runtime in `src/runtime`; elixir-playground.steffend.me)
 holds every project:
 
 - **Phoenix project** (`/phoenix`): an IDE around a `phx.new` app. File
@@ -23,13 +23,13 @@ holds every project:
 
 Projects live at `/ID/` and are kept in the browser's IndexedDB: what they
 changed over their template, and their database. A backend
-(`playground/backend`) builds packages' NIF libraries on request.
+(`backend`) builds packages' NIF libraries on request.
 
 ## Start here
 
 ```sh
-python3 -I playground/runtime/build.py        # → target/playground/site
-python3 -I playground/runtime/serve.py 8081   # http://localhost:8081/
+python3 -I runtime/build.py        # → target/site
+python3 -I runtime/serve.py 8081   # http://localhost:8081/
 ```
 
 The build needs the native Rust-OTP install (`target/rotp`, from
@@ -44,13 +44,13 @@ Vite build). See [build.md](build.md).
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
 | [collaboration.md](collaboration.md) | Plan: *Share* as a link or a live session; the encrypted relay, permissions, editing with Yjs, terminals and preview for guests. |
 | [git.md](git.md) | Plan: git in a project (clone, a diff view, push and its tokens), signing in, and the origins that keep a project's code from the account. |
-| [runtime.md](runtime.md) | `playground/app/src/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
+| [runtime.md](runtime.md) | `app/src/runtime`: the WASI shim, its filesystem, network, programs, shared files, and the page/worker protocols. |
 | [rotp-wasm.md](rotp-wasm.md) | What Rust-OTP does differently on `wasm32-wasip1`. |
 | [../beam/README.md](../beam/README.md) | Experiment: OTP's own emulator built with Emscripten as the runtime (`PLAYGROUND_RUNTIME=otp`): its patches, build, benchmarks, how it runs in the playground. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
-| [backend.md](backend.md) | `playground/backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |
+| [backend.md](backend.md) | `backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |
-| [ide.md](ide.md) | The app (`playground/app`): home page, the project IDE, Tailwind on the page, the preview, terminals and their links. |
+| [ide.md](ide.md) | The app (`app`): home page, the project IDE, Tailwind on the page, the preview, terminals and their links. |
 | [deploy.md](deploy.md) | Deploying (the deploy branch, releases on the server, rollback) and serving the site: headers, routes, compression, caching (Caddy). |
 | [testing.md](testing.md) | The Playwright tests and the Node harness. |
 | [status.md](status.md) | What works, known gaps, and what comes next. |

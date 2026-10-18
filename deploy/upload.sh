@@ -1,9 +1,9 @@
 #!/bin/sh
 # Deploy a built site as a new release (deploy.md):
 #
-#   playground/deploy/upload.sh SITE TARGET
+#   deploy/upload.sh SITE TARGET
 #
-# SITE: the built site (target/playground/site); TARGET: user@host, whose
+# SITE: the built site (target/site); TARGET: user@host, whose
 # key runs playground-deploy on the server. DEPLOY_SSH: the ssh command
 # (default ssh). The release is named by the time and the commit
 # (GITHUB_SHA, else HEAD).

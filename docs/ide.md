@@ -4,7 +4,7 @@ status: live
 last_updated: 2026-10-16
 ---
 
-# The app (`playground/app`)
+# The app (`app`)
 
 A React app built with Vite. It uses TypeScript, plain CSS with light and
 dark tokens, oxlint and oxfmt. Its libraries are `@pierre/trees`,
@@ -16,7 +16,7 @@ committed. The layout follows tc's: `src/home`, `src/project` and
 `src/runtime` ([runtime.md](runtime.md)); imports use `@/` for `src/`.
 
 ```sh
-cd playground/app
+cd app
 npm ci && npm run build      # tsc --noEmit && vite build → dist/
 npm run lint                 # oxlint src test
 npm run format               # oxfmt src test

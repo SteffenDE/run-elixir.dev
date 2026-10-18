@@ -77,7 +77,7 @@ test('argon2_elixir hashes with its lanes in turn, and picosat_elixir solves', a
 // Versions the site has not built come from the backend (/api/nif/,
 // docs/backend.md), stubbed here: the node's worker asks through the
 // service worker, whose requests only Chromium lets a context route.
-const SITE_BCRYPT = '../../target/playground/nif/packages/bcrypt_elixir-3.3.2.tar';
+const SITE_BCRYPT = '../target/nif/packages/bcrypt_elixir-3.3.2.tar';
 
 async function bcryptProject(page: Page, version: string): Promise<void> {
   await newProject(page, 'empty');

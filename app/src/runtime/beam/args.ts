@@ -2,7 +2,7 @@
 // index.ts, build.py), for the Emscripten BEAM, which takes the emulator's
 // own: what erlexec would pass. `+Flag value` before -extra becomes the
 // emulator's `-Flag value`, and init gets the installation's root (/rotp),
-// boot script and home, and gen_tcp the socket backend (playground/beam/
+// boot script and home, and gen_tcp the socket backend (beam/
 // socket).
 
 // Emulator flags without a value.
@@ -10,7 +10,7 @@ const BARE = new Set(['+B', '+Bc', '+Bd', '+Bi', '+c', '+d', '+r']);
 
 // No allocators of erts' own: on Emscripten `mmap` is malloc, whose heap
 // their carriers of changing sizes fragment past any limit, and a super
-// carrier costs its whole size up front (playground/beam/README.md);
+// carrier costs its whole size up front (beam/README.md);
 // mimalloc takes each allocation itself.
 const EMULATOR = ['-Mea', 'min'];
 

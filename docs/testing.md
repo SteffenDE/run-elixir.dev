@@ -9,16 +9,16 @@ last_updated: 2026-10-16
 There is no gate job for the playground yet. These are the checks used while
 building it.
 
-## In browsers: Playwright (`playground/app/test/e2e`)
+## In browsers: Playwright (`app/test/e2e`)
 
 `@playwright/test` 1.64 (Chrome 156, Firefox 157, WebKit as in Safari 27.2), run in the Playwright
 Docker image against the built site:
 
 ```sh
-python3 -I playground/runtime/build.py                   # or `build.py app` after page changes
-playground/tests/run.sh                                  # Chromium, Firefox and WebKit
-playground/tests/run.sh --project=chromium terminal      # one browser, one file
-SLOW=1 playground/tests/run.sh --project=chromium shells # the slow ones too
+python3 -I runtime/build.py                   # or `build.py app` after page changes
+tests/run.sh                                  # Chromium, Firefox and WebKit
+tests/run.sh --project=chromium terminal      # one browser, one file
+SLOW=1 tests/run.sh --project=chromium shells # the slow ones too
 ```
 
 The tests run against whichever runtime the site was built for
@@ -27,15 +27,15 @@ the few that see the runtime accept both. Debug a failure with that spec
 alone in one browser: the whole suite takes over an hour with `SLOW=1`.
 
 `run.sh` mounts the repository and runs `npx playwright test` in
-`playground/app` (its `node_modules` must be installed: `npm ci` there, in
+`app` (its `node_modules` must be installed: `npm ci` there, in
 Docker). The config (`playwright.config.ts`) serves the site with
 `runtime/serve.py` on `PORT` (8081) unless something already listens there,
 runs `WORKERS` (3) tests at a time, and leaves tests tagged `@slow` to
 `SLOW=1`. Results, failure screenshots and traces go to
-`target/playground-tests/`.
+`target/tests/`.
 
 The live session tests need the backend's relay: `mix phx.server` in
-`playground/backend` (on port 4000; [backend.md](backend.md#developing)).
+`backend` (on port 4000; [backend.md](backend.md#developing)).
 The config serves the site for them on `PORT` + 2, and with a project
 domain on `PORT` + 3, both with `--api http://localhost:4000`; without a
 backend there, they are skipped.
@@ -118,8 +118,8 @@ node does: boot errors, a request's status and headers, which files are
 fetched, every WASI call. For example, IEx with input:
 
 ```sh
-printf '1 + 1\n' | docker run --rm -i -v $PWD/target/playground/node:/w:ro \
-  -v $PWD/target/playground/site:/d:ro -e BOOT=boot node:24 node /w/node.mjs /d \
+printf '1 + 1\n' | docker run --rm -i -v $PWD/target/node:/w:ro \
+  -v $PWD/target/site:/d:ro -e BOOT=boot node:24 node /w/node.mjs /d \
   -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
   -user elixir -extra --no-halt +iex
 ```
@@ -135,11 +135,11 @@ programs (Tailwind), the service worker, PGlite.
     -D warnings`
   - `CARGO_TARGET_DIR=target/wasm cargo clippy -q --target wasm32-wasip1 -p
     rotp -- -D warnings`
-- **The erl_nif layer** (`playground/nif`): `python3 -I playground/nif/test/test.py`
+- **The erl_nif layer** (`nif/`): `python3 -I nif/test/test.py`
   over the built site ([nif.md](nif.md)).
 - **The app and the runtime:** `npm run lint`, `npm run format:check`,
   `tsc --noEmit` (part of `npm run build`), in Docker (`node:24`) in
-  `playground/app`.
+  `app`.
 - **The browsers:** the Playwright suite in Chromium, Firefox and WebKit.
 
 ## Not yet: caching the runtime between tests

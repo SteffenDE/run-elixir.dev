@@ -1,6 +1,6 @@
 // rotp.wasm under wasi/ in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
-// SITE is a site build.py made (target/playground/site), or one of its
+// SITE is a site build.py made (target/site), or one of its
 // builds (b/ID). Standard input is read whole first and then ends.
 // A site built for the Emscripten BEAM (beam.mjs, PLAYGROUND_RUNTIME=otp)
 // runs that instead (beam/run.ts), with the same erl arguments.

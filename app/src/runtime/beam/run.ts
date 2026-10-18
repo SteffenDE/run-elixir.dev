@@ -1,7 +1,7 @@
-// One node on the Emscripten BEAM (playground/beam), as the browser's
+// One node on the Emscripten BEAM (beam/), as the browser's
 // worker and the Node harness (node.ts) run it: the module from the site,
 // the node's tree and the shared directories mounted through PROXYFS
-// (treefs.ts, sharedfs.ts), TCP through the Network (playground/beam/
+// (treefs.ts, sharedfs.ts), TCP through the Network (beam/
 // socket), the terminal through Popcorn's prim_tty (patches 0011, 0017).
 //
 // The module's main thread is the caller's (a worker, or Node's): with
@@ -29,10 +29,10 @@ export interface BeamOptions {
   // Directories files.js holds, and its channel.
   shared?: { prefixes: string[]; call: SharedCall } | null;
   network: Network;
-  // The programs ports run (open_port spawn: playground/beam/host).
+  // The programs ports run (open_port spawn: beam/host).
   programs?: Programs;
   // HTTPS by the page's fetch (network.remote.https): ssl connects through
-  // this port of the network (patch 0020, playground/beam/socket).
+  // this port of the network (patch 0020, beam/socket).
   httpsGateway?: number;
   // Whether standard input is a terminal (IEx then edits its lines in raw
   // mode); otherwise it is a stream that ends, as a pipe's (node.ts).
@@ -305,7 +305,7 @@ function spawn(
   };
 }
 
-// NIF libraries built to WebAssembly (playground/beam/host/wasm_nifs.c):
+// NIF libraries built to WebAssembly (beam/host/wasm_nifs.c):
 // each an instance as Rust-OTP's are (nif.ts), with a WASI of their own
 // over the node's files. open answers an id, or why not.
 function nifHost(options: BeamOptions) {

@@ -4,7 +4,7 @@ status: live
 last_updated: 2026-10-16
 ---
 
-# The backend (`playground/backend`)
+# The backend (`backend`)
 
 The site is static; the backend is what it can't be: a Phoenix API app
 (`mix phx.new --no-html --no-assets`, app `:playground`) that builds NIF
@@ -136,7 +136,7 @@ Admins sign in with GitHub (`/auth/github`); only `ADMIN_GITHUB_LOGINS`
 ## Developing
 
 ```sh
-cd playground/backend
+cd backend
 docker run -d --name playground-pg -e POSTGRES_PASSWORD=postgres -p 127.0.0.1:5432:5432 postgres:17
 DOCKER="sudo -n docker" mix setup   # deps, database, seeds, sandbox artifacts
 mix test                            # without VMs
@@ -156,8 +156,7 @@ the Dockerfile's stages into a directory the app mounts read-only
 (`SANDBOX_DIR`, `data/sandbox` by default):
 
 ```sh
-git submodule update --init --depth 1 third_party/otp   # erl_nif.h
-cd playground/backend
+cd backend
 cp .env.example .env               # and fill it in
 sandbox/build data/sandbox         # the kernel takes a while
 mkdir -p data/playground && sudo chown 65534 data/playground

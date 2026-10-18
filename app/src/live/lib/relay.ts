@@ -1,4 +1,4 @@
-// The backend's relay (playground/backend: PlaygroundWeb.LiveChannel), as
+// The backend's relay (backend/: PlaygroundWeb.LiveChannel), as
 // a participant sees it: a Phoenix channel `live:ID` on the site's
 // /socket, carrying opaque bytes to everyone admitted or to one
 // participant, and the session's news. Nothing here knows the keys.

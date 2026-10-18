@@ -2,8 +2,8 @@
 by layer.exs in the Node harness (src/runtime/node.ts, which build.py bundles)
 over the built site.
 
-    python3 -I playground/nif/build.py && python3 -I playground/runtime/build.py
-    python3 -I playground/nif/test/test.py
+    python3 -I nif/build.py && python3 -I runtime/build.py
+    python3 -I nif/test/test.py
 """
 
 import os
@@ -13,10 +13,10 @@ import sys
 import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
-NIF = os.path.join(ROOT, "target", "playground", "nif")
-SITE = os.path.join(ROOT, "target", "playground", "site")
-HARNESS = os.path.join(ROOT, "target", "playground", "node")
+ROOT = os.path.dirname(os.path.dirname(HERE))
+NIF = os.path.join(ROOT, "target", "nif")
+SITE = os.path.join(ROOT, "target", "site")
+HARNESS = os.path.join(ROOT, "target", "node")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 sys.path.insert(0, os.path.dirname(HERE))
 from build import IMAGE  # noqa: E402

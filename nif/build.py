@@ -1,6 +1,6 @@
 """NIF libraries for the playground, built to WebAssembly.
 
-    python3 -I playground/nif/build.py [PACKAGE...]   # → target/playground/nif
+    python3 -I nif/build.py [PACKAGE...]   # → target/nif
 
 Builds the erl_nif layer (beamos_nif.c) with wasi-sdk, then each package in
 PACKAGES from its Hex tarball against it, in Docker. Each package's priv
@@ -17,10 +17,9 @@ import sys
 import tarfile
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(ROOT, "target", "playground", "nif")
-OTP_HEADERS = os.path.join(ROOT, "third_party", "otp", "erts", "emulator", "beam")
+OUT = os.path.join(ROOT, "target", "nif")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 # wasi-sdk 33 (clang 23).
 IMAGE = "ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
@@ -67,9 +66,8 @@ def layer():
     """erl_nif.h (OTP's, with our sizes) and beamos_nif.o."""
     include = os.path.join(OUT, "include")
     os.makedirs(include, exist_ok=True)
-    for name in ("erl_nif.h", "erl_nif_api_funcs.h", "erl_drv_nif.h"):
-        shutil.copy(os.path.join(OTP_HEADERS, name), include)
-    shutil.copy(os.path.join(HERE, "include", "erl_int_sizes_config.h"), include)
+    for name in ("erl_nif.h", "erl_nif_api_funcs.h", "erl_drv_nif.h", "erl_int_sizes_config.h"):
+        shutil.copy(os.path.join(HERE, "include", name), include)
     os.makedirs(os.path.join(OUT, "lib"), exist_ok=True)
     docker([(HERE, "/src", "ro"), (OUT, "/nif", "rw")],
            "/opt/wasi-sdk/bin/clang -O2 -Wall -Wextra -Wno-unused-parameter -I/nif/include "

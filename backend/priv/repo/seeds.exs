@@ -1,4 +1,4 @@
-# The templates of playground/nif/build.py's recipes, for the packages the
+# The templates of nif/build.py's recipes, for the packages the
 # site builds itself. Run again, it leaves templates that exist alone.
 #
 #     mix run priv/repo/seeds.exs

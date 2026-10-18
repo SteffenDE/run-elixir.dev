@@ -9,7 +9,7 @@ import { defineConfig, type UserConfig } from 'vite';
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness instead: node.mjs, and thread-node.ts for its threads, into
 // dist-node/ as .mjs, and beam-node.mjs, the Emscripten BEAM's
-// (playground/beam).
+// (beam/).
 const runtime = (name: string) => new URL(`./src/runtime/${name}`, import.meta.url).pathname;
 
 export default defineConfig(({ mode }): UserConfig =>

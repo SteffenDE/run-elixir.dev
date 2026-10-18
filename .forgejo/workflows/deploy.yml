@@ -1,0 +1,68 @@
+# The playground site, built and deployed from the deploy branch
+# (docs/deploy.md). It runs on a self-hosted runner with the
+# host executor and the build's toolchain (Rust, mise's Erlang and
+# Elixir, Docker through sudo -n), building in a checkout of its own that
+# it keeps between runs, so cargo, the native install and the template
+# stay warm.
+#
+# On the runner VM deploy/setup.sh makes, ssh's host
+# `playground-prod` is the production machine with its deploy key, and
+# nothing needs configuring but PLAYGROUND_DOMAIN. Elsewhere: the
+# variable DEPLOY_TARGET (user@host) and the secrets DEPLOY_SSH_KEY (the
+# key whose authorized_keys entry runs playground-deploy) and
+# DEPLOY_KNOWN_HOSTS (the server's host key line). DEPLOY_BUILD_DIR: the
+# kept checkout (default ~/run-elixir.dev-deploy).
+name: deploy
+
+on:
+  push:
+    branches: [deploy]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: beamos-build
+    timeout-minutes: 120
+    env:
+      PLAYGROUND_DOMAIN: ${{ vars.PLAYGROUND_DOMAIN }}
+      DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
+      BUILD_DIR: ${{ vars.DEPLOY_BUILD_DIR }}
+    steps:
+      - name: Check out into the kept build directory
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          dir=${BUILD_DIR:-$HOME/run-elixir.dev-deploy}
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          auth="http.extraHeader=Authorization: Basic $(printf 'x:%s' "$TOKEN" | base64 -w0)"
+          [ -d "$dir/.git" ] || git init -q "$dir"
+          cd "$dir"
+          git -c "$auth" fetch -q --depth 1 "$url" "$GITHUB_SHA"
+          git checkout -q --force FETCH_HEAD
+          # What is not tracked goes, but target/ and out/ (the BEAM build,
+          # the template) and their caches.
+          git clean -q -ffdx -e target -e out -e node_modules
+          echo "BUILD_DIR=$dir" >> "$GITHUB_ENV"
+
+      - name: Build the site
+        run: |
+          cd "$BUILD_DIR"
+          deploy/build-site.sh
+
+      - name: Upload it and make it live
+        env:
+          KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.DEPLOY_KNOWN_HOSTS }}
+        run: |
+          set -eu
+          if [ -n "$KEY" ]; then
+            dir=$(mktemp -d)
+            trap 'rm -rf "$dir"' EXIT
+            umask 077
+            printf '%s\n' "$KEY" > "$dir/key"
+            printf '%s\n' "$KNOWN_HOSTS" > "$dir/known_hosts"
+            export DEPLOY_SSH="ssh -i $dir/key -o IdentitiesOnly=yes -o UserKnownHostsFile=$dir/known_hosts -o StrictHostKeyChecking=yes -o BatchMode=yes"
+          fi
+          cd "$BUILD_DIR"
+          deploy/upload.sh target/site "${DEPLOY_TARGET:-playground-prod}"

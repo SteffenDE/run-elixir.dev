@@ -1,7 +1,7 @@
 /*
  * The playground's system calls for the Emscripten BEAM, where Emscripten's
  * own (weak stubs in its libc) are not what the playground needs. Linked
- * into erts by patch 0016 (playground/beam/build.sh copies this file to
+ * into erts by patch 0016 (beam/build.sh copies this file to
  * erts/emulator/nifs/wasm).
  */
 #include <errno.h>

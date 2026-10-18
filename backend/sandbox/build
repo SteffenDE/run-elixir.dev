@@ -19,7 +19,6 @@ trap 'rm -rf "$tmp"' EXIT
 for target in sandbox-kernel sandbox-rootfs sandbox-netd; do
   $docker buildx build \
     --build-context nif="$backend/../nif" \
-    --build-context otp="$backend/../../third_party/otp/erts/emulator/beam" \
     --target "$target" \
     --output "type=local,dest=$tmp" \
     "$backend"

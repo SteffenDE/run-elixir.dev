@@ -7,19 +7,19 @@ last_updated: 2026-10-16
 # Building the site (`runtime/build.py`)
 
 ```sh
-python3 -I playground/runtime/build.py       # → target/playground/site
-python3 -I playground/runtime/build.py app   # just the page and the runtime's JavaScript
-python3 -I playground/runtime/serve.py 8081
+python3 -I runtime/build.py       # → target/site
+python3 -I runtime/build.py app   # just the page and the runtime's JavaScript
+python3 -I runtime/serve.py 8081
 ```
 
 `build.py app` rebuilds the Vite app and the runtime's bundles into an
 existing site, without the recording runs (seconds instead of a minute).
 
 `PLAYGROUND_RUNTIME=otp` builds the site for OTP's own emulator built with
-Emscripten instead of Rust-OTP: its build (`playground/beam/build.sh`), an
+Emscripten instead of Rust-OTP: its build (`beam/build.sh`), an
 installation laid out as Rust-OTP's in `target/otp` (OTP from that build,
 the host's Elixir, Hex, phx_new and rebar3), the template built by the
-host's Mix in `target/playground-cache-otp`, and `runtime.json` naming the
+host's Mix in `target/cache-otp`, and `runtime.json` naming the
 runtime, which the worker reads
 ([`../beam/README.md`](../beam/README.md#in-the-playground)). `build.py
 app` keeps a site's runtime; pass the same `PLAYGROUND_RUNTIME`.
@@ -34,14 +34,14 @@ app` keeps a site's runtime; pass the same `PLAYGROUND_RUNTIME`.
   a boot.
 - **Network access the first time,** for the template's Hex packages, two
   git dependencies and the native tailwind and esbuild binaries.
-- **NIF builds,** optional: `python3 -I playground/nif/build.py` first
+- **NIF builds,** optional: `python3 -I nif/build.py` first
   ([nif.md](nif.md)); the site takes what is in
-  `target/playground/nif/packages` (also `build.py app`).
+  `target/nif/packages` (also `build.py app`).
 
 ## What the site is
 
 ```
-target/playground/site/
+target/site/
   index.html, preview.html,  the app's Vite build (assets in _playground/), each
   registry.html, storage.html  naming its build: <meta name="playground-build">
   sw.js                      the service worker, at the root for its scope /
@@ -84,17 +84,17 @@ The filesystem holds:
 
 ## Steps
 
-1. **Vite build.** `npm ci && npm run build` in `playground/app`, in Docker:
+1. **Vite build.** `npm ci && npm run build` in `app`, in Docker:
    `tsc --noEmit`, the app (`vite.config.ts`), then the runtime
    (`vite.runtime.config.ts`). Its browser entries, `worker.js`,
    `files.js`, `thread.js` and `sw.js`, keep their names (the page starts
    them by URL; `sw.js` is the service worker), beside the app's in
    `dist/`, which goes into the site; with `--mode node`, the Node harness
    (`node.ts` and `thread-node.ts`, as `.mjs`) into `dist-node/`, which goes to
-   `target/playground/node`. The NIF builds go into `nif/`.
+   `target/node`. The NIF builds go into `nif/`.
 2. **`rotp.wasm`.** A stripped release build for `wasm32-wasip1`, and
    `rotp-threads.wasm`, the same for `wasm32-wasip1-threads`.
-3. **The Phoenix template** (once, into `target/playground-cache`):
+3. **The Phoenix template** (once, into `target/cache`):
    1. `mix archive.install hex phx_new 1.8.15` and `mix phx.new playground
       --no-install`, with the native Rust-OTP.
    2. `mix deps.get`. Tailwind and esbuild come from curl, because
@@ -147,7 +147,7 @@ The filesystem holds:
 
 `node node.mjs DIR ERL-ARGS…` runs the site's node under Node with the same
 shim, without a browser. It runs bundled (`node.ts` and
-`thread-node.ts`, built as `.mjs`), from `target/playground/node` (the
+`thread-node.ts`, built as `.mjs`), from `target/node` (the
 Vite build's, step 1). Standard input is read whole, then ends. The
 environment controls the rest:
 
@@ -170,7 +170,7 @@ For example:
 
 ```sh
 docker run --rm -i -e CWD=/work/playground -e HTTP=4000/ -e STOP_AFTER=20000 -e NO_EOF=1 \
-  -v $PWD/target/playground/node:/w:ro -v $PWD/target/playground/site:/d:ro node:24 \
+  -v $PWD/target/node:/w:ro -v $PWD/target/site:/d:ro node:24 \
   node /w/node.mjs /d -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
   -user elixir -extra --no-halt +iex /rotp/bin/mix phx.server </dev/null
 ```

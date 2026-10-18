@@ -11,7 +11,7 @@ const PROJECT = new RegExp(`^http://p-([a-z0-9]{10})\\.playground\\.localhost:${
 
 test.beforeAll(async ({ request }) => {
   const backend = await request.get('http://localhost:4000/socket/websocket').catch(() => null);
-  test.skip(!backend, 'no backend at localhost:4000 (mix phx.server in playground/backend)');
+  test.skip(!backend, 'no backend at localhost:4000 (mix phx.server in backend/)');
 });
 
 test("a guest's page has an origin of its own; its fork is the apex's", async ({

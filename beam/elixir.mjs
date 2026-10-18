@@ -3,10 +3,10 @@
 // sees the host's file system and working directory:
 //
 //   EXTRA_LINK=-sNODERAWFS=1 OPT=-O2 DIST=out/beam-wasm/node \
-//     playground/beam/build.sh release
+//     beam/build.sh release
 //   BEAM_WASM=out/beam-wasm/node BEAM_WASM_OTP=out/beam-wasm/releaseO2/otp \
 //     SCHEDULERS=4 \
-//     node playground/beam/elixir.mjs script.exs
+//     node beam/elixir.mjs script.exs
 //
 // OTP's libraries come from the build tree the dist was made from (its
 // patched kernel), Elixir's from the host installation (ELIXIR_ROOT, or the
@@ -16,7 +16,7 @@ import { readdirSync, realpathSync, existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = join(dirname(fileURLToPath(import.meta.url)), "../..");
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dist = resolve(process.env.BEAM_WASM ?? join(root, "out/beam-wasm/node"));
 const otp = resolve(process.env.BEAM_WASM_OTP ?? join(dist, "../otp"));
 const elixirRoot =

@@ -4,7 +4,7 @@ status: live
 last_updated: 2026-10-16
 ---
 
-# The runtime (`playground/app/src/runtime`)
+# The runtime (`app/src/runtime`)
 
 The site's runtime, in TypeScript, as part of the app: one `tsconfig`,
 oxlint and oxfmt (`npm run lint`, `format:check`), erasable syntax only
@@ -41,7 +41,7 @@ JavaScript.
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `beam/`, `worker/beam.ts` | worker, Node | OTP's own emulator built with Emscripten, for a site built with `PLAYGROUND_RUNTIME=otp` ([`../beam/README.md`](../beam/README.md#in-the-playground)): `run.ts` starts a node (the tree and the shared files through PROXYFS: `treefs.ts`, `sharedfs.ts`; TCP, ports, NIFs, the terminal); `args.ts` turns erl's arguments into the emulator's; `worker/beam.ts` runs it in the node's worker, which serves its threads and takes the page's frames as they come. |
-| `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser ([build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `playground/runtime`. |
+| `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser ([build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `runtime/`. |
 
 ## WASI (`wasi/`)
 

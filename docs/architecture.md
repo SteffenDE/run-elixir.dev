@@ -12,7 +12,7 @@ a project's page (`/ID/`, `/iex`) runs it, and several tabs may run
 several projects (one tab per project, [projects.md](projects.md)).
 
 ```
- project page (React IDE, playground/app)
+ project page (React IDE, app)
  ├─ host/ Node ────────────────► worker.js  (one per shell / terminal tab)
  │    frames in a SharedArrayBuffer ring;      rotp.wasm over wasi/
  │    messages back                            its own /rotp, /dev, /usr

@@ -6,8 +6,7 @@
 # Two named contexts come from the repository, besides this directory
 # (sandbox/build and Playground.Sandbox.Builder pass them):
 #
-#   * nif - playground/nif: the erl_nif layer and nifcc
-#   * otp - third_party/otp/erts/emulator/beam: OTP's erl_nif.h
+#   * nif - nif/: the erl_nif layer and nifcc
 #
 # The sandbox stages, the only definition of the VM:
 #
@@ -26,7 +25,7 @@ ARG DEBIAN_VERSION=trixie-20261005
 ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}-slim"
 ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}-slim"
 
-# wasi-sdk 33 (clang 23), as playground/nif/build.py pins it.
+# wasi-sdk 33 (clang 23), as nif/build.py pins it.
 ARG WASI_SDK_IMAGE="ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
 
 ## Sandbox
@@ -34,7 +33,7 @@ ARG WASI_SDK_IMAGE="ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678
 FROM ${WASI_SDK_IMAGE} AS wasi-sdk
 
 # The guest's userspace: wasi-sdk with the erl_nif layer at the paths
-# playground/nif/build.py uses (/nif/include, /nif/lib/beamos_nif.o,
+# nif/build.py uses (/nif/include, /nif/lib/beamos_nif.o,
 # /tools/nifcc and /tools/nifc++), so recipes carry over unchanged. Erlang is
 # there for Makefiles that ask erl where ERTS's headers are; build tools for
 # what packages bring along (CMake, autotools, git for those that clone).
@@ -48,8 +47,8 @@ RUN apt-get update \
 
 COPY --from=wasi-sdk /opt/wasi-sdk /opt/wasi-sdk
 
-COPY --from=otp erl_nif.h erl_nif_api_funcs.h erl_drv_nif.h /nif/include/
-COPY --from=nif include/erl_int_sizes_config.h /nif/include/
+COPY --from=nif include/erl_nif.h include/erl_nif_api_funcs.h include/erl_drv_nif.h \
+  include/erl_int_sizes_config.h /nif/include/
 COPY --from=nif beamos_nif.c /nif/src/
 RUN mkdir /nif/lib \
     && /opt/wasi-sdk/bin/clang -O2 -Wall -Wextra -Wno-unused-parameter -I/nif/include \

@@ -1,7 +1,7 @@
 defmodule Playground.Nif do
   @moduledoc """
   NIF libraries built to WebAssembly, on request, for the playground's
-  `make` (playground/docs/nif.md).
+  `make` (docs/nif.md).
 
   A request for a package version (`request/2`) finds its build, or queues
   one (`Playground.Nif.BuildWorker`). A build runs the newest template that

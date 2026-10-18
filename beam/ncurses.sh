@@ -4,12 +4,12 @@
 # termcap. The terminals' descriptions are compiled in (--with-fallbacks),
 # so the node needs no terminfo database.
 #
-# Usage: playground/beam/ncurses.sh [-j N]
+# Usage: beam/ncurses.sh [-j N]
 # Installs into out/beam-wasm/ncurses (include/, lib/libtinfo.a).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${HERE}/../.." && pwd)"
+ROOT="$(cd "${HERE}/.." && pwd)"
 VERSION="${NCURSES_VERSION:-6.5}"
 SRC="${ROOT}/out/beam-wasm/ncurses-${VERSION}"
 PREFIX="${ROOT}/out/beam-wasm/ncurses"

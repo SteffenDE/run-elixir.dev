@@ -1,7 +1,7 @@
 /*
  * NIF libraries built to WebAssembly for the Emscripten BEAM, as Rust-OTP
  * runs them in the playground: each library is a WASI reactor of its own
- * (playground/nif: its C or C++ against playground/nif/beamos_nif.c's
+ * (nif/: its C or C++ against nif/beamos_nif.c's
  * erl_nif), in an instance beside the node, which the host keeps
  * (app/src/runtime/nif.ts, through nifs.js on the module's main thread).
  * Requests and answers cross as external terms:

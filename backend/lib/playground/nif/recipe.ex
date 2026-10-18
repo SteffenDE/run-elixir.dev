@@ -4,7 +4,7 @@ defmodule Playground.Nif.Recipe do
   in the package's unpacked sources, as `make` would run in its directory.
 
     * `"script"` - the script. Its environment is elixir_make's, as far as
-      Makefiles use it, for the erl_nif layer (as in playground/nif/build.py):
+      Makefiles use it, for the erl_nif layer (as in nif/build.py):
       `CC=/tools/nifcc`, `CXX=/tools/nifc++`, `CFLAGS=-O2`, `CXXFLAGS=-O2`,
       `ERTS_INCLUDE_DIR=/nif/include`, `MIX_APP_PATH=$APP`, `MIX_ENV=prod`,
       `MIX_TARGET=host`, `CROSSCOMPILE=wasm32-wasip1`; and `SRC` (the

@@ -11,7 +11,7 @@ test('the home page fits a phone', async ({ page }) => {
   await page.goto('/');
   await expect(page.getByRole('link', { name: /Phoenix project/ })).toBeVisible();
   expect(await overflows(page)).toBe(false);
-  await page.screenshot({ path: '/repo/target/playground-tests/phone-home.png' });
+  await page.screenshot({ path: '/repo/target/tests/phone-home.png' });
 });
 
 test('a project on a phone shows one pane at a time', async ({ page }) => {
@@ -27,7 +27,7 @@ test('a project on a phone shows one pane at a time', async ({ page }) => {
   expect(await overflows(page)).toBe(false);
   const header = await page.locator('.top-bar').evaluate((e) => e.scrollWidth <= e.clientWidth + 1);
   expect(header).toBe(true);
-  await page.screenshot({ path: '/repo/target/playground-tests/phone-terminal.png' });
+  await page.screenshot({ path: '/repo/target/tests/phone-terminal.png' });
 
   await writeText(page, '/work/hello.ex', 'IO.puts("hello")\n');
   await bar.getByRole('button', { name: 'Files' }).click();
@@ -36,7 +36,7 @@ test('a project on a phone shows one pane at a time', async ({ page }) => {
   await expect(bar.getByRole('button', { name: 'Editor' })).toHaveAttribute('aria-pressed', 'true');
   await expect(page.locator('.tab', { hasText: 'hello.ex' })).toBeVisible();
   expect(await overflows(page)).toBe(false);
-  await page.screenshot({ path: '/repo/target/playground-tests/phone-editor.png' });
+  await page.screenshot({ path: '/repo/target/tests/phone-editor.png' });
 });
 
 test('a Phoenix project on a phone opens on its preview', async ({ page }) => {
@@ -48,5 +48,5 @@ test('a Phoenix project on a phone opens on its preview', async ({ page }) => {
   );
   await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
   expect(await overflows(page)).toBe(false);
-  await page.screenshot({ path: '/repo/target/playground-tests/phone-preview.png' });
+  await page.screenshot({ path: '/repo/target/tests/phone-preview.png' });
 });

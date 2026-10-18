@@ -3,7 +3,7 @@ defmodule Playground.Nif.Template do
   How to build a package's NIF library, for the versions `requirement` meets
   (all of them when it's `nil`). Its `recipe` is a `Playground.Nif.Recipe`.
 
-  `origin` says who wrote it: `"seed"` (playground/nif/build.py's recipes),
+  `origin` says who wrote it: `"seed"` (nif/build.py's recipes),
   `"agent"` (`Playground.Nif.Agent`) or `"admin"`. `proven_version` is a
   version it built.
   """

@@ -2,12 +2,12 @@
 # OpenSSL for the Emscripten BEAM's crypto (static, no assembly), as
 # Popcorn's scripts/build-openssl.sh configures it (README.md).
 #
-# Usage: playground/beam/openssl.sh [-j N]
+# Usage: beam/openssl.sh [-j N]
 # Installs into out/beam-wasm/openssl (include/, lib/libcrypto.a).
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${HERE}/../.." && pwd)"
+ROOT="$(cd "${HERE}/.." && pwd)"
 TAG="${OPENSSL_TAG:-3.0.15}"
 SRC="${ROOT}/out/beam-wasm/openssl-${TAG}"
 PREFIX="${ROOT}/out/beam-wasm/openssl"

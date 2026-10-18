@@ -54,7 +54,7 @@ last_updated: 2026-10-16
   --auth-strategy magic_link --setup --yes`) is generated, compiled and
   installed: 2299 s in Chromium on a 12-core AMD machine with four
   schedulers, BEAM `+S 4` 314 s
-  ([log](../../docs/log/2026-10-15.md#playground-the-ash-app)); measured
+  (beamos's docs/log/2026-10-15.md); measured
   before the day's later runtime fixes, which took Ash's own compile from
   157 s to about 135 s natively. Starting it needed mnesia, which every
   Ash app starts and the installation now has; not yet tried in the
@@ -122,7 +122,7 @@ last_updated: 2026-10-16
 - **Compiling is about 7× BEAM** (the Ash app above, before the day's later
   fixes), most of it the interpreter: a new app's deps take minutes. The
   plans: prebuilt deps, and a faster interpreter
-  ([interpreter.md](../../docs/design/interpreter.md#where-it-stands-2026-10-15)).
+  (beamos's docs/design/interpreter.md).
 - **git in the shell:** `clone` and fast-forward `pull` from GitHub,
   GitLab and Codeberg, besides what Mix asks; no commits, diffs or pushes
   yet ([git.md](git.md)).

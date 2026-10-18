@@ -2,7 +2,7 @@
 # Set up deploys on the production machine, from a clone of the
 # repository (deploy.md):
 #
-#   sudo playground/deploy/setup.sh
+#   sudo deploy/setup.sh
 #
 # Run again, it updates what it installed and keeps what it made. It sets
 # up:
@@ -253,7 +253,7 @@ fi
 cat <<EOF
 
 Done. Still to do by hand:
-- Caddy's root: $SITE/current (playground/docs/deploy.md).
+- Caddy's root: $SITE/current (docs/deploy.md).
 - Cloudflare's CF_ZONE_ID and CF_API_TOKEN in $DEPLOY_ENV, if wanted.
 - The repository's variables: PLAYGROUND_DOMAIN=$DOMAIN (DEPLOY_TARGET defaults
   to playground-prod, the VM's way here).

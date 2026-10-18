@@ -1,6 +1,6 @@
 defmodule Playground.Live do
   @moduledoc """
-  Live sessions' relay (playground/docs/collaboration.md): which browsers
+  Live sessions' relay (docs/collaboration.md): which browsers
   are in a session, and who may hear whom. What they send each other is
   encrypted in the browser; the relay only passes it on.
 

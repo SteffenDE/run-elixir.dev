@@ -17,10 +17,10 @@ page), empty projects, and a temporary IEx.
 - `tests/run.sh`: runs the Playwright tests in Docker.
 
 ```sh
-python3 -I playground/nif/build.py            # → target/playground/nif (NIF builds)
-python3 -I playground/runtime/build.py        # → target/playground/site
-python3 -I playground/runtime/serve.py 8081   # http://localhost:8081/
-playground/tests/run.sh --project=chromium    # the browser tests
+python3 -I nif/build.py            # → target/nif (NIF builds)
+python3 -I runtime/build.py        # → target/site
+python3 -I runtime/serve.py 8081   # http://localhost:8081/
+tests/run.sh --project=chromium    # the browser tests
 ```
 
 Everything else is in [docs/](docs/README.md).

@@ -22,7 +22,7 @@ test.use({ baseURL: LIVE });
 
 test.beforeAll(async ({ request }) => {
   const backend = await request.get('http://localhost:4000/socket/websocket').catch(() => null);
-  test.skip(!backend, 'no backend at localhost:4000 (mix phx.server in playground/backend)');
+  test.skip(!backend, 'no backend at localhost:4000 (mix phx.server in backend/)');
 });
 
 // The host starts a live session of its project; its link.

@@ -5,7 +5,7 @@ defmodule Playground.Sandbox.Builder do
   They are stages of the project's Dockerfile, which the release image copies
   too, so the only requirement on the host is a Docker installation with
   Buildx. `DOCKER` names the command (`sudo -n docker`, say), as for
-  playground/nif/build.py.
+  nif/build.py.
 
   In production, the image ships the artifacts, so this module is only
   meant to be used in development and tests.
@@ -18,8 +18,7 @@ defmodule Playground.Sandbox.Builder do
 
   # The Dockerfile's named contexts, from the repository.
   @contexts [
-    nif: Path.expand("../nif", @project_dir),
-    otp: Path.expand("../../third_party/otp/erts/emulator/beam", @project_dir)
+    nif: Path.expand("../nif", @project_dir)
   ]
 
   @doc """

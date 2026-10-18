@@ -102,7 +102,7 @@ test('the preview opens for a server, not for Mix or an ephemeral port', async (
   await expect.poll(() => output(page), { timeout: 300_000 }).toMatch(/iex\(1\)> $/);
   await page.evaluate(() => window.playground.node.input(':gen_tcp.listen(0, [])\n'));
   // A port on Rust-OTP, gen_tcp_socket's tuple on OTP's own emulator
-  // (the socket backend: playground/beam/socket).
+  // (the socket backend: beam/socket).
   await expect
     .poll(() => output(page))
     .toMatch(/\{:ok,\s+(#Port<[\d.]+>|\{:"\$inet", :gen_tcp_socket,[^]*?\})\}\s+iex\(2\)> $/);

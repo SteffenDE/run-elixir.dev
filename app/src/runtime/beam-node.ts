@@ -1,4 +1,4 @@
-// The Emscripten BEAM (playground/beam) under Node, over the playground's
+// The Emscripten BEAM (beam/) under Node, over the playground's
 // tree (wasi/fs.ts) as the browser will run it:
 //   node beam-node.mjs BEAM [beam args...] < input
 // BEAM is a dist build.sh wrote (beam.mjs, beam.wasm, otp/); the beam
@@ -9,7 +9,7 @@
 // environment.
 //
 // TCP is the playground's Network (wasi/net.ts), as Module.beamNetwork
-// (playground/beam/socket); start the node with -kernel inet_backend
+// (beam/socket); start the node with -kernel inet_backend
 // socket. HTTP=PORT/PATH,... GETs each path once the node listens on the
 // port, prints each response's status line, and STOP_SERVED=MS stops the
 // node that long after the last.

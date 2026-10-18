@@ -8,7 +8,7 @@ last_updated: 2026-10-15
 
 The site is static. A push to the `deploy` branch builds it on a
 Forgejo runner and makes it live on the server as a new release
-(`.forgejo/workflows/deploy.yml`, `playground/deploy/`):
+(`.forgejo/workflows/deploy.yml`, `deploy/`):
 
 1. **Build** (`build-site.sh`): the native Rust-OTP install, the NIF
    libraries, then the site, with `PLAYGROUND_DOMAIN` from the
@@ -36,8 +36,8 @@ again; `status` names the live one. Both also work over the deploy key
 Deploying by hand from a machine with the key is the same:
 
 ```sh
-PLAYGROUND_DOMAIN=run-elixir.dev playground/deploy/build-site.sh
-playground/deploy/upload.sh target/playground/site deploy@server
+PLAYGROUND_DOMAIN=run-elixir.dev deploy/build-site.sh
+deploy/upload.sh target/site deploy@server
 ```
 
 ### Setting it up: `setup.sh`
@@ -46,7 +46,7 @@ On the production machine (Debian or Ubuntu, with KVM), from a clone of
 the repository:
 
 ```sh
-sudo playground/deploy/setup.sh
+sudo deploy/setup.sh
 ```
 
 It asks for the project domain, the site's directory, Forgejo's URL
@@ -101,7 +101,7 @@ Another runner needs the label `beamos-build` with the host executor
 (`beamos-build:host`): the build runs Docker itself (`sudo -n docker`, or
 `DOCKER`) and needs the repository's toolchain on the runner's user, as
 `runner/provision.sh` installs it. It builds in a checkout of its own
-that it keeps (`DEPLOY_BUILD_DIR`, default `~/beamos-deploy`), so
+that it keeps (`DEPLOY_BUILD_DIR`, default `~/run-elixir.dev-deploy`), so
 `target/` stays warm between deploys. It reaches the server through the
 repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 `DEPLOY_SSH_KEY` (the private key) and `DEPLOY_KNOWN_HOSTS` (the server's
@@ -268,8 +268,8 @@ phoenix-playground.steffend.me {
 
 ## Locally
 
-`python3 -I playground/runtime/serve.py [PORT]` serves
-`target/playground/site` with the isolation headers, `no-cache` and the
+`python3 -I runtime/serve.py [PORT]` serves
+`target/site` with the isolation headers, `no-cache` and the
 `index.html` fallback, and proxies `/hex/` as above, and `/api/nif/` to
 the backend: production's (run-elixir.dev), or the one `--api URL`
 names (`--api http://localhost:4000` for a local `mix phx.server`). It

@@ -11,7 +11,7 @@
 #
 # The app listens on 127.0.0.1:${PORT:-4000} and redirects to HTTPS unless
 # the request says it came over HTTPS: Caddy in front terminates TLS (see
-# playground/docs/backend.md). Migrations and the seed templates run when
+# docs/backend.md). Migrations and the seed templates run when
 # the app starts. (After SCA's.)
 
 services:
@@ -37,7 +37,6 @@ services:
       # Dockerfile's sandbox stages use them; the release does not).
       additional_contexts:
         nif: ../nif
-        otp: ../../third_party/otp/erts/emulator/beam
     restart: unless-stopped
     depends_on:
       db:

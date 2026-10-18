@@ -2,7 +2,7 @@
 
 An experiment on branch `sd-beam`: OTP's own emulator (erts) built with
 Emscripten, as the playground's runtime beside Rust-OTP
-(`playground/runtime`). A site is built for one of them
+(`runtime/`). A site is built for one of them
 (`PLAYGROUND_RUNTIME=otp`, below); Rust-OTP stays the default.
 
 ## Provenance
@@ -51,7 +51,7 @@ called again in a loop made compiling Ash 5.2 times as fast.
 Needs emsdk 6.0.2 (Popcorn's CI's, at `~/emsdk`), host Erlang 29.1.1,
 autoconf 2.72, and network access the first time.
 
-    OTP_SOURCE=~/src/otp-29.1.1 OPT=-O2 DIST=out/beam-wasm/site playground/beam/build.sh release
+    OTP_SOURCE=~/src/otp-29.1.1 OPT=-O2 DIST=out/beam-wasm/site beam/build.sh release
 
 `build.sh` runs `openssl.sh` (OpenSSL 3.0.15, for crypto, ssl and asn1,
 their NIFs linked in) and `ncurses.sh` (libtinfo with its terminals
@@ -69,15 +69,15 @@ No `-O2` in a tree's path: erts' `zlib.mk` rewrites it in CFLAGS.
 
 ## In the playground
 
-    PLAYGROUND_RUNTIME=otp python3 -I playground/runtime/build.py
-    PLAYGROUND_RUNTIME=otp python3 -I playground/runtime/build.py app
+    PLAYGROUND_RUNTIME=otp python3 -I runtime/build.py
+    PLAYGROUND_RUNTIME=otp python3 -I runtime/build.py app
 
 `build.py` builds the site for this BEAM: `beam.mjs`, `beam.emu.mjs` and
 `beam.wasm` in place of `rotp*.wasm`, `runtime.json` naming the runtime,
 and an installation laid out as Rust-OTP's, at `/rotp` in the node
 (`target/otp`: OTP from the dist, the host's Elixir, Hex and phx_new
 archives and rebar3). The template is built by the host's Mix
-(`_build_otp`, in `target/playground-cache-otp`); the boot images are
+(`_build_otp`, in `target/cache-otp`); the boot images are
 recorded on this BEAM. `node.ts` runs such a site under Node (the
 recording runs); the browser's worker runs it when `runtime.json` says
 `otp` (`worker/beam.ts`). Both go through `app/src/runtime/beam/run.ts`;
@@ -113,7 +113,7 @@ recording runs); the browser's worker runs it when `runtime.json` says
   and programs); `{spawn, Command}` is `/bin/sh -c`. Output and exit come
   through a ring to the driver's event thread, which asks `erl_init`'s
   `wasm_port_pump` to `port_control` the port, where they are delivered.
-- **NIFs.** A library built to WebAssembly by `playground/nif` (wasi-sdk,
+- **NIFs.** A library built to WebAssembly by `nif/` (wasi-sdk,
   `beamos_nif.c`) runs as with Rust-OTP: an instance of its own (`nif.ts`),
   external terms both ways. `host/wasm_nifs.c` makes its entry from its
   answer to `load`; every function is one proxy, which finds its function
@@ -150,7 +150,7 @@ carried the asset watchers' output (fixed, 037fde2). `livetest` and
 `git` stalled together, both with the other running; alone, each passes.
 Two rare WebKit stalls remain, both more often with two pages at once:
 a new node hanging in `new WebAssembly.Memory`, and a node's worker
-stopping in the middle of `mix test` ([log](../../docs/log/2026-10-17.md)).
+stopping in the middle of `mix test` (beamos's docs/log/2026-10-17.md).
 
 ## The network: `socket/`
 
@@ -168,8 +168,8 @@ answers a `select` to its retry with `{error, timeout}`.
 
 ## Smoke test
 
-    ~/emsdk/node/*/bin/node playground/beam/smoke.mjs ['<erlang expr>']
-    BEAM_WASM=out/beam-wasm/site APPS=kernel,stdlib,compiler node playground/beam/smoke.mjs '...'
+    ~/emsdk/node/*/bin/node beam/smoke.mjs ['<erlang expr>']
+    BEAM_WASM=out/beam-wasm/site APPS=kernel,stdlib,compiler node beam/smoke.mjs '...'
 
 The script copies a dist's application ebins into MEMFS and boots with
 `-noshell -eval`. Observed 2026-10-16 (debug build,

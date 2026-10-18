@@ -2,7 +2,7 @@
 # Build the real BEAM (OTP's erts) for wasm32-emscripten with Popcorn's
 # patch stack (see README.md).
 #
-# Usage: playground/beam/build.sh [debug|release] [-j N]
+# Usage: beam/build.sh [debug|release] [-j N]
 #
 # Environment:
 #   OPT          release optimisation level (default -Os, as Popcorn)
@@ -18,7 +18,7 @@
 set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT="$(cd "${HERE}/../.." && pwd)"
+ROOT="$(cd "${HERE}/.." && pwd)"
 OTP_TAG="${OTP_TAG:-OTP-29.1.1}"
 MODE=debug
 JOBS="$(nproc)"

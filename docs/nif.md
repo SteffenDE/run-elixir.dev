@@ -4,7 +4,7 @@ status: live
 last_updated: 2026-10-15
 ---
 
-# NIFs (`playground/nif`)
+# NIFs (`nif/`)
 
 Rust-OTP loads no native libraries. In the playground a NIF library is a
 WebAssembly module instead: the package's C or C++, built with wasi-sdk against
@@ -14,7 +14,7 @@ nothing in Rust-OTP's runtime needs to know about NIFs.
 
 ## The erl_nif layer (`beamos_nif.c`)
 
-A NIF library is OTP's `erl_nif.h` (copied from `third_party/otp`, with
+A NIF library is OTP's `erl_nif.h` (OTP 29.1.1's, in `nif/include` with
 `include/erl_int_sizes_config.h` for wasm32), linked with `beamos_nif.o`
 into a WASI reactor. The layer implements the API over terms of its own:
 
@@ -102,10 +102,10 @@ ERTS without dirty schedulers.
 ## Building (`build.py`)
 
 ```sh
-python3 -I playground/nif/build.py [PACKAGE...]   # → target/playground/nif
+python3 -I nif/build.py [PACKAGE...]   # → target/nif
 ```
 
-The site build copies `target/playground/nif/packages` to the site's
+The site build copies `target/nif/packages` to the site's
 `nif/` (`runtime/build.py`, also `build.py app`).
 
 In the wasi-sdk image (Docker, pinned by digest): `beamos_nif.o`, then each

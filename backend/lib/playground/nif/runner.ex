@@ -9,7 +9,7 @@ defmodule Playground.Nif.Runner do
 
   What comes back is checked before anyone gets it: regular files under
   `priv/` only, and at least one `.so`, all of them WebAssembly. The archive
-  is written anew from those files (`ustar`, as playground/nif/build.py's),
+  is written anew from those files (`ustar`, as nif/build.py's),
   which the playground's `make` unpacks into the app's directory.
   """
 

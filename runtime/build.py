@@ -1,11 +1,11 @@
-"""Build the playground site into target/playground/site, ready to rsync:
+"""Build the playground site into target/site, ready to rsync:
 
-    python3 -I playground/runtime/build.py
-    python3 -I playground/runtime/build.py app   # just the page and the runtime's JavaScript
+    python3 -I runtime/build.py
+    python3 -I runtime/build.py app   # just the page and the runtime's JavaScript
 
-The site is the app's Vite build (playground/app, made in Docker), which
+The site is the app's Vite build (app, made in Docker), which
 bundles the runtime's workers too, rotp.wasm, and a filesystem under fs/: the
-installation (target/rotp) at /rotp and the Phoenix template, a phx.new
+installation (beamos's target/rotp, BEAMOS) at /rotp and the Phoenix template, a phx.new
 app, at /work/playground.
 
 - fs/boot.tar.gz: what IEx reads first, recorded by running it in the
@@ -33,12 +33,12 @@ each page names its build in <meta name="playground-build"> (the app's
 src/shared/lib/build.ts). A page loaded before a deploy keeps loading its
 own build's files while the server still has them.
 
-The template is generated once into target/playground-cache with the
+The template is generated once into target/cache with the
 native Rust-OTP: phx_new (PHX_NEW below), the playground's configuration,
 deps fetched and compiled, assets built.
 
 PLAYGROUND_RUNTIME=otp builds the site for OTP's own emulator built with
-Emscripten (playground/beam) instead of Rust-OTP: beam.mjs, beam.emu.mjs
+Emscripten (beam/) instead of Rust-OTP: beam.mjs, beam.emu.mjs
 and beam.wasm in place of rotp*.wasm, an installation laid out as Rust-OTP's
 (target/otp, at /rotp in the node: OTP's applications from that build, the
 host's Elixir, Hex, phx_new and rebar3), the template built by the host's
@@ -54,20 +54,23 @@ import sys
 import tarfile
 import tempfile
 
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The beamos checkout Rust-OTP comes from (crates/rotp, and its native
+# installation in target/rotp): BEAMOS, or beside this repository.
+BEAMOS = os.environ.get("BEAMOS") or os.path.join(os.path.dirname(ROOT), "beamos")
 RUNTIME = os.environ.get("PLAYGROUND_RUNTIME", "rotp")
 assert RUNTIME in ("rotp", "otp"), RUNTIME
 OTP = RUNTIME == "otp"
-INSTALL = os.path.join(ROOT, "target", "otp" if OTP else "rotp")
+INSTALL = os.path.join(ROOT, "target", "otp") if OTP else os.path.join(BEAMOS, "target", "rotp")
 CACHE = os.path.join(ROOT, "target", "playground-cache-otp" if OTP else "playground-cache")
 # The template's build directory: Rust-OTP's beside the host's, or the
 # host Mix's own for the Emscripten BEAM (same OTP, same code).
 BUILD = "_build_otp" if OTP else "_build_rotp"
-# playground/beam/build.sh's output for the site.
+# beam/build.sh's output for the site.
 BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
-# runs and playground/nif/test/test.py run it.
-NODE = os.path.join(ROOT, "target", "playground", "node")
+# runs and nif/test/test.py run it.
+NODE = os.path.join(ROOT, "target", "node")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
@@ -93,11 +96,11 @@ RECORD = {
 # build for wasm32-wasip1-threads, which worker.js prefers where shared
 # memory is (threads.ts).
 def build_wasm(target="wasm32-wasip1", directory="wasm"):
-    env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(ROOT, "target", directory),
+    env = dict(os.environ, CARGO_TARGET_DIR=os.path.join(BEAMOS, "target", directory),
                CARGO_PROFILE_RELEASE_DEBUG="false", CARGO_PROFILE_RELEASE_STRIP="true")
     subprocess.run(["cargo", "build", "--release", "--target", target, "-p", "rotp"],
-                   cwd=ROOT, env=env, check=True)
-    return os.path.join(ROOT, "target", directory, target, "release", "rotp.wasm")
+                   cwd=BEAMOS, env=env, check=True)
+    return os.path.join(BEAMOS, "target", directory, target, "release", "rotp.wasm")
 
 
 # Mozilla's CA certificates (curl.se's extract), where OTP looks for the
@@ -153,10 +156,10 @@ def host_elixir():
 
 
 def otp_install():
-    """The Emscripten BEAM (playground/beam/build.sh, release) and its
+    """The Emscripten BEAM (beam/build.sh, release) and its
     installation in INSTALL, laid out as Rust-OTP's: lib/APP/{ebin,priv,
     include}, bin/*.boot, releases/, mix/archives and mix/rebar3."""
-    subprocess.run([os.path.join(ROOT, "playground", "beam", "build.sh"), "release"], check=True,
+    subprocess.run([os.path.join(ROOT, "beam", "build.sh"), "release"], check=True,
                    env=dict(os.environ, OPT="-O2", DIST=BEAM_DIST))
     shutil.rmtree(INSTALL, ignore_errors=True)
     shutil.copytree(os.path.join(BEAM_DIST, "otp", "lib"), os.path.join(INSTALL, "lib"))
@@ -388,7 +391,7 @@ def record(out, boot, snapshot):
 def page(out):
     """The app's Vite build into `out` (the page, and the runtime's workers
     and service worker), and its Node harness into NODE."""
-    source = os.path.join(ROOT, "playground", "app")
+    source = os.path.join(ROOT, "app")
     vite_build(source)
     # What an earlier build left: its assets, and its runtime's scripts.
     for name in ("_playground", "chunks"):
@@ -399,9 +402,9 @@ def page(out):
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
     shutil.rmtree(NODE, ignore_errors=True)
     shutil.copytree(os.path.join(source, "dist-node"), NODE)
-    # Packages' NIF libraries built to WebAssembly (playground/nif/build.py),
+    # Packages' NIF libraries built to WebAssembly (nif/build.py),
     # which the node's make fetches.
-    packages = os.path.join(ROOT, "target", "playground", "nif", "packages")
+    packages = os.path.join(ROOT, "target", "nif", "packages")
     if os.path.isdir(packages):
         shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
@@ -457,7 +460,7 @@ def version(out):
 
 
 def main():
-    out = os.path.join(ROOT, "target", "playground", "site")
+    out = os.path.join(ROOT, "target", "site")
     if sys.argv[1:] == ["app"]:
         unversion(out)
         page(out)
@@ -487,7 +490,7 @@ def main():
     # The terminal's terminfo entry (setup.ts sets TERM): IEx's line
     # editing needs it.
     files.append(("usr/share/terminfo/x/xterm-256color",
-                  os.path.join(ROOT, "crates/rotp/terminfo/x/xterm-256color")))
+                  os.path.join(ROOT, "runtime", "terminfo", "x", "xterm-256color")))
     files += app_files(phoenix_app())
 
     # Everything lazy first, to record what each boot image's command

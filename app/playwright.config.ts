@@ -2,7 +2,7 @@ import { defineConfig, devices } from '@playwright/test';
 
 // The playground's browser tests, against a built site (runtime/build.py)
 // that runtime/serve.py serves. Run them in Docker with
-// playground/tests/run.sh, which mounts the repository at /repo.
+// tests/run.sh, which mounts the repository at /repo.
 const port = Number(process.env.PORT || 8081);
 const DEVICES: Record<string, string> = {
   chromium: 'Desktop Chrome',
@@ -34,7 +34,7 @@ export default defineConfig({
       stderr: 'ignore',
     },
     // The same site with the backend at localhost:4000 (live sessions'
-    // relay; `mix phx.server` in playground/backend).
+    // relay; `mix phx.server` in backend/).
     {
       command: `python3 -I ../runtime/serve.py ${port + 2} --api http://localhost:4000`,
       url: `http://localhost:${port + 2}/`,
