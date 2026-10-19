@@ -2,7 +2,7 @@
 // synchronous channel (wasi/shared.ts sharedClient): the synchronous calls
 // as they are, the callback and promise ones on top of them. Paths are
 // absolute or the process's directory's; files.js holds /work and /tmp.
-import { Buffer } from 'buffer';
+import { Buffer } from './buffer';
 import { E } from '../wasi/abi';
 import type { SharedCall } from '../wasi/shared';
 

@@ -1,6 +1,6 @@
 // Node's util: format and inspect as console.log prints values, and the
 // helpers packages use (promisify, inherits, deprecate, types, …).
-import { Buffer } from 'buffer';
+import { Buffer } from './buffer';
 
 export interface InspectOptions {
   depth?: number | null;
@@ -368,6 +368,20 @@ export function createUtil(warn: (text: string) => void) {
     isString: (v: unknown) => typeof v === 'string',
     isObject: (v: unknown) => v !== null && typeof v === 'object',
     isPrimitive: (v: unknown) => v === null || (typeof v !== 'object' && typeof v !== 'function'),
+    // KEY=value lines (a .env file's), # comments and quotes as Node reads them.
+    parseEnv: (content: string) => {
+      const out: Record<string, string> = {};
+      for (const line of content.split(/\r?\n/)) {
+        const match = /^\s*(?:export\s+)?([\w.-]+)\s*=\s*(.*?)\s*$/.exec(line);
+        if (!match) continue;
+        let value = match[2];
+        const quoted = /^(['"`])([\s\S]*)\1$/.exec(value);
+        if (quoted) value = quoted[1] === '"' ? quoted[2].replace(/\\n/g, '\n') : quoted[2];
+        else value = value.replace(/\s+#.*$/, '');
+        out[match[1]] = value;
+      }
+      return out;
+    },
     stripVTControlCharacters: (text: string) =>
       // oxlint-disable-next-line no-control-regex -- ANSI sequences.
       text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''),

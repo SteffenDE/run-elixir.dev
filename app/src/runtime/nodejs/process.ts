@@ -3,7 +3,7 @@
 // ends the process when nothing keeps it alive, as Node's event loop does:
 // timers, intervals, immediates and the operations it holds (`hold`) are
 // its handles; promises are not.
-import { Buffer } from 'buffer';
+import { Buffer } from './buffer';
 import { EventEmitter } from 'events';
 import { formatWithOptions, inspect } from './util';
 

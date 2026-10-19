@@ -1,7 +1,7 @@
 // Node's built-in modules by name (require('fs'), import 'node:path'),
 // each made on first use. What the playground does not have yet (network,
 // child processes, compression) is there, and says so when called.
-import { Buffer } from 'buffer';
+import { Buffer } from './buffer';
 import { EventEmitter, once } from 'events';
 import * as stream from 'readable-stream';
 import { StringDecoder } from 'string_decoder';
@@ -324,9 +324,12 @@ export function createBuiltins(deps: {
     }),
     readline: () => createReadline(process),
     'readline/promises': () => createReadline(process),
+    // Stream, with readable-stream's classes on it as Node's has them (and
+    // its own promises, a getter, if it has them).
     stream: () => {
       const out = stream.Stream as unknown as Record<string, unknown>;
-      Object.assign(out, stream, { promises: streamPromises() });
+      for (const [key, value] of Object.entries(stream)) if (!(key in out)) out[key] = value;
+      if (!('promises' in out)) out.promises = streamPromises();
       return out;
     },
     'stream/promises': () => streamPromises(),
@@ -367,7 +370,7 @@ export function createBuiltins(deps: {
       ReadStream: class ReadStream extends EventEmitter {},
       WriteStream: class WriteStream extends EventEmitter {},
     }),
-    url: () => createUrl(),
+    url: () => createUrl((path) => (deps.path.resolve as (p: string) => string)(path)),
     util: () => util,
     'util/types': () => types,
     v8: () => ({
@@ -527,7 +530,8 @@ function createOs(env: Record<string, string>) {
   };
 }
 
-function createUrl() {
+// resolve(path): an absolute path, as path.resolve makes it.
+function createUrl(resolve: (path: string) => string) {
   const fileURLToPath = (url: string | URL) => {
     const parsed = typeof url === 'string' ? new URL(url) : url;
     if (parsed.protocol !== 'file:') {
@@ -537,8 +541,21 @@ function createUrl() {
     }
     return decodeURIComponent(parsed.pathname);
   };
-  const pathToFileURL = (path: string) =>
-    new URL(`file://${path.split('/').map(encodeURIComponent).join('/')}`);
+  // As Node makes it: the path resolved (a trailing slash kept), with %,
+  // \\, newlines, tabs, # and ? escaped; the URL parser escapes the rest.
+  const pathToFileURL = (path: string) => {
+    let absolute = resolve(path);
+    if (path.endsWith('/') && !absolute.endsWith('/')) absolute += '/';
+    const escaped = absolute
+      .replace(/%/g, '%25')
+      .replace(/\\/g, '%5C')
+      .replace(/\n/g, '%0A')
+      .replace(/\r/g, '%0D')
+      .replace(/\t/g, '%09')
+      .replace(/#/g, '%23')
+      .replace(/\?/g, '%3F');
+    return new URL(`file://${escaped}`);
+  };
   const parse = (text: string, query = false) => {
     try {
       const url = new URL(text);
