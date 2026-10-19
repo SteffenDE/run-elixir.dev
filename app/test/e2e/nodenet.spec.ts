@@ -164,3 +164,32 @@ test('a Node.js process and a node reach each other’s servers', async ({ page 
     ),
   ).toContain('200 from node /asked');
 });
+
+// HTTPS goes by the page's fetch, as a node's does (https.ts).
+test('a Node.js process’s https.get goes by the page’s fetch', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/get.cjs',
+    [
+      "const https = require('https');",
+      'https',
+      "  .get(process.argv[2], { headers: { accept: 'application/json' } }, (res) => {",
+      "    let body = '';",
+      "    res.on('data', (c) => (body += c));",
+      "    res.on('end', () => console.log(res.statusCode, res.headers['content-type'], body.slice(0, 200)));",
+      '  })',
+      "  .on('error', (e) => console.log('error', e.message));",
+    ].join('\n'),
+  );
+  // hex.pm's API sends CORS headers: its JSON.
+  const hex = await run(page, 'node get.cjs https://hex.pm/api/packages/jason');
+  expect(hex).toContain('200 application/json');
+  expect(hex).toContain('"name":"jason"');
+  // A site without them: the page answers why.
+  const plain = await run(page, 'node get.cjs https://www.example.com/');
+  expect(plain).toContain('502 text/plain');
+  expect(plain).toContain('failed in the browser');
+});
