@@ -437,6 +437,14 @@ onmessage = async ({
       }
       if (pagePrograms.includes(name))
         return runOnPage(name, given, at, vars, io.stdout ?? undefined);
+      // A script for node (#!/usr/bin/env node: a package's bin in
+      // node_modules/.bin): the page's node runs it.
+      if (
+        head &&
+        /^#!.*\bnode\b/.test(new TextDecoder().decode(head)) &&
+        pagePrograms.includes('node')
+      )
+        return runOnPage('node', [program, ...given], at, vars, io.stdout ?? undefined);
       if (TOOLS.has(name) && module()) {
         const tool = coreutils(
           {
