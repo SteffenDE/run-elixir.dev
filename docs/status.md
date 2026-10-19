@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Status
@@ -204,3 +204,13 @@ chunks; the same memory.
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.
 9. WebKit's two stalls; a faster node start.
+10. Node in the terminal: Node's APIs (`fs`, `child_process`, `net`, …)
+    over the node's files, programs and network, the scripts on the
+    page's own JavaScript engine in a worker; npm packages, and frontends
+    other than esbuild.
+
+Shelved: Linux programs through [Blink](https://github.com/jart/blink),
+an x86-64 emulator built for WASI (the `worktree-blink` branch: build,
+patches, timings and why, in its docs/blink.md). Static musl programs and
+busybox run, 100–450× slower than natively; nothing with a JIT or
+threads of its own (Bun, Node, Go programs) is worth running that way.
