@@ -4,9 +4,9 @@ import type { Channel } from './channel';
 import { runtime, site } from './site';
 
 // GET url, synchronously: [status, bytes] (status 0 when it failed).
-function get(url: string | URL): [number, Uint8Array | null];
-function get(url: string | URL, binary: false): [number, string | null];
-function get(url: string | URL, binary = true): [number, Uint8Array | string | null] {
+export function get(url: string | URL): [number, Uint8Array | null];
+export function get(url: string | URL, binary: false): [number, string | null];
+export function get(url: string | URL, binary = true): [number, Uint8Array | string | null] {
   const request = new XMLHttpRequest();
   request.open('GET', url, false);
   if (binary) request.responseType = 'arraybuffer';

@@ -4,6 +4,7 @@ import { File, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
 import { git, esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
+import { TOOLS } from './coreutils';
 
 // The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
 // so Hex tool wrappers take their Linux paths; the esbuild and tailwind
@@ -60,6 +61,8 @@ export function prepare(root: Dir): void {
     'iex',
     'erl',
     'escript',
+    // coreutils.wasm's (coreutils.ts).
+    ...TOOLS,
   ])
     root.put(`usr/bin/${name}`, new File());
 }

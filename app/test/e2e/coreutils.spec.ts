@@ -1,0 +1,36 @@
+import { expect, test } from './fixtures';
+import { newProject, prompted, readText, run, writeText } from './helpers';
+
+// uutils coreutils (coreutils.wasm, runtime/coreutils.ts): its tools in the
+// shell, from a node's System.cmd, and in a node's sh -c line beside a node
+// command.
+test('coreutils run in the shell, from System.cmd and in sh -c', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const started = Date.now();
+  await run(page, 'mkdir -p a/b');
+  console.log(`first tool: ${Date.now() - started} ms`);
+  await writeText(page, '/work/a/b/x.txt', 'one\ntwo\nthree\n');
+  expect(await run(page, 'wc -l a/b/x.txt')).toContain('3 a/b/x.txt');
+  await run(page, 'cp -r a c');
+  expect(await run(page, 'ls c/b')).toContain('x.txt');
+  expect(await run(page, 'sort -r c/b/x.txt')).toMatch(/two\s+three\s+one/);
+  await run(page, 'rm -rf a');
+  expect(await run(page, 'ls')).not.toMatch(/\ba\b/);
+  expect(await readText(page, '/work/c/b/x.txt')).toBe('one\ntwo\nthree\n');
+
+  // A node's System.cmd finds them on PATH; its sh -c runs them, and a node
+  // command among them.
+  const cmd = await run(
+    page,
+    `elixir -e 'IO.inspect(System.cmd("rm", ["-r", "c"])); IO.inspect(File.exists?("c"))'`,
+  );
+  expect(cmd).toContain('{"", 0}');
+  expect(cmd).toContain('false');
+  const shell = await run(
+    page,
+    `elixir -e 'IO.inspect(System.shell("mkdir -p d/e && touch d/e/f && elixir -e \\"IO.puts(:from_node)\\" && ls d/e"))'`,
+  );
+  expect(shell).toContain('{"from_node\\nf\\n", 0}');
+});

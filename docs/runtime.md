@@ -30,6 +30,8 @@ JavaScript.
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
+| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`), and a node's `sh -c` around them. |
+| `sh.ts` | worker, page | Command lines split into words and `&&`-joined commands. |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
@@ -160,6 +162,36 @@ records over the template (`overlay.ts`), and writes the changed paths
 below `/work` a second after they change, in one transaction
 ([projects.md](projects.md#what-is-kept)). A write that fails is reported
 to the page as `{ kind: 'warning', message }`.
+
+## coreutils (`coreutils.ts`)
+
+uutils coreutils 0.12.0, Rust's rewrite of GNU's (Ubuntu's since 25.10),
+built for `wasm32-wasip1` with its own WASI feature set
+(`coreutils/build.py`): one module, 89 tools, its first argument naming the
+tool, as BusyBox does. BusyBox itself needs `fork`, which WASI lacks. The
+one patch has it change to `$PWD` first, as WASI has no working directory.
+
+A worker fetches and compiles it when a tool first runs (140 ms in
+Chromium, 200 in WebKit, 470 in Firefox, from the HTTP cache after that). Each run is an
+instance of its own over the node's tree and the shared files (`wasi/`),
+run to its end on the caller's thread: the shell's, or the node's for a
+port, which waits for it, as for any quick command. So a tool gets the
+input that is there when it starts and then its end, and runs nothing
+that waits for more (`tail -f`, an interactive `sort`).
+
+- **The shell** runs a tool for a command it does not have itself (`cd`,
+  `pwd`, `echo`, `help`, `clear` stay its own); without `coreutils.wasm`,
+  its old `ls`, `cat`, `mkdir` and `rm` answer.
+- **A node** finds the tools on `PATH` (`/usr/bin`) and spawns them by
+  name: `System.cmd("rm", ["-rf", "c"])`.
+- **`sh -c LINE`** with a tool in it runs here: the tools, `cd`, and each
+  node command (`mix`, …) through the page's `sh` on its own, in order while
+  they succeed. A line without a tool is the page's `sh`'s alone.
+
+Not yet: pipes, redirections, `;` and `||`, globs and `$VAR` in either
+shell; `os:cmd`'s `sh -s` (its line on standard input); `grep`, `sed`,
+`find` and `awk`, which are not coreutils; file modes and owners, which
+WASI does not have (`chmod`, `ls -l`'s columns).
 
 ## Page and node (`host/`, `worker/`)
 

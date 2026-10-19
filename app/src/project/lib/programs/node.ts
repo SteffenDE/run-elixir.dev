@@ -2,6 +2,7 @@
 // project's files, as the shell runs its commands: `sh -c 'mix deps.get'`
 // (open_port's {spawn, Command}, System.shell; phx.new runs Mix that way)
 // and rebar3, the escript Mix builds rebar3 dependencies with.
+import { commands } from '@/runtime/sh';
 import type { Context, Process } from './tailwind';
 
 // Start a node for `command` (['mix', 'deps.get']): its output is the
@@ -15,27 +16,6 @@ export type StartNode = (
 
 // The commands a shell line can run: OTP's and Elixir's.
 const NODE_COMMANDS = new Set(['mix', 'elixir', 'iex', 'erl', 'escript']);
-
-// Words, with '' and "" quoting (as the playground's shell splits them).
-export function words(line: string): string[] {
-  const out: string[] = [];
-  let word: string | null = null;
-  let quote: string | null = null;
-  for (const c of line) {
-    if (quote) {
-      if (c === quote) quote = null;
-      else word += c;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-      word ??= '';
-    } else if (/\s/.test(c)) {
-      if (word !== null) out.push(word);
-      word = null;
-    } else word = (word ?? '') + c;
-  }
-  if (word !== null) out.push(word);
-  return out;
-}
 
 // Run `command` as a node; `done` gets its exit status.
 function run(
@@ -59,27 +39,6 @@ function run(
   // ends), until it ends by itself or the node that started it stops.
   process.onkill = () => {};
   process.onowner = () => node.stop();
-}
-
-// A command line's commands, as far as the playground runs them: words
-// joined by &&, without the ( ) and </dev/null that System.shell and
-// os:cmd wrap them in.
-export function commands(line: string): string[][] {
-  let text = line.trim();
-  for (;;) {
-    const unwrapped = text
-      .replace(/\s*<\s*\/dev\/null\s*$/, '')
-      .replace(/^\(([\s\S]*)\)$/, '$1')
-      .trim();
-    if (unwrapped === text) break;
-    text = unwrapped;
-  }
-  const out: string[][] = [[]];
-  for (const word of words(text)) {
-    if (word === '&&') out.push([]);
-    else out[out.length - 1].push(word);
-  }
-  return out;
 }
 
 const join = (cwd: string, path: string) => {

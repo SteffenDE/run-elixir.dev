@@ -14,13 +14,18 @@ import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
 import { ENV, prepare, programs } from '../setup';
 import { vfs } from '../vfs';
+import { words } from '../sh';
 import type { NifSource } from '../programs';
 import type { FilesChannel } from '../host/files';
 import { Channel, onPage } from './channel';
 import { Process } from '../wasi/process';
-import { backendNif, siteNif } from './nif';
+import { backendNif, get, siteNif } from './nif';
+import { TOOLS, coreutils, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
+
+// What the shell does itself, coreutils.wasm or not.
+const SHELL_BUILTINS = new Set(['help', 'pwd', 'echo', 'clear', 'cd']);
 
 // What the page starts a node with (host/node.ts Node.start).
 interface Start {
@@ -43,27 +48,6 @@ interface Start {
 const SHARED = ['/work', '/tmp'];
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
-
-// Words, with '' and "" quoting.
-function words(line: string): string[] {
-  const out: string[] = [];
-  let word: string | null = null;
-  let quote: string | null = null;
-  for (const c of line) {
-    if (quote) {
-      if (c === quote) quote = null;
-      else word! += c;
-    } else if (c === '"' || c === "'") {
-      quote = c;
-      word ??= '';
-    } else if (/\s/.test(c)) {
-      if (word !== null) out.push(word);
-      word = null;
-    } else word = (word ?? '') + c;
-  }
-  if (word !== null) out.push(word);
-  return out;
-}
 
 function join(cwd: string, path: string): string {
   const parts = (path.startsWith('/') ? path : `${cwd}/${path}`).split('/');
@@ -229,8 +213,8 @@ function command(
 }
 
 const HELP = `Commands: iex, elixir, mix, erl (each runs OTP), git (clone,
-pull), and cd, pwd, ls, cat, mkdir [-p], rm [-r], echo, clear, help.
-Ctrl+C stops what is running.
+pull), coreutils' ls, cp, mv, rm, mkdir, cat, head, tail, sort, wc, … and
+cd, pwd, echo, clear, help. Ctrl+C stops what is running.
 `;
 
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
@@ -285,6 +269,18 @@ onmessage = async ({
     // origin, which may have to build it first: docs/backend.md).
     const nif: NifSource = (name, version, report) =>
       siteNif(name, version) ?? backendNif(channel, name, version, report);
+    // coreutils.wasm (coreutils.ts), fetched and compiled once a tool
+    // first runs; null when the site has none.
+    let compiled: WebAssembly.Module | null | undefined;
+    const module = () => {
+      if (compiled === undefined) {
+        const [status, bytes] = get(runtime('coreutils.wasm'));
+        const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
+        compiled = wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null;
+      }
+      return compiled;
+    };
+    const tools: CoreutilsOptions = { module, fetch: fetchFile, shared: sharedFs };
 
     // One node, until it halts or is interrupted.
     // extra: a command line's NAME=value assignments, for it alone.
@@ -317,10 +313,13 @@ onmessage = async ({
           fetch: fetchFile,
           shared: sharedFs,
           network,
-          programs: {
-            ...programs(fs, nif),
-            ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
-          },
+          programs: withCoreutils(
+            {
+              ...programs(fs, nif),
+              ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
+            },
+            tools,
+          ),
           channel,
           memory: sharedMemory(),
           stdout: (bytes) => say('out', bytes),
@@ -420,6 +419,19 @@ onmessage = async ({
         }
         if (pagePrograms.includes(name)) {
           if (runOnPage(name, rest, cwd) === 130) text('^C\n');
+          continue;
+        }
+        // coreutils' tools, on the terminal; the builtins below without
+        // coreutils.wasm.
+        const tool =
+          !SHELL_BUILTINS.has(name) &&
+          TOOLS.has(name) &&
+          module() &&
+          coreutils({ ...tools, terminal: () => channel.size }, name);
+        if (tool) {
+          const process = new Process();
+          tool(process, { args: rest, cwd, env: { ...ENV, ...env, ...assigned }, root });
+          for (const bytes of process.output) say('out', bytes);
           continue;
         }
         switch (name) {
