@@ -8,13 +8,17 @@ socket at /socket (live sessions' relay, docs/collaboration.md), from
 production's unless --api names another backend (http://localhost:4000,
 say).
 
-    python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--api URL]
+    python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
 
 With --domain (for example playground.localhost:8082: browsers resolve
 *.localhost to this machine, and with two labels the apex and its
 projects are one site), /playground.json names it the project domain:
-projects run at ID.DOMAIN (app/src/shared/lib/site.ts), whatever the
-build says.
+projects run at p-ID.DOMAIN (app/src/shared/lib/site.ts), whatever the
+build says. With --usercontent (usercontent.localhost:8082, another
+site), it names the domain whose subdomains run what a project's code
+does (docs/frames.md); its hosts may be framed by the apex's pages from
+another site (Cross-Origin-Resource-Policy: cross-origin) and open no
+window of their own isolated.
 """
 import functools
 import http.server
@@ -157,8 +161,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(405)
 
     def do_GET(self):
-        if DOMAIN is not None and self.path.split("?")[0] == "/playground.json":
-            data = json.dumps({"domain": DOMAIN}).encode()
+        if (DOMAIN is not None or USERCONTENT is not None) and self.path.split("?")[0] == "/playground.json":
+            data = json.dumps({"domain": DOMAIN, "usercontent": USERCONTENT}).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -178,21 +182,31 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.path = "/index.html"
         return super().send_head()
 
+    def usercontent(self):
+        host = (self.headers.get("Host") or "").lower()
+        return USERCONTENT is not None and host.endswith("." + USERCONTENT.lower())
+
     def end_headers(self):
-        self.send_header("Cross-Origin-Opener-Policy", "same-origin")
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-        # A project's origin and the apex frame each other (the same site).
-        self.send_header("Cross-Origin-Resource-Policy", "same-site")
+        if self.usercontent():
+            # The apex's pages frame these from another site.
+            self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
+        else:
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            # A project's origin and the apex frame each other (the same site).
+            self.send_header("Cross-Origin-Resource-Policy", "same-site")
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
 
 
 directory = os.path.join(ROOT, "target", "site")
 args = sys.argv[1:]
+OPTIONS = ("--domain", "--usercontent", "--api")
 DOMAIN = args[args.index("--domain") + 1] if "--domain" in args else None
+USERCONTENT = args[args.index("--usercontent") + 1] if "--usercontent" in args else None
 API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir.dev").rstrip("/")
 args = [arg for i, arg in enumerate(args)
-        if arg not in ("--domain", "--api") and (i == 0 or args[i - 1] not in ("--domain", "--api"))]
+        if arg not in OPTIONS and (i == 0 or args[i - 1] not in OPTIONS)]
 port = int(args[0]) if args else 8080
 print(f"http://localhost:{port}/ serving {directory}, NIF builds and live sessions from {API}")
 http.server.ThreadingHTTPServer(("", port), functools.partial(Handler, directory=directory)).serve_forever()
