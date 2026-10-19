@@ -433,8 +433,11 @@ def page(out, wasm):
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
     # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
+    # And the domain whose subdomains run what a project's code does
+    # (PLAYGROUND_USERCONTENT, another site; docs/frames.md).
+    usercontent = os.environ.get("PLAYGROUND_USERCONTENT") or None
     with open(os.path.join(out, "playground.json"), "w") as f:
-        json.dump({"domain": domain}, f)
+        json.dump({"domain": domain, "usercontent": usercontent}, f)
     # Link previews want an absolute og:image; a site without a domain
     # keeps the path (most fetchers resolve it against the page).
     if domain:

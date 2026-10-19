@@ -14,6 +14,9 @@ import { isId } from './projects';
 interface Site {
   // The project domain (with a port, if any), or null.
   domain: string | null;
+  // The domain whose subdomains run what a project's code does, another
+  // site (playground.json's `usercontent`; docs/frames.md), or null.
+  usercontent: string | null;
   // Which project this origin is (on a project domain), else null.
   project: string | null;
   // A subdomain that is no project's (a reserved name, or a mistyped one).
@@ -25,7 +28,14 @@ interface Site {
   preview: { project: string; port: number } | null;
 }
 
-let site: Site = { domain: null, project: null, stray: false, live: null, preview: null };
+let site: Site = {
+  domain: null,
+  usercontent: null,
+  project: null,
+  stray: false,
+  live: null,
+  preview: null,
+};
 
 // A project's subdomain: p- and its id (p- and a chosen name, later). Every
 // other name under the domain is reserved (www, phoenix, ...).
@@ -50,27 +60,40 @@ function idOf(name: string): string | null {
 
 // Read the site's configuration, once, before anything asks.
 export async function loadSite(): Promise<void> {
-  const config: { domain?: unknown } = await fetch('/playground.json', { cache: 'no-cache' })
+  const config: { domain?: unknown; usercontent?: unknown } = await fetch('/playground.json', {
+    cache: 'no-cache',
+  })
     .then((response) => (response.ok ? response.json() : {}))
     .catch(() => ({}));
   const domain = typeof config.domain === 'string' && config.domain ? config.domain : null;
+  const usercontent =
+    typeof config.usercontent === 'string' && config.usercontent ? config.usercontent : null;
   if (!domain) return;
   const host = location.host;
   if (host === domain) {
     if (window.parent === window && apexOnOneOrigin()) return;
-    site = { domain, project: null, stray: false, live: null, preview: null };
+    site = { domain, usercontent, project: null, stray: false, live: null, preview: null };
   } else if (host.endsWith(`.${domain}`)) {
     const name = host.slice(0, -domain.length - 1);
     const live = name.startsWith(LIVE) ? name.slice(LIVE.length) : null;
     const preview = previewName(name);
     const id = live || preview ? null : idOf(name);
-    site = { domain, project: id, stray: id === null && !live && !preview, live, preview };
+    site = {
+      domain,
+      usercontent,
+      project: id,
+      stray: id === null && !live && !preview,
+      live,
+      preview,
+    };
   }
   // Another name for the site (an address): one origin, as without.
 }
 
 // Projects have origins of their own.
 export const onDomain = () => site.domain !== null;
+// The usercontent domain, if the site has one.
+export const usercontentDomain = () => site.usercontent;
 // This page is a project's own origin: its id.
 export const projectOrigin = () => site.project;
 // This page is on a subdomain that is no project's.
