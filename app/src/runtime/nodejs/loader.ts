@@ -20,9 +20,11 @@ export interface LoaderFs {
   realpathSync(p: string): string;
 }
 
-// One condition set for require and import: ES modules load through
-// require here, so a package's import entry serves both.
-const CONDITIONS = ['node', 'import', 'require', 'module-sync', 'default'];
+// A package's entries for require and for import, as Node picks them. ES
+// modules load through require here, so a require that finds no entry of
+// its own takes the import one (a package with ES modules alone).
+const REQUIRE = ['node', 'require', 'module-sync', 'default'];
+const IMPORT = ['node', 'import', 'module-sync', 'default'];
 const EXTENSIONS = ['.js', '.json', '.cjs', '.mjs', '.ts', '.mts', '.cts'];
 const TYPESCRIPT = new Set(['.ts', '.mts', '.cts', '.tsx']);
 
@@ -144,7 +146,12 @@ export function createLoader(options: {
   };
 
   // A package's exports or imports target for `subpath` ('.', './x', '#x').
-  const resolveMap = (dir: string, map: unknown, subpath: string): string | null | undefined => {
+  const resolveMap = (
+    dir: string,
+    map: unknown,
+    subpath: string,
+    conditions: string[],
+  ): string | null | undefined => {
     if (map === null || map === undefined) return undefined;
     let entries: Record<string, unknown>;
     if (typeof map === 'string' || Array.isArray(map)) entries = { '.': map };
@@ -155,7 +162,8 @@ export function createLoader(options: {
           ? { '.': map }
           : (map as Record<string, unknown>);
     }
-    if (subpath in entries && !subpath.includes('*')) return target(dir, entries[subpath], '');
+    if (subpath in entries && !subpath.includes('*'))
+      return target(dir, entries[subpath], '', conditions);
     let best: string | null = null;
     for (const key of Object.keys(entries)) {
       const star = key.indexOf('*');
@@ -172,7 +180,7 @@ export function createLoader(options: {
     if (best) {
       const star = best.indexOf('*');
       const match = subpath.slice(star, subpath.length - (best.length - star - 1));
-      return target(dir, entries[best], match);
+      return target(dir, entries[best], match, conditions);
     }
     // Folder mappings ("./": "./"), as older packages have them.
     for (const key of Object.keys(entries))
@@ -183,22 +191,22 @@ export function createLoader(options: {
     return null;
   };
 
-  const target = (dir: string, t: unknown, match: string): string | null => {
+  const target = (dir: string, t: unknown, match: string, conditions: string[]): string | null => {
     if (typeof t === 'string') {
       if (!t.startsWith('./')) return t.startsWith('#') ? null : `\0${t.replaceAll('*', match)}`;
       return path.resolve(dir, t.replaceAll('*', match));
     }
     if (Array.isArray(t)) {
       for (const each of t) {
-        const found = target(dir, each, match);
+        const found = target(dir, each, match, conditions);
         if (found) return found;
       }
       return null;
     }
     if (t && typeof t === 'object') {
       for (const [condition, next] of Object.entries(t))
-        if (CONDITIONS.includes(condition)) {
-          const found = target(dir, next, match);
+        if (conditions.includes(condition)) {
+          const found = target(dir, next, match, conditions);
           if (found !== null) return found;
         }
     }
@@ -227,12 +235,19 @@ export function createLoader(options: {
   };
 
   // `request` from a module in `dir`: a builtin's name (node:fs) or a file.
+  // `imported`: by an ES module's import (or import()), not require.
   const resolve = (
     request: string,
     dir: string,
     parent: Module | null,
     paths?: string[],
+    imported = false,
   ): string => {
+    // A package's entry by its map: require's, else import's.
+    const mapped = (pkg: string, map: unknown, subpath: string) =>
+      imported
+        ? resolveMap(pkg, map, subpath, IMPORT)
+        : (resolveMap(pkg, map, subpath, REQUIRE) ?? resolveMap(pkg, map, subpath, IMPORT));
     if (request.startsWith('file://')) request = decodeURIComponent(new URL(request).pathname);
     const bare = request.startsWith('node:') ? request.slice(5) : request;
     if (builtins.includes(bare)) return `node:${bare}`;
@@ -251,8 +266,8 @@ export function createLoader(options: {
     }
     if (request.startsWith('#')) {
       const scope = packageScope(`${dir}/x`);
-      const found = scope && resolveMap(scope[0], scope[1].imports, request);
-      if (found?.startsWith('\0')) return resolve(found.slice(1), dir, parent);
+      const found = scope && mapped(scope[0], scope[1].imports, request);
+      if (found?.startsWith('\0')) return resolve(found.slice(1), dir, parent, undefined, imported);
       if (found && isFile(found)) return real(found);
       throw notFound(request, parent);
     }
@@ -262,7 +277,7 @@ export function createLoader(options: {
     // A package may require itself by its name.
     const self = packageScope(`${dir}/x`);
     if (self && self[1].name === name && self[1].exports) {
-      const found = resolveMap(self[0], self[1].exports, subpath);
+      const found = mapped(self[0], self[1].exports, subpath);
       if (found && isFile(found)) return real(found);
     }
     for (const base of paths ?? nodeModulesPaths(dir)) {
@@ -270,7 +285,7 @@ export function createLoader(options: {
       if (!isDir(pkg)) continue;
       const json = readPackage(pkg);
       if (json?.exports !== undefined) {
-        const found = resolveMap(pkg, json.exports, subpath);
+        const found = mapped(pkg, json.exports, subpath);
         if (found && !found.startsWith('\0')) {
           const file = asFile(found);
           if (file) return real(file);
@@ -339,7 +354,7 @@ export function createLoader(options: {
       filename: file,
       dirname: module.path,
       resolve: (specifier: string) => {
-        const found = resolve(specifier, module.path, module);
+        const found = resolve(specifier, module.path, module, undefined, true);
         return found.startsWith('node:') ? found : `file://${found}`;
       },
     };
@@ -451,7 +466,7 @@ export function createLoader(options: {
     const require = ((request: string) => {
       if (typeof request !== 'string')
         throw new TypeError('The "id" argument must be of type string');
-      return load(resolve(request, dir, module), module, namespace);
+      return load(resolve(request, dir, module, undefined, namespace), module, namespace);
     }) as NodeRequire;
     const resolveFn = ((request: string, opts?: { paths?: string[] }) => {
       const found = opts?.paths
@@ -488,7 +503,7 @@ export function createLoader(options: {
 
   const importFrom = async (specifier: string, parent: Module | null): Promise<unknown> => {
     const dir = parent?.path ?? process().cwd();
-    const file = resolve(String(specifier), dir, parent);
+    const file = resolve(String(specifier), dir, parent, undefined, true);
     const exports = load(file, parent);
     const module = cache[file];
     if (module?.evaluation) await module.evaluation;
