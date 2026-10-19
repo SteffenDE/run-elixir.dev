@@ -11,4 +11,5 @@ if command -v mise >/dev/null 2>&1; then
   PATH="$(dirname "$(mise which erl)"):$(dirname "$(mise which elixir)"):$PATH"
 fi
 python3 -I nif/build.py
+python3 -I coreutils/build.py
 python3 -I runtime/build.py

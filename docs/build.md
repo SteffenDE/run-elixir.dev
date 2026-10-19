@@ -36,6 +36,10 @@ rebar3), and builds the template with the host's Mix in
 - **NIF builds,** optional: `python3 -I nif/build.py` first
   ([nif.md](nif.md)); the site takes what is in
   `target/nif/packages` (also `build.py app`).
+- **coreutils,** optional: `python3 -I coreutils/build.py` first (uutils
+  coreutils for WASI, in Docker, about a minute; cached until its image,
+  version or patches change); the site takes
+  `target/coreutils/coreutils.wasm` (also `build.py app`).
 
 ## What the site is
 
@@ -53,6 +57,7 @@ target/site/
   r/RID/                     the runtime, RID a digest of what is in it:
     beam.mjs, beam.emu.mjs     the emulator's loader and its threads'
     beam.wasm                  the emulator, 4.9 MB
+    coreutils.wasm             ls, cp, rm, … (coreutils/build.py), 7.8 MB (3.0 MB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]

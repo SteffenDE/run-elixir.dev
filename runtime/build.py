@@ -396,6 +396,11 @@ def page(out):
     packages = os.path.join(ROOT, "target", "nif", "packages")
     if os.path.isdir(packages):
         shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
+    # uutils coreutils built to WebAssembly (coreutils/build.py): ls, cp,
+    # rm, … for the shell and the nodes.
+    coreutils = os.path.join(ROOT, "target", "coreutils", "coreutils.wasm")
+    if os.path.exists(coreutils):
+        shutil.copy(coreutils, os.path.join(out, "coreutils.wasm"))
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
     # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
     with open(os.path.join(out, "playground.json"), "w") as f:
@@ -409,7 +414,7 @@ ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "re
               "playground.json", "_playground", "b", "r"}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
-RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif"}
+RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm"}
 
 
 def unversion(out):

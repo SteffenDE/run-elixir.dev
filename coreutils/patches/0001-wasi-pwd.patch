@@ -1,0 +1,16 @@
+diff --git a/src/bin/coreutils.rs b/src/bin/coreutils.rs
+index 4641811..c3ee8ec 100644
+--- a/src/bin/coreutils.rs
++++ b/src/bin/coreutils.rs
+@@ -50,6 +50,11 @@ Currently defined functions:
+ 
+ #[allow(clippy::cognitive_complexity)]
+ fn main() {
++    // WASI has no working directory: the playground passes it as PWD.
++    #[cfg(target_os = "wasi")]
++    if let Some(pwd) = std::env::var_os("PWD") {
++        let _ = std::env::set_current_dir(pwd);
++    }
+     let utils = util_map();
+     let mut args = uucore::args_os();
+ 
