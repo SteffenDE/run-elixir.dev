@@ -247,8 +247,11 @@ export async function save(path: string, text: string): Promise<void> {
   useStore.getState().saved(path, text);
   live.saved?.(path, text);
   void exec.call('saved', [path]);
-  // Phoenix's code reloader compiles on the next request.
-  if (useStore.getState().previewPort !== null) {
+  // Phoenix's code reloader compiles on the next request. A Node.js
+  // process's server (Vite's) watches the files and updates its page
+  // itself.
+  const shown = useStore.getState().previewPort;
+  if (shown !== null && !scriptPorts.has(shown)) {
     if (reloading) clearTimeout(reloading);
     reloading = setTimeout(() => useStore.getState().reloadPreview(), 200);
   }
