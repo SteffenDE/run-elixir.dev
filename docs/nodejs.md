@@ -34,16 +34,18 @@ in `node_modules/.bin`) with it.
 | `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. |
 | `threads.ts` | `worker_threads`: a `Worker` is a nested worker running `nodejs.js` as a thread of the same process, sharing its files channel (one call at a time, by a lock in shared memory); messages as structured clones (shared memories, WebAssembly modules); a thread's output and uncaught error go to its parent. Node's `MessageChannel`: ports with `ref`/`unref` and `on('message')`. |
 | `wasi.ts` | `node:wasi` over the runtime's WASI (`wasi/index.ts`), on the shared files. |
-| `net.ts`, `http.ts` | `net.Server` and `net.Socket` on the page's ports (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks. |
+| `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the page's ports (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too. |
 | `hashes.ts` | `crypto.createHash`, `createHmac` and `hash` (md5, sha1, sha2, ripemd160), synchronous, by `@noble/hashes`. |
 | `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `dns` (the machine's own names), `Buffer` with `base64url`. |
 
 Stacks print as Node's (`at f (file:line:col)`) whatever the engine wrote,
 without the runtime's own frames.
 
-**What is missing** says so when called: a client's connections
-(`net.connect`, `http.request`; `fetch` is the browser's), `https` and
-`tls`, `child_process`, `zlib`, ciphers and keys in `crypto`. There is no
+**What is missing** says so when called: `https` and `tls` (a client's
+HTTPS could go by the page's fetch, as a node's does: `https.ts`), names
+other than the machine's (`ENOTFOUND`; `fetch` is the browser's, and
+reaches the internet, not the project's ports), `child_process`, `zlib`,
+ciphers and keys in `crypto`. There is no
 REPL, and a process reads no standard input: `process.stdin` stays open
 with nothing in it, as a terminal's with nothing typed, and does not hold
 the loop (ending it at once stopped servers that close with their input,
@@ -97,7 +99,7 @@ of a small React app: about 1.9 s in Chromium, 3 s in Firefox and WebKit
 (Vite's build itself some 0.6 s). Rolldown's binding asks for a shared
 memory of 1 GiB (up to 4 GiB), which a phone may not have.
 
-## Servers: ports, and the files' changes
+## Servers and connections: ports, and the files' changes
 
 A process's `listen` asks the page for its port (`{ kind: 'net', op:
 'listen' }`); `playground.ts` takes it unless a node or another process
@@ -109,7 +111,18 @@ worker (`open`, `data`, `end`, `close`), whose `net.Socket` is a stream
 of them. A port a process serves shows in the preview as a node's does;
 a save in the editor does not reload a page a Node.js server shows (it
 updates its page itself, as Vite does). The process's ports go when it
-ends.
+ends. With no server on Phoenix's 4000, the preview shows the server that
+started last (Vite, after the backend it proxies to); on one origin it
+goes to that server's root when it changes.
+
+A connection a process makes (`{ op: 'connect', id, port }`, even ids)
+goes where a node's would (`route` in `playground.ts`): to the page's
+services (Postgres on 5432 by PGlite, Hex, epmd), another process's
+port, or a node's; the page answers `connected` or `refused`
+(`ECONNREFUSED`), and the bytes go as a listener's do. So `pg` queries the
+project's database, processes talk HTTP to each other, Vite's
+`server.proxy` reaches a backend, and a node's `:httpc` a process's
+server.
 
 What files.js reports changed (every 200 ms at most) the page passes on
 to each process (`{ kind: 'changed', paths }`), whose watchers emit
@@ -130,14 +143,18 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 - `vite.spec.ts`: a React app built with `npm run build`; `npm run dev`
   in the preview, an edit saved in the editor updating it in place (no
   reload), and Ctrl+C ending the server.
+- `nodenet.spec.ts`: `pg` against the project's Postgres; `http.get` and
+  a chunked POST between processes; a page Vite serves fetching `/api`
+  through Vite's proxy to a backend; a process's `http.get` to a node's
+  `:gen_tcp` server, and a node's `:httpc` to a process's server.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`.
 
 ## Next
 
-1. A client's connections: `net.connect` and `http.request` to the
-   project's ports (a Vite proxy to Phoenix), through the page as a
-   node's connections go.
+1. `https.request` and `tls` to the internet, by the page's fetch as a
+   node's HTTPS goes (`https.ts`); a pool of kept connections for
+   `http.Agent({ keepAlive })`.
 2. `child_process` through the page's programs (as `npm run` runs `sh`),
    `zlib` (DecompressionStream is asynchronous; synchronous inflate needs
    a library: pako is in the tree already).
