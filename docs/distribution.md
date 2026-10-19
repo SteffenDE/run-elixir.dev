@@ -1,7 +1,7 @@
 ---
 kind: plan
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Distribution
@@ -70,6 +70,13 @@ What it took:
   listens on the port, so a node in one worker reaches another's. A
   stopped node's connections end on the page (`Node.stop`), so its name
   goes and its peers see `nodedown`.
+- **Nodes outside the project:** with Tailscale set up and the project
+  allowed to use the tailnet ([tailscale.md](tailscale.md)), a node
+  started with a long name (`--name pg@127.0.0.1 --cookie …`) connects
+  to a node in the user's tailnet: its host through MagicDNS, its epmd
+  and distribution port through the tailnet (the policy must grant them).
+  `tailscale.spec` calls `erpc` on one (Erlang 28, on the exit
+  node's machine).
 - **One cookie for the project's nodes**: the page's `PLAYGROUND_COOKIE`
   (random per page), given as `-setcookie` to a node whose command line
   names none. `auth` would make `~/.erlang.cookie` and insist on its

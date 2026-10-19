@@ -1,7 +1,7 @@
 ---
 kind: design
 status: plan
-last_updated: 2026-10-16
+last_updated: 2026-10-19
 ---
 
 # git, review, and accounts
@@ -94,8 +94,11 @@ Opening a project runs its author's code: Elixir in the node, and the app's
 JavaScript in the preview.
 
 - **The node** runs in a worker: no DOM, no frames. It reaches out only by
-  `fetch` with `credentials: 'omit'` (`https.ts`, `fetcher.ts`) and by
-  the page programs it may spawn.
+  `fetch` with `credentials: 'omit'` (`https.ts`, `fetcher.ts`), by the
+  page programs it may spawn, and, in a project the user lets use their
+  tailnet, by connections, datagrams and names through the apex's
+  Tailscale device ([tailscale.md](tailscale.md)), never its keys, which
+  stay on the apex.
 - **The preview** iframe is on the IDE's origin, without `sandbox`: its
   JavaScript reaches `window.parent` (the IDE, its terminals, its
   programs), the project's IndexedDB, and the apex's `registry.html`,

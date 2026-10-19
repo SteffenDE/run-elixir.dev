@@ -80,6 +80,13 @@ chunks; the same memory.
   1.6 app's deps (rebar3's included) compile, and its server runs.
 - **HTTPS from a node** by the page's `fetch()`, to sites with CORS (hex.pm's
   API: igniter's version lookups).
+- **UDP** between a node's ports and between a project's nodes (two
+  shells).
+- **Tailscale** (a prototype, [tailscale.md](tailscale.md)): with the
+  user's tailnet and an exit node, a project's HTTPS (its own TLS), TCP,
+  UDP and names reach any host, each project asked first; Erlang
+  distribution to a node in the tailnet; a project's server shared in
+  the tailnet. Tried against Headscale.
 - **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
@@ -200,9 +207,9 @@ chunks; the same memory.
 5. A gate job for the playground tests; a persistent browser context per
    test worker.
 6. Zip export and import of a project ([projects.md](projects.md#plans)).
-7. A TCP relay through the site for the node's other connections
-   (allow-listed hosts, TLS in the node), as an API-only Phoenix app the
-   collaboration relay can grow from.
+7. A TCP relay through the site for the node's other connections, for
+   those without a tailnet (allow-listed hosts, TLS in the node), as an
+   API-only Phoenix app the collaboration relay can grow from.
 8. Live sessions: what is left
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.
@@ -211,6 +218,8 @@ chunks; the same memory.
     over the node's files, programs and network, the scripts on the
     page's own JavaScript engine in a worker; npm packages, and frontends
     other than esbuild.
+11. Tailscale against Tailscale's own control server, and what is left
+    ([tailscale.md](tailscale.md#not-built-yet)).
 
 Shelved: Linux programs through [Blink](https://github.com/jart/blink),
 an x86-64 emulator built for WASI (the `worktree-blink` branch: build,

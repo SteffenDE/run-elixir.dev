@@ -15,7 +15,11 @@ PGlite, Tailwind on the page), empty projects, and a temporary IEx.
   (`serve.py`).
 - `nif/`: an erl_nif for NIF libraries built to WebAssembly, and the
   builds of packages' native code (bcrypt_elixir, lazy_html).
-- `tests/run.sh`: runs the Playwright tests in Docker.
+- `tailscale/`: Tailscale's client built to WebAssembly, the browser's
+  one device in the user's tailnet, through which a project's node may
+  reach any host ([docs/tailscale.md](docs/tailscale.md)).
+- `tests/run.sh`: runs the Playwright tests in Docker;
+  `tests/headscale.sh`, a tailnet for the Tailscale test.
 
 ```sh
 python3 -I nif/build.py            # → target/nif (NIF builds)

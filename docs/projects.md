@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-19
 ---
 
 # Projects
