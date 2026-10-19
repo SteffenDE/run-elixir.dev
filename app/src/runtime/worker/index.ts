@@ -9,7 +9,7 @@
 // run as they would for a node. Ctrl+C (an interrupt frame) stops the
 // node or the program. With `files`, /work and /tmp are files.js's, which
 // every shell (each in its own worker) and the page share.
-import { Dir, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
+import { Dir, File, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
 import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
 import { ENV, prepare, programs } from '../setup';
@@ -20,12 +20,22 @@ import type { FilesChannel } from '../host/files';
 import { Channel, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
+import { brush, type Run } from './brush';
 import { TOOLS, coreutils, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
 // What the shell does itself, coreutils.wasm or not.
 const SHELL_BUILTINS = new Set(['help', 'pwd', 'echo', 'clear', 'cd']);
+
+// A WebAssembly module from the site, compiled; null when the site has none
+// (it answers with its page).
+async function loadModule(url: URL): Promise<WebAssembly.Module | null> {
+  const response = await fetch(url);
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return null;
+  return WebAssembly.compile(bytes);
+}
 
 // What the page starts a node with (host/node.ts Node.start).
 interface Start {
@@ -241,11 +251,13 @@ onmessage = async ({
   try {
     say('status', 'Loading OTP and Elixir…');
     // The emulator (beam.mjs) loads itself as a node starts.
-    const [images, manifest] = await Promise.all([
+    const [images, manifest, brushModule] = await Promise.all([
       Promise.all(
         boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
       ),
       fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
+      // The shell (brush.ts), if the site has it.
+      shell ? loadModule(runtime('brush.wasm')) : null,
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -284,10 +296,12 @@ onmessage = async ({
 
     // One node, until it halts or is interrupted.
     // extra: a command line's NAME=value assignments, for it alone.
+    // stdout: where its output goes, the terminal's by default.
     const run = async (
       argv: string[],
       cwd: string,
       extra: Record<string, string> = {},
+      stdout: (bytes: Uint8Array) => void = (bytes) => say('out', bytes),
     ): Promise<number> => {
       const vars = { ...env, ...extra };
       const network = new Network({
@@ -322,7 +336,7 @@ onmessage = async ({
           ),
           channel,
           memory: sharedMemory(),
-          stdout: (bytes) => say('out', bytes),
+          stdout,
         });
       } finally {
         channel.interrupted = false;
@@ -336,12 +350,18 @@ onmessage = async ({
 
     // A page program (git, tailwind, …) the shell runs, until it exits or
     // Ctrl+C stops it.
-    const runOnPage = (name: string, args: string[], cwd: string): number => {
+    const runOnPage = (
+      name: string,
+      args: string[],
+      cwd: string,
+      vars: Record<string, string> = env,
+      out: (bytes: Uint8Array) => void = (bytes) => say('out', bytes),
+    ): number => {
       const process = new Process();
-      onPage(channel, name)(process, { args, cwd, env: { ...ENV, ...env, PWD: cwd }, root });
+      onPage(channel, name)(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
       for (;;) {
         channel.pump();
-        for (const bytes of process.output.splice(0)) say('out', bytes);
+        for (const bytes of process.output.splice(0)) out(bytes);
         if (process.ended) return process.status ?? 1;
         if (channel.interrupted) {
           channel.interrupted = false;
@@ -369,6 +389,89 @@ onmessage = async ({
     }
     let cwd = fs.stat(start)?.dir ? start : '/work';
     if (!initial.length) text(HELP);
+    if (brushModule) {
+      // What brush runs (brush.ts): a node command as this shell ran it, a
+      // page program, or a coreutils tool.
+      const external: Run = async (program, given, at, vars, io) => {
+        const name = program.split('/').pop()!;
+        const read = (path: string) => fs.read(join(at, path));
+        const head = program.startsWith('/') ? fs.read(program)?.subarray(0, 64) : null;
+        const argv =
+          command(name, given, read) ??
+          (head && /^#!.*\bescript\b/.test(new TextDecoder().decode(head))
+            ? command('escript', [program, ...given], read)
+            : null);
+        if (argv) {
+          const status = await run(argv, at, vars, io.stdout ?? undefined);
+          if (status === 130) text('\n');
+          return status;
+        }
+        if (pagePrograms.includes(name))
+          return runOnPage(name, given, at, vars, io.stdout ?? undefined);
+        if (TOOLS.has(name) && module()) {
+          const tool = coreutils(
+            {
+              ...tools,
+              terminal: io.stdout ? undefined : () => channel.size,
+              stderr: io.stderr ?? undefined,
+            },
+            name,
+          )!;
+          const process = new Process();
+          if (io.input) process.input.push(io.input);
+          tool(process, { args: given, cwd: at, env: vars, root });
+          for (const bytes of process.output) (io.stdout ?? ((b) => say('out', b)))(bytes);
+          return process.status ?? 1;
+        }
+        return null;
+      };
+      // The page's first commands, as if typed.
+      const typed = (more: boolean) => {
+        const first = initial.shift();
+        if (first === undefined) {
+          if (more) text('> ');
+          return channel.line();
+        }
+        text(`${more ? '> ' : ''}${first}\n`);
+        return first;
+      };
+      // A line ending in \ goes on in the next, which brush's line reader
+      // (without readline) does not do itself.
+      const line = () => {
+        let whole = typed(false);
+        while (whole !== null && whole.endsWith('\\')) {
+          const more = typed(true);
+          whole = more === null ? null : `${whole.slice(0, -1)} ${more}`;
+        }
+        return whole;
+      };
+      // Its prompt, as the playground's shell had it (the directory, ~ for
+      // $HOME), and its directory: WASI has none, so brush starts in / (and
+      // sets PWD so). brush takes HOME from the users it knows, none here.
+      const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+      const rc = [
+        `export HOME=${quote(ENV.HOME)}`,
+        "__home='~'",
+        // oxlint-disable-next-line no-template-curly-in-string -- the shell's ${…}.
+        "PS1='\\[\\e[1;35m\\]${PWD/#$HOME/$__home}\\[\\e[0m\\] $ '",
+        `cd ${quote(cwd)}`,
+      ];
+      root.put('etc/brushrc', new File(new TextEncoder().encode(rc.join('\n') + '\n')));
+      for (;;) {
+        await brush({
+          module: brushModule,
+          args: ['--rcfile', '/etc/brushrc', '--noprofile', '-i'],
+          env: { ...ENV, ...env, PWD: cwd },
+          root,
+          fetch: fetchFile,
+          shared: sharedFs,
+          line,
+          out: (bytes) => say('out', bytes),
+          run: external,
+        });
+        text('The shell exited; a new one starts.\n');
+      }
+    }
     for (;;) {
       text(`\x1b[1;35m${cwd.replace(/^\/work/, '~')}\x1b[0m $ `);
       // The page's first commands run as if typed.

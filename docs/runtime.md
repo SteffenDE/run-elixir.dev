@@ -31,6 +31,7 @@ JavaScript.
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
 | `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`), and a node's `sh -c` around them. |
+| `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
 | `sh.ts` | worker, page | Command lines split into words and `&&`-joined commands. |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
@@ -163,6 +164,38 @@ below `/work` a second after they change, in one transaction
 ([projects.md](projects.md#what-is-kept)). A write that fails is reported
 to the page as `{ kind: 'warning', message }`.
 
+## The shell (`worker/brush.ts`)
+
+The terminal's shell is [brush](https://github.com/reubeno/brush) 0.4, a
+bash-compatible shell in Rust, built for `wasm32-wasip1` (2.7 MB, 1.0 MB
+gzipped; `opt-level = "z"`, then `wasm-opt -Oz`). The worker loads it with
+the boot images and runs it on the terminal (`--rcfile /etc/brushrc -i`: the
+prompt, and the directory to start in, since WASI has none). Without
+`brush.wasm` in the site, the old shell in `worker/index.ts` answers.
+
+brush on WASI has no processes, pipes or `dup`. Our patch to brush-core
+(`sys/wasm/playground.rs`) gives it:
+
+- **External commands through the host:** one import,
+  `playground.spawn(request, input, flags)`, runs a command to its end and
+  answers its status (or -1: not found). The host makes it suspending with
+  JSPI (`WebAssembly.Suspending`; Chromium, Firefox and WebKit have it), so
+  a node runs in the worker as the old shell ran it, terminal and all,
+  while brush waits. `playground.output` answers what it wrote that was
+  not the terminal's. `run` in `worker/index.ts`: node commands (and
+  escripts), the page's programs, coreutils' tools.
+- **Pipes and files in memory:** a pipe holds what is written until it is
+  read; files are shared between their clones.
+- **One command after another:** a pipeline's commands run in order, each
+  to its end, with all that the one before wrote; built-ins in a pipeline
+  run inline (no threads), and `$(…)` runs, then its output is read. So a
+  command that never ends feeding a pipe (`yes | head`) does not end.
+
+Its line reader is brush's plain one (no readline: crossterm needs a
+terminal WASI does not have), so the page still edits the line and the
+worker joins a line ending in `\`; a construct over several lines (`for`
+… `done` typed on separate lines) is not read as one yet.
+
 ## coreutils (`coreutils.ts`)
 
 uutils coreutils 0.12.0, Rust's rewrite of GNU's (Ubuntu's since 25.10),
@@ -188,8 +221,9 @@ that waits for more (`tail -f`, an interactive `sort`).
   node command (`mix`, …) through the page's `sh` on its own, in order while
   they succeed. A line without a tool is the page's `sh`'s alone.
 
-Not yet: pipes, redirections, `;` and `||`, globs and `$VAR` in either
-shell; `os:cmd`'s `sh -s` (its line on standard input); `grep`, `sed`,
+Not yet: pipes, redirections, `;` and `||`, globs and `$VAR` in a node's
+`sh -c` (the terminal's shell is brush, above); `os:cmd`'s `sh -s` (its
+line on standard input); `grep`, `sed`,
 `find` and `awk`, which are not coreutils; file modes and owners, which
 WASI does not have (`chmod`, `ls -l`'s columns).
 

@@ -401,6 +401,10 @@ def page(out):
     coreutils = os.path.join(ROOT, "target", "coreutils", "coreutils.wasm")
     if os.path.exists(coreutils):
         shutil.copy(coreutils, os.path.join(out, "coreutils.wasm"))
+    # brush built to WebAssembly (brush/build.py): the terminal's shell.
+    shell = os.path.join(ROOT, "target", "brush", "brush.wasm")
+    if os.path.exists(shell):
+        shutil.copy(shell, os.path.join(out, "brush.wasm"))
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
     # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
     with open(os.path.join(out, "playground.json"), "w") as f:
@@ -414,7 +418,7 @@ ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "re
               "playground.json", "_playground", "b", "r"}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
-RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm"}
+RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm"}
 
 
 def unversion(out):

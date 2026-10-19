@@ -28,6 +28,8 @@ export interface CoreutilsOptions {
   shared: Shared | null;
   // The standard streams are a terminal's (the shell's), this wide.
   terminal?: () => number[] | null;
+  // Where its errors go, if not with its output.
+  stderr?: (bytes: Uint8Array) => void;
 }
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
@@ -56,7 +58,7 @@ export function coreutils(options: CoreutilsOptions, name: string): Program | un
         return chunk.subarray(0, max);
       },
       stdout: (bytes) => process.write(bytes.slice()),
-      stderr: (bytes) => process.write(bytes.slice()),
+      stderr: (bytes) => (options.stderr ?? process.write.bind(process))(bytes.slice()),
       sleep,
       tty: Boolean(size),
       fetch: options.fetch,

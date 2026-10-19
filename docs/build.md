@@ -36,6 +36,10 @@ rebar3), and builds the template with the host's Mix in
 - **NIF builds,** optional: `python3 -I nif/build.py` first
   ([nif.md](nif.md)); the site takes what is in
   `target/nif/packages` (also `build.py app`).
+- **brush,** optional, built by hand for now: brush 0.4.0 with our patch,
+  `CARGO_PROFILE_RELEASE_OPT_LEVEL=z cargo build --release --target
+  wasm32-wasip1 -p brush-shell --no-default-features --features minimal`,
+  then `wasm-opt -Oz` into `target/brush/brush.wasm`.
 - **coreutils,** optional: `python3 -I coreutils/build.py` first (uutils
   coreutils for WASI, in Docker, about a minute; cached until its image,
   version or patches change); the site takes
@@ -57,6 +61,7 @@ target/site/
   r/RID/                     the runtime, RID a digest of what is in it:
     beam.mjs, beam.emu.mjs     the emulator's loader and its threads'
     beam.wasm                  the emulator, 4.9 MB
+    brush.wasm                 the terminal's shell (brush, patched), 2.7 MB (1.0 MB gzipped)
     coreutils.wasm             ls, cp, rm, … (coreutils/build.py), 7.8 MB (3.0 MB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
