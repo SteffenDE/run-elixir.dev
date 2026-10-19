@@ -11,7 +11,16 @@
 // is a node's SIGINT (erts' break menu) and stops a program; a terminate
 // frame stops either at once. With `files`, /work and /tmp are files.js's, which
 // every shell (each in its own worker) and the page share.
-import { Dir, File, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
+import {
+  Dir,
+  File,
+  untar,
+  untarInto,
+  mount,
+  bundled,
+  fetchBundle,
+  type Manifest,
+} from '../wasi/fs';
 import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
 import { ENV, prepare, programs } from '../setup';
@@ -52,6 +61,11 @@ interface Start {
   pagePrograms?: string[];
   cwd?: string;
   boots?: string[];
+  // What the page has of them already (host/node.ts Node.start): the boot
+  // images gunzipped, the manifest, brush.wasm compiled.
+  images?: ArrayBuffer[];
+  manifest?: Manifest;
+  brush?: WebAssembly.Module;
 }
 
 const SHARED = ['/work', '/tmp', '/home'];
@@ -229,6 +243,9 @@ onmessage = async ({
     pagePrograms = [],
     cwd: start = '/work',
     boots = ['boot'],
+    images: tars,
+    manifest: listed,
+    brush: shellModule,
   },
 }: MessageEvent<Start>) => {
   setRuntime(runtimeUrl);
@@ -236,12 +253,13 @@ onmessage = async ({
     say('status', 'Loading OTP and Elixir…');
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest, brushModule] = await Promise.all([
-      Promise.all(
-        boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
-      ),
-      fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
+      tars ??
+        Promise.all(
+          boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
+        ),
+      listed ?? fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
       // The shell (brush.ts), if the site has it.
-      shell ? loadModule(runtime('brush.wasm')) : null,
+      shellModule ?? (shell ? loadModule(runtime('brush.wasm')) : null),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -251,7 +269,10 @@ onmessage = async ({
       manifest.filter(([path]) => local(path)),
       root,
     );
-    for (const image of images) await untar(new Uint8Array(image), root, local);
+    for (const image of images) {
+      if (tars) untarInto(new Uint8Array(image), root, local);
+      else await untar(new Uint8Array(image), root, local);
+    }
     prepare(root);
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }

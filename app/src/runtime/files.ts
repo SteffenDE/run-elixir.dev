@@ -17,7 +17,8 @@ import {
   File,
   Symlink,
   lookup,
-  untar,
+  gunzip,
+  untarInto,
   mount,
   load,
   bundled,
@@ -637,7 +638,10 @@ onmessage = async ({ data }) => {
         manifest.filter(([path]: [string]) => shared(path)),
         root,
       );
-      for (const image of images) await untar(new Uint8Array(image), root, shared);
+      // Gunzipped once: the nodes' workers start from these tars (the
+      // page's Node.start), not from the site's gzipped images.
+      const tars = await Promise.all(images.map((image) => gunzip(new Uint8Array(image))));
+      for (const tar of tars) untarInto(tar, root, shared);
       for (const prefix of template) {
         const found = resolve(prefix);
         if (found.node instanceof Dir)
@@ -662,7 +666,13 @@ onmessage = async ({ data }) => {
       }
       fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, runtime)));
       doorbell = new Int32Array(data.doorbell);
-      postMessage({ kind: 'ready' });
+      // The boot images, gunzipped, and the manifest, for the page to start
+      // nodes with; files.js keeps no tar (its files are copies).
+      const boot = Object.fromEntries(boots.map((name, i) => [name, tars[i].buffer]));
+      postMessage(
+        { kind: 'ready', boot: { images: boot, manifest } },
+        tars.map((tar) => tar.buffer),
+      );
       loop ??= serve();
     } catch (error) {
       postMessage({ kind: 'failed', message: (error as Error).stack || String(error) });

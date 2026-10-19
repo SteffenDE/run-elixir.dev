@@ -1,4 +1,5 @@
 // The page's side of the shared files (files.ts, a worker of its own).
+import type { Manifest } from '../wasi/fs';
 import { worker } from './worker';
 
 const CHANNEL = 1 << 20;
@@ -65,6 +66,13 @@ export interface FilesChannel {
   channel: SharedArrayBuffer;
 }
 
+// What a node's worker starts from (Node.start): the boot images files.js
+// gunzipped, by name, as plain tars, and the site's manifest.
+export interface Boot {
+  images: Record<string, ArrayBuffer>;
+  manifest: Manifest;
+}
+
 // What files.js answers a request with: its fields, by request.
 // oxlint-disable-next-line typescript/no-explicit-any -- each op's own.
 type Reply = Record<string, any>;
@@ -77,6 +85,8 @@ export class Files implements FileSystem {
   next: number;
   worker: Worker;
   ready: Promise<void>;
+  // Once ready.
+  boot: Boot | null = null;
 
   // base: where files.js is; runtime: the site's files (build.ts
   // RUNTIME), by default base. boots, template, store: what files.js
@@ -97,8 +107,10 @@ export class Files implements FileSystem {
     this.worker = worker('files.js', base);
     this.ready = new Promise((resolve, reject) => {
       this.worker.onmessage = ({ data }) => {
-        if (data.kind === 'ready') resolve();
-        else if (data.kind === 'failed') reject(new Error(data.message));
+        if (data.kind === 'ready') {
+          this.boot = data.boot;
+          resolve();
+        } else if (data.kind === 'failed') reject(new Error(data.message));
         else if (data.kind === 'changed') onchange(data.paths);
         else if (data.kind === 'warning') onwarning(data.message);
         else if (data.kind === 'reply') {

@@ -296,8 +296,21 @@ export async function untar(
   root: Dir,
   keep: (name: string) => boolean = () => true,
 ): Promise<number> {
+  return untarInto(await gunzip(gzipped), root, keep);
+}
+
+export async function gunzip(gzipped: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
   const stream = new Blob([gzipped]).stream().pipeThrough(new DecompressionStream('gzip'));
-  const tar = new Uint8Array(await new Response(stream).arrayBuffer());
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+// A tar (gunzipped) into `root`, as untar; its files are copies of their
+// bytes, so the tar is not kept.
+export function untarInto(
+  tar: Uint8Array,
+  root: Dir,
+  keep: (name: string) => boolean = () => true,
+): number {
   let count = 0;
   for (const { name, type, body, mtime } of entries(tar)) {
     if (!keep(name)) continue;

@@ -127,6 +127,26 @@ type NodeMessage =
   | SpawnMessage
   | { kind: 'kill'; id: number };
 
+// A site's brush.wasm, compiled once on the page for every shell's worker
+// (a compiled module posts to a worker as it is); null when the site has
+// none.
+const brushes = new Map<string, Promise<WebAssembly.Module | null>>();
+function brushModule(runtime: string): Promise<WebAssembly.Module | null> {
+  let module = brushes.get(runtime);
+  if (!module) {
+    module = fetch(new URL('brush.wasm', runtime))
+      .then(async (response) => {
+        const bytes = new Uint8Array(await response.arrayBuffer());
+        return response.ok && bytes[0] === 0 && bytes[1] === 0x61
+          ? WebAssembly.compile(bytes)
+          : null;
+      })
+      .catch(() => null);
+    brushes.set(runtime, module);
+  }
+  return module;
+}
+
 export class Node {
   https: Https | null;
   files: Files | null;
@@ -255,20 +275,41 @@ export class Node {
     boots?: string[];
   } = {}): void {
     this.channel = this.files?.connect() ?? null;
-    this.worker.postMessage({
-      shared: this.shared,
-      runtime: this.runtime,
-      files: this.channel,
-      shell,
-      args,
-      command,
-      env,
-      initial,
-      cwd,
-      boots,
-      ports: Object.keys(this.serve).map(Number),
-      https: Boolean(this.https),
-      pagePrograms: Object.keys(this.programs),
+    // What the worker starts from, gunzipped and compiled once on the page
+    // (files.js's boot images, the manifest, brush.wasm): posting copies
+    // the tars at memory speed, in place of each worker fetching and
+    // gunzipping them. Without, the worker fetches them itself.
+    const names = boots ?? ['boot'];
+    const files = this.files;
+    const brush = shell ? brushModule(this.runtime) : null;
+    void Promise.all([
+      files
+        ? files.ready.then(
+            () => files.boot,
+            () => null,
+          )
+        : null,
+      brush,
+    ]).then(([boot, module]) => {
+      const images = boot && names.every((name) => boot.images[name]);
+      this.worker.postMessage({
+        shared: this.shared,
+        runtime: this.runtime,
+        files: this.channel,
+        shell,
+        args,
+        command,
+        env,
+        initial,
+        cwd,
+        boots,
+        images: images ? names.map((name) => boot.images[name]) : undefined,
+        manifest: images ? boot.manifest : undefined,
+        brush: module ?? undefined,
+        ports: Object.keys(this.serve).map(Number),
+        https: Boolean(this.https),
+        pagePrograms: Object.keys(this.programs),
+      });
     });
   }
 
