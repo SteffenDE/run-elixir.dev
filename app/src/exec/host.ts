@@ -24,7 +24,7 @@ import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
-import { nodeProgram } from '@/project/lib/programs/nodejs';
+import { nodeProgram, type Listener, type Ports } from '@/project/lib/programs/nodejs';
 import { npmProgram, npxProgram, type Program } from '@/project/lib/programs/npm';
 import {
   commandProgram,
@@ -65,7 +65,13 @@ export type ExecEvents = {
   output: { id: number; bytes: Uint8Array };
   status: { id: number; text: string };
   terminal: { id: number; raw: boolean };
-  serving: { ports: number[]; port: number | null; byShell: Record<number, number[]> };
+  // scripts: the ports Node.js processes serve on (programs/nodejs.ts).
+  serving: {
+    ports: number[];
+    port: number | null;
+    byShell: Record<number, number[]>;
+    scripts: number[];
+  };
   changed: string[];
   warning: string;
   nif: NifBuild;
@@ -129,11 +135,39 @@ function apex(service: 'postgres' | 'hex') {
   };
 }
 
+// The ports Node.js processes listen on (programs/nodejs.ts): what
+// listens, and whether a server named the port (not 0, a free one).
+const scripts = new Map<number, { listener: Listener; serving: boolean }>();
+let ephemeralPort = 49152 + Math.floor(Math.random() * 16384);
+const scriptPorts: Ports = {
+  listen(port, listener) {
+    const taken = (p: number) => scripts.has(p) || [...nodes].some((node) => node.listening.has(p));
+    const serving = port !== 0;
+    if (!serving)
+      do {
+        port = ephemeralPort;
+        ephemeralPort = ephemeralPort >= 65535 ? 49152 : ephemeralPort + 1;
+      } while (taken(port));
+    else if (taken(port)) return null;
+    scripts.set(port, { listener, serving });
+    updatePeers();
+    updateListening();
+    return port;
+  },
+  unlisten(port, listener) {
+    if (scripts.get(port)?.listener !== listener) return;
+    scripts.delete(port);
+    updatePeers();
+    updateListening();
+  },
+};
+
 function updatePeers(): void {
   for (const node of nodes)
-    node.peers(
-      [...nodes].filter((other) => other !== node).flatMap((other) => [...other.listening]),
-    );
+    node.peers([
+      ...[...nodes].filter((other) => other !== node).flatMap((other) => [...other.listening]),
+      ...scripts.keys(),
+    ]);
 }
 
 // A datagram a node sent to a UDP port of its own address's that another
@@ -145,10 +179,12 @@ function routeUdpPeer({ from, port, bytes }: Datagram, sender: Node): boolean {
   return !!target;
 }
 
-// A connection a node opened to another node's port: joined to one opened
-// there.
+// A connection a node opened to another node's port, or a Node.js
+// process's: joined to one opened there.
 function routePeer(connection: Connection, port: number): boolean {
-  const target = [...nodes].find((node) => node !== connection.node && node.listening.has(port));
+  const target =
+    [...nodes].find((node) => node !== connection.node && node.listening.has(port)) ??
+    scripts.get(port)?.listener;
   if (!target) return false;
   const other = target.connect(port);
   let closed = false;
@@ -195,7 +231,7 @@ function nodeServices() {
       tailwind,
       esbuild,
       git: gitProgram,
-      node: nodeProgram(start!.build, () => files),
+      node: nodeProgram(start!.build, () => files, scriptPorts),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
       sh: shProgram(startNode),
@@ -254,8 +290,14 @@ function nodeOn(port: number): Node | null {
   return shells.values().next().value ?? null;
 }
 
-// The ports the shells' nodes serve on, and the one the preview shows.
-// Ephemeral listeners (Mix's compile lock) are no server.
+// What answers a port: a Node.js process listening there, or a node.
+function listenerOn(port: number): Listener {
+  return scripts.get(port)?.listener ?? nodeOn(port)!;
+}
+
+// The ports the shells' nodes and the Node.js processes serve on, and the
+// one the preview shows. Ephemeral listeners (Mix's compile lock) are no
+// server.
 function updateListening(): void {
   const ports = new Set<number>();
   const byShell: Record<number, number[]> = {};
@@ -263,12 +305,14 @@ function updateListening(): void {
     byShell[id] = [...node.serving];
     for (const port of node.serving) ports.add(port);
   }
+  const served = [...scripts].filter(([, { serving }]) => serving).map(([port]) => port);
+  for (const port of served) ports.add(port);
   const sorted = [...ports].sort((a, b) => a - b);
   const port = !ports.size
     ? null
     : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : sorted[0]));
   if (bridge && port !== null) bridge.port = port;
-  rpc.emit('serving', { ports: sorted, port, byShell });
+  rpc.emit('serving', { ports: sorted, port, byShell, scripts: served });
 }
 
 // Where the preview shows a port, for the app (PLAYGROUND_PREVIEW_ORIGIN),
@@ -334,7 +378,7 @@ const handlers = {
     });
     await files.ready;
     bridge = new Bridge(
-      { connect: (port: number) => nodeOn(port)!.connect(port) },
+      { connect: (port: number) => listenerOn(port).connect(port) },
       PREVIEW_PORT,
       previewOrigins(options.key),
       options.ide,
@@ -417,9 +461,14 @@ const handlers = {
     updateListening();
   },
 
-  // A connection to a server a node runs on `port` (a live session's
-  // guest's preview), carried on the port the IDE gave.
+  // A connection to a server a node or a Node.js process runs on `port` (a
+  // live session's guest's preview), carried on the port the IDE gave.
   connectServer(port: number, through: MessagePort) {
+    const script = scripts.get(port);
+    if (script?.serving) {
+      carry(script.listener.connect(port), through);
+      return true;
+    }
     for (const node of shells.values())
       if (node.serving.has(port)) {
         carry(node.connect(port), through);
@@ -459,6 +508,7 @@ const handlers = {
     await files?.flush().catch(() => {});
     for (const node of nodes) node.stop();
     nodes.clear();
+    scripts.clear();
     shells.clear();
     files?.worker.terminate();
     files = null;

@@ -24,7 +24,7 @@ import { PROTOCOL, Peer, type Message, type Received } from './peer';
 import { startFollowing } from './follow';
 import { setActiveSender, setCursorSender } from './presence';
 import type { SearchQuery } from '@/runtime/host/files';
-import type { Connection } from '@/runtime/host/node';
+import type { Link } from '@/runtime/host/node';
 import type { Joined } from './relay';
 import {
   REMOTE,
@@ -68,7 +68,7 @@ let stops: (() => void)[] = [];
 let joins = 0;
 // Guests' connections to the app's servers (their previews), by guest and
 // the guest's number for it.
-const tunnels = new Map<string, Connection>();
+const tunnels = new Map<string, Link>();
 
 export const isHosting = () => peer !== null;
 

@@ -5,6 +5,8 @@ import { Buffer } from './buffer';
 import { EventEmitter, once } from 'events';
 import * as stream from 'readable-stream';
 import { StringDecoder } from 'string_decoder';
+import { createHttp, METHODS, STATUS_CODES } from './http';
+import type { Net } from './net';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
 
 type Factories = Record<string, () => unknown>;
@@ -87,6 +89,8 @@ export function createBuiltins(deps: {
   // node:wasi (wasi.ts) and worker_threads (threads.ts).
   wasi: () => Record<string, unknown>;
   threads: () => Record<string, unknown>;
+  // node:net on the page's TCP (net.ts); a worker thread has none.
+  net: Net | null;
 }) {
   const { process, timers } = deps;
   const warn = (text: string) => (process.stderr as { write(t: string): void }).write(text);
@@ -270,12 +274,14 @@ export function createBuiltins(deps: {
     fs: () => deps.fs,
     'fs/promises': () => deps.fsPromises,
     http: () =>
-      missing('http', ['createServer', 'request', 'get'], {
-        STATUS_CODES,
-        METHODS,
-        Agent,
-        globalAgent: {},
-      }),
+      deps.net
+        ? createHttp(deps.net)
+        : missing('http', ['createServer', 'request', 'get'], {
+            STATUS_CODES,
+            METHODS,
+            Agent,
+            globalAgent: {},
+          }),
     http2: () => missing('http2', ['createServer', 'connect']),
     https: () =>
       missing('https', ['createServer', 'request', 'get'], { Agent, globalAgent: new Agent() }),
@@ -291,6 +297,7 @@ export function createBuiltins(deps: {
     }),
     module: () => deps.module(),
     net: () =>
+      deps.net?.module ??
       missing('net', ['createServer', 'createConnection', 'connect'], {
         isIP: (s: string) => (/^\d+\.\d+\.\d+\.\d+$/.test(s) ? 4 : s.includes(':') ? 6 : 0),
         isIPv4: (s: string) => /^\d+\.\d+\.\d+\.\d+$/.test(s),
@@ -718,21 +725,6 @@ function createCrypto() {
 class Agent {
   constructor(public options: Record<string, unknown> = {}) {}
 }
-
-const STATUS_CODES: Record<number, string> = {
-  200: 'OK',
-  201: 'Created',
-  204: 'No Content',
-  301: 'Moved Permanently',
-  302: 'Found',
-  304: 'Not Modified',
-  400: 'Bad Request',
-  401: 'Unauthorized',
-  403: 'Forbidden',
-  404: 'Not Found',
-  500: 'Internal Server Error',
-};
-const METHODS = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'];
 
 class AssertionError extends Error {
   code = 'ERR_ASSERTION';

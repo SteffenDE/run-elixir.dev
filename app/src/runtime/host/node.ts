@@ -112,6 +112,10 @@ export class Connection {
   }
 }
 
+// A connection to what listens on a port: a node's (Connection), or a
+// Node.js process's (programs/nodejs.ts).
+export type Link = Pick<Connection, 'ondata' | 'onend' | 'onclose' | 'write' | 'end' | 'close'>;
+
 // make waiting for the backend to build a package's NIF library (onnif).
 export interface NifBuild {
   name: string;

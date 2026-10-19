@@ -14,6 +14,7 @@ import { Buffer } from './buffer';
 import { createBuiltins, BUILTINS } from './builtins';
 import { createFs } from './fs';
 import { createLoader } from './loader';
+import { createNet, type Net, type NetMessage } from './net';
 import { createPath } from './path';
 import { createProcess, VERSION } from './process';
 import { createThreads, nodeMessageChannel, type ThreadStart } from './threads';
@@ -45,7 +46,7 @@ const USAGE = `Usage: node [options] [ script.js | -e "script" ] [arguments]
   -h, --help            print this help
 
 The playground's Node runs scripts on the browser's JavaScript engine; it
-has no REPL, network or child processes yet.
+has no REPL or child processes yet.
 `;
 
 const encoder = new TextEncoder();
@@ -123,8 +124,10 @@ function parse(args: string[]) {
   return out;
 }
 
-// The thread's worker_threads, for its parent's messages.
+// The thread's worker_threads, for its parent's messages; the process's
+// net, for the page's.
 let threads: ReturnType<typeof createThreads> | null = null;
+let net: Net | null = null;
 
 async function run(start: Start) {
   const thread = start.thread ?? null;
@@ -197,6 +200,7 @@ async function run(start: Start) {
   });
   const ownThreads = threads;
   const wasi = createWasi(call, (fd, bytes) => io.write(fd, bytes), proc.end);
+  net = thread ? null : createNet(post, hold);
 
   let loader: ReturnType<typeof createLoader>;
   const builtin = createBuiltins({
@@ -211,6 +215,7 @@ async function run(start: Start) {
     tty: start.tty ?? false,
     wasi: () => wasi,
     threads: () => ownThreads,
+    net,
   });
   loader = createLoader({
     fs: files.module as never,
@@ -279,8 +284,12 @@ async function run(start: Start) {
   }
 }
 
-addEventListener('message', (event: MessageEvent<Start | { kind: 'message'; data: unknown }>) => {
-  const data = event.data;
-  if (data?.kind === 'start') void run(data);
-  else if (data?.kind === 'message') threads?.deliver(data.data);
-});
+addEventListener(
+  'message',
+  (event: MessageEvent<Start | { kind: 'message'; data: unknown } | NetMessage>) => {
+    const data = event.data;
+    if (data?.kind === 'start') void run(data);
+    else if (data?.kind === 'message') threads?.deliver(data.data);
+    else if (data?.kind === 'net') net?.receive(data);
+  },
+);
