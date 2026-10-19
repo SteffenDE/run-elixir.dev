@@ -114,11 +114,11 @@ the emulator's.
   `gen_udp_socket` over our `prim_socket` NIF (`socket/`, below) over the
   playground's `Network`. A project's nodes reach each other's ports
   through the page (Mix's compile notices go so); other hosts' through
-  the page too, which dials them. HTTPS: `ssl:connect` connects to a
-  gateway port,
+  the page too, which dials them (through the user's tailnet,
+  `docs/tailscale.md`). HTTPS: `ssl:connect` connects to a gateway port,
   names the host in its first line, and the page's says how it goes on:
   `fetch` (the page answers its plain HTTP with fetch), `tcp` (a TCP
-  connection the page made, which `ssl` upgrades with the options it
+  connection through the tailnet, which `ssl` upgrades with the options it
   was given) or `error REASON` (patch 0020).
 - **Ports.** `host/wasm_spawn.c` runs the playground's programs
   (`spawn.js`, the host's `Module.beamSpawn` over the playground's

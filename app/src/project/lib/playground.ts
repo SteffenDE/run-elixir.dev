@@ -24,6 +24,14 @@ import { postgres } from '@/runtime/postgres';
 import { REPORT, lineDiscipline } from '@/runtime/terminal';
 import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Rpc } from '@/shared/lib/rpc';
+import {
+  connectTailscale,
+  IEX,
+  setTailnetProject,
+  tailnetDial,
+  tailnetResolve,
+  tailscaleBlocked,
+} from '@/tailscale/client';
 import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled } from '@/project/lib/programs/esbuild';
@@ -363,7 +371,7 @@ export function closeTerminal(id: number): void {
 
 // What the frame tells: output, the first shell's status, raw mode, the
 // ports served, the files the nodes changed, NIF builds, new CSS and
-// bundles.
+// bundles, and what a node could not reach without Tailscale.
 function listen(rpc: Rpc): void {
   const on = <K extends keyof ExecEvents>(event: K, listener: (data: ExecEvents[K]) => void) =>
     rpc.on(event, listener);
@@ -399,7 +407,10 @@ function listen(rpc: Rpc): void {
   on('bundled', () => {
     for (const listener of bundled) listener();
   });
-  rpc.handle({ connect });
+  on('blocked', tailscaleBlocked);
+  // The apex's services, and the tailnet as this page lets the project
+  // use it (docs/tailscale.md).
+  rpc.handle({ connect, tailnetDial, tailnetResolve });
 }
 
 // A popped-out preview hears what the docked one would: reloads and new
@@ -428,6 +439,7 @@ export async function shutdown(): Promise<void> {
   await exec?.call('shutdown').catch(() => {});
   exec?.close();
   exec = null;
+  setTailnetProject(null);
   frame?.remove();
   frame = null;
   forgetRelays();
@@ -523,6 +535,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     );
     return;
   }
+  // The tailnet, for this project as the user lets it (docs/tailscale.md).
+  setTailnetProject(id ?? IEX);
+  connectTailscale();
   store.setStatus('Starting the files…');
   try {
     exec = await startFrame(origin);

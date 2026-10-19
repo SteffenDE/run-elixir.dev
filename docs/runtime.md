@@ -38,8 +38,8 @@ JavaScript.
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT). |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
-| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, over which the node does TLS). |
-| `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: no such name, for now). |
+| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's, over which the node does TLS: [tailscale.md](tailscale.md)). |
+| `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: Tailscale's, else no such name). |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
@@ -325,7 +325,8 @@ answered 502 with why. Without `https`, the node has no HTTPS (its `ssl`
 does TLS itself, over sockets that reach no other host).
 `httpsByFetch({ tunnel, onblocked })`: `tunnel(host, port)` may give a
 TCP connection there instead (`tcp`: the node's `ssl` upgrades the
-gateway's socket, with its own options), or fail (`error REASON`);
+gateway's socket, with its own options; the playground's: through the
+user's tailnet, [tailscale.md](tailscale.md)), or fail (`error REASON`);
 `onblocked(url)` hears of a fetch the browser would not make.
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
@@ -340,7 +341,8 @@ page's UDP ports (53: `dns.ts`); `udpPeer(datagram, node)` takes those to
 another node's port of the project's (`node.udpPorts`); `udp: {
 send(datagram, reply), unbound(port) }` takes those to other hosts,
 `reply(address, port, bytes)` sending one back. Without them, other
-hosts are unreachable and their datagrams dropped.
+hosts are unreachable and their datagrams dropped. The playground's go
+through the user's tailnet ([tailscale.md](tailscale.md)).
 `node.datagram(to, address, port, bytes)` sends the node one.
 
 **Page programs.** `programs: { name: (process, { args, cwd, env, fs }) => …

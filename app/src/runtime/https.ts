@@ -11,7 +11,7 @@
 // decompresses: the answer is chunked, without Content-Encoding. A
 // connection carries one request and closes after its answer.
 //
-// Or "tcp" through a tunnel (`tunnel`): a TCP
+// Or "tcp" through a tunnel (Tailscale, docs/tailscale.md): a TCP
 // connection to NAME:PORT, over which the node does TLS itself (its own
 // ssl, with the options it was given), both ways, for as long as it keeps
 // it; or "error REASON" (a POSIX name) when the tunnel did not open.

@@ -1,6 +1,7 @@
 // A DNS server for the node at 127.0.0.53, port 53 (setup.ts's inetrc):
 // each query, over UDP or TCP (two bytes of length before each message),
-// answered by `resolve(query)`, the DNS message as it came. One that throws
+// answered by `resolve(query)`, the DNS message as it came (the
+// playground's: Tailscale's resolver, docs/tailscale.md). One that throws
 // is answered SERVFAIL.
 import type { Connection, UdpService } from './host/node';
 

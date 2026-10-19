@@ -16,8 +16,9 @@ import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
 import { Node, type Connection, type Datagram, type NifBuild } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
-import { dnsTcp, dnsUdp, failure, NXDOMAIN } from '@/runtime/dns';
+import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
+import { tailnet } from '@/tailscale/tailnet';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { tailwind } from '@/project/lib/programs/tailwind';
@@ -66,6 +67,8 @@ export type ExecEvents = {
   changed: string[];
   warning: string;
   nif: NifBuild;
+  // Something a node could not reach without Tailscale (the setup hint).
+  blocked: string;
   css: string;
   bundled: null;
 };
@@ -162,10 +165,11 @@ function routePeer(connection: Connection, port: number): boolean {
   return true;
 }
 
-// Every name but the hosts file's, unknown (NXDOMAIN), at once.
-const noNames = async (query: Uint8Array) => failure(query, NXDOMAIN);
-
 function nodeServices() {
+  // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
+  // page lets them (docs/tailscale.md); else unreachable, no such name,
+  // fetch().
+  const net = tailnet(rpc);
   return {
     peer: routePeer,
     udpPeer: routeUdpPeer,
@@ -174,11 +178,13 @@ function nodeServices() {
       [HEX_PORT]: apex('hex'),
       [EPMD_PORT]: serveNames,
       // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
-      53: dnsTcp(noNames),
+      53: dnsTcp(net.resolve),
     },
-    udpServe: { 53: dnsUdp(noNames) },
+    udpServe: { 53: dnsUdp(net.resolve) },
+    outbound: net.outbound,
+    udp: net.udp(),
     onnif: (build: NifBuild) => rpc.emit('nif', build),
-    https: httpsByFetch(),
+    https: httpsByFetch({ tunnel: net.tunnel, onblocked: net.blocked }),
     programs: {
       tailwind,
       esbuild,

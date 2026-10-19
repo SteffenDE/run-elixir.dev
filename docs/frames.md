@@ -81,6 +81,11 @@ apex's stays the apex's:
 - **Postgres and Hex's cache.** A node's connections to 5432 and to Hex's
   port are carried over ports to the IDE's page (`portConnection.ts`),
   which answers them as before.
+- **Tailscale's device** ([tailscale.md](tailscale.md)): a shared
+  worker of the apex's, its keys in the apex's IndexedDB. The frame asks
+  the IDE's page for each connection through the tailnet and each name;
+  the page decides (the project's answer, a live session's guests) and
+  hands the connection's port to that worker.
 - **The terminals.** Their screens and line disciplines are the IDE's:
   keys are echoed and edited there, and lines go to the node.
 - **What the IDE changes** (a save, the tree's operations) is kept before

@@ -21,7 +21,8 @@
  * stream connects to the node's own addresses (127.0.0.0/8, ::1, the
  * unspecified address) at once, as before; to any other it connects
  * through the page (socket.js wasm_socket_dial), which answers `select`
- * until the page has dialed, and connect/1 then says how it went. A datagram
+ * until the page has dialed (the playground: through the user's tailnet,
+ * docs/tailscale.md), and connect/1 then says how it went. A datagram
  * socket binds a port of the node's network on bind or its first send;
  * its datagrams go to the node's own ports, or through the page.
  */
@@ -123,7 +124,7 @@ typedef struct {
      * is kept as given, the node's own (peer_local) too. */
     int peer_family, peer_local;
     unsigned char peer_address[16];
-    /* Its own end at another host's (as the page dialed it), when
+    /* Its own end at another host's (the page's tailnet address), when
      * the page says: 4 or 6, else 0 (127.0.0.1 or ::1). */
     int local_family;
     unsigned char local_address[16];

@@ -50,6 +50,7 @@ rebar3), and builds the template with the host's Mix in
   its module cache in `target/tailscale/gomod`; cached until its image,
   tags or sources change); the site takes
   `target/tailscale/tailscale.wasm` (also `build.py app`).
+  [tailscale.md](tailscale.md).
 
 ## What the site is
 
@@ -66,6 +67,7 @@ target/site/
   _playground/               the Vite assets, content-hashed
   b/ID/                      the build's JavaScript, ID a digest of it and RID:
     worker.js files.js         the runtime's workers, bundled (Vite),
+    tailscale.js                 the apex's Tailscale worker,
     chunks/                      and what they share
   r/RID/                     the runtime, RID a digest of what is in it:
     beam.mjs, beam.emu.mjs     the emulator's loader and its threads'

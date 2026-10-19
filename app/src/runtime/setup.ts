@@ -35,8 +35,8 @@ export const ENV = {
 
 // The node's own tree around the installation (/work and /tmp may be
 // shared: files.js). dns: names other than the hosts file's are asked of
-// the page's DNS at 127.0.0.53 (UDP and TCP port 53, dns.ts), else they do
-// not resolve.
+// the page's DNS at 127.0.0.53 (UDP and TCP port 53; Tailscale's resolver,
+// docs/tailscale.md), else they do not resolve.
 export function prepare(root: Dir, { dns = false } = {}): void {
   root.mkdirs('work');
   root.mkdirs('tmp');

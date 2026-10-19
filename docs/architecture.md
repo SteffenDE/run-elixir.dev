@@ -141,8 +141,9 @@ IEx's lives in memory.
 
 ## Hex
 
-The node has no sockets to the internet, and the page reads only what
-CORS allows: hex.pm's API does, repo.hex.pm (the registry and tarballs)
+The node reaches no other host but through the page (and the user's
+tailnet, once Tailscale is set up: [tailscale.md](tailscale.md)), and the
+page reads only what CORS allows: hex.pm's API does, repo.hex.pm (the registry and tarballs)
 does not. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
 `src/runtime/fetcher.ts`, which answers each request with a `fetch()`

@@ -190,8 +190,8 @@ addToLibrary({
   wasm_socket_connected__deps: ['$beamSockets'],
   wasm_socket_connected: (id) => beamSockets.table.get(id)?.endpoint?.status ?? -8,
 
-  // A connected socket's local end at another host (as the page dialed
-  // it), at addressPtr (16 bytes) and portPtr: its family, or 0 when
+  // A connected socket's local end at another host (the page's tailnet
+  // address), at addressPtr (16 bytes) and portPtr: its family, or 0 when
   // the page did not say.
   wasm_socket_local__proxy: 'sync',
   wasm_socket_local__sig: 'iipp',

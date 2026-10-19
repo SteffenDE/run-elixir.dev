@@ -1,12 +1,14 @@
 import { expect, test } from './fixtures';
 import { newProject, newShell, prompted, run } from './helpers';
 
-// The node's sockets (beam/socket): UDP between its own ports, and other
-// hosts out of reach at once and names not found at once (the page's DNS
-// answers, no time-out).
+// The node's sockets (beam/socket): UDP between its own ports, and, without
+// Tailscale (docs/tailscale.md), other hosts out of reach at once and
+// names not found at once (the page's DNS answers, no time-out).
 const elixir = (code: string) => `elixir -e '${code}'`;
 
-test('a node’s UDP between its ports; other hosts and names out of reach', async ({ page }) => {
+test('a node’s UDP between its ports; other hosts and names, without Tailscale', async ({
+  page,
+}) => {
   await newProject(page, 'empty');
   await prompted(page, 1);
 
@@ -26,8 +28,8 @@ test('a node’s UDP between its ports; other hosts and names out of reach', asy
   expect(udp).toContain('{:passive, {127, 0, 0, 1}, "ping"}');
   expect(udp).toContain('{:active, "pong"}');
 
-  // No way to another host, and no names but the hosts file's, each
-  // answered at once.
+  // Without Tailscale: no way to another host, and no names but the
+  // hosts file's, each answered at once.
   const away = await run(
     page,
     elixir(

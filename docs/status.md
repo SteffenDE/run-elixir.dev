@@ -139,9 +139,12 @@ chunks; the same memory.
 - **HTTPS from a node** goes by the page's `fetch()` (`https.ts`): only
   to sites that send CORS headers (hex.pm's API does; most others do not:
   502), HTTP/1.1 only, one request per connection, without the headers
-  the browser sets itself. Other protocols over TLS have no route. A relay
-  through the site (an allow-listed TCP relay, on a Phoenix API app) is
-  the plan for the rest.
+  the browser sets itself. **Other hosts** (TCP, UDP) and names are out
+  of reach (`enetunreach`, `nxdomain`). With Tailscale set up (a
+  prototype, [tailscale.md](tailscale.md)), HTTPS, TCP, UDP and DNS go
+  through the user's tailnet and exit node, to any host; tried against
+  Headscale only. A relay through the site (an allow-listed TCP relay)
+  stays the plan for those without a tailnet.
 - **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run
   only `mix`, `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`,
   each as a node of its own; `os:cmd` (which writes its command to the
