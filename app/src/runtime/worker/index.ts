@@ -31,7 +31,7 @@ import type { FilesChannel } from '../host/files';
 import { Channel, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
-import { brush, type Run } from './brush';
+import { brush, type BrushOptions, type Run } from './brush';
 import { TOOLS, coreutils, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
@@ -268,8 +268,9 @@ onmessage = async ({
           boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
         ),
       listed ?? fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
-      // The shell (brush.ts), if the site has it.
-      shellModule ?? (shell ? loadModule(runtime('brush.wasm')) : null),
+      // The shell (brush.ts), if the site has it: the terminal's, or a
+      // node's sh -c.
+      shellModule ?? (shell || named?.[0] === 'sh' ? loadModule(runtime('brush.wasm')) : null),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -401,7 +402,8 @@ onmessage = async ({
     };
 
     say('status', 'running');
-    if (!shell) {
+    const sh = named?.[0] === 'sh';
+    if (!shell && !sh) {
       const cwd = env.PWD || start;
       const argv = named
         ? command(named[0], named.slice(1), (path) => fs.read(join(cwd, path)))
@@ -414,10 +416,9 @@ onmessage = async ({
       say('exit', await run(argv, cwd));
       return;
     }
-    // The terminal's shell: brush (brush.ts), which the site has.
+    // The terminal's shell, or a node's sh -c: brush (brush.ts), which the
+    // site has.
     if (!brushModule) throw new Error('the site has no shell (brush.wasm: brush/build.py)');
-    const cwd = fs.stat(start)?.dir ? start : '/work';
-    if (!initial.length) text(HELP);
     // What brush runs (brush.ts): a node command (or an escript), a page
     // program, or a coreutils tool.
     const external: Run = async (program, given, at, vars, io) => {
@@ -453,10 +454,76 @@ onmessage = async ({
       }
       return null;
     };
-    // Its prompt (the directory, ~ for $HOME); its directory, as WASI has
-    // none (brush starts in /, and sets PWD so); and `help`, the
-    // playground's (brush's `help NAME` for a built-in).
+    // The terminal as brush's line editor has it.
+    const terminal: BrushOptions['terminal'] = {
+      raw: (on) => channel.mode(on),
+      size: () => channel.size,
+      read: (max, timeout) => {
+        // The page's first commands, as if typed.
+        const first = initial.shift();
+        if (first !== undefined) return new TextEncoder().encode(`${first}\r`);
+        const deadline = timeout < 0 ? Infinity : performance.now() + timeout;
+        const [columns, rows] = channel.size;
+        for (;;) {
+          channel.pump();
+          if (channel.size[0] !== columns || channel.size[1] !== rows) return null;
+          // Ctrl+C, which the page sends as an interrupt.
+          if (channel.interrupted) {
+            channel.interrupted = false;
+            channel.input = [];
+            return Uint8Array.of(3);
+          }
+          // Nothing runs to stop.
+          channel.terminated = false;
+          const bytes = channel.take(max);
+          // Enter: a newline is Ctrl+J to raw input.
+          if (bytes.length) return bytes.map((byte) => (byte === 10 ? 13 : byte));
+          const left = deadline - performance.now();
+          if (left <= 0) return new Uint8Array(0);
+          channel.sleep(Math.min(left, 1000));
+        }
+      },
+    };
     const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
+    const shellOptions = (cwd: string) => ({
+      module: brushModule,
+      env: { ...ENV, ...env, PWD: cwd },
+      root,
+      fetch: fetchFile,
+      shared: sharedFs,
+      // A line for what reads the terminal while brush's line editor
+      // does not (`read`, as typed).
+      line: () => channel.line(),
+      out: (bytes: Uint8Array) => say('out', bytes),
+      terminal,
+      run: external,
+    });
+
+    // sh -c LINE [NAME ARGS…], as a node's sh runs it (System.shell,
+    // open_port's spawn, npm's scripts): brush, without its line editor or
+    // rc files, from the port's directory (WASI has none: brush starts in
+    // /).
+    if (sh) {
+      const cwd = env.PWD || start;
+      const [flag, line = '', ...rest] = named!.slice(1);
+      if (flag !== '-c') {
+        text('sh: only sh -c LINE runs in the playground\n');
+        say('exit', 2);
+        return;
+      }
+      const status = await brush({
+        ...shellOptions(cwd),
+        args: ['--norc', '--noprofile', '-c', `cd ${quote(cwd)} || exit 1\n${line}`, ...rest],
+      });
+      say('exit', status);
+      return;
+    }
+
+    // The terminal's shell: its prompt (the directory, ~ for $HOME); its
+    // directory, as WASI has none (brush starts in /, and sets PWD so);
+    // and `help`, the playground's (brush's `help NAME` for a built-in).
+    const cwd = fs.stat(start)?.dir ? start : '/work';
+    if (!initial.length) text(HELP);
     const rc = [
       "__home='~'",
       // oxlint-disable-next-line no-template-curly-in-string -- the shell's ${…}.
@@ -468,46 +535,8 @@ onmessage = async ({
     root.put('etc/playground-help', new File(new TextEncoder().encode(HELP)));
     for (;;) {
       await brush({
-        module: brushModule,
+        ...shellOptions(cwd),
         args: ['--rcfile', '/etc/brushrc', '--noprofile', '--enable-highlighting', '-i'],
-        env: { ...ENV, ...env, PWD: cwd },
-        root,
-        fetch: fetchFile,
-        shared: sharedFs,
-        // A line for what reads the terminal while brush's line editor
-        // does not (`read`, as typed).
-        line: () => channel.line(),
-        out: (bytes) => say('out', bytes),
-        terminal: {
-          raw: (on) => channel.mode(on),
-          size: () => channel.size,
-          read: (max, timeout) => {
-            // The page's first commands, as if typed.
-            const first = initial.shift();
-            if (first !== undefined) return new TextEncoder().encode(`${first}\r`);
-            const deadline = timeout < 0 ? Infinity : performance.now() + timeout;
-            const [columns, rows] = channel.size;
-            for (;;) {
-              channel.pump();
-              if (channel.size[0] !== columns || channel.size[1] !== rows) return null;
-              // Ctrl+C, which the page sends as an interrupt.
-              if (channel.interrupted) {
-                channel.interrupted = false;
-                channel.input = [];
-                return Uint8Array.of(3);
-              }
-              // Nothing runs to stop.
-              channel.terminated = false;
-              const bytes = channel.take(max);
-              // Enter: a newline is Ctrl+J to raw input.
-              if (bytes.length) return bytes.map((byte) => (byte === 10 ? 13 : byte));
-              const left = deadline - performance.now();
-              if (left <= 0) return new Uint8Array(0);
-              channel.sleep(Math.min(left, 1000));
-            }
-          },
-        },
-        run: external,
       });
       text('The shell exited; a new one starts.\n');
     }

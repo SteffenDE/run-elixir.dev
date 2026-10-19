@@ -69,16 +69,16 @@ export function coreutils(options: CoreutilsOptions, name: string): Program | un
   };
 }
 
-// sh -c LINE as far as coreutils runs it: its tools here, one after
-// another while they succeed (&&), and cd; a node command (mix, …) goes to
-// `page`, the page's sh (programs/node.ts), on its own. A line without any
-// of the tools is the page's sh's alone.
+// sh -c LINE: the page's sh (programs/node.ts, brush in a worker of its
+// own) when there is one. Without (the Node harness), as far as coreutils
+// runs it: its tools here, one after another while they succeed (&&),
+// and cd.
 export function shWith(options: CoreutilsOptions, page: Program | undefined): Program {
   return (process, context) => {
+    if (page) return page(process, context);
     const [flag, line = ''] = context.args;
     const queue = flag === '-c' ? commands(line) : [];
     if (!queue.some((command) => TOOLS.has(command[0]))) {
-      if (page) return page(process, context);
       process.write('sh: only sh -c runs here\n');
       return process.exit(127);
     }
@@ -99,22 +99,8 @@ export function shWith(options: CoreutilsOptions, page: Program | undefined): Pr
         for (const bytes of inner.output) process.write(bytes);
         return next(inner.status ?? 1);
       }
-      if (!page) {
-        process.write(`sh: ${name}: not found in the playground\n`);
-        return process.exit(127);
-      }
-      // A node command, on the page; its output and end are this one's.
-      const inner = new Process();
-      let ended = false;
-      inner.notify = () => {
-        for (const bytes of inner.output.splice(0)) process.write(bytes);
-        if (inner.ended && !ended) {
-          ended = true;
-          next(inner.status ?? 1);
-        }
-      };
-      process.onclose = () => inner.onclose?.();
-      page(inner, { ...context, args: ['-c', command.map(quote).join(' ')], cwd });
+      process.write(`sh: ${name}: not found in the playground\n`);
+      return process.exit(127);
     };
     next(0);
   };
@@ -127,9 +113,6 @@ export function withCoreutils(programs: Programs, options: CoreutilsOptions): Pr
   for (const name of TOOLS) out[name] ??= coreutils(options, name)!;
   return out;
 }
-
-const quote = (word: string) =>
-  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 
 function join(cwd: string, path: string): string {
   const out: string[] = [];

@@ -34,3 +34,28 @@ test('coreutils run in the shell, from System.cmd and in sh -c', async ({ page }
   );
   expect(shell).toContain('{"from_node\\nf\\n", 0}');
 });
+
+// A node's sh -c is brush in a worker of its own: pipes, ||, variables,
+// redirections, and the playground's programs in its line.
+test('System.shell runs its line as the terminal shell does', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/shell.exs',
+    String.raw`started = System.monotonic_time(:millisecond)
+IO.inspect(System.shell("true"))
+IO.puts("sh -c true: #{System.monotonic_time(:millisecond) - started} ms")
+IO.inspect(System.shell(~S[printf 'b\na\n' | sort | head -n 1]))
+IO.inspect(System.shell(~S[false || echo fallback; N=5; echo $((N * 2)) > n.txt; cat n.txt]))
+IO.inspect(System.shell(~S[node -p 6*7 | tr 4 x; nope 2>/dev/null; echo $?]))
+`,
+  );
+  const out = await run(page, 'elixir shell.exs');
+  console.log(out.match(/sh -c true: \d+ ms/)?.[0]);
+  expect(out).toContain('{"", 0}');
+  expect(out).toContain('{"a\\n", 0}');
+  expect(out).toContain('{"fallback\\n10\\n", 0}');
+  expect(out).toContain('{"x2\\n127\\n", 0}');
+});
