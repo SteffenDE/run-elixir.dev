@@ -1,4 +1,5 @@
-// TCP for the node (/.net): its listeners and connections.
+// TCP and UDP for the node (/.net): its listeners, connections and
+// datagram ports.
 
 // One end of a connection, as the node sees it: what the peer sent
 // (inbox), whether the peer has ended, and how to reach the peer.
@@ -15,11 +16,22 @@ export class Endpoint {
   // Told when data or the end comes (the Emscripten BEAM's sockets:
   // beam/socket/socket.js).
   declare notify?: (() => void) | null;
+  // A connection to another host (Network.dial): 0 while the page dials
+  // it, 1 once it is open, else a negative errno (why it did not); and its
+  // local end there, when the page says.
+  declare status: number;
+  declare local?: { address: string; port: number };
 
   constructor(peer: Peer) {
     this.inbox = [];
     this.eof = false;
     this.peer = peer; // { send(bytes), end(), close() }
+    this.status = 1;
+  }
+  connected(status: number): void {
+    if (this.status !== 0) return;
+    this.status = status;
+    this.notify?.();
   }
   receive(bytes: Uint8Array): void {
     this.inbox.push(bytes);
@@ -65,16 +77,59 @@ function nextEphemeral(): number {
 // remote.open(id, port) for a connection the node makes to a port in
 // remote.ports; send/end/close by id; listening(port, bool) as the node
 // starts and stops listening). Ids the node makes are even; the
-// page's are odd.
+// page's are odd. remote.dial(id, address, port): a connection to another
+// host, which the page dials and answers with connected(id, status);
+// without it, no host but the node's own is reached.
+//
+// UDP: the node's ports (udpBind, told by remote.bound), datagrams
+// between them, and to the page (remote.datagram): its UDP ports
+// (remote.udpPorts, as 53 for DNS), the project's other nodes' ports, and
+// other hosts; the page's come in by datagram().
 export interface Remote {
   ports: number[];
+  udpPorts?: number[];
   https?: boolean;
   open(id: number, port: number, host?: string): void;
+  dial?(id: number, address: string, port: number): void;
   send(id: number, bytes: Uint8Array): void;
   end(id: number): void;
   close(id: number): void;
   listening?(port: number, on: boolean, ephemeral?: boolean): void;
+  datagram?(from: number, address: string, port: number, bytes: Uint8Array): void;
+  bound?(port: number): void;
+  unbound?(port: number): void;
 }
+
+// A datagram for one of the node's UDP ports, and where it came from.
+export interface Datagram {
+  address: string;
+  port: number;
+  bytes: Uint8Array;
+}
+
+// A UDP port of the node's: what came, and whom to tell (socket.js).
+export interface UdpPort {
+  port: number;
+  queue: Datagram[];
+  notify?: (() => void) | null;
+}
+
+// The node's own addresses (127.0.0.0/8, ::1, the unspecified one), as
+// socket.js writes them.
+export function local(address: string): boolean {
+  if (!address.includes(':')) return address.startsWith('127.') || address === '0.0.0.0';
+  const words = address.split(':').map((word) => parseInt(word, 16) || 0);
+  if (words.length === 8 && words.slice(0, 7).every((word) => word === 0)) return words[7] <= 1;
+  return (
+    words.length === 8 &&
+    words.slice(0, 5).every((w) => w === 0) &&
+    words[5] === 0xffff &&
+    words[6] >> 8 === 127
+  );
+}
+
+// ENETUNREACH: no way to another host.
+const UNREACHABLE = -40;
 
 // A connection waiting on a listener: its id and the peer's address.
 export interface Waiting {
@@ -94,6 +149,7 @@ export class Network {
   // Ports the project's other nodes listen on: a connection there goes
   // to the page, which takes it to that node.
   declare peers: Set<number>;
+  declare udp: Map<number, UdpPort>;
 
   constructor(remote: Remote = { ports: [], open() {}, send() {}, end() {}, close() {} }) {
     this.remote = remote;
@@ -102,6 +158,7 @@ export class Network {
     this.endpoints = new Map(); // id -> Endpoint, for the page's
     this.next = 2;
     this.peers = new Set();
+    this.udp = new Map();
   }
   // A listener's queue, on `port` or (0) a free one: { queue, port }.
   // listening(port, true, ephemeral): ephemeral when the port was given,
@@ -193,6 +250,66 @@ export class Network {
     this.endpoints.set(id, endpoint);
     r.open(id, port, host);
     return endpoint;
+  }
+  // The node connects to another host (`address`, socket.js's text):
+  // through the page, which dials it (remote.dial) and says how it went
+  // (connected); unreachable without it.
+  dial(address: string, port: number): Endpoint {
+    const id = (this.next += 2);
+    const r = this.remote;
+    const endpoint = new Endpoint({
+      send: (bytes) => r.send(id, bytes),
+      end: () => r.end(id),
+      close: () => {
+        this.endpoints.delete(id);
+        r.close(id);
+      },
+    });
+    endpoint.status = 0;
+    this.endpoints.set(id, endpoint);
+    if (r.dial) r.dial(id, address, port);
+    else endpoint.connected(UNREACHABLE);
+    return endpoint;
+  }
+  // From the page: how dialing `id` went (1, or a negative errno), and
+  // where from.
+  connected(id: number, status: number, end?: { address: string; port: number }): void {
+    const endpoint = this.endpoints.get(id);
+    if (!endpoint) return;
+    if (status !== 1) this.endpoints.delete(id);
+    endpoint.local = end;
+    endpoint.connected(status);
+  }
+  // A UDP port, `port` or (0) an ephemeral one; null if it is taken.
+  udpBind(port: number): UdpPort | null {
+    if (port === 0)
+      do port = nextEphemeral();
+      while (this.udp.has(port));
+    if (this.udp.has(port)) return null;
+    const bound: UdpPort = { port, queue: [] };
+    this.udp.set(port, bound);
+    this.remote.bound?.(port);
+    return bound;
+  }
+  udpUnbind(port: number): void {
+    if (this.udp.delete(port)) this.remote.unbound?.(port);
+  }
+  // A datagram from the node's port `from`: to another of its ports, or to
+  // the page (its ports, the project's other nodes', other hosts), which
+  // drops what nobody takes, as UDP does.
+  udpSend(from: number, address: string, port: number, bytes: Uint8Array): void {
+    const target = local(address) ? this.udp.get(port) : null;
+    if (target) {
+      target.queue.push({ address: '127.0.0.1', port: from, bytes });
+      target.notify?.();
+    } else this.remote.datagram?.(from, address, port, bytes);
+  }
+  // From the page: a datagram for the node's port `to`.
+  datagram(to: number, address: string, port: number, bytes: Uint8Array): void {
+    const target = this.udp.get(to);
+    if (!target) return;
+    target.queue.push({ address, port, bytes });
+    target.notify?.();
   }
   // From the page: data for, or the end of, connection `id`.
   data(id: number, bytes: Uint8Array): void {

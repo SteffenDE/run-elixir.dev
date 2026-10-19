@@ -15,8 +15,18 @@ export const FRAME = {
   RESIZE: 9,
   PEERS: 10,
   TERMINATE: 11,
+  CONNECTED: 12,
+  DATAGRAM: 13,
 };
 export const RING = 1 << 20;
+
+// An address's bytes (4 or 16) as socket.js writes it.
+function decodeAddress(bytes: Uint8Array): string {
+  if (bytes.length === 4) return bytes.join('.');
+  const words: string[] = [];
+  for (let i = 0; i < 16; i += 2) words.push(((bytes[i] << 8) | bytes[i + 1]).toString(16));
+  return words.join(':');
+}
 
 // The page's frames: input, connections, interrupts, page programs.
 export class Channel {
@@ -83,6 +93,26 @@ export class Channel {
       else if (kind === FRAME.EXIT) {
         this.processes.get(id)?.exit(payload[0]);
         this.processes.delete(id);
+      } else if (kind === FRAME.CONNECTED) {
+        // How dialing went, then (connected) the local end's family,
+        // address and port.
+        const view = new DataView(payload.buffer);
+        const size = payload[1] === 6 ? 16 : 4;
+        const local =
+          payload.length > 2
+            ? {
+                address: decodeAddress(payload.subarray(2, 2 + size)),
+                port: view.getUint16(2 + size),
+              }
+            : undefined;
+        net?.connected(id, view.getInt8(0), local);
+      } else if (kind === FRAME.DATAGRAM) {
+        // id: the node's port; the source's port, family and address, then
+        // the bytes.
+        const view = new DataView(payload.buffer);
+        const port = view.getUint16(0);
+        const address = decodeAddress(payload.subarray(3, 3 + (payload[2] === 6 ? 16 : 4)));
+        net?.datagram(id, address, port, payload.subarray(payload[2] === 6 ? 19 : 7));
       } else if (kind === FRAME.DATA) net?.data(id, payload);
       else if (kind === FRAME.END || kind === FRAME.CLOSE) net?.ended(id);
     }

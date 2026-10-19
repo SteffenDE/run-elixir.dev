@@ -14,7 +14,7 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
+import { Node, type Connection, type Datagram, type NifBuild } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
 import { carry } from '@/runtime/portConnection';
 import { built } from '@/project/lib/programs/tailwind';
@@ -130,6 +130,15 @@ function updatePeers(): void {
     );
 }
 
+// A datagram a node sent to a UDP port of its own address's that another
+// node of the project has: there, from 127.0.0.1 as between processes on
+// one machine.
+function routeUdpPeer({ from, port, bytes }: Datagram, sender: Node): boolean {
+  const target = [...nodes].find((node) => node !== sender && node.udpPorts.has(port));
+  target?.datagram(port, '127.0.0.1', from, bytes);
+  return !!target;
+}
+
 // A connection a node opened to another node's port: joined to one opened
 // there.
 function routePeer(connection: Connection, port: number): boolean {
@@ -155,6 +164,7 @@ function routePeer(connection: Connection, port: number): boolean {
 function nodeServices() {
   return {
     peer: routePeer,
+    udpPeer: routeUdpPeer,
     serve: { 5432: apex('postgres'), [HEX_PORT]: apex('hex'), [EPMD_PORT]: serveNames },
     onnif: (build: NifBuild) => rpc.emit('nif', build),
     https: httpsByFetch(),
