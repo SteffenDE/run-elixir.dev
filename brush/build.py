@@ -77,21 +77,25 @@ def main():
             subprocess.run(["patch", "-p1", "-s", "-d", os.path.join(work, name), "-i", path],
                            check=True)
     cargo = os.path.join(OUT, "cargo")
+    # Cargo's build, kept between builds: a changed patch rebuilds what it
+    # changed (the copies keep their commit's times, from git archive).
+    build = os.path.join(OUT, "cargo-target")
     os.makedirs(cargo, exist_ok=True)
+    os.makedirs(build, exist_ok=True)
     # As root, for rustup's target in the image; the files back to us.
     script = (
         "rustup target add wasm32-wasip1 >/dev/null\n"
         "cd brush\n"
         "CARGO_PROFILE_RELEASE_OPT_LEVEL=z cargo build -q --locked --release "
         "--target wasm32-wasip1 -p brush-shell --no-default-features --features minimal,reedline\n"
-        f"chown -R {os.getuid()}:{os.getgid()} /work /cargo\n"
+        f"chown -R {os.getuid()}:{os.getgid()} /work /cargo /build\n"
     )
     subprocess.run(DOCKER + [
-        "run", "--rm", "-e", "CARGO_HOME=/cargo",
-        "-v", f"{work}:/work", "-v", f"{cargo}:/cargo", "-w", "/work",
+        "run", "--rm", "-e", "CARGO_HOME=/cargo", "-e", "CARGO_TARGET_DIR=/build",
+        "-v", f"{work}:/work", "-v", f"{cargo}:/cargo", "-v", f"{build}:/build", "-w", "/work",
         IMAGE, "sh", "-ec", script,
     ], check=True)
-    shutil.copy(os.path.join(work, "brush", "target", "wasm32-wasip1", "release", "brush.wasm"),
+    shutil.copy(os.path.join(build, "wasm32-wasip1", "release", "brush.wasm"),
                 os.path.join(OUT, "brush.wasm"))
     with open(built, "w") as f:
         f.write(stamp())

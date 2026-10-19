@@ -65,20 +65,24 @@ def main():
         subprocess.run(["patch", "-p1", "-s", "-d", work, "-i", os.path.join(HERE, "patches", name)],
                        check=True)
     cargo = os.path.join(OUT, "cargo")
+    # Cargo's build, kept between builds: a changed patch rebuilds what it
+    # changed (the tarball's files keep their times).
+    build = os.path.join(OUT, "cargo-target")
     os.makedirs(cargo, exist_ok=True)
+    os.makedirs(build, exist_ok=True)
     # As root, for rustup's target in the image; the files back to us.
     script = (
         "rustup target add wasm32-wasip1 >/dev/null\n"
-        "cargo build --locked --profile release-small --target wasm32-wasip1 "
+        "cargo build -q --locked --profile release-small --target wasm32-wasip1 "
         "--no-default-features --features feat_wasm\n"
-        f"chown -R {os.getuid()}:{os.getgid()} /src /cargo\n"
+        f"chown -R {os.getuid()}:{os.getgid()} /src /cargo /build\n"
     )
     subprocess.run(DOCKER + [
-        "run", "--rm", "-e", "CARGO_HOME=/cargo",
-        "-v", f"{work}:/src", "-v", f"{cargo}:/cargo", "-w", "/src",
+        "run", "--rm", "-e", "CARGO_HOME=/cargo", "-e", "CARGO_TARGET_DIR=/build",
+        "-v", f"{work}:/src", "-v", f"{cargo}:/cargo", "-v", f"{build}:/build", "-w", "/src",
         IMAGE, "sh", "-ec", script,
     ], check=True)
-    shutil.copy(os.path.join(work, "target", "wasm32-wasip1", "release-small", "coreutils.wasm"),
+    shutil.copy(os.path.join(build, "wasm32-wasip1", "release-small", "coreutils.wasm"),
                 os.path.join(OUT, "coreutils.wasm"))
     with open(built, "w") as f:
         f.write(stamp())
