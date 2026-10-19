@@ -3,6 +3,7 @@
 // as they are, the callback and promise ones on top of them. Paths are
 // absolute or the process's directory's; files.js holds /work and /tmp.
 import { Buffer } from './buffer';
+import { EventEmitter } from 'events';
 import { E } from '../wasi/abi';
 import type { SharedCall } from '../wasi/shared';
 
@@ -579,6 +580,162 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
 
   // Run `fn` after this turn, as a callback's answer comes.
   let later: (fn: () => void) => void = (fn) => setTimeout(fn, 0);
+  // A handle that keeps the process's loop alive until released.
+  let hold: () => () => void = () => () => {};
+
+  // Watchers: told what changed (the page passes on what files.js
+  // reports, `changed`), as Node's are by the system. A path's own change
+  // is 'change'; one that is gone, or was not there, is 'rename'.
+  const watches = new Set<Watch>();
+  const kind = (path: string) => {
+    try {
+      return sync.statSync(path)!.isDirectory() ? 'dir' : 'file';
+    } catch {
+      return null;
+    }
+  };
+  class FSWatcher extends EventEmitter {
+    declare watch: Watch;
+    constructor(entry: Watch) {
+      super();
+      this.watch = entry;
+    }
+    close() {
+      if (!watches.delete(this.watch)) return;
+      this.watch.release?.();
+      this.watch.release = null;
+      queueMicrotask(() => this.emit('close'));
+    }
+    ref() {
+      this.watch.release ??= hold();
+      return this;
+    }
+    unref() {
+      this.watch.release?.();
+      this.watch.release = null;
+      return this;
+    }
+  }
+  const watch = (
+    p: unknown,
+    options?:
+      | string
+      | { persistent?: boolean; recursive?: boolean; encoding?: string; signal?: AbortSignal }
+      | ((event: string, name: string) => void),
+    listener?: (event: string, name: string) => void,
+  ) => {
+    if (typeof options === 'function') [listener, options] = [options, undefined];
+    const settings = typeof options === 'object' && options ? options : {};
+    const path = pathOf(p);
+    const is = kind(path);
+    if (!is) throw fsError(E.NOENT, 'watch', String(p));
+    const entry: Watch = {
+      path,
+      dir: is === 'dir',
+      recursive: Boolean(settings.recursive),
+      release: settings.persistent === false ? null : hold(),
+      known: new Set(is === 'dir' ? (sync.readdirSync(path) as string[]) : []),
+      tell: () => {},
+    };
+    const watcher = new FSWatcher(entry);
+    entry.tell = (event, name) => watcher.emit('change', event, name);
+    if (listener) watcher.on('change', listener);
+    settings.signal?.addEventListener('abort', () => watcher.close(), { once: true });
+    watches.add(entry);
+    return watcher;
+  };
+  // watchFile: a file's stats before and after each change.
+  const polled = new Map<string, { watcher: FSWatcher; listeners: Set<Function>; last: Stats }>();
+  const emptyStats = () => new Stats('file', 0, 0, '0');
+  const watchFile = (p: unknown, options?: unknown, listener?: unknown) => {
+    if (typeof options === 'function') [listener, options] = [options, undefined];
+    const path = pathOf(p);
+    let entry = polled.get(path);
+    if (!entry) {
+      const polling: Watch = {
+        path,
+        dir: false,
+        recursive: false,
+        release: (options as { persistent?: boolean })?.persistent === false ? null : hold(),
+        known: new Set(),
+        tell: () => {},
+      };
+      const last = (sync.statSync(path, { throwIfNoEntry: false }) as Stats) ?? emptyStats();
+      const made = { watcher: new FSWatcher(polling), listeners: new Set<Function>(), last };
+      polling.tell = () => {
+        const now = (sync.statSync(path, { throwIfNoEntry: false }) as Stats) ?? emptyStats();
+        const before = made.last;
+        made.last = now;
+        for (const fn of made.listeners) fn(now, before);
+      };
+      watches.add(polling);
+      polled.set(path, (entry = made));
+    }
+    entry.listeners.add(listener as Function);
+    return entry.watcher;
+  };
+  const unwatchFile = (p: unknown, listener?: Function) => {
+    const path = pathOf(p);
+    const entry = polled.get(path);
+    if (!entry) return;
+    if (listener) entry.listeners.delete(listener);
+    else entry.listeners.clear();
+    if (entry.listeners.size) return;
+    entry.watcher.close();
+    polled.delete(path);
+  };
+  // fs.promises.watch: the events as an async iterator.
+  promises.watch = (p: unknown, options: { signal?: AbortSignal } = {}) => {
+    const queue: { eventType: string; filename: string }[] = [];
+    let wake: (() => void) | null = null;
+    const watcher = watch(p, options, (eventType, filename) => {
+      queue.push({ eventType, filename });
+      wake?.();
+    });
+    let closed = false;
+    watcher.on('close', () => {
+      closed = true;
+      wake?.();
+    });
+    return {
+      async next(): Promise<IteratorResult<{ eventType: string; filename: string }>> {
+        for (;;) {
+          if (queue.length || closed) break;
+          await new Promise<void>((r) => (wake = r));
+        }
+        wake = null;
+        return queue.length
+          ? { value: queue.shift()!, done: false }
+          : { value: undefined, done: true };
+      },
+      async return() {
+        watcher.close();
+        return { value: undefined, done: true as const };
+      },
+      [Symbol.asyncIterator]() {
+        return this;
+      },
+    };
+  };
+  const changed = (paths: string[]) => {
+    for (const entry of [...watches])
+      for (const path of paths) {
+        if (path === entry.path) {
+          entry.tell(kind(path) ? 'change' : 'rename', basename(path));
+          continue;
+        }
+        const inside = entry.dir && path.startsWith(`${entry.path === '/' ? '' : entry.path}/`);
+        if (!inside) continue;
+        const name = path.slice(entry.path.length + (entry.path === '/' ? 0 : 1));
+        if (name.includes('/') && !entry.recursive) continue;
+        const there = kind(path) !== null;
+        const top = name.split('/')[0];
+        const event = there && entry.known.has(top) ? 'change' : 'rename';
+        if (there) entry.known.add(top);
+        else if (!name.includes('/')) entry.known.delete(top);
+        entry.tell(event, name);
+      }
+  };
 
   return {
     module: {
@@ -609,10 +766,10 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       R_OK: 4,
       W_OK: 2,
       X_OK: 1,
-      // No change reaches a watcher yet: it is there, and quiet.
-      watch: () => quietWatcher(),
-      watchFile: () => {},
-      unwatchFile: () => {},
+      watch,
+      watchFile,
+      unwatchFile,
+      FSWatcher,
     } as Record<string, unknown>,
     promises,
     cwd,
@@ -622,6 +779,11 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     setLater(fn: (fn: () => void) => void) {
       later = fn;
     },
+    setHold(fn: () => () => void) {
+      hold = fn;
+    },
+    // What changed in the files (files.js's report): for the watchers.
+    changed,
   };
 }
 
@@ -630,16 +792,15 @@ function decode(bytes: Uint8Array, encoding: Encoding): string | Buffer {
   return encoding ? buffer.toString(encoding) : buffer;
 }
 
-function quietWatcher() {
-  const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
-  const watcher = {
-    on(event: string, fn: (...args: unknown[]) => void) {
-      (listeners[event] ??= []).push(fn);
-      return watcher;
-    },
-    close() {},
-    ref: () => watcher,
-    unref: () => watcher,
-  };
-  return watcher;
+interface Watch {
+  path: string;
+  dir: boolean;
+  recursive: boolean;
+  release: (() => void) | null;
+  // A directory's names, so a new one is 'rename' and a changed one
+  // 'change'.
+  known: Set<string>;
+  tell(event: string, name: string): void;
 }
+
+const basename = (path: string) => path.slice(path.lastIndexOf('/') + 1);

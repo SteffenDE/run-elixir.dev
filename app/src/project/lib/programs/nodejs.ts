@@ -6,10 +6,12 @@
 // A port the process listens on is the page's to route (`ports`), as a
 // node's is: the preview and the project's nodes connect to it here, and
 // the connection's bytes go to the process as messages (nodejs/net.ts).
+// What changes in the files goes to it too, for fs.watch.
 import type { Files } from '@/runtime/host/files';
 import type { CloseReason, Link } from '@/runtime/host/node';
 import { worker } from '@/runtime/host/worker';
 import type { Context, Process } from './tailwind';
+import { watchers, type Watcher } from './watch';
 
 // What listens on a port: connections to it.
 export interface Listener {
@@ -100,10 +102,13 @@ export const nodeProgram =
         else connection.closedBy('close');
       }
     };
+    const changed: Watcher = (paths) => thread.postMessage({ kind: 'changed', paths });
+    watchers.add(changed);
     let done = false;
     const stop = (code: number) => {
       if (done) return;
       done = true;
+      watchers.delete(changed);
       thread.terminate();
       shared.disconnect(channel);
       for (const port of listening) ports?.unlisten(port, listener);

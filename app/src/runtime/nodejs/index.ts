@@ -7,9 +7,11 @@
 //
 // The page (or the parent thread) sends { kind: 'start', args, cwd, env,
 // doorbell, channel, lock?, thread? } and then a thread's messages as
-// { kind: 'message', data }; the worker answers { kind: 'out', fd, bytes }
-// as it writes, a thread's messages and its uncaught error, and { kind:
-// 'exit', code } at its end, then waits to be stopped.
+// { kind: 'message', data }; a process also hears the page's net messages
+// (net.ts) and { kind: 'changed', paths } for its files' watchers. The
+// worker answers { kind: 'out', fd, bytes } as it writes, a thread's
+// messages and its uncaught error, and { kind: 'exit', code } at its end,
+// then waits to be stopped.
 import { Buffer } from './buffer';
 import { createBuiltins, BUILTINS } from './builtins';
 import { createFs } from './fs';
@@ -125,9 +127,10 @@ function parse(args: string[]) {
 }
 
 // The thread's worker_threads, for its parent's messages; the process's
-// net, for the page's.
+// net and its files' watchers, for the page's.
 let threads: ReturnType<typeof createThreads> | null = null;
 let net: Net | null = null;
+let watched: ((paths: string[]) => void) | null = null;
 
 async function run(start: Start) {
   const thread = start.thread ?? null;
@@ -178,6 +181,8 @@ async function run(start: Start) {
   const { process, console, timers, hold, fail } = proc;
   files.setStdio((fd, bytes) => io.write(fd, bytes));
   files.setLater((fn) => (timers.setImmediate as (f: () => void) => void)(fn));
+  files.setHold(hold);
+  watched = files.changed;
 
   threads = createThreads({
     script: import.meta.url,
@@ -286,10 +291,15 @@ async function run(start: Start) {
 
 addEventListener(
   'message',
-  (event: MessageEvent<Start | { kind: 'message'; data: unknown } | NetMessage>) => {
+  (
+    event: MessageEvent<
+      Start | { kind: 'message'; data: unknown } | NetMessage | { kind: 'changed'; paths: string[] }
+    >,
+  ) => {
     const data = event.data;
     if (data?.kind === 'start') void run(data);
     else if (data?.kind === 'message') threads?.deliver(data.data);
     else if (data?.kind === 'net') net?.receive(data);
+    else if (data?.kind === 'changed') watched?.(data.paths);
   },
 );
