@@ -6,8 +6,10 @@
 // The process tells the page { kind: 'net', op: 'listen', ref, port } and
 // hears { op: 'listening', ref, port } (null when the port is taken);
 // a connection comes as { op: 'open', id, port } (odd ids). The process
-// connects with { op: 'connect', id, port } (even ids) and hears { op:
-// 'connected', id } or { op: 'refused', id }. Then { op: 'data', id,
+// connects with { op: 'connect', id, port } (even ids), or { op:
+// 'connect', id, port, host } for HTTPS the page carries to a host by its
+// fetch (http.ts's https: plain HTTP on the connection, as a node's goes),
+// and hears { op: 'connected', id } or { op: 'refused', id }. Then { op: 'data', id,
 // bytes }, { op: 'end', id } and { op: 'close', id } go both ways, and
 // { op: 'unlisten', port } stops a listener.
 import { Buffer } from './buffer';
@@ -99,17 +101,20 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         args[0] && typeof args[0] === 'object'
           ? args[0]
           : { port: args[0], host: typeof args[1] === 'string' ? args[1] : undefined }
-      ) as { port?: unknown; host?: string; path?: string; timeout?: number };
+      ) as { port?: unknown; host?: string; path?: string; timeout?: number; https?: boolean };
       if (listener) this.once('connect', listener);
       if (options.timeout) this.setTimeout(options.timeout);
       const port = Number(options.port);
       const host = options.host ?? 'localhost';
       this.connecting = true;
-      if (options.path !== undefined || !isLocal(host) || !(port > 0 && port < 65536)) {
+      // https: HTTPS to any host, which the page carries (not a socket's
+      // own bytes to the host: http.ts's https alone asks for it).
+      const https = Boolean(options.https);
+      if (options.path !== undefined || (!https && !isLocal(host)) || !(port > 0 && port < 65536)) {
         const error =
           options.path !== undefined
             ? netError('ENOENT', 'connect', 0, 'no Unix sockets in the playground')
-            : !isLocal(host)
+            : !https && !isLocal(host)
               ? Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), {
                   code: 'ENOTFOUND',
                   errno: -3008,
@@ -127,7 +132,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       this.localPort = 49152 + Math.floor(Math.random() * 16384);
       this.release ??= hold();
       sockets.set(this.id, this);
-      post({ kind: 'net', op: 'connect', id: this.id, port });
+      post({ kind: 'net', op: 'connect', id: this.id, port, ...(https ? { host } : {}) });
       return this;
     }
     // The page's answer to connect.

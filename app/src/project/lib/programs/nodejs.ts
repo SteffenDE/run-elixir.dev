@@ -22,11 +22,12 @@ export interface Listener {
 
 // The project's ports (playground.ts): listen takes `port`, or (0) a free
 // one, and answers it, or null when it is taken; route answers what takes
-// a connection to `port`, or null when nothing listens there.
+// a connection to `port` (with `host`: HTTPS the page carries there), or
+// null when nothing listens there.
 export interface Ports {
   listen(port: number, listener: Listener): number | null;
   unlisten(port: number, listener: Listener): void;
-  route(port: number): ((connection: Served) => void) | null;
+  route(port: number, host?: string): ((connection: Served) => void) | null;
 }
 
 // The page's end of a connection with a process: to its listener, or one
@@ -67,7 +68,7 @@ class ScriptConnection implements Served {
 type NetMessage =
   | { kind: 'net'; op: 'listen'; ref: number; port: number }
   | { kind: 'net'; op: 'unlisten'; port: number }
-  | { kind: 'net'; op: 'connect'; id: number; port: number }
+  | { kind: 'net'; op: 'connect'; id: number; port: number; host?: string }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'end' | 'close'; id: number };
 
@@ -102,7 +103,7 @@ export const nodeProgram =
         listening.delete(message.port);
         ports?.unlisten(message.port, listener);
       } else if (message.op === 'connect') {
-        const take = ports?.route(message.port) ?? null;
+        const take = ports?.route(message.port, message.host) ?? null;
         thread.postMessage({ kind: 'net', op: take ? 'connected' : 'refused', id: message.id });
         if (!take) return;
         const connection = new ScriptConnection(thread, message.id, forget, listener);

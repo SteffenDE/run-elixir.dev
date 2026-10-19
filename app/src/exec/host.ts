@@ -14,7 +14,7 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type Datagram, type Link, type NifBuild, type Served } from '@/runtime/host/node';
+import { Node, type Connection, type Datagram, type Https, type Link, type NifBuild, type Served } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
@@ -161,8 +161,9 @@ const scriptPorts: Ports = {
     updateListening();
   },
   // A process's connection: to the services, as a node's goes, or to what
-  // listens on the port.
-  route(port) {
+  // listens on the port; with a host, HTTPS by fetch.
+  route(port, host) {
+    if (host !== undefined) return (connection) => httpsFetch(connection, { host, port });
     const service = services()[port];
     if (service) return service;
     const target =
@@ -176,6 +177,12 @@ const scriptPorts: Ports = {
 // fetch().
 let net: ReturnType<typeof tailnet> | null = null;
 const tailnetWays = () => (net ??= tailnet(rpc));
+
+// A Node.js process's HTTPS to a host: by fetch (from this origin) alone,
+// since a process has no TLS of its own to do over the tailnet's TCP.
+let processHttps: Https | null = null;
+const httpsFetch: Https = (connection, target) =>
+  (processHttps ??= httpsByFetch({ onblocked: tailnetWays().blocked }))(connection, target);
 
 // What answers on the project's ports for every node and process.
 const services = (): Record<number, (connection: Served) => void> => ({
