@@ -15,7 +15,7 @@
 // connection to NAME:PORT, over which the node does TLS itself (its own
 // ssl, with the options it was given), both ways, for as long as it keeps
 // it; or "error REASON" (a POSIX name) when the tunnel did not open.
-import type { Connection, Https } from './host/node';
+import type { Served, Https } from './host/node';
 
 const HEAD_END = [13, 10, 13, 10];
 const encoder = new TextEncoder();
@@ -78,7 +78,7 @@ function dechunk(bytes: Uint8Array): Uint8Array<ArrayBuffer> | null {
 }
 
 function head(
-  connection: Connection,
+  connection: Served,
   status: number,
   reason: string,
   headers: [string, string][],
@@ -91,14 +91,14 @@ function head(
   connection.write(encoder.encode(lines.join('\r\n') + '\r\n\r\n'));
 }
 
-function chunk(connection: Connection, bytes: Uint8Array): void {
+function chunk(connection: Served, bytes: Uint8Array): void {
   if (!bytes.length) return;
   connection.write(encoder.encode(`${bytes.length.toString(16)}\r\n`));
   connection.write(bytes);
   connection.write(encoder.encode('\r\n'));
 }
 
-function failed(connection: Connection, status: number, reason: string, text: string): void {
+function failed(connection: Served, status: number, reason: string, text: string): void {
   head(connection, status, reason, [['content-type', 'text/plain']], true);
   chunk(connection, encoder.encode(text));
   connection.write(encoder.encode('0\r\n\r\n'));
@@ -116,7 +116,7 @@ export interface Tunnel {
   local?: string;
 }
 
-const say = (connection: Connection, text: string) => connection.write(encoder.encode(`${text}\n`));
+const say = (connection: Served, text: string) => connection.write(encoder.encode(`${text}\n`));
 
 // (connection, { host, port }): a handler for host/node.ts's `https` option.
 // `tunnel(host, port)` gives a tunnel there (or, resolving null, fetch()

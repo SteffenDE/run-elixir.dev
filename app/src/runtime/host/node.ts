@@ -116,6 +116,10 @@ export class Connection {
 // Node.js process's (programs/nodejs.ts).
 export type Link = Pick<Connection, 'ondata' | 'onend' | 'onclose' | 'write' | 'end' | 'close'>;
 
+// A connection a page service answers (postgres.ts, epmd.ts, fetcher.ts,
+// https.ts): a node's, or a Node.js process's; `node` is whose.
+export type Served = Link & { node: object; id: number };
+
 // make waiting for the backend to build a package's NIF library (onnif).
 export interface NifBuild {
   name: string;
@@ -131,7 +135,7 @@ export interface NifBuild {
   error: string | null;
 }
 
-export type Https = (connection: Connection, target: { host: string; port: number }) => void;
+export type Https = (connection: Served, target: { host: string; port: number }) => void;
 // A connection the node opens to another host: the page dials it, and
 // says so (connection.dialed(), or refuse(errno)).
 export type Outbound = (connection: Connection, target: { address: string; port: number }) => void;
@@ -250,7 +254,7 @@ export class Node {
   pending: Uint8Array[];
   connections: Map<number, Connection>;
   next: number;
-  serve: Record<number, (connection: Connection) => void>;
+  serve: Record<number, (connection: Served) => void>;
   // A connection the node opened to a port another node listens on: taken
   // there (project/lib/playground.ts), or false.
   peer: (connection: Connection, port: number) => boolean;
@@ -293,7 +297,7 @@ export class Node {
     onoutput = (_bytes: Uint8Array) => {},
     onstatus = (_text: string) => {},
     onexit = (_code: number) => {},
-    serve = {} as Record<number, (connection: Connection) => void>,
+    serve = {} as Record<number, (connection: Served) => void>,
     https = null as Https | null,
     outbound = null as Outbound | null,
     udpServe = {} as Record<number, UdpService>,

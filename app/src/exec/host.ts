@@ -14,7 +14,7 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type Datagram, type NifBuild } from '@/runtime/host/node';
+import { Node, type Connection, type Datagram, type NifBuild, type Served } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
@@ -122,7 +122,7 @@ const nodeId = (node: object) => {
 // A service the apex answers (Postgres, Hex's cache): the connection
 // carried there.
 function apex(service: 'postgres' | 'hex') {
-  return (connection: Connection) => {
+  return (connection: Served) => {
     const channel = new MessageChannel();
     carry(connection, channel.port1);
     void rpc
