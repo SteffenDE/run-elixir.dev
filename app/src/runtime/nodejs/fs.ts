@@ -62,7 +62,12 @@ export class Stats {
   mtime: Date;
   ctime: Date;
   birthtime: Date;
-  constructor(private kind: string, size: number, ino: number, mtimeNs: string) {
+  constructor(
+    private kind: string,
+    size: number,
+    ino: number,
+    mtimeNs: string,
+  ) {
     this.mode = kind === 'dir' ? 0o40755 : kind === 'link' ? 0o120777 : 0o100644;
     this.size = size;
     this.ino = ino;
@@ -156,17 +161,28 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     return resolvePath(p);
   };
 
-  const ask = (syscall: string, path: string | undefined, request: Record<string, unknown>, bytes?: Uint8Array) => {
+  const ask = (
+    syscall: string,
+    path: string | undefined,
+    request: Record<string, unknown>,
+    bytes?: Uint8Array,
+  ) => {
     const result = call(request, bytes);
     if (result.answer.error) throw fsError(result.answer.error, syscall, path);
     return result;
   };
 
-  const stat = (p: unknown, follow: boolean, syscall: string, throwIfNoEntry = true): Stats | undefined => {
+  const stat = (
+    p: unknown,
+    follow: boolean,
+    syscall: string,
+    throwIfNoEntry = true,
+  ): Stats | undefined => {
     const path = pathOf(p);
     const { answer } = call({ op: 'stat', path, follow });
     if (answer.error) {
-      if (!throwIfNoEntry && (answer.error === E.NOENT || answer.error === E.NOTDIR)) return undefined;
+      if (!throwIfNoEntry && (answer.error === E.NOENT || answer.error === E.NOTDIR))
+        return undefined;
       throw fsError(answer.error, syscall, String(p));
     }
     return new Stats(answer.type, answer.size, answer.ino, answer.mtime);
@@ -208,7 +224,12 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
   const writeAt = (file: Open, bytes: Uint8Array, offset: number): number => {
     let end = offset;
     for (let at = 0; at < bytes.length; at += CHUNK) {
-      const request = { op: 'write', handle: file.handle, offset: offset + at, append: file.append };
+      const request = {
+        op: 'write',
+        handle: file.handle,
+        offset: offset + at,
+        append: file.append,
+      };
       end = ask('write', file.path, request, bytes.subarray(at, at + CHUNK)).answer.position;
     }
     return end;
@@ -268,7 +289,13 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       if (position === null || position === undefined) file.position = at + bytes.length;
       return bytes.length;
     },
-    writeSync(fd: number, data: Data, offsetOrPosition?: unknown, lengthOrEncoding?: unknown, position?: number | null): number {
+    writeSync(
+      fd: number,
+      data: Data,
+      offsetOrPosition?: unknown,
+      lengthOrEncoding?: unknown,
+      position?: number | null,
+    ): number {
       let bytes: Uint8Array;
       let at: number | null | undefined;
       if (typeof data === 'string') {
@@ -339,10 +366,15 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       const withTypes = typeof options === 'object' && options?.withFileTypes;
       const recursive = typeof options === 'object' && options?.recursive;
       const list = (dir: string, prefix: string): (string | Dirent)[] => {
-        const { answer } = ask('scandir', String(p), { op: 'open', path: dir, oflags: OFLAGS.DIRECTORY });
+        const { answer } = ask('scandir', String(p), {
+          op: 'open',
+          path: dir,
+          oflags: OFLAGS.DIRECTORY,
+        });
         let entries: [string, string][];
         try {
-          entries = ask('scandir', String(p), { op: 'readdir', handle: answer.handle }).answer.entries;
+          entries = ask('scandir', String(p), { op: 'readdir', handle: answer.handle }).answer
+            .entries;
         } finally {
           call({ op: 'close', handle: answer.handle });
         }
@@ -355,7 +387,10 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       };
       return list(path, '');
     },
-    mkdirSync(p: unknown, options?: number | { recursive?: boolean; mode?: number }): string | undefined {
+    mkdirSync(
+      p: unknown,
+      options?: number | { recursive?: boolean; mode?: number },
+    ): string | undefined {
       const path = pathOf(p);
       if (typeof options === 'object' && options?.recursive) {
         let first: string | undefined;
@@ -402,7 +437,8 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       }
       if (found.isDirectory()) {
         if (!options?.recursive) throw fsError(E.ISDIR, 'rm', String(p));
-        for (const name of sync.readdirSync(path) as string[]) sync.rmSync(`${path}/${name}`, options);
+        for (const name of sync.readdirSync(path) as string[])
+          sync.rmSync(`${path}/${name}`, options);
         ask('rmdir', String(p), { op: 'rmdir', path });
       } else ask('unlink', String(p), { op: 'unlink', path });
     },
@@ -476,7 +512,10 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     if (!name.endsWith('Sync')) continue;
     const base = name.slice(0, -4);
     callbacks[base] = (...args: unknown[]) => {
-      const done = typeof args[args.length - 1] === 'function' ? (args.pop() as (...a: unknown[]) => void) : null;
+      const done =
+        typeof args[args.length - 1] === 'function'
+          ? (args.pop() as (...a: unknown[]) => void)
+          : null;
       let result: unknown;
       let error: unknown = null;
       try {
@@ -498,7 +537,10 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     }
   };
   callbacks.write = (fd: number, data: Data, ...rest: unknown[]) => {
-    const done = typeof rest[rest.length - 1] === 'function' ? (rest.pop() as (e: unknown, n?: number, d?: Data) => void) : () => {};
+    const done =
+      typeof rest[rest.length - 1] === 'function'
+        ? (rest.pop() as (e: unknown, n?: number, d?: Data) => void)
+        : () => {};
     try {
       const n = sync.writeSync(fd, data, ...(rest as [number]));
       later(() => done(null, n, data));

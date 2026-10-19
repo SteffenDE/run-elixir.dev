@@ -10,13 +10,53 @@ import { createUtil, inspect, isDeepStrictEqual, types } from './util';
 type Factories = Record<string, () => unknown>;
 
 export const BUILTINS = [
-  'assert', 'assert/strict', 'async_hooks', 'buffer', 'child_process', 'cluster', 'console',
-  'constants', 'crypto', 'dgram', 'diagnostics_channel', 'dns', 'dns/promises', 'events', 'fs',
-  'fs/promises', 'http', 'http2', 'https', 'inspector', 'module', 'net', 'os', 'path',
-  'path/posix', 'perf_hooks', 'process', 'punycode', 'querystring', 'readline',
-  'readline/promises', 'stream', 'stream/promises', 'stream/web', 'string_decoder', 'sys',
-  'timers', 'timers/promises', 'tls', 'tty', 'url', 'util', 'util/types', 'v8', 'vm',
-  'worker_threads', 'zlib',
+  'assert',
+  'assert/strict',
+  'async_hooks',
+  'buffer',
+  'child_process',
+  'cluster',
+  'console',
+  'constants',
+  'crypto',
+  'dgram',
+  'diagnostics_channel',
+  'dns',
+  'dns/promises',
+  'events',
+  'fs',
+  'fs/promises',
+  'http',
+  'http2',
+  'https',
+  'inspector',
+  'module',
+  'net',
+  'os',
+  'path',
+  'path/posix',
+  'perf_hooks',
+  'process',
+  'punycode',
+  'querystring',
+  'readline',
+  'readline/promises',
+  'stream',
+  'stream/promises',
+  'stream/web',
+  'string_decoder',
+  'sys',
+  'timers',
+  'timers/promises',
+  'tls',
+  'tty',
+  'url',
+  'util',
+  'util/types',
+  'v8',
+  'vm',
+  'worker_threads',
+  'zlib',
 ];
 
 // A module's calls that the playground lacks: each throws, naming it.
@@ -24,7 +64,9 @@ function missing(module: string, names: string[], extra: Record<string, unknown>
   const out: Record<string, unknown> = { ...extra };
   for (const name of names)
     out[name] = () => {
-      const error = new Error(`${module}.${name} is not available in the playground yet`) as Error & { code: string };
+      const error = new Error(
+        `${module}.${name} is not available in the playground yet`,
+      ) as Error & { code: string };
       error.code = 'ERR_NOT_AVAILABLE';
       throw error;
     };
@@ -76,7 +118,10 @@ export function createBuiltins(deps: {
           this.store = undefined;
         }
         static bind = <F>(fn: F) => fn;
-        static snapshot = () => (fn: (...a: unknown[]) => unknown, ...args: unknown[]) => fn(...args);
+        static snapshot =
+          () =>
+          (fn: (...a: unknown[]) => unknown, ...args: unknown[]) =>
+            fn(...args);
       }
       class AsyncResource {
         constructor(public type: string) {}
@@ -96,7 +141,14 @@ export function createBuiltins(deps: {
       return {
         AsyncLocalStorage,
         AsyncResource,
-        createHook: () => ({ enable() { return this; }, disable() { return this; } }),
+        createHook: () => ({
+          enable() {
+            return this;
+          },
+          disable() {
+            return this;
+          },
+        }),
         executionAsyncId: () => 1,
         triggerAsyncId: () => 0,
         executionAsyncResource: () => ({}),
@@ -121,8 +173,22 @@ export function createBuiltins(deps: {
       isAscii: (bytes: Uint8Array) => bytes.every((b) => b < 128),
     }),
     child_process: () =>
-      missing('child_process', ['spawn', 'exec', 'execFile', 'fork', 'spawnSync', 'execSync', 'execFileSync']),
-    cluster: () => ({ isPrimary: true, isMaster: true, isWorker: false, workers: {}, ...missing('cluster', ['fork', 'setupPrimary']) }),
+      missing('child_process', [
+        'spawn',
+        'exec',
+        'execFile',
+        'fork',
+        'spawnSync',
+        'execSync',
+        'execFileSync',
+      ]),
+    cluster: () => ({
+      isPrimary: true,
+      isMaster: true,
+      isWorker: false,
+      workers: {},
+      ...missing('cluster', ['fork', 'setupPrimary']),
+    }),
     console: () => deps.console,
     constants: () => ({ ...osConstants.signals, ...(deps.fs.constants as object) }),
     crypto: () => createCrypto(),
@@ -136,7 +202,12 @@ export function createBuiltins(deps: {
         unsubscribe: () => true,
         bindStore() {},
         unbindStore() {},
-        runStores: (_data: unknown, fn: (...a: unknown[]) => unknown, self: unknown, ...args: unknown[]) => fn.apply(self, args),
+        runStores: (
+          _data: unknown,
+          fn: (...a: unknown[]) => unknown,
+          self: unknown,
+          ...args: unknown[]
+        ) => fn.apply(self, args),
       });
       return {
         channel,
@@ -152,13 +223,32 @@ export function createBuiltins(deps: {
           hasSubscribers: false,
           subscribe() {},
           unsubscribe() {},
-          traceSync: (fn: (...a: unknown[]) => unknown, _ctx: unknown, self: unknown, ...args: unknown[]) => fn.apply(self, args),
-          tracePromise: (fn: (...a: unknown[]) => unknown, _ctx: unknown, self: unknown, ...args: unknown[]) => fn.apply(self, args),
-          traceCallback: (fn: (...a: unknown[]) => unknown, _pos: unknown, _ctx: unknown, self: unknown, ...args: unknown[]) => fn.apply(self, args),
+          traceSync: (
+            fn: (...a: unknown[]) => unknown,
+            _ctx: unknown,
+            self: unknown,
+            ...args: unknown[]
+          ) => fn.apply(self, args),
+          tracePromise: (
+            fn: (...a: unknown[]) => unknown,
+            _ctx: unknown,
+            self: unknown,
+            ...args: unknown[]
+          ) => fn.apply(self, args),
+          traceCallback: (
+            fn: (...a: unknown[]) => unknown,
+            _pos: unknown,
+            _ctx: unknown,
+            self: unknown,
+            ...args: unknown[]
+          ) => fn.apply(self, args),
         }),
       };
     },
-    dns: () => missing('dns', ['lookup', 'resolve', 'resolve4', 'resolve6'], { promises: missing('dns.promises', ['lookup', 'resolve']) }),
+    dns: () =>
+      missing('dns', ['lookup', 'resolve', 'resolve4', 'resolve6'], {
+        promises: missing('dns.promises', ['lookup', 'resolve']),
+      }),
     'dns/promises': () => missing('dns.promises', ['lookup', 'resolve']),
     events: () => {
       const events = EventEmitter as unknown as Record<string, unknown>;
@@ -175,17 +265,34 @@ export function createBuiltins(deps: {
     },
     fs: () => deps.fs,
     'fs/promises': () => deps.fsPromises,
-    http: () => missing('http', ['createServer', 'request', 'get'], { STATUS_CODES, METHODS, Agent: class {}, globalAgent: {} }),
+    http: () =>
+      missing('http', ['createServer', 'request', 'get'], {
+        STATUS_CODES,
+        METHODS,
+        Agent,
+        globalAgent: {},
+      }),
     http2: () => missing('http2', ['createServer', 'connect']),
-    https: () => missing('https', ['createServer', 'request', 'get'], { Agent: class {}, globalAgent: {} }),
-    inspector: () => ({ url: () => undefined, open() {}, close() {}, Session: class { connect() {} post() {} disconnect() {} } }),
-    module: () => deps.module(),
-    net: () => missing('net', ['createServer', 'createConnection', 'connect'], {
-      isIP: (s: string) => (/^\d+\.\d+\.\d+\.\d+$/.test(s) ? 4 : s.includes(':') ? 6 : 0),
-      isIPv4: (s: string) => /^\d+\.\d+\.\d+\.\d+$/.test(s),
-      isIPv6: (s: string) => s.includes(':'),
-      Socket: class {},
+    https: () =>
+      missing('https', ['createServer', 'request', 'get'], { Agent, globalAgent: new Agent() }),
+    inspector: () => ({
+      url: () => undefined,
+      open() {},
+      close() {},
+      Session: class {
+        connect() {}
+        post() {}
+        disconnect() {}
+      },
     }),
+    module: () => deps.module(),
+    net: () =>
+      missing('net', ['createServer', 'createConnection', 'connect'], {
+        isIP: (s: string) => (/^\d+\.\d+\.\d+\.\d+$/.test(s) ? 4 : s.includes(':') ? 6 : 0),
+        isIPv4: (s: string) => /^\d+\.\d+\.\d+\.\d+$/.test(s),
+        isIPv6: (s: string) => s.includes(':'),
+        Socket: class Socket extends EventEmitter {},
+      }),
     os: () => createOs(deps.env),
     path: () => deps.path,
     'path/posix': () => deps.path,
@@ -195,7 +302,14 @@ export function createBuiltins(deps: {
         observe() {}
         disconnect() {}
       },
-      monitorEventLoopDelay: () => ({ enable() {}, disable() {}, percentile: () => 0, mean: 0, max: 0, min: 0 }),
+      monitorEventLoopDelay: () => ({
+        enable() {},
+        disable() {},
+        percentile: () => 0,
+        mean: 0,
+        max: 0,
+        min: 0,
+      }),
       constants: {},
     }),
     process: () => process,
@@ -216,31 +330,53 @@ export function createBuiltins(deps: {
       return out;
     },
     'stream/promises': () => streamPromises(),
-    'stream/web': () => ({ ReadableStream, WritableStream, TransformStream, TextEncoderStream, TextDecoderStream }),
+    'stream/web': () => ({
+      ReadableStream,
+      WritableStream,
+      TransformStream,
+      TextEncoderStream,
+      TextDecoderStream,
+    }),
     string_decoder: () => ({ StringDecoder }),
     sys: () => util,
     timers: () => timers,
     'timers/promises': () => ({
       setTimeout: (ms?: number, value?: unknown) =>
-        new Promise((resolve) => (timers.setTimeout as (f: () => void, ms?: number) => void)(() => resolve(value), ms)),
+        new Promise((resolve) =>
+          (timers.setTimeout as (f: () => void, ms?: number) => void)(() => resolve(value), ms),
+        ),
       setImmediate: (value?: unknown) =>
-        new Promise((resolve) => (timers.setImmediate as (f: () => void) => void)(() => resolve(value))),
+        new Promise((resolve) =>
+          (timers.setImmediate as (f: () => void) => void)(() => resolve(value)),
+        ),
       scheduler: {
-        wait: (ms: number) => new Promise((resolve) => (timers.setTimeout as (f: (v?: unknown) => void, ms?: number) => void)(resolve, ms)),
-        yield: () => new Promise((resolve) => (timers.setImmediate as (f: (v?: unknown) => void) => void)(resolve)),
+        wait: (ms: number) =>
+          new Promise((resolve) =>
+            (timers.setTimeout as (f: (v?: unknown) => void, ms?: number) => void)(resolve, ms),
+          ),
+        yield: () =>
+          new Promise((resolve) =>
+            (timers.setImmediate as (f: (v?: unknown) => void) => void)(resolve),
+          ),
       },
     }),
-    tls: () => missing('tls', ['connect', 'createServer', 'createSecureContext'], { rootCertificates: [] }),
+    tls: () =>
+      missing('tls', ['connect', 'createServer', 'createSecureContext'], { rootCertificates: [] }),
     tty: () => ({
       isatty: (fd: number) => deps.tty && fd >= 0 && fd <= 2,
-      ReadStream: class {},
-      WriteStream: class {},
+      ReadStream: class ReadStream extends EventEmitter {},
+      WriteStream: class WriteStream extends EventEmitter {},
     }),
     url: () => createUrl(),
     util: () => util,
     'util/types': () => types,
     v8: () => ({
-      getHeapStatistics: () => ({ total_heap_size: 30e6, used_heap_size: 20e6, heap_size_limit: 2 ** 31, total_available_size: 2 ** 31 }),
+      getHeapStatistics: () => ({
+        total_heap_size: 30e6,
+        used_heap_size: 20e6,
+        heap_size_limit: 2 ** 31,
+        total_available_size: 2 ** 31,
+      }),
       getHeapSpaceStatistics: () => [],
       setFlagsFromString() {},
       cachedDataVersionTag: () => 0,
@@ -261,7 +397,21 @@ export function createBuiltins(deps: {
       markAsUntransferable() {},
       ...missing('worker_threads', ['Worker']),
     }),
-    zlib: () => missing('zlib', ['gzipSync', 'gunzipSync', 'deflateSync', 'inflateSync', 'createGzip', 'createGunzip', 'brotliCompressSync', 'brotliDecompressSync'], { constants: {} }),
+    zlib: () =>
+      missing(
+        'zlib',
+        [
+          'gzipSync',
+          'gunzipSync',
+          'deflateSync',
+          'inflateSync',
+          'createGzip',
+          'createGunzip',
+          'brotliCompressSync',
+          'brotliDecompressSync',
+        ],
+        { constants: {} },
+      ),
   };
 
   const made = new Map<string, unknown>();
@@ -297,24 +447,53 @@ function on(emitter: EventEmitter, event: string) {
 }
 
 function streamPromises() {
-  const { pipeline, finished } = stream as unknown as Record<string, (...args: unknown[]) => unknown>;
+  const { pipeline, finished } = stream as unknown as Record<
+    string,
+    (...args: unknown[]) => unknown
+  >;
   return {
     pipeline: (...streams: unknown[]) =>
-      new Promise((resolve, reject) => pipeline(...streams, (error: unknown) => (error ? reject(error) : resolve(undefined)))),
+      new Promise((resolve, reject) =>
+        pipeline(...streams, (error: unknown) => (error ? reject(error) : resolve(undefined))),
+      ),
     finished: (s: unknown, options?: unknown) =>
-      new Promise((resolve, reject) => finished(s, options ?? {}, (error: unknown) => (error ? reject(error) : resolve(undefined)))),
+      new Promise((resolve, reject) =>
+        finished(s, options ?? {}, (error: unknown) =>
+          error ? reject(error) : resolve(undefined),
+        ),
+      ),
   };
 }
 
 const osConstants = {
-  signals: { SIGHUP: 1, SIGINT: 2, SIGQUIT: 3, SIGKILL: 9, SIGUSR1: 10, SIGSEGV: 11, SIGUSR2: 12, SIGPIPE: 13, SIGALRM: 14, SIGTERM: 15, SIGCHLD: 17, SIGCONT: 18, SIGSTOP: 19, SIGTSTP: 20, SIGWINCH: 28 },
+  signals: {
+    SIGHUP: 1,
+    SIGINT: 2,
+    SIGQUIT: 3,
+    SIGKILL: 9,
+    SIGUSR1: 10,
+    SIGSEGV: 11,
+    SIGUSR2: 12,
+    SIGPIPE: 13,
+    SIGALRM: 14,
+    SIGTERM: 15,
+    SIGCHLD: 17,
+    SIGCONT: 18,
+    SIGSTOP: 19,
+    SIGTSTP: 20,
+    SIGWINCH: 28,
+  },
   errno: { ENOENT: 2, EACCES: 13, EEXIST: 17, ENOTDIR: 20, EISDIR: 21, EINVAL: 22, ENOTEMPTY: 39 },
   priority: { PRIORITY_LOW: 19, PRIORITY_NORMAL: 0, PRIORITY_HIGH: -14 },
 };
 
 function createOs(env: Record<string, string>) {
   const count = navigator.hardwareConcurrency || 4;
-  const cpu = { model: 'WebAssembly playground', speed: 2400, times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 } };
+  const cpu = {
+    model: 'WebAssembly playground',
+    speed: 2400,
+    times: { user: 0, nice: 0, sys: 0, idle: 0, irq: 0 },
+  };
   return {
     EOL: '\n',
     devNull: '/dev/null',
@@ -336,7 +515,13 @@ function createOs(env: Record<string, string>) {
     loadavg: () => [0, 0, 0],
     uptime: () => Math.floor(performance.now() / 1000),
     networkInterfaces: () => ({}),
-    userInfo: () => ({ username: env.USER ?? 'user', uid: 1000, gid: 1000, shell: '/bin/sh', homedir: env.HOME ?? '/home/user' }),
+    userInfo: () => ({
+      username: env.USER ?? 'user',
+      uid: 1000,
+      gid: 1000,
+      shell: '/bin/sh',
+      homedir: env.HOME ?? '/home/user',
+    }),
     getPriority: () => 0,
     setPriority: () => {},
   };
@@ -373,7 +558,17 @@ function createUrl() {
       };
     } catch {
       const [pathname, search = ''] = text.split('?');
-      return { protocol: null, slashes: null, host: null, hostname: null, pathname, search: search ? `?${search}` : null, query: query ? Object.fromEntries(new URLSearchParams(search)) : search || null, path: text, href: text };
+      return {
+        protocol: null,
+        slashes: null,
+        host: null,
+        hostname: null,
+        pathname,
+        search: search ? `?${search}` : null,
+        query: query ? Object.fromEntries(new URLSearchParams(search)) : search || null,
+        path: text,
+        href: text,
+      };
     }
   };
   return {
@@ -383,11 +578,19 @@ function createUrl() {
     pathToFileURL,
     parse,
     format: (url: URL | Record<string, string>) =>
-      url instanceof URL ? url.href : `${url.protocol ?? ''}${url.slashes || url.protocol ? '//' : ''}${url.host ?? url.hostname ?? ''}${url.pathname ?? ''}${url.search ?? ''}${url.hash ?? ''}`,
-    resolve: (from: string, to: string) => new URL(to, new URL(from, 'resolve://')).href.replace(/^resolve:\/\//, ''),
+      url instanceof URL
+        ? url.href
+        : `${url.protocol ?? ''}${url.slashes || url.protocol ? '//' : ''}${url.host ?? url.hostname ?? ''}${url.pathname ?? ''}${url.search ?? ''}${url.hash ?? ''}`,
+    resolve: (from: string, to: string) =>
+      new URL(to, new URL(from, 'resolve://')).href.replace(/^resolve:\/\//, ''),
     domainToASCII: (domain: string) => domain,
     domainToUnicode: (domain: string) => domain,
-    urlToHttpOptions: (url: URL) => ({ protocol: url.protocol, hostname: url.hostname, port: url.port, path: url.pathname + url.search }),
+    urlToHttpOptions: (url: URL) => ({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port,
+      path: url.pathname + url.search,
+    }),
   };
 }
 
@@ -395,7 +598,9 @@ function createVm() {
   const runIn = (code: string, context: Record<string, unknown> = {}) => {
     const names = Object.keys(context);
     // oxlint-disable-next-line no-new-func -- vm runs code.
-    return new Function(...names, `return eval(${JSON.stringify(code)})`)(...names.map((n) => context[n]));
+    return new Function(...names, `return eval(${JSON.stringify(code)})`)(
+      ...names.map((n) => context[n]),
+    );
   };
   class Script {
     constructor(private code: string) {}
@@ -451,7 +656,7 @@ function createReadline(process: Record<string, unknown> & EventEmitter) {
   };
   return {
     createInterface,
-    Interface: class {},
+    Interface: class Interface extends EventEmitter {},
     clearLine: () => true,
     clearScreenDown: () => true,
     cursorTo: () => true,
@@ -463,14 +668,16 @@ function createReadline(process: Record<string, unknown> & EventEmitter) {
 function createCrypto() {
   const randomBytes = (size: number, callback?: (e: unknown, b: Buffer) => void) => {
     const bytes = Buffer.alloc(size);
-    for (let at = 0; at < size; at += 65536) crypto.getRandomValues(bytes.subarray(at, at + 65536) as Uint8Array<ArrayBuffer>);
+    for (let at = 0; at < size; at += 65536)
+      crypto.getRandomValues(bytes.subarray(at, at + 65536) as Uint8Array<ArrayBuffer>);
     if (callback) queueMicrotask(() => callback(null, bytes));
     return bytes;
   };
   return {
     webcrypto: crypto,
     subtle: crypto.subtle,
-    getRandomValues: (array: ArrayBufferView) => crypto.getRandomValues(array as Uint8Array<ArrayBuffer>),
+    getRandomValues: (array: ArrayBufferView) =>
+      crypto.getRandomValues(array as Uint8Array<ArrayBuffer>),
     randomUUID: () => crypto.randomUUID(),
     randomBytes,
     pseudoRandomBytes: randomBytes,
@@ -479,15 +686,41 @@ function createCrypto() {
       if (max === undefined) [min, max] = [0, min];
       return min + Math.floor(Math.random() * (max - min));
     },
-    timingSafeEqual: (a: Uint8Array, b: Uint8Array) => a.length === b.length && a.every((x, i) => x === b[i]),
+    timingSafeEqual: (a: Uint8Array, b: Uint8Array) =>
+      a.length === b.length && a.every((x, i) => x === b[i]),
     getHashes: () => [],
-    ...missing('crypto', ['createHash', 'createHmac', 'createCipheriv', 'createDecipheriv', 'pbkdf2Sync', 'scryptSync', 'createSign', 'createVerify', 'generateKeyPairSync', 'hash']),
+    ...missing('crypto', [
+      'createHash',
+      'createHmac',
+      'createCipheriv',
+      'createDecipheriv',
+      'pbkdf2Sync',
+      'scryptSync',
+      'createSign',
+      'createVerify',
+      'generateKeyPairSync',
+      'hash',
+    ]),
   };
 }
 
+// http's and https's Agent: its options kept, as nothing connects yet.
+class Agent {
+  constructor(public options: Record<string, unknown> = {}) {}
+}
+
 const STATUS_CODES: Record<number, string> = {
-  200: 'OK', 201: 'Created', 204: 'No Content', 301: 'Moved Permanently', 302: 'Found', 304: 'Not Modified',
-  400: 'Bad Request', 401: 'Unauthorized', 403: 'Forbidden', 404: 'Not Found', 500: 'Internal Server Error',
+  200: 'OK',
+  201: 'Created',
+  204: 'No Content',
+  301: 'Moved Permanently',
+  302: 'Found',
+  304: 'Not Modified',
+  400: 'Bad Request',
+  401: 'Unauthorized',
+  403: 'Forbidden',
+  404: 'Not Found',
+  500: 'Internal Server Error',
 };
 const METHODS = ['DELETE', 'GET', 'HEAD', 'OPTIONS', 'PATCH', 'POST', 'PUT'];
 
@@ -505,7 +738,13 @@ class AssertionError extends Error {
 }
 
 function createAssert() {
-  const fail = (message: unknown, fallback: string, actual?: unknown, expected?: unknown, operator?: string): never => {
+  const fail = (
+    message: unknown,
+    fallback: string,
+    actual?: unknown,
+    expected?: unknown,
+    operator?: string,
+  ): never => {
     if (message instanceof Error) throw message;
     throw new AssertionError((message as string) ?? fallback, actual, expected, operator);
   };
@@ -514,12 +753,21 @@ function createAssert() {
     if (a == b) return true;
     if (typeof a !== 'object' || typeof b !== 'object' || !a || !b) return false;
     const ka = Object.keys(a);
-    return ka.length === Object.keys(b).length && ka.every((k) => looseEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]));
+    return (
+      ka.length === Object.keys(b).length &&
+      ka.every((k) =>
+        looseEqual((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k]),
+      )
+    );
   };
   const matches = (error: unknown, expected: unknown): boolean => {
     if (expected === undefined) return true;
     if (typeof expected === 'function') {
-      if ((expected as { prototype?: unknown }).prototype !== undefined && error instanceof (expected as new () => unknown)) return true;
+      if (
+        (expected as { prototype?: unknown }).prototype !== undefined &&
+        error instanceof (expected as new () => unknown)
+      )
+        return true;
       if (Error.isPrototypeOf(expected as object)) return false;
       return (expected as (e: unknown) => boolean)(error) === true;
     }
@@ -532,7 +780,14 @@ function createAssert() {
     return false;
   };
   const ok = (value: unknown, message?: unknown) => {
-    if (!value) fail(message, `The expression evaluated to a falsy value:\n\n  assert.ok(${inspect(value)})\n`, value, true, '==');
+    if (!value)
+      fail(
+        message,
+        `The expression evaluated to a falsy value:\n\n  assert.ok(${inspect(value)})\n`,
+        value,
+        true,
+        '==',
+      );
   };
   const assert = Object.assign(ok, {
     ok,
@@ -547,25 +802,74 @@ function createAssert() {
       if (a == b) fail(message, `${inspect(a)} != ${inspect(b)}`, a, b, '!=');
     },
     strictEqual: (a: unknown, b: unknown, message?: unknown) => {
-      if (!Object.is(a, b)) fail(message, `Expected values to be strictly equal:\n\n${inspect(a)} !== ${inspect(b)}\n`, a, b, 'strictEqual');
+      if (!Object.is(a, b))
+        fail(
+          message,
+          `Expected values to be strictly equal:\n\n${inspect(a)} !== ${inspect(b)}\n`,
+          a,
+          b,
+          'strictEqual',
+        );
     },
     notStrictEqual: (a: unknown, b: unknown, message?: unknown) => {
-      if (Object.is(a, b)) fail(message, `Expected "actual" to be strictly unequal to: ${inspect(b)}`, a, b, 'notStrictEqual');
+      if (Object.is(a, b))
+        fail(
+          message,
+          `Expected "actual" to be strictly unequal to: ${inspect(b)}`,
+          a,
+          b,
+          'notStrictEqual',
+        );
     },
     deepEqual: (a: unknown, b: unknown, message?: unknown) => {
-      if (!looseEqual(a, b)) fail(message, `Expected values to be loosely deep-equal:\n\n${inspect(a)}\n\nshould loosely deep-equal\n\n${inspect(b)}`, a, b, 'deepEqual');
+      if (!looseEqual(a, b))
+        fail(
+          message,
+          `Expected values to be loosely deep-equal:\n\n${inspect(a)}\n\nshould loosely deep-equal\n\n${inspect(b)}`,
+          a,
+          b,
+          'deepEqual',
+        );
     },
     deepStrictEqual: (a: unknown, b: unknown, message?: unknown) => {
-      if (!isDeepStrictEqual(a, b)) fail(message, `Expected values to be strictly deep-equal:\n\n${inspect(a)}\n\nshould equal\n\n${inspect(b)}`, a, b, 'deepStrictEqual');
+      if (!isDeepStrictEqual(a, b))
+        fail(
+          message,
+          `Expected values to be strictly deep-equal:\n\n${inspect(a)}\n\nshould equal\n\n${inspect(b)}`,
+          a,
+          b,
+          'deepStrictEqual',
+        );
     },
     notDeepStrictEqual: (a: unknown, b: unknown, message?: unknown) => {
-      if (isDeepStrictEqual(a, b)) fail(message, 'Expected "actual" not to be strictly deep-equal to "expected"', a, b, 'notDeepStrictEqual');
+      if (isDeepStrictEqual(a, b))
+        fail(
+          message,
+          'Expected "actual" not to be strictly deep-equal to "expected"',
+          a,
+          b,
+          'notDeepStrictEqual',
+        );
     },
     match: (text: string, pattern: RegExp, message?: unknown) => {
-      if (!pattern.test(text)) fail(message, `The input did not match the regular expression ${pattern}. Input:\n\n${inspect(text)}\n`, text, pattern, 'match');
+      if (!pattern.test(text))
+        fail(
+          message,
+          `The input did not match the regular expression ${pattern}. Input:\n\n${inspect(text)}\n`,
+          text,
+          pattern,
+          'match',
+        );
     },
     doesNotMatch: (text: string, pattern: RegExp, message?: unknown) => {
-      if (pattern.test(text)) fail(message, `The input was expected to not match the regular expression ${pattern}.`, text, pattern, 'doesNotMatch');
+      if (pattern.test(text))
+        fail(
+          message,
+          `The input was expected to not match the regular expression ${pattern}.`,
+          text,
+          pattern,
+          'doesNotMatch',
+        );
     },
     throws: (fn: () => unknown, expected?: unknown, message?: unknown) => {
       try {
@@ -574,19 +878,35 @@ function createAssert() {
         if (!matches(error, expected)) throw error;
         return;
       }
-      fail(typeof expected === 'string' ? expected : message, 'Missing expected exception.', undefined, expected, 'throws');
+      fail(
+        typeof expected === 'string' ? expected : message,
+        'Missing expected exception.',
+        undefined,
+        expected,
+        'throws',
+      );
     },
     doesNotThrow: (fn: () => unknown) => {
       fn();
     },
-    rejects: async (promise: Promise<unknown> | (() => Promise<unknown>), expected?: unknown, message?: unknown) => {
+    rejects: async (
+      promise: Promise<unknown> | (() => Promise<unknown>),
+      expected?: unknown,
+      message?: unknown,
+    ) => {
       try {
         await (typeof promise === 'function' ? promise() : promise);
       } catch (error) {
         if (!matches(error, expected)) throw error;
         return;
       }
-      fail(typeof expected === 'string' ? expected : message, 'Missing expected rejection.', undefined, expected, 'rejects');
+      fail(
+        typeof expected === 'string' ? expected : message,
+        'Missing expected rejection.',
+        undefined,
+        expected,
+        'rejects',
+      );
     },
     doesNotReject: async (promise: Promise<unknown> | (() => Promise<unknown>)) => {
       await (typeof promise === 'function' ? promise() : promise);

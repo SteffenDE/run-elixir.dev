@@ -55,7 +55,15 @@ const io = {
 
 // node's own flags, the script (or -e), and the script's arguments.
 function parse(args: string[]) {
-  const out = { eval: null as string | null, print: false, script: null as string | null, rest: [] as string[], requires: [] as string[], version: false, help: false };
+  const out = {
+    eval: null as string | null,
+    print: false,
+    script: null as string | null,
+    rest: [] as string[],
+    requires: [] as string[],
+    version: false,
+    help: false,
+  };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--') {
@@ -83,7 +91,12 @@ function parse(args: string[]) {
     else if (arg === '-h' || arg === '--help') out.help = true;
     else if (arg.startsWith('-')) {
       // Flags that take a value as the next argument.
-      if (/^--(stack-size|max-old-space-size|input-type|conditions|loader|experimental-loader|title)$/.test(arg)) i++;
+      if (
+        /^--(stack-size|max-old-space-size|input-type|conditions|loader|experimental-loader|title)$/.test(
+          arg,
+        )
+      )
+        i++;
     } else {
       out.script = arg;
       out.rest = args.slice(i + 1);
@@ -112,7 +125,11 @@ async function run(start: Start) {
   const env = { ...start.env, PWD: start.cwd };
   let proc: ReturnType<typeof createProcess>;
   const path = createPath(() => (proc ? (proc.process.cwd as () => string)() : start.cwd));
-  const files = createFs(call, () => path.resolve('.'), (p) => path.resolve(p));
+  const files = createFs(
+    call,
+    () => path.resolve('.'),
+    (p) => path.resolve(p),
+  );
   const script = options.script ? path.resolve(options.script) : '[eval]';
   proc = createProcess({
     argv: ['/usr/bin/node', ...(options.script ? [script] : []), ...options.rest],
@@ -172,7 +189,8 @@ async function run(start: Start) {
     for (const name of options.requires) loader.createRequire(`${start.cwd}/`)(name);
     if (options.eval !== null) {
       const result = loader.evaluate(options.eval, start.cwd);
-      if (options.print) console.log(typeof result === 'string' ? result : inspect(result, { colors: start.tty }));
+      if (options.print)
+        console.log(typeof result === 'string' ? result : inspect(result, { colors: start.tty }));
     } else await loader.runMain(script);
   } catch (error) {
     fail(error);

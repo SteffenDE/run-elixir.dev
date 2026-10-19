@@ -11,7 +11,10 @@ import type { createPath } from './path';
 type Path = ReturnType<typeof createPath>;
 
 export interface LoaderFs {
-  statSync(p: string, options: { throwIfNoEntry: false }): { isFile(): boolean; isDirectory(): boolean } | undefined;
+  statSync(
+    p: string,
+    options: { throwIfNoEntry: false },
+  ): { isFile(): boolean; isDirectory(): boolean } | undefined;
   readFileSync(p: string, encoding: 'utf8'): string;
   realpathSync(p: string): string;
 }
@@ -84,7 +87,10 @@ export function createLoader(options: {
         try {
           json = JSON.parse(fs.readFileSync(file, 'utf8'));
         } catch (error) {
-          throw new ModuleError(`Invalid package config ${file}: ${(error as Error).message}`, 'ERR_INVALID_PACKAGE_CONFIG');
+          throw new ModuleError(
+            `Invalid package config ${file}: ${(error as Error).message}`,
+            'ERR_INVALID_PACKAGE_CONFIG',
+          );
         }
       }
       packageJsons.set(dir, json);
@@ -138,7 +144,10 @@ export function createLoader(options: {
     if (typeof map === 'string' || Array.isArray(map)) entries = { '.': map };
     else {
       const keys = Object.keys(map as object);
-      entries = keys.length && !keys[0].startsWith('.') && !keys[0].startsWith('#') ? { '.': map } : (map as Record<string, unknown>);
+      entries =
+        keys.length && !keys[0].startsWith('.') && !keys[0].startsWith('#')
+          ? { '.': map }
+          : (map as Record<string, unknown>);
     }
     if (subpath in entries && !subpath.includes('*')) return target(dir, entries[subpath], '');
     let best: string | null = null;
@@ -147,7 +156,11 @@ export function createLoader(options: {
       if (star === -1) continue;
       const prefix = key.slice(0, star);
       const suffix = key.slice(star + 1);
-      if (subpath.startsWith(prefix) && subpath.endsWith(suffix) && subpath.length >= key.length - 1)
+      if (
+        subpath.startsWith(prefix) &&
+        subpath.endsWith(suffix) &&
+        subpath.length >= key.length - 1
+      )
         if (!best || prefix.length > best.indexOf('*')) best = key;
     }
     if (best) {
@@ -208,12 +221,23 @@ export function createLoader(options: {
   };
 
   // `request` from a module in `dir`: a builtin's name (node:fs) or a file.
-  const resolve = (request: string, dir: string, parent: Module | null, paths?: string[]): string => {
+  const resolve = (
+    request: string,
+    dir: string,
+    parent: Module | null,
+    paths?: string[],
+  ): string => {
     if (request.startsWith('file://')) request = decodeURIComponent(new URL(request).pathname);
     const bare = request.startsWith('node:') ? request.slice(5) : request;
     if (builtins.includes(bare)) return `node:${bare}`;
     if (request.startsWith('node:')) throw notFound(request, parent);
-    if (request.startsWith('/') || request.startsWith('./') || request.startsWith('../') || request === '.' || request === '..') {
+    if (
+      request.startsWith('/') ||
+      request.startsWith('./') ||
+      request.startsWith('../') ||
+      request === '.' ||
+      request === '..'
+    ) {
       const absolute = path.resolve(dir, request);
       const found = asFile(absolute) ?? asDirectory(absolute);
       if (found) return real(found);
@@ -265,7 +289,9 @@ export function createLoader(options: {
     if (packageScope(file)?.[1].type === 'module') return true;
     // Node's syntax detection, as far as a glance goes: import or export
     // statements at a line's start.
-    return /^\s*(import\s*[\w{*'"]|export\s+(?:\{|\*|default|const|let|var|function|class|async))/m.test(source);
+    return /^\s*(import\s*[\w{*'"]|export\s+(?:\{|\*|default|const|let|var|function|class|async))/m.test(
+      source,
+    );
   };
 
   const compile = (module: Module, source: string): void => {
@@ -283,7 +309,7 @@ export function createLoader(options: {
         filePath: file,
         disableESTransforms: true,
         production: true,
-        keepUnusedImports: TYPESCRIPT.has(ext) ? false : true,
+        keepUnusedImports: !TYPESCRIPT.has(ext),
       }).code;
     }
     if (esm) code = code.replace(/\bimport\.meta\b/g, '__importMeta');
@@ -372,16 +398,23 @@ export function createLoader(options: {
 
   const makeRequire = (module: Module | null, dir = module?.path ?? '/'): NodeRequire => {
     const require = ((request: string) => {
-      if (typeof request !== 'string') throw new TypeError('The "id" argument must be of type string');
+      if (typeof request !== 'string')
+        throw new TypeError('The "id" argument must be of type string');
       return load(resolve(request, dir, module), module);
     }) as NodeRequire;
     const resolveFn = ((request: string, opts?: { paths?: string[] }) => {
       const found = opts?.paths
-        ? resolve(request, dir, module, opts.paths.flatMap((p) => nodeModulesPaths(path.resolve(dir, p))))
+        ? resolve(
+            request,
+            dir,
+            module,
+            opts.paths.flatMap((p) => nodeModulesPaths(path.resolve(dir, p))),
+          )
         : resolve(request, dir, module);
       return found.startsWith('node:') && !request.startsWith('node:') ? found.slice(5) : found;
     }) as NodeRequire['resolve'];
-    resolveFn.paths = (request: string) => (builtins.includes(request) ? null : nodeModulesPaths(dir));
+    resolveFn.paths = (request: string) =>
+      builtins.includes(request) ? null : nodeModulesPaths(dir);
     require.resolve = resolveFn;
     require.cache = cache;
     require.extensions = { '.js': () => {}, '.json': () => {}, '.node': () => {} };
@@ -392,6 +425,7 @@ export function createLoader(options: {
   // A namespace for import(): an ES module's exports as they are, a
   // CommonJS module's as its default and its own names.
   const namespace = (exports: unknown): Record<string, unknown> => {
+    // oxlint-disable-next-line no-underscore-dangle -- the interop's marker.
     if (exports && typeof exports === 'object' && (exports as { __esModule?: boolean }).__esModule)
       return exports as Record<string, unknown>;
     const out: Record<string, unknown> = Object.create(null);
@@ -442,8 +476,18 @@ export function createLoader(options: {
       module.id = '[eval]';
       module.paths = nodeModulesPaths(cwd);
       module.require = makeRequire(module, cwd);
-      const fn = new Function('exports', 'require', 'module', '__filename', '__dirname', '__dynamicImport', `return eval(${JSON.stringify(code.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2'))});`);
-      return fn(module.exports, module.require, module, '[eval]', cwd, (s: string) => importFrom(s, module));
+      const fn = new Function(
+        'exports',
+        'require',
+        'module',
+        '__filename',
+        '__dirname',
+        '__dynamicImport',
+        `return eval(${JSON.stringify(code.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2'))});`,
+      );
+      return fn(module.exports, module.require, module, '[eval]', cwd, (s: string) =>
+        importFrom(s, module),
+      );
     },
     importFrom,
     setProcess(p: () => { cwd(): string }) {
@@ -463,12 +507,15 @@ export function createLoader(options: {
         _load: (request: string, parent: Module | null) =>
           load(resolve(request, parent?.path ?? process().cwd(), parent), parent),
         _nodeModulePaths: nodeModulesPaths,
-        wrap: (code: string) => `(function (exports, require, module, __filename, __dirname) { ${code}\n});`,
+        wrap: (code: string) =>
+          `(function (exports, require, module, __filename, __dirname) { ${code}\n});`,
         register: () => {},
         syncBuiltinESMExports: () => {},
         findPackageJSON: undefined,
         enableCompileCache: () => ({ status: 3 }),
-        constants: { compileCacheStatus: { FAILED: 0, ENABLED: 1, ALREADY_ENABLED: 2, DISABLED: 3 } },
+        constants: {
+          compileCacheStatus: { FAILED: 0, ENABLED: 1, ALREADY_ENABLED: 2, DISABLED: 3 },
+        },
       });
     },
   };

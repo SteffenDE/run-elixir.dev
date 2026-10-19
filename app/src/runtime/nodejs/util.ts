@@ -68,7 +68,7 @@ export function inspect(value: unknown, options: InspectOptions = {}): string {
     return `\x1b[${open}m${text}\x1b[${close}m`;
   };
 
-  const format = (v: unknown, level: number, nested: boolean): string => {
+  const show = (v: unknown, level: number, nested: boolean): string => {
     switch (typeof v) {
       case 'string':
         return nested ? style(quote(v), 'string') : v;
@@ -94,7 +94,13 @@ export function inspect(value: unknown, options: InspectOptions = {}): string {
     if (v === null) return style('null', 'null');
     const object = v as Record<PropertyKey, unknown>;
     if (typeof object[custom] === 'function')
-      return String((object[custom] as (d: number, o: unknown, i: unknown) => unknown)(depth - level, options, inspect));
+      return String(
+        (object[custom] as (d: number, o: unknown, i: unknown) => unknown)(
+          depth - level,
+          options,
+          inspect,
+        ),
+      );
     if (seen.includes(v)) return style('[Circular *1]', 'special');
     if (v instanceof Error) {
       const stack = stackOf(v);
@@ -102,7 +108,8 @@ export function inspect(value: unknown, options: InspectOptions = {}): string {
       if (!extra.length || level > depth) return nested ? `[${stack}]` : stack;
       return entries(v, extra, level, stack, '{', '}');
     }
-    if (v instanceof Date) return style(Number.isNaN(v.getTime()) ? 'Invalid Date' : v.toISOString(), 'date');
+    if (v instanceof Date)
+      return style(Number.isNaN(v.getTime()) ? 'Invalid Date' : v.toISOString(), 'date');
     if (v instanceof RegExp) return style(String(v), 'regexp');
     if (v instanceof Promise) return 'Promise { <pending> }';
     if (Buffer.isBuffer(v)) {
@@ -117,45 +124,63 @@ export function inspect(value: unknown, options: InspectOptions = {}): string {
     seen.push(v);
     try {
       if (Array.isArray(v)) {
-        const items = v.slice(0, 100).map((item) => format(item, level + 1, true));
+        const items = v.slice(0, 100).map((item) => show(item, level + 1, true));
         if (v.length > 100) items.push(`... ${v.length - 100} more items`);
         const extra = Object.keys(v).filter((key) => !/^\d+$/.test(key));
-        for (const key of extra) items.push(`${key}: ${format(object[key], level + 1, true)}`);
+        for (const key of extra) items.push(`${key}: ${show(object[key], level + 1, true)}`);
         return wrap(items, level, '', '[', ']');
       }
       if (ArrayBuffer.isView(v)) {
         const array = v as unknown as ArrayLike<number>;
-        const items = Array.from({ length: Math.min(array.length, 100) }, (_, i) => format(array[i], level + 1, true));
+        const items = Array.from({ length: Math.min(array.length, 100) }, (_, i) =>
+          show(array[i], level + 1, true),
+        );
         return wrap(items, level, `${v.constructor.name}(${array.length}) `, '[', ']');
       }
       if (v instanceof Map) {
-        const items = [...v].map(([k, item]) => `${format(k, level + 1, true)} => ${format(item, level + 1, true)}`);
+        const items = [...v].map(
+          ([k, item]) => `${show(k, level + 1, true)} => ${show(item, level + 1, true)}`,
+        );
         return wrap(items, level, `Map(${v.size}) `, '{', '}');
       }
       if (v instanceof Set) {
-        const items = [...v].map((item) => format(item, level + 1, true));
+        const items = [...v].map((item) => show(item, level + 1, true));
         return wrap(items, level, `Set(${v.size}) `, '{', '}');
       }
       const proto = Object.getPrototypeOf(v);
       const name = proto === null ? '[Object: null prototype]' : proto.constructor?.name;
       const prefix = !name || name === 'Object' ? '' : `${name} `;
-      const keys: PropertyKey[] = [...Object.keys(v as object), ...Object.getOwnPropertySymbols(v as object)];
+      const keys: PropertyKey[] = [
+        ...Object.keys(v as object),
+        ...Object.getOwnPropertySymbols(v as object),
+      ];
       return entries(v as object, keys, level, prefix.trim(), '{', '}');
     } finally {
       seen.pop();
     }
   };
 
-  const entries = (v: object, keys: PropertyKey[], level: number, prefix: string, open: string, close: string) => {
+  const entries = (
+    v: object,
+    keys: PropertyKey[],
+    level: number,
+    prefix: string,
+    open: string,
+    close: string,
+  ) => {
     const object = v as Record<PropertyKey, unknown>;
     const items = keys.map((key) => {
       const name =
-        typeof key === 'symbol' ? `[${key.toString()}]` : IDENTIFIER.test(key as string) ? (key as string) : quote(key as string);
+        typeof key === 'symbol'
+          ? `[${key.toString()}]`
+          : IDENTIFIER.test(key as string)
+            ? (key as string)
+            : quote(key as string);
       const descriptor = Object.getOwnPropertyDescriptor(v, key);
       const shown =
         descriptor && descriptor.get && !('value' in descriptor)
           ? style(descriptor.set ? '[Getter/Setter]' : '[Getter]', 'special')
-          : format(object[key], level + 1, true);
+          : show(object[key], level + 1, true);
       return `${name}: ${shown}`;
     });
     if (!items.length) return prefix ? `${prefix} ${open}${close}` : `${open}${close}`;
@@ -165,13 +190,14 @@ export function inspect(value: unknown, options: InspectOptions = {}): string {
   const wrap = (items: string[], level: number, prefix: string, open: string, close: string) => {
     if (!items.length) return `${prefix}${open}${close}`;
     const flat = `${prefix}${open} ${items.join(', ')} ${close}`;
+    // oxlint-disable-next-line no-control-regex -- ANSI colors.
     const plain = flat.replace(/\x1b\[\d+m/g, '');
     if (plain.length + level * 2 <= breakLength && !plain.includes('\n')) return flat;
     const indent = '  '.repeat(level + 1);
     return `${prefix}${open}\n${items.map((item) => indent + item.replace(/\n/g, `\n${indent}`)).join(',\n')}\n${'  '.repeat(level)}${close}`;
   };
 
-  return format(value, 0, false);
+  return show(value, 0, false);
 }
 inspect.custom = custom;
 inspect.defaultOptions = { depth: 2, colors: false };
@@ -191,7 +217,13 @@ export function formatWithOptions(options: InspectOptions, ...args: unknown[]): 
       const value = args[index++];
       switch (kind) {
         case 's':
-          return typeof value === 'string' ? value : typeof value === 'bigint' ? `${value}n` : typeof value === 'object' && value !== null ? inspect(value, { ...options, depth: 1 }) : String(value);
+          return typeof value === 'string'
+            ? value
+            : typeof value === 'bigint'
+              ? `${value}n`
+              : typeof value === 'object' && value !== null
+                ? inspect(value, { ...options, depth: 1 })
+                : String(value);
         case 'd':
           return typeof value === 'bigint' ? `${value}n` : String(Number(value));
         case 'i':
@@ -217,7 +249,8 @@ export function formatWithOptions(options: InspectOptions, ...args: unknown[]): 
     out = args.length ? inspect(args[0], options) : '';
     rest = args.slice(1);
   }
-  for (const value of rest) out += ` ${typeof value === 'string' ? value : inspect(value, options)}`;
+  for (const value of rest)
+    out += ` ${typeof value === 'string' ? value : inspect(value, options)}`;
   return out;
 }
 
@@ -236,7 +269,8 @@ export function promisify(fn: (...args: unknown[]) => void) {
 }
 promisify.custom = promisifyCustom;
 
-const isType = (tag: string) => (v: unknown) => Object.prototype.toString.call(v) === `[object ${tag}]`;
+const isType = (tag: string) => (v: unknown) =>
+  Object.prototype.toString.call(v) === `[object ${tag}]`;
 
 export const types = {
   isPromise: (v: unknown) => v instanceof Promise,
@@ -251,10 +285,15 @@ export const types = {
   isAnyArrayBuffer: (v: unknown) => v instanceof ArrayBuffer || v instanceof SharedArrayBuffer,
   isArrayBufferView: (v: unknown) => ArrayBuffer.isView(v),
   isAsyncFunction: isType('AsyncFunction'),
-  isGeneratorFunction: (v: unknown) => isType('GeneratorFunction')(v) || isType('AsyncGeneratorFunction')(v),
+  isGeneratorFunction: (v: unknown) =>
+    isType('GeneratorFunction')(v) || isType('AsyncGeneratorFunction')(v),
   isGeneratorObject: isType('Generator'),
   isBoxedPrimitive: (v: unknown) =>
-    v instanceof Number || v instanceof String || v instanceof Boolean || v instanceof BigInt || v instanceof Symbol,
+    v instanceof Number ||
+    v instanceof String ||
+    v instanceof Boolean ||
+    v instanceof BigInt ||
+    v instanceof Symbol,
   isProxy: () => false,
   isWeakMap: (v: unknown) => v instanceof WeakMap,
   isWeakSet: (v: unknown) => v instanceof WeakSet,
@@ -268,7 +307,10 @@ export function isDeepStrictEqual(a: unknown, b: unknown): boolean {
   if (a instanceof Date) return a.getTime() === (b as Date).getTime();
   if (a instanceof Map) {
     const other = b as Map<unknown, unknown>;
-    return a.size === other.size && [...a].every(([k, v]) => other.has(k) && isDeepStrictEqual(v, other.get(k)));
+    return (
+      a.size === other.size &&
+      [...a].every(([k, v]) => other.has(k) && isDeepStrictEqual(v, other.get(k)))
+    );
   }
   if (a instanceof Set) {
     const other = b as Set<unknown>;
@@ -299,6 +341,7 @@ export function createUtil(warn: (text: string) => void) {
         );
       },
     inherits(ctor: { prototype: object; super_?: unknown }, superCtor: { prototype: object }) {
+      // oxlint-disable-next-line no-underscore-dangle -- Node's name for it.
       ctor.super_ = superCtor;
       Object.setPrototypeOf(ctor.prototype, superCtor.prototype);
     },
@@ -322,12 +365,24 @@ export function createUtil(warn: (text: string) => void) {
     isString: (v: unknown) => typeof v === 'string',
     isObject: (v: unknown) => v !== null && typeof v === 'object',
     isPrimitive: (v: unknown) => v === null || (typeof v !== 'object' && typeof v !== 'function'),
-    stripVTControlCharacters: (text: string) => text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''),
+    stripVTControlCharacters: (text: string) =>
+      // oxlint-disable-next-line no-control-regex -- ANSI sequences.
+      text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''),
     styleText: (style: string | string[], text: string) => {
       const codes: Record<string, [number, number]> = {
-        bold: [1, 22], dim: [2, 22], italic: [3, 23], underline: [4, 24],
-        red: [31, 39], green: [32, 39], yellow: [33, 39], blue: [34, 39],
-        magenta: [35, 39], cyan: [36, 39], white: [37, 39], gray: [90, 39], grey: [90, 39],
+        bold: [1, 22],
+        dim: [2, 22],
+        italic: [3, 23],
+        underline: [4, 24],
+        red: [31, 39],
+        green: [32, 39],
+        yellow: [33, 39],
+        blue: [34, 39],
+        magenta: [35, 39],
+        cyan: [36, 39],
+        white: [37, 39],
+        gray: [90, 39],
+        grey: [90, 39],
       };
       for (const name of [style].flat().reverse()) {
         const code = codes[name];

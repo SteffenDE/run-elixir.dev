@@ -13,8 +13,10 @@ test('node runs scripts, modules and packages over the project files', async ({ 
     page,
     `node -e "console.log(1 + 1, require('path').join('a', '..', 'b'), { a: [1, 2] })"`,
   );
-  expect(evaluated).toContain("2 b { a: [ 1, 2 ] }");
-  expect(await run(page, `node -p "process.platform + ':' + process.cwd()"`)).toContain('linux:/work');
+  expect(evaluated).toContain('2 b { a: [ 1, 2 ] }');
+  expect(await run(page, `node -p "process.platform + ':' + process.cwd()"`)).toContain(
+    'linux:/work',
+  );
 
   // CommonJS: fs both ways, a timer that keeps it alive, its exit code.
   await writeText(
@@ -42,7 +44,11 @@ test('node runs scripts, modules and packages over the project files', async ({ 
     '/work/node_modules/greet/package.json',
     JSON.stringify({ name: 'greet', type: 'module', exports: { '.': { import: './index.js' } } }),
   );
-  await writeText(page, '/work/node_modules/greet/index.js', "export default (name) => `hello ${name}`;\nexport const loud = (s) => s.toUpperCase();\n");
+  await writeText(
+    page,
+    '/work/node_modules/greet/index.js',
+    'export default (name) => `hello ${name}`;\nexport const loud = (s) => s.toUpperCase();\n',
+  );
   await writeText(page, '/work/data.json', '{"n": 42}');
   await writeText(
     page,
@@ -59,7 +65,11 @@ test('node runs scripts, modules and packages over the project files', async ({ 
   expect(await run(page, 'node esm.mjs')).toContain('HELLO ESM 42 42 /work/esm.mjs');
 
   // TypeScript, its types stripped.
-  await writeText(page, '/work/types.ts', 'const add = (a: number, b: number): number => a + b;\ninterface X { y: string }\nconsole.log(`sum ${add(2, 3)}`);\n');
+  await writeText(
+    page,
+    '/work/types.ts',
+    'const add = (a: number, b: number): number => a + b;\ninterface X { y: string }\nconsole.log(`sum ${add(2, 3)}`);\n',
+  );
   expect(await run(page, 'node types.ts')).toContain('sum 5');
 
   // An uncaught error: its stack, and status 1.

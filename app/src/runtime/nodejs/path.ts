@@ -71,8 +71,16 @@ export function createPath(cwd: () => string) {
       const dir = p.includes('/') ? path.dirname(p) : '';
       return { root, dir, base, ext, name: ext ? base.slice(0, -ext.length) : base };
     },
-    format(parts: { root?: string; dir?: string; base?: string; name?: string; ext?: string }): string {
-      const base = parts.base ?? `${parts.name ?? ''}${parts.ext ? (parts.ext.startsWith('.') ? '' : '.') + parts.ext : ''}`;
+    format(parts: {
+      root?: string;
+      dir?: string;
+      base?: string;
+      name?: string;
+      ext?: string;
+    }): string {
+      const base =
+        parts.base ??
+        `${parts.name ?? ''}${parts.ext ? (parts.ext.startsWith('.') ? '' : '.') + parts.ext : ''}`;
       const dir = parts.dir ?? parts.root ?? '';
       if (!dir) return base;
       return dir === parts.root ? `${dir}${base}` : `${dir}/${base}`;
@@ -84,6 +92,7 @@ export function createPath(cwd: () => string) {
         .replace(/\*\*\/?/g, '\u0000')
         .replace(/\*/g, '[^/]*')
         .replace(/\?/g, '[^/]')
+        // oxlint-disable-next-line no-control-regex -- the placeholder for **/ above.
         .replace(/\u0000/g, '(?:.*/)?');
       return new RegExp(`^${source}$`).test(p);
     },

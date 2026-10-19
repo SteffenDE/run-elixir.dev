@@ -463,7 +463,17 @@ function walkFiles(
 }
 
 // The page's requests (host/files.ts): the same filesystem, by message.
-function page({ id, op, path, to, target, skip = [], data, query, limit = 1000 }: PageRequest): PageReply {
+function page({
+  id,
+  op,
+  path,
+  to,
+  target: link,
+  skip = [],
+  data,
+  query,
+  limit = 1000,
+}: PageRequest): PageReply {
   // Symbolic links are followed, but by what removes or renames them.
   // Every request with a path needs it.
   const found = (
@@ -605,7 +615,7 @@ function page({ id, op, path, to, target, skip = [], data, query, limit = 1000 }
     }
     // A symbolic link at `path` to `target` (npm's bin links).
     case 'symlink': {
-      const result = handle({ op: 'symlink', path, target } as NodeRequest);
+      const result = handle({ op: 'symlink', path, target: link } as NodeRequest);
       return result.error ? { id, error: `${path}: cannot link`, code: 'EEXIST' } : { id };
     }
   }

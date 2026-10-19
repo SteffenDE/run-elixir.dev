@@ -133,7 +133,11 @@ export function createProcess(options: {
     return timer;
   };
   const setInterval = (fn: (...a: unknown[]) => void, ms = 0, ...args: unknown[]) => {
-    const start = () => nativeSetInterval(guard(() => fn(...args)), ms);
+    const start = () =>
+      nativeSetInterval(
+        guard(() => fn(...args)),
+        ms,
+      );
     const timer: Timeout = new Timeout(start(), true, start);
     timers.set(Number(timer.id), timer);
     return timer;
@@ -144,7 +148,8 @@ export function createProcess(options: {
     timers.delete(Number(found.id));
     found.close();
   };
-  const setImmediate = (fn: (...a: unknown[]) => void, ...args: unknown[]) => setTimeout(fn, 0, ...args);
+  const setImmediate = (fn: (...a: unknown[]) => void, ...args: unknown[]) =>
+    setTimeout(fn, 0, ...args);
 
   const encode = (text: string) => new TextEncoder().encode(text);
 
@@ -162,7 +167,10 @@ export function createProcess(options: {
         if (typeof encoding === 'function') callback = encoding as () => void;
         const bytes =
           typeof chunk === 'string'
-            ? Buffer.from(chunk, typeof encoding === 'string' ? (encoding as BufferEncoding) : 'utf8')
+            ? Buffer.from(
+                chunk,
+                typeof encoding === 'string' ? (encoding as BufferEncoding) : 'utf8',
+              )
             : chunk;
         io.write(fd, bytes);
         if (callback) queueMicrotask(callback);
@@ -285,7 +293,8 @@ export function createProcess(options: {
     reallyExit: (code?: number) => io.exit(Number(code ?? 0)),
     abort: () => end(134),
     kill: () => true,
-    nextTick: (fn: (...a: unknown[]) => void, ...args: unknown[]) => queueMicrotask(() => fn(...args)),
+    nextTick: (fn: (...a: unknown[]) => void, ...args: unknown[]) =>
+      queueMicrotask(() => fn(...args)),
     hrtime,
     uptime: () => (performance.now() - start) / 1000,
     memoryUsage: Object.assign(
@@ -302,7 +311,8 @@ export function createProcess(options: {
     getgroups: () => [1000],
     emitWarning(warning: string | Error, type?: string | { type?: string }) {
       const name = typeof type === 'string' ? type : (type?.type ?? 'Warning');
-      const text = warning instanceof Error ? `${warning.name}: ${warning.message}` : `${name}: ${warning}`;
+      const text =
+        warning instanceof Error ? `${warning.name}: ${warning.message}` : `${name}: ${warning}`;
       io.write(2, encode(`(node:42) ${text}\n`));
     },
     binding: () => {
@@ -319,12 +329,23 @@ export function createProcess(options: {
     availableMemory: () => 2 ** 31,
   });
 
-  const console = createConsole(stdout as unknown as Writable, stderr as unknown as Writable, options.tty);
+  const console = createConsole(
+    stdout as unknown as Writable,
+    stderr as unknown as Writable,
+    options.tty,
+  );
 
   return {
     process,
     console,
-    timers: { setTimeout, setInterval, setImmediate, clearTimeout: clear, clearInterval: clear, clearImmediate: clear },
+    timers: {
+      setTimeout,
+      setInterval,
+      setImmediate,
+      clearTimeout: clear,
+      clearInterval: clear,
+      clearImmediate: clear,
+    },
     hold,
     check,
     fail,
@@ -339,10 +360,12 @@ export function createConsole(stdout: Writable, stderr: Writable, colors: boolea
   let indent = '';
   const counts = new Map<string, number>();
   const times = new Map<string, number>();
-  const print = (stream: Writable) => (...args: unknown[]) => {
-    const text = formatWithOptions({ colors }, ...args);
-    stream.write(`${indent ? text.replace(/^/gm, indent) : text}\n`);
-  };
+  const print =
+    (stream: Writable) =>
+    (...args: unknown[]) => {
+      const text = formatWithOptions({ colors }, ...args);
+      stream.write(`${indent ? text.replace(/^/gm, indent) : text}\n`);
+    };
   const log = print(stdout);
   const error = print(stderr);
   return {
@@ -351,8 +374,12 @@ export function createConsole(stdout: Writable, stderr: Writable, colors: boolea
     debug: log,
     error,
     warn: error,
-    trace: (...args: unknown[]) => error(`Trace: ${formatWithOptions({}, ...args)}\n${new Error().stack?.split('\n').slice(2).join('\n') ?? ''}`),
-    dir: (value: unknown, opts?: { depth?: number }) => stdout.write(`${inspect(value, { colors, ...opts })}\n`),
+    trace: (...args: unknown[]) =>
+      error(
+        `Trace: ${formatWithOptions({}, ...args)}\n${new Error().stack?.split('\n').slice(2).join('\n') ?? ''}`,
+      ),
+    dir: (value: unknown, opts?: { depth?: number }) =>
+      stdout.write(`${inspect(value, { colors, ...opts })}\n`),
     dirxml: log,
     table: log,
     assert: (ok: unknown, ...args: unknown[]) => {
