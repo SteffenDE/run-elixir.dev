@@ -1,8 +1,8 @@
 // Node's process in the worker: its arguments, environment and directory,
-// stdout and stderr (to the page), an empty stdin, and its end. The worker
-// ends the process when nothing keeps it alive, as Node's event loop does:
-// timers, intervals, immediates and the operations it holds (`hold`) are
-// its handles; promises are not.
+// stdout and stderr (to the page), a stdin with nothing to read, and its
+// end. The worker ends the process when nothing keeps it alive, as Node's
+// event loop does: timers, intervals, immediates and the operations it
+// holds (`hold`) are its handles; promises are not.
 import { Buffer } from './buffer';
 import { EventEmitter } from 'events';
 import { formatWithOptions, inspect } from './util';
@@ -205,40 +205,23 @@ export function createProcess(options: {
   const stdout = stream(1);
   const stderr = stream(2);
 
-  // stdin: nothing to read, ended.
+  // stdin: a terminal's with nothing typed (the page gives a process no
+  // input yet): it neither ends nor holds the loop. Ending it at once
+  // stopped servers that end with their input (Vite's dev server).
   const stdin = new EventEmitter() as EventEmitter & Record<string, unknown>;
-  let stdinEnded = false;
-  const endStdin = () => {
-    if (stdinEnded) return;
-    stdinEnded = true;
-    queueMicrotask(() => {
-      stdin.emit('end');
-      stdin.emit('close');
-    });
-  };
   Object.assign(stdin, {
     fd: 0,
     isTTY: false,
     readable: true,
     setEncoding: () => stdin,
     setRawMode: () => stdin,
-    resume: () => {
-      endStdin();
-      return stdin;
-    },
+    resume: () => stdin,
     pause: () => stdin,
     read: () => null,
     ref: () => stdin,
     unref: () => stdin,
-    pipe: (target: { end?: () => void }) => {
-      endStdin();
-      queueMicrotask(() => target.end?.());
-      return target;
-    },
+    pipe: (target: unknown) => target,
     [Symbol.asyncIterator]: async function* () {},
-  });
-  stdin.on('newListener', (event) => {
-    if (event === 'data' || event === 'end' || event === 'readable') endStdin();
   });
 
   const fail = (error: unknown) => {
