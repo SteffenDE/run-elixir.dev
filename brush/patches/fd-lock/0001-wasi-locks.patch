@@ -1,0 +1,119 @@
+From 0ca4810c7f752a5e535f12363baea3876de556ec Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 13:01:13 +0000
+Subject: [PATCH] WASI: locks that are always granted
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ src/sys/mod.rs      |  4 +++
+ src/sys/wasi/mod.rs | 82 +++++++++++++++++++++++++++++++++++++++++++++
+ 2 files changed, 86 insertions(+)
+ create mode 100644 src/sys/wasi/mod.rs
+
+diff --git a/src/sys/mod.rs b/src/sys/mod.rs
+index 97195e0..c327292 100644
+--- a/src/sys/mod.rs
++++ b/src/sys/mod.rs
+@@ -5,6 +5,10 @@ cfg_if! {
+         mod unix;
+         pub use unix::*;
+         pub(crate) use rustix::fd::AsFd as AsOpenFile;
++    } else if #[cfg(target_os = "wasi")] {
++        mod wasi;
++        pub use wasi::*;
++        pub(crate) use std::os::fd::AsFd as AsOpenFile;
+     } else if #[cfg(windows)] {
+         mod windows;
+         pub use windows::*;
+diff --git a/src/sys/wasi/mod.rs b/src/sys/wasi/mod.rs
+new file mode 100644
+index 0000000..71cf7e3
+--- /dev/null
++++ b/src/sys/wasi/mod.rs
+@@ -0,0 +1,82 @@
++//! WASI has no file locks: a lock is always granted. (The playground that
++//! runs this shell has one process per terminal, which locks nothing
++//! against another.)
++
++use std::io;
++use std::ops;
++use std::os::fd::AsFd;
++
++#[derive(Debug)]
++pub struct RwLock<T: AsFd> {
++    pub(crate) inner: T,
++}
++
++impl<T: AsFd> RwLock<T> {
++    #[inline]
++    pub fn new(inner: T) -> Self {
++        RwLock { inner }
++    }
++
++    #[inline]
++    pub fn write(&mut self) -> io::Result<RwLockWriteGuard<'_, T>> {
++        Ok(RwLockWriteGuard { lock: self })
++    }
++
++    #[inline]
++    pub fn try_write(&mut self) -> io::Result<RwLockWriteGuard<'_, T>> {
++        Ok(RwLockWriteGuard { lock: self })
++    }
++
++    #[inline]
++    pub fn read(&self) -> io::Result<RwLockReadGuard<'_, T>> {
++        Ok(RwLockReadGuard { lock: self })
++    }
++
++    #[inline]
++    pub fn try_read(&self) -> io::Result<RwLockReadGuard<'_, T>> {
++        Ok(RwLockReadGuard { lock: self })
++    }
++
++    #[inline]
++    pub fn into_inner(self) -> T
++    where
++        T: Sized,
++    {
++        self.inner
++    }
++}
++
++#[derive(Debug)]
++pub struct RwLockReadGuard<'lock, T: AsFd> {
++    lock: &'lock RwLock<T>,
++}
++
++impl<T: AsFd> ops::Deref for RwLockReadGuard<'_, T> {
++    type Target = T;
++
++    #[inline]
++    fn deref(&self) -> &Self::Target {
++        &self.lock.inner
++    }
++}
++
++#[derive(Debug)]
++pub struct RwLockWriteGuard<'lock, T: AsFd> {
++    lock: &'lock mut RwLock<T>,
++}
++
++impl<T: AsFd> ops::Deref for RwLockWriteGuard<'_, T> {
++    type Target = T;
++
++    #[inline]
++    fn deref(&self) -> &Self::Target {
++        &self.lock.inner
++    }
++}
++
++impl<T: AsFd> ops::DerefMut for RwLockWriteGuard<'_, T> {
++    #[inline]
++    fn deref_mut(&mut self) -> &mut Self::Target {
++        &mut self.lock.inner
++    }
++}
+-- 
+2.53.0
+

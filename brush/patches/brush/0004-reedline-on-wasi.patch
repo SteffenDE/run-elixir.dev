@@ -1,0 +1,297 @@
+From ba0e8e90567e0268dd242893baeabc23464510ef Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 13:01:13 +0000
+Subject: [PATCH] brush-interactive: reedline on WASI, against crossterm's and
+ fd-lock's WASI backends
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ Cargo.lock                                    |  4 ---
+ Cargo.toml                                    |  5 ++++
+ brush-interactive/src/basic/input_backend.rs  | 13 +++-------
+ brush-interactive/src/blocking.rs             | 26 +++++++++++++++++++
+ brush-interactive/src/completion.rs           |  4 +++
+ brush-interactive/src/lib.rs                  |  2 ++
+ brush-interactive/src/reedline/completer.rs   |  4 +--
+ brush-interactive/src/reedline/edit_mode.rs   |  8 ++----
+ brush-interactive/src/reedline/highlighter.rs |  4 +--
+ brush-interactive/src/reedline/history.rs     |  4 +--
+ .../src/reedline/input_backend.rs             |  4 +--
+ brush-interactive/src/reedline/validator.rs   |  4 +--
+ brush-shell/src/entry.rs                      |  8 +++---
+ 13 files changed, 51 insertions(+), 39 deletions(-)
+ create mode 100644 brush-interactive/src/blocking.rs
+
+diff --git a/Cargo.lock b/Cargo.lock
+index 9726f2f..e0f5ea9 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1210,8 +1210,6 @@ checksum = "d0a5c400df2834b80a4c3327b3aad3a4c4cd4de0629063962b03235697506a28"
+ [[package]]
+ name = "crossterm"
+ version = "0.29.0"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "d8b9f2e4c67f833b660cdb0a3523065869fb35570177239812ed4c905aeff87b"
+ dependencies = [
+  "bitflags 2.11.1",
+  "crossterm_winapi",
+@@ -1606,8 +1604,6 @@ checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+ [[package]]
+ name = "fd-lock"
+ version = "4.0.4"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "0ce92ff622d6dadf7349484f42c93271a0d49b7cc4d466a936405bacbe10aa78"
+ dependencies = [
+  "cfg-if",
+  "rustix",
+diff --git a/Cargo.toml b/Cargo.toml
+index b759572..3c4fa42 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -117,3 +117,8 @@ panic = "abort"
+ [profile.bench]
+ inherits = "release"
+ strip = "debuginfo"
++
++# The playground (run-elixir.dev): crossterm and fd-lock with WASI backends.
++[patch.crates-io]
++crossterm = { path = "../crossterm" }
++fd-lock = { path = "../fd-lock" }
+diff --git a/brush-interactive/src/basic/input_backend.rs b/brush-interactive/src/basic/input_backend.rs
+index 5cd95ba..141e521 100644
+--- a/brush-interactive/src/basic/input_backend.rs
++++ b/brush-interactive/src/basic/input_backend.rs
+@@ -40,18 +40,14 @@ impl BasicInputBackend {
+ 
+         loop {
+             match reader.read_line(prompt_to_use.map(|p| p.prompt.as_str()), |line, cursor| {
+-                let mut shell = tokio::task::block_in_place(|| {
+-                    tokio::runtime::Handle::current().block_on(shell_ref.lock())
+-                });
++                let mut shell = crate::block_on(shell_ref.lock());
+ 
+                 Self::generate_completions(&mut shell, line, cursor)
+             })? {
+                 ReadResult::Input(s) => {
+                     result.push_str(s.as_str());
+ 
+-                    let shell = tokio::task::block_in_place(|| {
+-                        tokio::runtime::Handle::current().block_on(shell_ref.lock())
+-                    });
++                    let shell = crate::block_on(shell_ref.lock());
+ 
+                     if Self::is_valid_input(&shell, result.as_str()) {
+                         break;
+@@ -101,10 +97,7 @@ impl BasicInputBackend {
+         line: &str,
+         cursor: usize,
+     ) -> Result<brush_core::completion::Completions, ShellError> {
+-        tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current()
+-                .block_on(Self::generate_completions_async(shell, line, cursor))
+-        })
++        crate::block_on(Self::generate_completions_async(shell, line, cursor))
+     }
+ 
+     async fn generate_completions_async(
+diff --git a/brush-interactive/src/blocking.rs b/brush-interactive/src/blocking.rs
+new file mode 100644
+index 0000000..374b489
+--- /dev/null
++++ b/brush-interactive/src/blocking.rs
+@@ -0,0 +1,26 @@
++//! Waiting on the shell from the line editor's synchronous callbacks.
++
++use std::future::Future;
++
++/// Runs `future` to its end from synchronous code inside the runtime.
++///
++/// On WASI there is one thread and no blocking pool: what the line editor
++/// waits on (the shell's lock, a completion) is polled in place, which
++/// only ends if nothing else holds what it waits for.
++pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
++    #[cfg(not(target_os = "wasi"))]
++    return tokio::task::block_in_place(|| tokio::runtime::Handle::current().block_on(future));
++
++    #[cfg(target_os = "wasi")]
++    {
++        // Outside tokio's cooperative budget: in place, a budget spent
++        // would never be renewed, and a free lock would never be granted.
++        let mut future = std::pin::pin!(tokio::task::unconstrained(future));
++        let mut context = std::task::Context::from_waker(std::task::Waker::noop());
++        loop {
++            if let std::task::Poll::Ready(output) = future.as_mut().poll(&mut context) {
++                return output;
++            }
++        }
++    }
++}
+diff --git a/brush-interactive/src/completion.rs b/brush-interactive/src/completion.rs
+index 2e6d1d8..0785b45 100644
+--- a/brush-interactive/src/completion.rs
++++ b/brush-interactive/src/completion.rs
+@@ -15,6 +15,10 @@ pub(crate) async fn complete_async(
+     tokio::pin!(completion_future);
+ 
+     // Wait for the completions to come back or interruption, whichever happens first.
++    // (WASI has no signals: the completions.)
++    #[cfg(target_os = "wasi")]
++    let result = completion_future.await;
++    #[cfg(not(target_os = "wasi"))]
+     let result = tokio::select! {
+         result = &mut completion_future => {
+             result
+diff --git a/brush-interactive/src/lib.rs b/brush-interactive/src/lib.rs
+index 5843280..0211c03 100644
+--- a/brush-interactive/src/lib.rs
++++ b/brush-interactive/src/lib.rs
+@@ -13,6 +13,8 @@ mod options;
+ pub use options::UIOptions;
+ 
+ mod refs;
++mod blocking;
++pub(crate) use blocking::block_on;
+ pub use refs::ShellRef;
+ 
+ mod term_detection;
+diff --git a/brush-interactive/src/reedline/completer.rs b/brush-interactive/src/reedline/completer.rs
+index ff95907..aaa3e05 100644
+--- a/brush-interactive/src/reedline/completer.rs
++++ b/brush-interactive/src/reedline/completer.rs
+@@ -9,9 +9,7 @@ pub(crate) struct ReedlineCompleter<SE: brush_core::ShellExtensions> {
+ 
+ impl<SE: brush_core::ShellExtensions> reedline::Completer for ReedlineCompleter<SE> {
+     fn complete(&mut self, line: &str, pos: usize) -> Vec<reedline::Suggestion> {
+-        tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(self.complete_async(line, pos))
+-        })
++        crate::block_on(self.complete_async(line, pos))
+     }
+ }
+ 
+diff --git a/brush-interactive/src/reedline/edit_mode.rs b/brush-interactive/src/reedline/edit_mode.rs
+index 28d4843..fdbee2b 100644
+--- a/brush-interactive/src/reedline/edit_mode.rs
++++ b/brush-interactive/src/reedline/edit_mode.rs
+@@ -35,17 +35,13 @@ impl MutableEditMode {
+ 
+ impl reedline::EditMode for MutableEditMode {
+     fn parse_event(&mut self, event: reedline::ReedlineRawEvent) -> reedline::ReedlineEvent {
+-        let mut inner = tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(self.inner.lock())
+-        });
++        let mut inner = crate::block_on(self.inner.lock());
+ 
+         inner.parse_event(event)
+     }
+ 
+     fn edit_mode(&self) -> reedline::PromptEditMode {
+-        let inner = tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(self.inner.lock())
+-        });
++        let inner = crate::block_on(self.inner.lock());
+ 
+         inner.edit_mode()
+     }
+diff --git a/brush-interactive/src/reedline/highlighter.rs b/brush-interactive/src/reedline/highlighter.rs
+index 3dbfab2..4406585 100644
+--- a/brush-interactive/src/reedline/highlighter.rs
++++ b/brush-interactive/src/reedline/highlighter.rs
+@@ -76,9 +76,7 @@ pub(crate) struct ReedlineHighlighter<SE: brush_core::ShellExtensions> {
+ impl<SE: brush_core::ShellExtensions> reedline::Highlighter for ReedlineHighlighter<SE> {
+     #[expect(clippy::significant_drop_tightening)]
+     fn highlight(&self, line: &str, cursor: usize) -> reedline::StyledText {
+-        let shell = tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(self.shell.lock())
+-        });
++        let shell = crate::block_on(self.shell.lock());
+ 
+         let spans = highlighting::highlight_command(shell.as_ref(), line, cursor);
+ 
+diff --git a/brush-interactive/src/reedline/history.rs b/brush-interactive/src/reedline/history.rs
+index 170f37d..e71b700 100644
+--- a/brush-interactive/src/reedline/history.rs
++++ b/brush-interactive/src/reedline/history.rs
+@@ -6,9 +6,7 @@ pub(crate) struct ReedlineHistory<SE: brush_core::ShellExtensions> {
+ 
+ impl<SE: brush_core::ShellExtensions> ReedlineHistory<SE> {
+     fn lock_shell(&self) -> tokio::sync::MutexGuard<'_, brush_core::Shell<SE>> {
+-        tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(self.shell.lock())
+-        })
++        crate::block_on(self.shell.lock())
+     }
+ }
+ 
+diff --git a/brush-interactive/src/reedline/input_backend.rs b/brush-interactive/src/reedline/input_backend.rs
+index d01c87a..143c4ba 100644
+--- a/brush-interactive/src/reedline/input_backend.rs
++++ b/brush-interactive/src/reedline/input_backend.rs
+@@ -85,9 +85,7 @@ impl ReedlineInputBackend {
+             reedline = reedline.with_highlighter(Box::new(highlighter));
+         }
+ 
+-        let mut shell = tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(shell_ref.lock())
+-        });
++        let mut shell = crate::block_on(shell_ref.lock());
+ 
+         shell.set_key_bindings(Some(updatable_bindings));
+         drop(shell);
+diff --git a/brush-interactive/src/reedline/validator.rs b/brush-interactive/src/reedline/validator.rs
+index 0b62f29..a940297 100644
+--- a/brush-interactive/src/reedline/validator.rs
++++ b/brush-interactive/src/reedline/validator.rs
+@@ -6,9 +6,7 @@ pub(crate) struct ReedlineValidator<SE: brush_core::ShellExtensions> {
+ 
+ impl<SE: brush_core::ShellExtensions> reedline::Validator for ReedlineValidator<SE> {
+     fn validate(&self, line: &str) -> reedline::ValidationResult {
+-        let shell = tokio::task::block_in_place(|| {
+-            tokio::runtime::Handle::current().block_on(self.shell.lock())
+-        });
++        let shell = crate::block_on(self.shell.lock());
+ 
+         match shell.parse_string(line.to_owned()) {
+             Err(brush_parser::ParseError::Tokenizing { inner, position: _ })
+diff --git a/brush-shell/src/entry.rs b/brush-shell/src/entry.rs
+index 946fbb0..f205944 100644
+--- a/brush-shell/src/entry.rs
++++ b/brush-shell/src/entry.rs
+@@ -271,13 +271,13 @@ async fn run_async(
+     let ui_options = file_config.to_ui_options(&args);
+ 
+     let result = match selected_backend {
+-        #[cfg(all(feature = "reedline", any(unix, windows)))]
++        #[cfg(all(feature = "reedline", any(unix, windows, target_os = "wasi")))]
+         InputBackendType::Reedline => {
+             let mut input_backend =
+                 brush_interactive::ReedlineInputBackend::new(&ui_options, &shell)?;
+             run_in_shell(&shell, args.clone(), &mut input_backend, &ui_options).await
+         }
+-        #[cfg(any(not(feature = "reedline"), not(any(unix, windows))))]
++        #[cfg(any(not(feature = "reedline"), not(any(unix, windows, target_os = "wasi"))))]
+         InputBackendType::Reedline => Err(brush_interactive::ShellError::InputBackendNotSupported),
+ 
+         #[cfg(feature = "basic")]
+@@ -623,7 +623,7 @@ const fn new_error_behavior(args: &CommandLineArgs) -> error_formatter::Formatte
+ }
+ 
+ fn get_default_input_backend_type(args: &CommandLineArgs) -> InputBackendType {
+-    #[cfg(any(unix, windows))]
++    #[cfg(any(unix, windows, target_os = "wasi"))]
+     {
+         // If stdin isn't a terminal, then `reedline` doesn't do the right thing
+         // (reference: https://github.com/nushell/reedline/issues/509). Switch to
+@@ -634,7 +634,7 @@ fn get_default_input_backend_type(args: &CommandLineArgs) -> InputBackendType {
+             InputBackendType::Minimal
+         }
+     }
+-    #[cfg(not(any(unix, windows)))]
++    #[cfg(not(any(unix, windows, target_os = "wasi")))]
+     {
+         let _args = args;
+         InputBackendType::Minimal
+-- 
+2.53.0
+

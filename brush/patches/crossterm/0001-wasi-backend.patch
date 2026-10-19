@@ -1,0 +1,395 @@
+From 518f3766747c3d563bf0844177e41ceb3f3f9f0d Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 13:01:13 +0000
+Subject: [PATCH] WASI: the terminal through the host's crossterm imports
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ src/cursor/sys.rs        |  4 +-
+ src/event.rs             |  8 ++--
+ src/event/filter.rs      |  8 ++--
+ src/event/read.rs        |  4 ++
+ src/event/source.rs      |  2 +
+ src/event/source/wasi.rs | 99 ++++++++++++++++++++++++++++++++++++++++
+ src/event/sys.rs         |  2 +-
+ src/terminal.rs          |  2 +-
+ src/terminal/sys.rs      | 10 ++++
+ src/terminal/sys/wasi.rs | 69 ++++++++++++++++++++++++++++
+ src/tty.rs               |  8 ++++
+ 11 files changed, 204 insertions(+), 12 deletions(-)
+ create mode 100644 src/event/source/wasi.rs
+ create mode 100644 src/terminal/sys/wasi.rs
+
+diff --git a/src/cursor/sys.rs b/src/cursor/sys.rs
+index 1623740..406e2ed 100644
+--- a/src/cursor/sys.rs
++++ b/src/cursor/sys.rs
+@@ -1,6 +1,6 @@
+ //! This module provides platform related functions.
+ 
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "wasi"))]
+ #[cfg(feature = "events")]
+ pub use self::unix::position;
+ #[cfg(windows)]
+@@ -15,6 +15,6 @@ pub(crate) use self::windows::{
+ #[cfg(windows)]
+ pub(crate) mod windows;
+ 
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "wasi"))]
+ #[cfg(feature = "events")]
+ pub(crate) mod unix;
+diff --git a/src/event.rs b/src/event.rs
+index 1e838fc..9d90134 100644
+--- a/src/event.rs
++++ b/src/event.rs
+@@ -249,7 +249,7 @@ pub fn poll(timeout: Duration) -> std::io::Result<bool> {
+ pub fn read() -> std::io::Result<Event> {
+     match read_internal(&EventFilter)? {
+         InternalEvent::Event(event) => Ok(event),
+-        #[cfg(unix)]
++        #[cfg(any(unix, target_os = "wasi"))]
+         _ => unreachable!(),
+     }
+ }
+@@ -1476,13 +1476,13 @@ pub(crate) enum InternalEvent {
+     /// An event.
+     Event(Event),
+     /// A cursor position (`col`, `row`).
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "wasi"))]
+     CursorPosition(u16, u16),
+     /// The progressive keyboard enhancement flags enabled by the terminal.
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "wasi"))]
+     KeyboardEnhancementFlags(KeyboardEnhancementFlags),
+     /// Attributes and architectural class of the terminal.
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "wasi"))]
+     PrimaryDeviceAttributes,
+ }
+ 
+diff --git a/src/event/filter.rs b/src/event/filter.rs
+index cd7abce..f167514 100644
+--- a/src/event/filter.rs
++++ b/src/event/filter.rs
+@@ -6,11 +6,11 @@ pub(crate) trait Filter: Send + Sync + 'static {
+     fn eval(&self, event: &InternalEvent) -> bool;
+ }
+ 
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "wasi"))]
+ #[derive(Debug, Clone)]
+ pub(crate) struct CursorPositionFilter;
+ 
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "wasi"))]
+ impl Filter for CursorPositionFilter {
+     fn eval(&self, event: &InternalEvent) -> bool {
+         matches!(*event, InternalEvent::CursorPosition(_, _))
+@@ -50,7 +50,7 @@ impl Filter for PrimaryDeviceAttributesFilter {
+ pub(crate) struct EventFilter;
+ 
+ impl Filter for EventFilter {
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "wasi"))]
+     fn eval(&self, event: &InternalEvent) -> bool {
+         matches!(*event, InternalEvent::Event(_))
+     }
+@@ -62,7 +62,7 @@ impl Filter for EventFilter {
+ }
+ 
+ #[cfg(test)]
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "wasi"))]
+ mod tests {
+     use super::{
+         super::Event, CursorPositionFilter, EventFilter, Filter, InternalEvent,
+diff --git a/src/event/read.rs b/src/event/read.rs
+index 22f989b..2bb46d0 100644
+--- a/src/event/read.rs
++++ b/src/event/read.rs
+@@ -2,6 +2,8 @@ use std::{collections::vec_deque::VecDeque, io, time::Duration};
+ 
+ #[cfg(unix)]
+ use crate::event::source::unix::UnixInternalEventSource;
++#[cfg(target_os = "wasi")]
++use crate::event::source::wasi::WasiInternalEventSource;
+ #[cfg(windows)]
+ use crate::event::source::windows::WindowsEventSource;
+ #[cfg(feature = "event-stream")]
+@@ -21,6 +23,8 @@ impl Default for InternalEventReader {
+         let source = WindowsEventSource::new();
+         #[cfg(unix)]
+         let source = UnixInternalEventSource::new();
++        #[cfg(target_os = "wasi")]
++        let source = WasiInternalEventSource::new();
+ 
+         let source = source.ok().map(|x| Box::new(x) as Box<dyn EventSource>);
+ 
+diff --git a/src/event/source.rs b/src/event/source.rs
+index e53bd31..b26088b 100644
+--- a/src/event/source.rs
++++ b/src/event/source.rs
+@@ -6,6 +6,8 @@ use super::InternalEvent;
+ 
+ #[cfg(unix)]
+ pub(crate) mod unix;
++#[cfg(target_os = "wasi")]
++pub(crate) mod wasi;
+ #[cfg(windows)]
+ pub(crate) mod windows;
+ 
+diff --git a/src/event/source/wasi.rs b/src/event/source/wasi.rs
+new file mode 100644
+index 0000000..1c93041
+--- /dev/null
++++ b/src/event/source/wasi.rs
+@@ -0,0 +1,99 @@
++//! WASI: the terminal's input from the host (`terminal/sys/wasi.rs`'s
++//! `read`), parsed as on Unix.
++
++use std::{collections::VecDeque, io, time::Duration};
++
++#[cfg(feature = "event-stream")]
++use crate::event::sys::Waker;
++use crate::event::timeout::PollTimeout;
++use crate::event::{source::EventSource, sys::unix::parse::parse_event, Event, InternalEvent};
++use crate::terminal::sys::wasi::read;
++
++const BUFFER_SIZE: usize = 1_024;
++
++pub(crate) struct WasiInternalEventSource {
++    parser: Parser,
++    buffer: [u8; BUFFER_SIZE],
++}
++
++impl WasiInternalEventSource {
++    pub fn new() -> io::Result<Self> {
++        Ok(WasiInternalEventSource {
++            parser: Parser::default(),
++            buffer: [0u8; BUFFER_SIZE],
++        })
++    }
++}
++
++impl EventSource for WasiInternalEventSource {
++    fn try_read(&mut self, timeout: Option<Duration>) -> io::Result<Option<InternalEvent>> {
++        let timeout = PollTimeout::new(timeout);
++        loop {
++            if let Some(event) = self.parser.next() {
++                return Ok(Some(event));
++            }
++            let ms = match timeout.leftover() {
++                None => -1,
++                Some(left) if left.is_zero() => return Ok(None),
++                Some(left) => i32::try_from(left.as_millis()).unwrap_or(i32::MAX).max(1),
++            };
++            // SAFETY: the host writes at most `BUFFER_SIZE` bytes into the buffer.
++            let n = unsafe { read(self.buffer.as_mut_ptr(), BUFFER_SIZE, ms) };
++            if n < 0 {
++                let (columns, rows) = crate::terminal::size()?;
++                return Ok(Some(InternalEvent::Event(Event::Resize(columns, rows))));
++            }
++            let n = usize::try_from(n).unwrap_or(0);
++            if n == 0 && timeout.elapsed() {
++                return Ok(None);
++            }
++            self.parser.advance(&self.buffer[..n], n == BUFFER_SIZE);
++        }
++    }
++
++    #[cfg(feature = "event-stream")]
++    fn waker(&self) -> Waker {
++        unimplemented!("no event stream on WASI")
++    }
++}
++
++// As Unix's (`event/source/unix/tty.rs`).
++#[derive(Debug)]
++struct Parser {
++    buffer: Vec<u8>,
++    internal_events: VecDeque<InternalEvent>,
++}
++
++impl Default for Parser {
++    fn default() -> Self {
++        Parser {
++            buffer: Vec::with_capacity(256),
++            internal_events: VecDeque::with_capacity(128),
++        }
++    }
++}
++
++impl Parser {
++    fn advance(&mut self, buffer: &[u8], more: bool) {
++        for (idx, byte) in buffer.iter().enumerate() {
++            let more = idx + 1 < buffer.len() || more;
++            self.buffer.push(*byte);
++            match parse_event(&self.buffer, more) {
++                Ok(Some(ie)) => {
++                    self.internal_events.push_back(ie);
++                    self.buffer.clear();
++                }
++                Ok(None) => {}
++                Err(_) => self.buffer.clear(),
++            }
++        }
++    }
++}
++
++impl Iterator for Parser {
++    type Item = InternalEvent;
++
++    fn next(&mut self) -> Option<Self::Item> {
++        self.internal_events.pop_front()
++    }
++}
+diff --git a/src/event/sys.rs b/src/event/sys.rs
+index bd79307..7e7e692 100644
+--- a/src/event/sys.rs
++++ b/src/event/sys.rs
+@@ -3,7 +3,7 @@ pub(crate) use unix::waker::Waker;
+ #[cfg(all(windows, feature = "event-stream"))]
+ pub(crate) use windows::waker::Waker;
+ 
+-#[cfg(unix)]
++#[cfg(any(unix, target_os = "wasi"))]
+ pub(crate) mod unix;
+ #[cfg(windows)]
+ pub(crate) mod windows;
+diff --git a/src/terminal.rs b/src/terminal.rs
+index 3aebc1f..b685442 100644
+--- a/src/terminal.rs
++++ b/src/terminal.rs
+@@ -105,7 +105,7 @@ pub use sys::supports_keyboard_enhancement;
+ ///
+ /// Please have a look at the [raw mode](./index.html#raw-mode) section.
+ pub fn is_raw_mode_enabled() -> io::Result<bool> {
+-    #[cfg(unix)]
++    #[cfg(any(unix, target_os = "wasi"))]
+     {
+         Ok(sys::is_raw_mode_enabled())
+     }
+diff --git a/src/terminal/sys.rs b/src/terminal/sys.rs
+index 9dde47d..19a7729 100644
+--- a/src/terminal/sys.rs
++++ b/src/terminal/sys.rs
+@@ -18,8 +18,18 @@ pub(crate) use self::windows::{
+     set_size, set_window_title, size, window_size,
+ };
+ 
++#[cfg(target_os = "wasi")]
++#[cfg(feature = "events")]
++pub use self::wasi::supports_keyboard_enhancement;
++#[cfg(target_os = "wasi")]
++pub(crate) use self::wasi::{
++    disable_raw_mode, enable_raw_mode, is_raw_mode_enabled, size, window_size,
++};
++
+ #[cfg(windows)]
+ mod windows;
++#[cfg(target_os = "wasi")]
++pub(crate) mod wasi;
+ 
+ #[cfg(unix)]
+ pub mod file_descriptor;
+diff --git a/src/terminal/sys/wasi.rs b/src/terminal/sys/wasi.rs
+new file mode 100644
+index 0000000..5a802d4
+--- /dev/null
++++ b/src/terminal/sys/wasi.rs
+@@ -0,0 +1,69 @@
++//! WASI: the terminal is the host's. It sets raw mode and tells the size,
++//! and the event source reads its input (`event/source/wasi.rs`), through
++//! the `crossterm` imports.
++
++use std::io;
++use std::sync::atomic::{AtomicBool, Ordering};
++
++use crate::terminal::WindowSize;
++
++#[link(wasm_import_module = "crossterm")]
++unsafe extern "C" {
++    /// Sets raw mode (1) or the host's line editing (0); 0 when done.
++    fn raw_mode(on: i32) -> i32;
++    /// The terminal's columns and rows; 0 when known.
++    #[link_name = "size"]
++    fn host_size(columns: *mut u16, rows: *mut u16) -> i32;
++    /// Up to `max` bytes of the terminal's input into `buf`, waiting up to
++    /// `timeout_ms` (-1: until some come). Their count; 0 when none came,
++    /// -1 when the terminal was resized meanwhile.
++    pub(crate) fn read(buf: *mut u8, max: usize, timeout_ms: i32) -> i32;
++}
++
++static RAW: AtomicBool = AtomicBool::new(false);
++
++pub(crate) fn is_raw_mode_enabled() -> bool {
++    RAW.load(Ordering::SeqCst)
++}
++
++fn set_raw(on: bool) -> io::Result<()> {
++    // SAFETY: an import without pointers.
++    if unsafe { raw_mode(i32::from(on)) } != 0 {
++        return Err(io::Error::other("the terminal cannot change its mode"));
++    }
++    RAW.store(on, Ordering::SeqCst);
++    Ok(())
++}
++
++pub(crate) fn enable_raw_mode() -> io::Result<()> {
++    set_raw(true)
++}
++
++pub(crate) fn disable_raw_mode() -> io::Result<()> {
++    set_raw(false)
++}
++
++pub(crate) fn size() -> io::Result<(u16, u16)> {
++    let (mut columns, mut rows) = (0u16, 0u16);
++    // SAFETY: the host writes one u16 at each of the two pointers.
++    if unsafe { host_size(&mut columns, &mut rows) } != 0 {
++        return Err(io::Error::other("the terminal's size is not known"));
++    }
++    Ok((columns, rows))
++}
++
++pub(crate) fn window_size() -> io::Result<WindowSize> {
++    let (columns, rows) = size()?;
++    Ok(WindowSize {
++        rows,
++        columns,
++        width: 0,
++        height: 0,
++    })
++}
++
++/// The host's terminal does not take the keyboard enhancement protocol.
++#[cfg(feature = "events")]
++pub fn supports_keyboard_enhancement() -> io::Result<bool> {
++    Ok(false)
++}
+diff --git a/src/tty.rs b/src/tty.rs
+index 5a710b4..de5aa4f 100644
+--- a/src/tty.rs
++++ b/src/tty.rs
+@@ -42,6 +42,14 @@ impl<S: AsRawFd> IsTty for S {
+     }
+ }
+ 
++/// On WASI, what the host says (`isatty`, as the standard library has it).
++#[cfg(target_os = "wasi")]
++impl<S: std::io::IsTerminal> IsTty for S {
++    fn is_tty(&self) -> bool {
++        self.is_terminal()
++    }
++}
++
+ /// On windows, `GetConsoleMode` will return true if we are in a terminal.
+ /// Otherwise false.
+ #[cfg(windows)]
+-- 
+2.53.0
+

@@ -43,8 +43,8 @@ jobs:
           # What is not tracked goes, but target/ and out/ (the BEAM build,
           # the template) and their caches.
           git clean -q -ffdx -e target -e out -e node_modules
-          # brush's source (brush/build.py), at the commit this one names.
-          git submodule update -q --init --depth 1 brush/upstream
+          # brush's sources (brush/build.py), at the commits this one names.
+          git submodule update -q --init --depth 1 brush/src
           echo "BUILD_DIR=$dir" >> "$GITHUB_ENV"
 
       - name: Build the site

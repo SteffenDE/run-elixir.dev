@@ -1,3 +1,9 @@
-[submodule "brush/upstream"]
-	path = brush/upstream
+[submodule "brush/src/brush"]
+	path = brush/src/brush
 	url = https://github.com/reubeno/brush
+[submodule "brush/src/crossterm"]
+	path = brush/src/crossterm
+	url = https://github.com/crossterm-rs/crossterm
+[submodule "brush/src/fd-lock"]
+	path = brush/src/fd-lock
+	url = https://github.com/yoshuawuyts/fd-lock
