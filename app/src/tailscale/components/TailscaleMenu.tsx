@@ -1,5 +1,6 @@
 import { RiArrowRightUpLine, RiLoader4Line } from '@remixicon/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLive } from '@/live/lib/store';
 import { connectServer } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { apexUrl } from '@/shared/lib/site';
@@ -7,6 +8,7 @@ import {
   connectTailscale,
   decide,
   describe,
+  offForGuests,
   share,
   unshare,
   useTailscale,
@@ -32,6 +34,11 @@ export function TailscaleMenu() {
   const consent = useTailscale((state) => state.consent);
   const shared = useTailscale((state) => state.shared);
   const serving = useStore((state) => state.serving);
+  // Followed for offForGuests, which reads them.
+  useLive((state) => state.people);
+  useLive((state) => state.everyone);
+  useLive((state) => state.perGuest);
+  useLive((state) => state.tailnetOff);
   const [open, setOpen] = useState(false);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
@@ -99,6 +106,11 @@ export function TailscaleMenu() {
                   {consent === true ? 'Stop' : 'Allow'}
                 </button>
               </div>
+              {offForGuests() && (
+                <p className="muted">
+                  Off while a guest of the live session may type or edit, as the session is set.
+                </p>
+              )}
               <h3>Its servers in your tailnet</h3>
               {ports.length === 0 ? (
                 <p className="muted">No server runs in this project.</p>

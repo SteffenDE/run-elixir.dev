@@ -9,6 +9,7 @@
 // the exit node and the control server are the Tailscale page's
 // (TailscalePage).
 import { create } from 'zustand';
+import { permissionsOf, useLive } from '@/live/lib/store';
 import { failure, NXDOMAIN, questionName } from '@/runtime/dns';
 import type { Connection } from '@/runtime/host/node';
 import { trace } from '@/runtime/trace';
@@ -206,15 +207,30 @@ export function decide(allowed: boolean): void {
   answered(allowed);
 }
 
+// The host of this page's live session chose no tailnet while a guest who
+// may type into its terminals or edit its files (who runs code here) is
+// in, and one is.
+export function offForGuests(): boolean {
+  const { role, people, tailnetOff } = useLive.getState();
+  if (role !== 'host' || !tailnetOff) return false;
+  return people.some((person) => {
+    if (person.host || person.waiting) return false;
+    const may = permissionsOf(person.id);
+    return may.terminal || may.edit;
+  });
+}
+
 // Whether the node would take the tailnet to `host` (a name or an
-// address): this page runs a project, and the device runs and has an exit
-// node or `host` is the tailnet's.
+// address): this page runs a project, the device runs and has an exit
+// node or `host` is the tailnet's, and it is not off for a live session's
+// guests.
 function routable(host: string): boolean {
   const { status } = useTailscale.getState();
   return (
     project !== null &&
     status?.state === 'Running' &&
-    (!!status.exitNode || inTailnet(host, status))
+    (!!status.exitNode || inTailnet(host, status)) &&
+    !offForGuests()
   );
 }
 
@@ -269,7 +285,7 @@ export async function tailnetResolve(query: unknown): Promise<Uint8Array> {
   if (!(query instanceof Uint8Array)) throw new Error('not a DNS message');
   const { status } = useTailscale.getState();
   const name = questionName(query);
-  if (project !== null && status?.state === 'Running') {
+  if (project !== null && status?.state === 'Running' && !offForGuests()) {
     if (await mayUse(name ?? 'a name')) {
       const id = ++nextRequest;
       const answer = new Promise<Uint8Array>((resolve, reject) =>

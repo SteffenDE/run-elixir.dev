@@ -51,6 +51,9 @@ interface LiveState {
   everyone: Permissions;
   perGuest: Record<string, Partial<Permissions>>;
   admit: boolean;
+  // The host's choice: no tailnet for the project while a guest who may
+  // type or edit is in (docs/tailscale.md); off unless chosen.
+  tailnetOff: boolean;
   // A guest's own.
   mine: Permissions;
   cursors: Record<string, Cursor>;
@@ -79,6 +82,7 @@ export const useLive = create<LiveState>((set) => ({
   everyone: { ...NONE },
   perGuest: {},
   admit: false,
+  tailnetOff: false,
   mine: { ...NONE },
   cursors: {},
   active: {},
