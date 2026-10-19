@@ -391,9 +391,26 @@ def record(out, boot, snapshot):
         return fetched
 
 
-def page(out):
+# The terminal's shell, brush, and uutils coreutils (ls, cp, rm, … for
+# the shell and the nodes), built to WebAssembly by their own scripts.
+WASM = {"brush": "brush/build.py", "coreutils": "coreutils/build.py"}
+
+
+def prebuilt():
+    """WASM's builds, {name: target/NAME/NAME.wasm}; the build stops
+    before it touches the site if any is missing."""
+    built = {name: os.path.join(ROOT, "target", name, f"{name}.wasm") for name in WASM}
+    missing = [f"{path}: missing (python3 -I {WASM[name]} first)"
+               for name, path in built.items() if not os.path.exists(path)]
+    if missing:
+        raise SystemExit("\n".join(missing))
+    return built
+
+
+def page(out, wasm):
     """The app's Vite build into `out` (the page, and the runtime's workers
-    and service worker), and its Node harness into NODE."""
+    and service worker), and its Node harness into NODE; `wasm` is
+    prebuilt()'s."""
     source = os.path.join(ROOT, "app")
     vite_build(source)
     # What an earlier build left: its assets, and its runtime's scripts.
@@ -410,12 +427,7 @@ def page(out):
     packages = os.path.join(ROOT, "target", "nif", "packages")
     if os.path.isdir(packages):
         shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
-    # The terminal's shell, brush, and uutils coreutils (ls, cp, rm, … for
-    # the shell and the nodes), built to WebAssembly by their own scripts.
-    for name, script in (("brush", "brush/build.py"), ("coreutils", "coreutils/build.py")):
-        built = os.path.join(ROOT, "target", name, f"{name}.wasm")
-        if not os.path.exists(built):
-            raise SystemExit(f"{built}: missing (python3 -I {script} first)")
+    for name, built in wasm.items():
         shutil.copy(built, os.path.join(out, f"{name}.wasm"))
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
     # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
@@ -486,13 +498,14 @@ def version(out):
 
 def main():
     out = os.path.join(ROOT, "target", "site")
+    wasm = prebuilt()
     if sys.argv[1:] == ["app"]:
         unversion(out)
-        page(out)
+        page(out, wasm)
         print(f"{out}: build %s, runtime %s" % version(out))
         return
     shutil.rmtree(out, ignore_errors=True)
-    page(out)
+    page(out, wasm)
     otp_install()
     for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
         shutil.copy(os.path.join(BEAM_DIST, name), os.path.join(out, name))
