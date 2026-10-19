@@ -55,6 +55,7 @@ export const BUILTINS = [
   'util/types',
   'v8',
   'vm',
+  'wasi',
   'worker_threads',
   'zlib',
 ];
@@ -83,6 +84,9 @@ export function createBuiltins(deps: {
   module: () => Record<string, unknown>;
   env: Record<string, string>;
   tty: boolean;
+  // node:wasi (wasi.ts) and worker_threads (threads.ts).
+  wasi: () => Record<string, unknown>;
+  threads: () => Record<string, unknown>;
 }) {
   const { process, timers } = deps;
   const warn = (text: string) => (process.stderr as { write(t: string): void }).write(text);
@@ -387,19 +391,8 @@ export function createBuiltins(deps: {
       deserialize: (bytes: Uint8Array) => JSON.parse(Buffer.from(bytes).toString()),
     }),
     vm: () => createVm(),
-    worker_threads: () => ({
-      isMainThread: true,
-      parentPort: null,
-      workerData: null,
-      threadId: 0,
-      resourceLimits: {},
-      SHARE_ENV: Symbol('SHARE_ENV'),
-      MessageChannel,
-      MessagePort,
-      BroadcastChannel,
-      markAsUntransferable() {},
-      ...missing('worker_threads', ['Worker']),
-    }),
+    wasi: () => deps.wasi(),
+    worker_threads: () => deps.threads(),
     zlib: () =>
       missing(
         'zlib',

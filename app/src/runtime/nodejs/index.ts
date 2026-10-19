@@ -1,18 +1,24 @@
 // nodejs.js: a Node.js process in a worker of its own (the page program
-// `node`, programs/nodejs.ts). Scripts run on the browser's own JavaScript
+// `node`, programs/nodejs.ts), or one of its worker threads in a worker
+// nested in it (threads.ts). Scripts run on the browser's own JavaScript
 // engine; Node's modules are this directory's, over the shared files
-// (files.js, reached synchronously as a node reaches them).
+// (files.js, reached synchronously as a node reaches them; a process's
+// threads share its channel, by its lock).
 //
-// The page sends { kind: 'start', args, cwd, env, doorbell, channel }; the
-// worker answers { kind: 'out', fd, bytes } as the process writes and
-// { kind: 'exit', code } at its end, then waits to be stopped.
-import { Buffer } from 'buffer';
+// The page (or the parent thread) sends { kind: 'start', args, cwd, env,
+// doorbell, channel, lock?, thread? } and then a thread's messages as
+// { kind: 'message', data }; the worker answers { kind: 'out', fd, bytes }
+// as it writes, a thread's messages and its uncaught error, and { kind:
+// 'exit', code } at its end, then waits to be stopped.
+import { Buffer } from './buffer';
 import { createBuiltins, BUILTINS } from './builtins';
 import { createFs } from './fs';
 import { createLoader } from './loader';
 import { createPath } from './path';
 import { createProcess, VERSION } from './process';
+import { createThreads, nodeMessageChannel, type ThreadStart } from './threads';
 import { inspect } from './util';
+import { createWasi } from './wasi';
 import { sharedClient } from '../wasi/shared';
 
 interface Start {
@@ -22,8 +28,12 @@ interface Start {
   env: Record<string, string>;
   doorbell: SharedArrayBuffer;
   channel: SharedArrayBuffer;
+  // The channel's lock, which a process's threads share; made by the
+  // process.
+  lock?: SharedArrayBuffer;
   tty?: boolean;
   columns?: number;
+  thread?: ThreadStart;
 }
 
 const USAGE = `Usage: node [options] [ script.js | -e "script" ] [arguments]
@@ -39,14 +49,21 @@ has no REPL, network or child processes yet.
 `;
 
 const encoder = new TextEncoder();
+// The worker's own postMessage: a script may put its own in the global's
+// place (napi-rs's threads do).
+const post = globalThis.postMessage.bind(globalThis) as (
+  message: unknown,
+  transfer?: Transferable[],
+) => void;
 
-// Bytes to the page; the worker's end, after which nothing runs.
+// Bytes to the page (or the parent); the worker's end, after which nothing
+// runs.
 const io = {
   write(fd: number, bytes: Uint8Array) {
-    postMessage({ kind: 'out', fd, bytes: bytes.slice() });
+    post({ kind: 'out', fd, bytes: bytes.slice() });
   },
   exit(code: number): never {
-    postMessage({ kind: 'exit', code: code & 255 });
+    post({ kind: 'exit', code: code & 255 });
     // The page stops the worker; until then, nothing more of the script.
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
     throw new Error('stopped');
@@ -106,9 +123,24 @@ function parse(args: string[]) {
   return out;
 }
 
+// The thread's worker_threads, for its parent's messages.
+let threads: ReturnType<typeof createThreads> | null = null;
+
 async function run(start: Start) {
-  const call = sharedClient(start.doorbell, start.channel);
-  const options = parse(start.args);
+  const thread = start.thread ?? null;
+  const lock = start.lock ?? new SharedArrayBuffer(4);
+  const call = sharedClient(start.doorbell, start.channel, lock);
+  const options = thread
+    ? {
+        eval: thread.code,
+        print: false,
+        script: thread.file,
+        rest: thread.argv,
+        requires: [],
+        version: false,
+        help: false,
+      }
+    : parse(start.args);
   if (options.version) {
     io.write(1, encoder.encode(`${VERSION}\n`));
     io.exit(0);
@@ -122,7 +154,7 @@ async function run(start: Start) {
     io.exit(9);
   }
 
-  const env = { ...start.env, PWD: start.cwd };
+  const env = { ...(thread?.env ?? start.env), PWD: start.cwd };
   let proc: ReturnType<typeof createProcess>;
   const path = createPath(() => (proc ? (proc.process.cwd as () => string)() : start.cwd));
   const files = createFs(
@@ -138,10 +170,33 @@ async function run(start: Start) {
     io,
     tty: start.tty ?? false,
     columns: start.columns ?? 80,
+    report: thread ? (error) => post({ kind: 'error', error }) : undefined,
   });
   const { process, console, timers, hold, fail } = proc;
   files.setStdio((fd, bytes) => io.write(fd, bytes));
   files.setLater((fn) => (timers.setImmediate as (f: () => void) => void)(fn));
+
+  threads = createThreads({
+    script: import.meta.url,
+    shared: {
+      args: [],
+      env: start.env,
+      doorbell: start.doorbell,
+      channel: start.channel,
+      lock,
+      tty: start.tty,
+      columns: start.columns,
+    },
+    cwd: () => (process.cwd as () => string)(),
+    env,
+    write: (fd, bytes) => io.write(fd, bytes),
+    hold,
+    resolve: (file) => path.resolve(file),
+    self: thread,
+    post,
+  });
+  const ownThreads = threads;
+  const wasi = createWasi(call, (fd, bytes) => io.write(fd, bytes), proc.end);
 
   let loader: ReturnType<typeof createLoader>;
   const builtin = createBuiltins({
@@ -154,6 +209,8 @@ async function run(start: Start) {
     module: () => loader.moduleBuiltin(),
     env,
     tty: start.tty ?? false,
+    wasi: () => wasi,
+    threads: () => ownThreads,
   });
   loader = createLoader({
     fs: files.module as never,
@@ -165,7 +222,12 @@ async function run(start: Start) {
   });
   loader.setProcess(() => ({ cwd: process.cwd as () => string }));
 
-  // Node's globals over the worker's.
+  // Node's MessageChannel, whose ports hold the process as Node's do.
+  globalThis.MessageChannel = nodeMessageChannel(hold);
+
+  // Node's globals over the worker's. self and navigator are the worker
+  // scope's getters, which scripts assign as Node lets them (napi-rs's
+  // threads set self): plain properties here.
   Object.assign(globalThis, {
     global: globalThis,
     process,
@@ -173,6 +235,16 @@ async function run(start: Start) {
     console,
     ...timers,
   });
+  for (const [name, value] of [
+    ['self', globalThis],
+    ['navigator', globalThis.navigator],
+  ] as const)
+    Object.defineProperty(globalThis, name, {
+      value,
+      writable: true,
+      configurable: true,
+      enumerable: true,
+    });
 
   addEventListener('error', (event) => {
     event.preventDefault();
@@ -184,6 +256,7 @@ async function run(start: Start) {
       process.emit('unhandledRejection', event.reason, event.promise);
       return;
     }
+    if (thread) return fail(event.reason);
     const reason = event.reason;
     const text = reason instanceof Error ? inspect(reason) : `Uncaught ${inspect(reason)}`;
     io.write(2, encoder.encode(`${text}\n\nNode.js ${VERSION}\n`));
@@ -206,6 +279,8 @@ async function run(start: Start) {
   }
 }
 
-addEventListener('message', (event: MessageEvent<Start>) => {
-  if (event.data?.kind === 'start') void run(event.data);
+addEventListener('message', (event: MessageEvent<Start | { kind: 'message'; data: unknown }>) => {
+  const data = event.data;
+  if (data?.kind === 'start') void run(data);
+  else if (data?.kind === 'message') threads?.deliver(data.data);
 });

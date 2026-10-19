@@ -23,6 +23,9 @@ export function createProcess(options: {
   io: Io;
   tty: boolean;
   columns: number;
+  // A worker thread's uncaught error: its parent's 'error' (Node prints
+  // nothing in the thread).
+  report?: (error: unknown) => void;
 }) {
   const { io } = options;
   let cwd = options.cwd;
@@ -242,6 +245,10 @@ export function createProcess(options: {
     if (process.listenerCount('uncaughtException')) {
       process.emit('uncaughtException', error, 'uncaughtException');
       return;
+    }
+    if (options.report) {
+      options.report(error);
+      end(1);
     }
     const text = error instanceof Error ? inspect(error) : `Uncaught ${inspect(error)}`;
     io.write(2, encode(`${text}\n\nNode.js ${VERSION}\n`));

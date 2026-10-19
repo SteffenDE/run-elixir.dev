@@ -18,7 +18,28 @@ export interface Shared {
   call: SharedCall;
 }
 
-export function sharedClient(doorbell: SharedArrayBuffer, channel: SharedArrayBuffer): SharedCall {
+// lock: a word every thread that shares the channel takes it with (a Node
+// process's worker threads, runtime/nodejs), one call at a time.
+export function sharedClient(
+  doorbell: SharedArrayBuffer,
+  channel: SharedArrayBuffer,
+  lock?: SharedArrayBuffer,
+): SharedCall {
+  const call = unlocked(doorbell, channel);
+  if (!lock) return call;
+  const word = new Int32Array(lock);
+  return (request, bytes) => {
+    while (Atomics.compareExchange(word, 0, 0, 1) !== 0) Atomics.wait(word, 0, 1, 10);
+    try {
+      return call(request, bytes);
+    } finally {
+      Atomics.store(word, 0, 0);
+      Atomics.notify(word, 0, 1);
+    }
+  };
+}
+
+function unlocked(doorbell: SharedArrayBuffer, channel: SharedArrayBuffer): SharedCall {
   const bell = new Int32Array(doorbell);
   const control = new Int32Array(channel, 0, 2);
   const data = new Uint8Array(channel, 8);
