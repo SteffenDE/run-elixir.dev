@@ -17,7 +17,12 @@ export default defineConfig({
   workers: Number(process.env.WORKERS || 3),
   timeout: 300_000,
   expect: { timeout: 30_000 },
-  reporter: [['list']],
+  // A line per test as it starts and fails, and every test's duration in
+  // results.json (tests/durations.py) to keep the timeouts honest.
+  reporter: [
+    ['line'],
+    ['json', { outputFile: `${process.env.OUTPUT_DIR ?? 'test-results'}/results.json` }],
+  ],
   use: {
     baseURL: `http://localhost:${port}`,
     viewport: { width: 1400, height: 850 },
