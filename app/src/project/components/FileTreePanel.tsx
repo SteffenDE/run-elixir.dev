@@ -171,14 +171,20 @@ export function FileTreePanel() {
     const now = new Set(paths);
     // Against the model too: what it did itself (a move, a folder left
     // empty) may already be there, or gone.
+    const removed = before
+      .filter((path) => !now.has(path) && model.getItem(path))
+      // An empty directory that now has files is no removal.
+      .filter((path) => !(path.endsWith('/') && paths.some((p) => p.startsWith(path))));
     const operations = [
       ...paths
         .filter((path) => !was.has(path) && !model.getItem(path))
         .map((path) => ({ type: 'add' as const, path })),
-      ...before
-        .filter((path) => !now.has(path) && model.getItem(path))
-        // An empty directory that now has files is no removal.
-        .filter((path) => !(path.endsWith('/') && paths.some((p) => p.startsWith(path))))
+      ...removed
+        // What a removed folder holds goes with it (rm -rf).
+        .filter(
+          (path) =>
+            !removed.some((dir) => dir !== path && dir.endsWith('/') && path.startsWith(dir)),
+        )
         .map((path) => ({ type: 'remove' as const, path, recursive: true })),
     ];
     if (operations.length) model.batch(operations);
