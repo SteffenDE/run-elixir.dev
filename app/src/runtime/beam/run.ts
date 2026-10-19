@@ -44,6 +44,9 @@ export interface BeamOptions {
   stdout: (bytes: Uint8Array) => void;
   stderr: (bytes: Uint8Array) => void;
   memory?: WebAssembly.Memory;
+  // beam.wasm compiled (the page's, host/node.ts): instantiated as it is,
+  // in place of fetching and compiling it; its threads get it from here.
+  wasm?: WebAssembly.Module;
   trace?: boolean;
 }
 
@@ -68,6 +71,19 @@ const STDIN_CAPACITY = 64 * 1024;
 // events (WebKit; startBeam).
 const SLICE = 8;
 const encoder = new TextEncoder();
+
+// Emscripten's instantiateWasm (beam/build.sh): the instance of a compiled
+// module, handed back as Emscripten's own would be; {} says it comes later.
+// fail: what a node does when it cannot start.
+const instantiate =
+  (module: WebAssembly.Module, fail: (error: unknown) => void) =>
+  (
+    imports: WebAssembly.Imports,
+    receive: (instance: WebAssembly.Instance, module: WebAssembly.Module) => void,
+  ) => {
+    WebAssembly.instantiate(module, imports).then((instance) => receive(instance, module), fail);
+    return {};
+  };
 
 // oxlint-disable-next-line typescript/no-explicit-any -- Emscripten's module.
 type Module = any;
@@ -169,6 +185,7 @@ export function startBeam(options: BeamOptions): BeamNode {
           // through Popcorn's buffer either way).
           ...(options.tty ? {} : { stdin: () => null }),
           wasmMemory: memory,
+          ...(options.wasm ? { instantiateWasm: instantiate(options.wasm, reject) } : {}),
           beamNetwork: options.network,
           beamHttpsGateway: options.httpsGateway,
           beamNifs: nifHost(options),

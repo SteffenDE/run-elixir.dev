@@ -62,11 +62,13 @@ interface Start {
   cwd?: string;
   boots?: string[];
   // What the page has of them already (host/node.ts Node.start): the boot
-  // images gunzipped, the manifest, brush.wasm and coreutils.wasm compiled.
+  // images gunzipped, the manifest, brush.wasm, coreutils.wasm and
+  // beam.wasm compiled.
   images?: ArrayBuffer[];
   manifest?: Manifest;
   brush?: WebAssembly.Module;
   coreutils?: WebAssembly.Module;
+  beam?: WebAssembly.Module;
 }
 
 const SHARED = ['/work', '/tmp', '/home'];
@@ -248,6 +250,7 @@ onmessage = async ({
     manifest: listed,
     brush: shellModule,
     coreutils: toolsModule,
+    beam: beamModule,
   },
 }: MessageEvent<Start>) => {
   setRuntime(runtimeUrl);
@@ -344,6 +347,7 @@ onmessage = async ({
           ),
           channel,
           memory: sharedMemory(),
+          wasm: beamModule,
           stdout,
         });
       } finally {

@@ -24,6 +24,8 @@ export interface BeamRun {
   programs: Programs;
   channel: Channel;
   memory: WebAssembly.Memory | null;
+  // beam.wasm compiled on the page, if it was.
+  wasm?: WebAssembly.Module;
   stdout: (bytes: Uint8Array) => void;
 }
 
@@ -78,6 +80,7 @@ export async function runBeam(run: BeamRun): Promise<number> {
     stdout: run.stdout,
     stderr: run.stdout,
     memory: run.memory ?? undefined,
+    wasm: run.wasm,
   });
   // Cleared once the node has halted.
   const watching = { on: true };

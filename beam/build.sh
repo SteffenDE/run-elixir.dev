@@ -165,7 +165,9 @@ build() {
     # mimalloc and 4 GB: emmalloc's heap fragmented past Popcorn's 2 GB
     # compiling Ash (README.md).
     flags+=" -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=4GB -sALLOW_MEMORY_GROWTH=1"
-    flags+=" -sINCOMING_MODULE_JS_API=arguments,wasmMemory,preRun,print,printErr,onExit,onAbort,locateFile,stdin"
+    # instantiateWasm: a node's worker instantiates beam.wasm as the page
+    # compiled it once (beam/run.ts), rather than fetching and compiling it.
+    flags+=" -sINCOMING_MODULE_JS_API=arguments,wasmMemory,preRun,print,printErr,onExit,onAbort,locateFile,stdin,instantiateWasm"
     flags+=" -sEXPORTED_RUNTIME_METHODS=ENV,FS,TTY,ccall,stringToNewUTF8,lengthBytesUTF8,FS_mkdirTree,FS_createDataFile"
     # popcorn*: patch 0011's and 0017's terminal; emscripten_force_exit
     # stops a node (Ctrl+C); _emscripten_check_mailbox runs the calls the

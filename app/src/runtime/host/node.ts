@@ -127,7 +127,7 @@ type NodeMessage =
   | SpawnMessage
   | { kind: 'kill'; id: number };
 
-// One of a site's WebAssembly modules (brush.wasm, coreutils.wasm),
+// One of a site's WebAssembly modules (beam.wasm, brush.wasm, coreutils.wasm),
 // compiled once on the page for every node's worker (a compiled module
 // posts to a worker as it is); null when the site has none.
 const modules = new Map<string, Promise<WebAssembly.Module | null>>();
@@ -277,7 +277,8 @@ export class Node {
   } = {}): void {
     this.channel = this.files?.connect() ?? null;
     // What the worker starts from, gunzipped and compiled once on the page
-    // (files.js's boot images, the manifest, brush.wasm and coreutils.wasm):
+    // (files.js's boot images, the manifest, beam.wasm, brush.wasm and
+    // coreutils.wasm):
     // posting copies the tars at memory speed, in place of each worker
     // fetching and gunzipping them. Without, the worker fetches them itself.
     const names = boots ?? ['boot'];
@@ -292,7 +293,8 @@ export class Node {
         : null,
       brush,
       siteModule(this.runtime, 'coreutils.wasm'),
-    ]).then(([boot, module, coreutils]) => {
+      siteModule(this.runtime, 'beam.wasm'),
+    ]).then(([boot, module, coreutils, beam]) => {
       const images = boot && names.every((name) => boot.images[name]);
       this.worker.postMessage({
         shared: this.shared,
@@ -309,6 +311,7 @@ export class Node {
         manifest: images ? boot.manifest : undefined,
         brush: module ?? undefined,
         coreutils: coreutils ?? undefined,
+        beam: beam ?? undefined,
         ports: Object.keys(this.serve).map(Number),
         https: Boolean(this.https),
         pagePrograms: Object.keys(this.programs),
