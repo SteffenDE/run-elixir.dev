@@ -127,14 +127,15 @@ type NodeMessage =
   | SpawnMessage
   | { kind: 'kill'; id: number };
 
-// A site's brush.wasm, compiled once on the page for every shell's worker
-// (a compiled module posts to a worker as it is); null when the site has
-// none.
-const brushes = new Map<string, Promise<WebAssembly.Module | null>>();
-function brushModule(runtime: string): Promise<WebAssembly.Module | null> {
-  let module = brushes.get(runtime);
+// One of a site's WebAssembly modules (brush.wasm, coreutils.wasm),
+// compiled once on the page for every node's worker (a compiled module
+// posts to a worker as it is); null when the site has none.
+const modules = new Map<string, Promise<WebAssembly.Module | null>>();
+function siteModule(runtime: string, name: string): Promise<WebAssembly.Module | null> {
+  const url = new URL(name, runtime).href;
+  let module = modules.get(url);
   if (!module) {
-    module = fetch(new URL('brush.wasm', runtime))
+    module = fetch(url)
       .then(async (response) => {
         const bytes = new Uint8Array(await response.arrayBuffer());
         return response.ok && bytes[0] === 0 && bytes[1] === 0x61
@@ -142,7 +143,7 @@ function brushModule(runtime: string): Promise<WebAssembly.Module | null> {
           : null;
       })
       .catch(() => null);
-    brushes.set(runtime, module);
+    modules.set(url, module);
   }
   return module;
 }
@@ -276,12 +277,12 @@ export class Node {
   } = {}): void {
     this.channel = this.files?.connect() ?? null;
     // What the worker starts from, gunzipped and compiled once on the page
-    // (files.js's boot images, the manifest, brush.wasm): posting copies
-    // the tars at memory speed, in place of each worker fetching and
-    // gunzipping them. Without, the worker fetches them itself.
+    // (files.js's boot images, the manifest, brush.wasm and coreutils.wasm):
+    // posting copies the tars at memory speed, in place of each worker
+    // fetching and gunzipping them. Without, the worker fetches them itself.
     const names = boots ?? ['boot'];
     const files = this.files;
-    const brush = shell ? brushModule(this.runtime) : null;
+    const brush = shell ? siteModule(this.runtime, 'brush.wasm') : null;
     void Promise.all([
       files
         ? files.ready.then(
@@ -290,7 +291,8 @@ export class Node {
           )
         : null,
       brush,
-    ]).then(([boot, module]) => {
+      siteModule(this.runtime, 'coreutils.wasm'),
+    ]).then(([boot, module, coreutils]) => {
       const images = boot && names.every((name) => boot.images[name]);
       this.worker.postMessage({
         shared: this.shared,
@@ -306,6 +308,7 @@ export class Node {
         images: images ? names.map((name) => boot.images[name]) : undefined,
         manifest: images ? boot.manifest : undefined,
         brush: module ?? undefined,
+        coreutils: coreutils ?? undefined,
         ports: Object.keys(this.serve).map(Number),
         https: Boolean(this.https),
         pagePrograms: Object.keys(this.programs),

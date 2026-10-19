@@ -62,10 +62,11 @@ interface Start {
   cwd?: string;
   boots?: string[];
   // What the page has of them already (host/node.ts Node.start): the boot
-  // images gunzipped, the manifest, brush.wasm compiled.
+  // images gunzipped, the manifest, brush.wasm and coreutils.wasm compiled.
   images?: ArrayBuffer[];
   manifest?: Manifest;
   brush?: WebAssembly.Module;
+  coreutils?: WebAssembly.Module;
 }
 
 const SHARED = ['/work', '/tmp', '/home'];
@@ -246,6 +247,7 @@ onmessage = async ({
     images: tars,
     manifest: listed,
     brush: shellModule,
+    coreutils: toolsModule,
   },
 }: MessageEvent<Start>) => {
   setRuntime(runtimeUrl);
@@ -286,9 +288,9 @@ onmessage = async ({
     // origin, which may have to build it first: docs/backend.md).
     const nif: NifSource = (name, version, report) =>
       siteNif(name, version) ?? backendNif(channel, name, version, report);
-    // coreutils.wasm (coreutils.ts), fetched and compiled once a tool
-    // first runs; null when the site has none.
-    let compiled: WebAssembly.Module | null | undefined;
+    // coreutils.wasm (coreutils.ts): the page's, else fetched and compiled
+    // once a tool first runs; null when the site has none.
+    let compiled: WebAssembly.Module | null | undefined = toolsModule;
     const module = () => {
       if (compiled === undefined) {
         const [status, bytes] = get(runtime('coreutils.wasm'));
