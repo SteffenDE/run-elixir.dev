@@ -459,7 +459,7 @@ onmessage = async ({
       for (;;) {
         await brush({
           module: brushModule,
-          args: ['--rcfile', '/etc/brushrc', '--noprofile', '-i'],
+          args: ['--rcfile', '/etc/brushrc', '--noprofile', '--enable-highlighting', '-i'],
           env: { ...ENV, ...env, PWD: cwd },
           root,
           fetch: fetchFile,

@@ -1,0 +1,59 @@
+From 55fe0463c37af0d9c51c6d211a569440a1cfba4d Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 13:46:41 +0000
+Subject: [PATCH] brush-interactive: plain text in the terminal's own
+ foreground, readable on light terminals
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ brush-interactive/src/reedline/highlighter.rs | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/brush-interactive/src/reedline/highlighter.rs b/brush-interactive/src/reedline/highlighter.rs
+index 4406585..e3c9347 100644
+--- a/brush-interactive/src/reedline/highlighter.rs
++++ b/brush-interactive/src/reedline/highlighter.rs
+@@ -4,8 +4,10 @@ use nu_ansi_term::{Color, Style};
+ mod styles {
+     use super::{Color, Style};
+ 
++    // Plain text, operators, options and unknown commands in the
++    // terminal's own foreground: white is barely visible on a light one.
+     pub fn default() -> Style {
+-        Style::new().fg(Color::White)
++        Style::new()
+     }
+ 
+     pub fn comment() -> Style {
+@@ -29,15 +31,15 @@ mod styles {
+     }
+ 
+     pub fn operator() -> Style {
+-        Style::new().fg(Color::White).italic()
++        Style::new().italic()
+     }
+ 
+     pub fn assignment() -> Style {
+-        Style::new().fg(Color::LightGray).dimmed()
++        Style::new().dimmed()
+     }
+ 
+     pub fn hyphen_option() -> Style {
+-        Style::new().fg(Color::White).italic()
++        Style::new().italic()
+     }
+ 
+     pub fn function() -> Style {
+@@ -65,7 +67,7 @@ mod styles {
+     }
+ 
+     pub fn unknown_command() -> Style {
+-        Style::new().bold().fg(Color::White)
++        Style::new().bold()
+     }
+ }
+ 
+-- 
+2.53.0
+
