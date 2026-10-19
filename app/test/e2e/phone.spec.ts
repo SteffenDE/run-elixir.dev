@@ -39,6 +39,29 @@ test('a project on a phone shows one pane at a time', async ({ page }) => {
   await page.screenshot({ path: '/repo/target/tests/phone-editor.png' });
 });
 
+test('the page installs on a home screen', async ({ page, request }) => {
+  await page.goto('/');
+  const head = await page.evaluate(() => ({
+    manifest: document.querySelector<HTMLLinkElement>('link[rel=manifest]')!.href,
+    icons: [
+      ...document.querySelectorAll<HTMLLinkElement>('link[rel=icon], link[rel=apple-touch-icon]'),
+    ].map((l) => l.href),
+  }));
+  const manifest = await (await request.get(head.manifest)).json();
+  expect(manifest).toMatchObject({ display: 'standalone', scope: '/' });
+  // At the site's root, as named (a path that is no file gets the page).
+  const images = [
+    ...head.icons,
+    ...manifest.icons.map((icon: { src: string }) => new URL(icon.src, head.manifest).href),
+  ];
+  expect(head.icons).toHaveLength(3);
+  for (const url of images) {
+    const response = await request.get(url);
+    expect(response.ok(), url).toBe(true);
+    expect(response.headers()['content-type'], url).toMatch(/^image\//);
+  }
+});
+
 test('a Phoenix project on a phone opens on its preview', async ({ page }) => {
   await newProject(page, 'phoenix');
   const bar = page.getByRole('navigation', { name: 'Panes' });

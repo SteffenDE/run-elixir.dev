@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-19
 ---
 
 # The app (`app`)
@@ -29,6 +29,18 @@ npm run format               # oxfmt src test
 
 Assets go under `/_playground/`, because the app in the preview owns
 `/assets/`. The base is `/`: the page is served at every project's path.
+
+`public/` goes to the site's root as it is: `favicon.ico` and `icons/`
+(`icon.svg`, a tab's icon; PNGs of it without the rounded corners, 180 px
+for iOS's home screen, 192 and 512 px for the manifest, the 512 also
+maskable) and `manifest.webmanifest`. The PNGs and the ICO were rendered
+from `icon.svg` in Chromium.
+
+The page installs as a web app (Add to Home Screen). The manifest names
+no `start_url`, so a project's page installs that project and the home
+page the list; its scope is the whole origin. iOS reads the manifest when
+the app is added; an app added before keeps what it had until it is added
+again.
 
 ## Layout
 

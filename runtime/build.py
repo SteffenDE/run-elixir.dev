@@ -29,7 +29,8 @@ rebar3) and the Phoenix template, a phx.new app, at /work/playground.
   environment (none: projects are paths, /ID/).
 
 Built flat, the site is then versioned: what keeps its name across builds
-but the pages, the service worker and playground.json moves. The BEAM
+but the pages, the service worker, playground.json and app/public's files
+(icons, the web app manifest) moves. The BEAM
 and what it reads (beam*, fs/, nif/) go to r/RID/, RID a digest of them
 alone, so a deploy that changes only JavaScript keeps their URLs and
 browsers keep them cached; the runtime's JavaScript goes to b/ID/, ID a
@@ -437,9 +438,11 @@ def page(out, wasm):
 
 # What stays at the site's root, by name: the pages, the service worker
 # (its scope is /), the site's configuration, the content-hashed Vite
-# assets, the builds and the runtimes.
+# assets, the builds and the runtimes; and what Vite copies from
+# app/public (the icons, the manifest), which the pages name there.
 ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "relay.html", "sw.js",
-              "playground.json", "_playground", "b", "r"}
+              "playground.json", "_playground", "b", "r",
+              *os.listdir(os.path.join(ROOT, "app", "public"))}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm"}

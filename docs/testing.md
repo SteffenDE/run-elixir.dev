@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Testing
@@ -78,7 +78,7 @@ the prompt; a prompt on the screen is one per command.
 | `live` | A live session, host and guest in two browser contexts: the guest watches (tree, terminal, a file it cannot change, a search of the host's files), then edits once allowed (typing both ways, each other's carets, undo of its own typing, saving, a change on disk), types into the host's terminal, and sees the session end; asking before letting a guest in, and removing one; a fork with unsaved text; the host's reload; a Phoenix app in the guest's preview, LiveDashboard over its WebSocket, and a save in the host's editor reloading it; a guest following the host (its files, its caret far down a file), stopping when it opens a file itself, and following again. |
 | `ports-domain` (project `domain`) | Two ports of an empty project's app (a small `gen_tcp` server): port 4000's page shows port 4001's in an iframe, each on its own origin (`v-ID-4000`, `v-ID-4001`), and a link to 4001 goes to its origin with its path, the path bar following. |
 | `live-domain` (project `domain`) | A live session with a project domain: the guest's page on its `l-ID` origin, and its fork made through the apex's import page. |
-| `phone` | At 390×844: the home page and projects fit, one pane at a time, a Phoenix project opens on its preview. |
+| `phone` | At 390×844: the home page and projects fit, one pane at a time, a Phoenix project opens on its preview; the manifest and the icons are served as images. |
 | `websocket` | A WebSocket from the preview to `/live/websocket` gets Phoenix's heartbeat reply; LiveDashboard (path bar `/dev/dashboard`) connects over `:websocket`, shows its home page and a process's details. |
 | `auth` (`@slow`) | `phx.gen.auth --hashing-lib pbkdf2` in a second shell, `deps.get`, `compile`, `ecto.migrate`, the server restarted, a registration in the preview over LiveView's WebSocket (flash, PGlite row). About 1.2 min. |
 | `livetest` (`@slow`) | In a Phoenix project's second shell, `mix test` with a LiveView test added (`live_isolated`, `render_click`, `has_element?`: LiveViewTest parses with lazy_html, built by `make` from the site): the test environment's dependencies compile (about 5 minutes in Chromium), then the app's 5 tests and the LiveView one pass. |

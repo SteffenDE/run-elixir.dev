@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Building the site (`runtime/build.py`)
@@ -55,6 +55,8 @@ target/site/
                                <meta name="playground-runtime">
   sw.js                      the service worker, at the root for its scope /
   playground.json            the project domain, if any
+  favicon.ico, icons/,       app/public as it is: the icons, the web app manifest
+  manifest.webmanifest
   _playground/               the Vite assets, content-hashed
   b/ID/                      the build's JavaScript, ID a digest of it and RID:
     worker.js files.js         the runtime's workers, bundled (Vite),
