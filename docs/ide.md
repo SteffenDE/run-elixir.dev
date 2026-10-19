@@ -33,8 +33,10 @@ Assets go under `/_playground/`, because the app in the preview owns
 `public/` goes to the site's root as it is: `favicon.ico` and `icons/`
 (`icon.svg`, a tab's icon; PNGs of it without the rounded corners, 180 px
 for iOS's home screen, 192 and 512 px for the manifest, the 512 also
-maskable) and `manifest.webmanifest`. The PNGs and the ICO were rendered
-from `icon.svg` in Chromium.
+maskable), `manifest.webmanifest`, and `og.png`, the card of a link's
+preview (`index.html`'s Open Graph tags; its `og:image` is absolute with
+a project domain). The PNGs, the ICO and the card were rendered from
+`icon.svg` in Chromium.
 
 The page installs as a web app (Add to Home Screen). The manifest names
 no `start_url`, so a project's page installs that project and the home

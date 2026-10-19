@@ -155,7 +155,7 @@ that caches more.
     `r/RID/`.
   - The pages (`index.html`, `preview.html`, `registry.html`,
     `storage.html`), `sw.js`, `playground.json` and `app/public`'s files
-    (`favicon.ico`, `icons/`, `manifest.webmanifest`) keep their
+    (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
     names, so they should revalidate (ETag or Last-Modified, which Caddy's
     file_server sends). A page names its build and runtime, so it never mixes an older
     build's files with a newer one's.

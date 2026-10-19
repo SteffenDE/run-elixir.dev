@@ -46,12 +46,17 @@ test('the page installs on a home screen', async ({ page, request }) => {
     icons: [
       ...document.querySelectorAll<HTMLLinkElement>('link[rel=icon], link[rel=apple-touch-icon]'),
     ].map((l) => l.href),
+    card: new URL(
+      document.querySelector<HTMLMetaElement>('meta[property="og:image"]')!.content,
+      location.href,
+    ).href,
   }));
   const manifest = await (await request.get(head.manifest)).json();
   expect(manifest).toMatchObject({ display: 'standalone', scope: '/' });
   // At the site's root, as named (a path that is no file gets the page).
   const images = [
     ...head.icons,
+    head.card,
     ...manifest.icons.map((icon: { src: string }) => new URL(icon.src, head.manifest).href),
   ];
   expect(head.icons).toHaveLength(3);

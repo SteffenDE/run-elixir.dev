@@ -30,7 +30,7 @@ rebar3) and the Phoenix template, a phx.new app, at /work/playground.
 
 Built flat, the site is then versioned: what keeps its name across builds
 but the pages, the service worker, playground.json and app/public's files
-(icons, the web app manifest) moves. The BEAM
+(icons, the web app manifest, the link preview's image) moves. The BEAM
 and what it reads (beam*, fs/, nif/) go to r/RID/, RID a digest of them
 alone, so a deploy that changes only JavaScript keeps their URLs and
 browsers keep them cached; the runtime's JavaScript goes to b/ID/, ID a
@@ -432,14 +432,25 @@ def page(out, wasm):
         shutil.copy(built, os.path.join(out, f"{name}.wasm"))
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
     # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
+    domain = os.environ.get("PLAYGROUND_DOMAIN") or None
     with open(os.path.join(out, "playground.json"), "w") as f:
-        json.dump({"domain": os.environ.get("PLAYGROUND_DOMAIN") or None}, f)
+        json.dump({"domain": domain}, f)
+    # Link previews want an absolute og:image; a site without a domain
+    # keeps the path (most fetchers resolve it against the page).
+    if domain:
+        index = os.path.join(out, "index.html")
+        with open(index) as f:
+            text = f.read()
+        image = '<meta property="og:image" content="/og.png"'
+        assert image in text, index
+        with open(index, "w") as f:
+            f.write(text.replace(image, f'<meta property="og:image" content="https://{domain}/og.png"'))
 
 
 # What stays at the site's root, by name: the pages, the service worker
 # (its scope is /), the site's configuration, the content-hashed Vite
 # assets, the builds and the runtimes; and what Vite copies from
-# app/public (the icons, the manifest), which the pages name there.
+# app/public (the icons, the manifest, og.png), which the pages name there.
 ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "relay.html", "sw.js",
               "playground.json", "_playground", "b", "r",
               *os.listdir(os.path.join(ROOT, "app", "public"))}

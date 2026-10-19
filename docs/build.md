@@ -55,8 +55,9 @@ target/site/
                                <meta name="playground-runtime">
   sw.js                      the service worker, at the root for its scope /
   playground.json            the project domain, if any
-  favicon.ico, icons/,       app/public as it is: the icons, the web app manifest
-  manifest.webmanifest
+  favicon.ico, icons/,       app/public as it is: the icons, the web app manifest,
+  manifest.webmanifest,        the link preview's card (og:image, absolute with a
+  og.png                       project domain)
   _playground/               the Vite assets, content-hashed
   b/ID/                      the build's JavaScript, ID a digest of it and RID:
     worker.js files.js         the runtime's workers, bundled (Vite),

@@ -4,12 +4,22 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
     <title>Elixir Playground</title>
+    <meta name="description" content="OTP and Elixir compiled to WebAssembly, running in your browser." />
     <link rel="icon" href="/favicon.ico" sizes="32x32" />
     <link rel="icon" href="/icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#18171d" media="(prefers-color-scheme: dark)" />
+    <!-- og:image is made absolute by build.py when the site has a domain. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="Elixir Playground" />
+    <meta property="og:description" content="OTP and Elixir compiled to WebAssembly, running in your browser." />
+    <meta property="og:image" content="/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Elixir Playground: OTP and Elixir compiled to WebAssembly, running in your browser." />
+    <meta name="twitter:card" content="summary_large_image" />
   </head>
   <body>
     <div id="root"></div>
