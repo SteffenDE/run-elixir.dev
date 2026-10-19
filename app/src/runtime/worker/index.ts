@@ -237,7 +237,7 @@ onmessage = async ({
     runtime: runtimeUrl,
     files,
     shell,
-    args,
+    args: erlArgs,
     command: named,
     env,
     ports,
@@ -392,7 +392,7 @@ onmessage = async ({
       const cwd = env.PWD || start;
       const argv = named
         ? command(named[0], named.slice(1), (path) => fs.read(join(cwd, path)))
-        : args;
+        : erlArgs;
       if (!argv) {
         text(`${named![0]}: command not found\n`);
         say('exit', 127);

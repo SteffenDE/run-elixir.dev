@@ -571,12 +571,12 @@ async function applyShared(shared: Shared): Promise<void> {
 // watchers' output (git ignores it too), which the importing project's
 // server builds again.
 export async function shareable(name: string, template?: Template): Promise<Shared> {
-  const [{ changed, removed }, site] = await Promise.all([
+  const [{ changed: edited, removed }, site] = await Promise.all([
     running().changes(HIDDEN),
     fetch(`${RUNTIME}fs/version`).then((response) => response.text()),
   ]);
   const relative = (path: string) => path.slice(WORK.length + 1);
-  const written = changed.filter(({ path }) => !path.includes('/priv/static/assets/'));
+  const written = edited.filter(({ path }) => !path.includes('/priv/static/assets/'));
   return {
     v: 1,
     kind: kind === 'phoenix' ? 'phoenix' : 'empty',
@@ -671,7 +671,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       // (see runtime/trace.ts for tracing it as it happens).
       debug: () => ({
         bridge: bridge?.debug(),
-        nodes: Object.fromEntries([...sessions].map(([id, s]) => [id, s.node.debug()])),
+        nodes: Object.fromEntries([...sessions].map(([session, s]) => [session, s.node.debug()])),
         commands: [...commands].map(([node, command]) => ({
           command,
           output: tails.get(node) ?? '',
