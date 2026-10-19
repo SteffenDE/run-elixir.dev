@@ -153,9 +153,9 @@ chunks; the same memory.
   Headscale only. A relay through the site (an allow-listed TCP relay)
   stays the plan for those without a tailnet.
 - **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run
-  only `mix`, `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`,
-  each as a node of its own; `os:cmd` (which writes its command to the
-  shell's input) does not run.
+  in brush (on the `worktree-node` branch; on `main`, only `mix`,
+  `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`); `os:cmd`
+  (which writes its command to the shell's input) does not run.
 - **Nodes reach each other only through the page's ports** (5432, 4000).
   Mix's compile lock checks its holder over TCP, which another shell's node
   cannot reach, so two shells compiling at once can both proceed. The page
@@ -214,10 +214,11 @@ chunks; the same memory.
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.
 9. WebKit's two stalls; a faster node start.
-10. Node in the terminal: Node's APIs (`fs`, `child_process`, `net`, …)
-    over the node's files, programs and network, the scripts on the
-    page's own JavaScript engine in a worker; npm packages, and frontends
-    other than esbuild.
+10. Node in the terminal, on the `worktree-node` branch
+    ([nodejs.md](nodejs.md)): `node`, `npm` and `npx` work, and a React
+    project builds with Vite (Rolldown's WebAssembly build). Next there:
+    Vite's dev server in the preview (`http` and `net` on the runtime's
+    TCP), `fs.watch`, `child_process`, `zlib`, `crypto.createHash`.
 11. Tailscale against Tailscale's own control server, and what is left
     ([tailscale.md](tailscale.md#not-built-yet)).
 

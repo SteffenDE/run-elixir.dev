@@ -54,6 +54,7 @@ beamos checkout (`BEAMOS`, or `../beamos`).
 | [tailscale.md](tailscale.md) | Prototype: the node's HTTPS, TCP, UDP and names through the user's tailnet and an exit node; one Tailscale device per browser on the apex, its tag and policy, each project asked first, a project's servers shared in the tailnet, the setup hint shown once. |
 | [distribution.md](distribution.md) | Plan: Erlang distribution between a project's nodes, and Livebook; the proof of concept and an estimate. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
+| [nodejs.md](nodejs.md) | Experiment: Node.js, npm and npx on the page's engine, worker threads and WASI, a node's `sh -c` in brush, Vite. |
 | [backend.md](backend.md) | `backend`: NIF builds on request in Firecracker VMs, templates and the agent that writes them, admin, deploying. |
 | [build.md](build.md) | `build.py`: boot images, bundles, the Phoenix template, the Vite build; `node.mjs`. |
 | [ide.md](ide.md) | The app (`app`): home page, the project IDE, Tailwind on the page, the preview, terminals and their links. |

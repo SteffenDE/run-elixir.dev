@@ -33,8 +33,8 @@ usercontent domain, another site ([frames.md](frames.md)).
  │   ├─ bridge.ts: the preview's requests, to the app
  │   ├─ 5432, Hex's port ──► carried to the page (portConnection.ts)
  │   └─ page programs: tailwind (the project's plugins), esbuild, git,
- │       and sh and rebar3 (programs/node.ts), which start a node of
- │       their own
+ │       node, npm and npx (nodejs.md), and sh and rebar3
+ │       (programs/node.ts), which start a node of their own
  │
  └─ relay frame (v-ID-PORT.USERCONTENT), per port ◄── sw.js ◄── preview <iframe>
      passes requests to the exec frame's bridge         (the app), or a
@@ -189,9 +189,9 @@ JavaScript one instead:
   programs that start a node in a new worker over the same files, as the
   shell does, and pass on its output and exit status. `sh -c LINE` (open_port's
   `{spawn, Command}`, `System.shell`; `phx.new` runs `mix deps.get` that way)
-  runs a line of `mix`, `elixir`, `iex`, `erl` or `escript` commands and `cd`,
-  joined by `&&`, without the `( )` and `</dev/null` that `System.shell`
-  wraps it in; anything else answers 127. `rebar3` runs
+  is brush in that worker, without its line editor: the line runs as the
+  terminal's shell runs it (pipes, `||`, variables, redirections), a node
+  command in that worker ([nodejs.md](nodejs.md#a-nodes-sh--c-is-brush)). `rebar3` runs
   `escript /rotp/mix/rebar3`, the rebar3 the installation built, which Mix
   builds rebar3 dependencies with (`MIX_REBAR3`). `System.cmd("mix", …)`
   finds `/rotp/bin/mix` on `PATH` (the others have stand-ins in
