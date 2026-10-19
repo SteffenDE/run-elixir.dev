@@ -1,0 +1,32 @@
+diff --git a/erts/emulator/nifs/common/prim_tty_nif.c b/erts/emulator/nifs/common/prim_tty_nif.c
+index d205338..5b7695f 100644
+--- a/erts/emulator/nifs/common/prim_tty_nif.c
++++ b/erts/emulator/nifs/common/prim_tty_nif.c
+@@ -208,6 +208,27 @@ int popcornStdinEof(void) {
+     return 0;
+ }
+ 
++/* Standard input for a reader of fd 0 rather than prim_tty: erts' break
++ * handler reads its key there (Ctrl+C) while prim_tty waits. Up to `max`
++ * bytes into `out`; 0 when there are none. */
++EMSCRIPTEN_KEEPALIVE
++int popcornStdinTake(unsigned char *out, int max) {
++    size_t n;
++    size_t first;
++
++    if (popcorn_stdin.lock == NULL || max <= 0)
++        return 0;
++    enif_mutex_lock(popcorn_stdin.lock);
++    n = MIN((size_t)max, popcorn_stdin.size);
++    first = MIN(n, POPCORN_STDIN_CAPACITY - popcorn_stdin.head);
++    memcpy(out, popcorn_stdin.data + popcorn_stdin.head, first);
++    memcpy(out + first, popcorn_stdin.data, n - first);
++    popcorn_stdin.head = (popcorn_stdin.head + n) % POPCORN_STDIN_CAPACITY;
++    popcorn_stdin.size -= n;
++    enif_mutex_unlock(popcorn_stdin.lock);
++    return (int)n;
++}
++
+ EMSCRIPTEN_KEEPALIVE
+ int popcornTtyResize(int columns, int rows) {
+     TTYResource *tty;

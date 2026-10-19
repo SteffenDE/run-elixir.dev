@@ -26,7 +26,6 @@ modules out of kernel) is gone ([distribution.md](../docs/distribution.md)).
 | 0006 without-dynamic-loading | no `dlopen` for drivers and NIFs (0021 loads wasm NIFs) |
 | 0007 bootstrap-trim | smaller native bootstrap |
 | 0008 driver-start-callbacks | driver start hooks |
-| 0009 signal-shutdown | shutdown without signals |
 | 0010 disable-os-processes | no `open_port({spawn, ...})` (0018 replaces the driver) |
 | 0011 wasm-bridge | `wasm` module and NIF, JS callbacks, TTY over JS |
 | 0012 asn-one-erlang-fallback | asn1 without its NIF |
@@ -41,6 +40,7 @@ modules out of kernel) is gone ([distribution.md](../docs/distribution.md)).
 | 0021 wasm-nif-libraries | `load_nif` of a library built to WebAssembly (`host/wasm_nifs.c`) |
 | 0022 memory-without-alloc-util | `erlang:memory/0,1` with erts' allocators off (`+Mea min`) |
 | 0023 wasm-gethostname | the host is `localhost` without `prim_net`'s NIF (`global`, `-sname`) |
+| 0024 wasm-stdin-take | `popcornStdinTake`: fd 0's input from prim_tty's buffer, for erts' break menu (Ctrl+C) |
 
 Patch 0015: V8 moves a WebAssembly function to optimized (TurboFan) code
 only when it is next called, and a scheduler thread entered
@@ -122,6 +122,18 @@ the emulator's.
 - **Terminal.** Popcorn's prim_tty over JS, with the raw mode reported
   (`Module.onTtyMode`) and the end of input (a node without a terminal,
   as under `node.ts`, reads a stream that ends).
+- **Signals, unpatched.** erts handles them as on Unix: `sigaction`
+  handlers write to a self-pipe its signal-dispatcher thread reads. What
+  Emscripten lacks is the runtime's, linked in with `--wrap` (`build.sh`):
+  `host/wasm_pipes.c` makes `pipe()`s that block (Emscripten's never do:
+  the dispatcher and the poll set's wakeups wait on them, `poll()` too),
+  and `host/wasm_process.c` ends the runtime from any thread's `exit`
+  (`emscripten_force_exit`; Emscripten passes a pthread's exit to the main
+  thread, which the kept-alive runtime outlives) and lets erts' main thread
+  wait for good (`select` on nothing). A signal is the host's `raise()` on
+  the main browser thread (`run.ts`'s `signal`): Ctrl+C is SIGINT, so the
+  break menu, whose key fd 0 takes from prim_tty's buffer while it waits
+  (patch 0024). SIGTERM would be `init:stop`, though nothing sends it yet.
 - **What it says it is.** `os:type()` is `{unix, linux}` (uname),
   `system_architecture` `ROTP_SYSTEM_ARCHITECTURE`'s, and each node has a
   process id of its own (Emscripten's is always 42; Mix tells nodes apart

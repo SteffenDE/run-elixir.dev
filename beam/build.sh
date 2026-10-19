@@ -166,12 +166,14 @@ build() {
     # compiling Ash (README.md).
     flags+=" -sINITIAL_MEMORY=64MB -sMAXIMUM_MEMORY=4GB -sALLOW_MEMORY_GROWTH=1"
     flags+=" -sINCOMING_MODULE_JS_API=arguments,wasmMemory,preRun,print,printErr,onExit,onAbort,locateFile,stdin"
-    flags+=" -sEXPORTED_RUNTIME_METHODS=ENV,FS,ccall,stringToNewUTF8,lengthBytesUTF8,FS_mkdirTree,FS_createDataFile"
+    flags+=" -sEXPORTED_RUNTIME_METHODS=ENV,FS,TTY,ccall,stringToNewUTF8,lengthBytesUTF8,FS_mkdirTree,FS_createDataFile"
     # popcorn*: patch 0011's and 0017's terminal; emscripten_force_exit
     # stops a node (Ctrl+C); _emscripten_check_mailbox runs the calls the
     # threads proxied (beam/run.ts polls it where waitAsync wakes late,
     # waiting on pthread_self's first word).
-    flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_emscripten_force_exit','_popcornStdinEnqueue','_popcornStdinEof','_popcornTtyResize','__emscripten_check_mailbox','_pthread_self']"
+    # raise: a signal for the node (Ctrl+C is SIGINT), its handler run on
+    # the main thread (beam/run.ts).
+    flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_emscripten_force_exit','_popcornStdinEnqueue','_popcornStdinEof','_popcornTtyResize','__emscripten_check_mailbox','_pthread_self','_raise','_popcornStdinTake']"
     flags+=" -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sMALLOC=mimalloc"
     # PROXYFS mounts the playground's tree (app/src/runtime/beam/treefs.ts).
     flags+=" -lproxyfs.js"
@@ -189,6 +191,16 @@ build() {
     else
         flags+=" -sASSERTIONS=0 ${OPT}"
     fi
+    # What erts needs of a Unix process that Emscripten does not give,
+    # with erts unpatched for it: pipes that block (host/wasm_pipes.c:
+    # erts' signal dispatcher and poll set wait on them), and an exit from
+    # any thread and an idle main thread (host/wasm_process.c).
+    mkdir -p "${WORK}"
+    emcc ${OPT} -pthread -c "${HERE}/host/wasm_pipes.c" -o "${WORK}/wasm_pipes.o"
+    emcc ${OPT} -pthread -c "${HERE}/host/wasm_process.c" -o "${WORK}/wasm_process.o"
+    flags+=" ${WORK}/wasm_pipes.o ${WORK}/wasm_process.o"
+    flags+=" -Wl,--wrap=pipe,--wrap=pipe2,--wrap=read,--wrap=write,--wrap=close,--wrap=fcntl,--wrap=poll"
+    flags+=" -Wl,--wrap=exit,--wrap=_exit,--wrap=select"
     flags+=" ${EXTRA_LINK:-}"
     # The emulator's link does not depend on these flags; relink.
     rm -f "${OTP_DIR}"/bin/wasm32-unknown-emscripten/beam.{emu,smp,wasm}
