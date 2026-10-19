@@ -33,11 +33,14 @@ const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
 export function stackOf(error: Error): string {
   const header = error.message ? `${error.name}: ${error.message}` : String(error.name);
   const frames: string[] = [];
-  for (const line of String(error.stack ?? '').split('\n')) {
+  const stack = String(error.stack ?? '');
+  // V8's stack starts with the message, which may hold an @.
+  const isV8 = /^\s+at /m.test(stack);
+  for (const line of stack.split('\n')) {
     let frame: string;
     const v8 = /^\s+at (.*)$/.exec(line);
     // JavaScriptCore's frames in eval'd code may have no location.
-    const other = /^([^@]*)@(.*)$/.exec(line);
+    const other = isV8 ? null : /^([^@]*)@(.*)$/.exec(line);
     if (v8) frame = v8[1];
     else if (other && (other[1] || other[2]))
       frame = other[1] && other[2] ? `${other[1]} (${other[2]})` : other[1] || other[2];
