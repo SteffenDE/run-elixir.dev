@@ -23,7 +23,7 @@ node's connections, datagrams and DNS, `tailnet.ts`; shared ports; the
 UI), `app/src/runtime/https.ts`
 (the HTTPS gateway), `app/src/runtime/dns.ts` (the node's DNS), the node's
 sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
-(`ssl:connect`'s gateway). Tests: `app/test/e2e/tailscale-domain.spec.ts`,
+(`ssl:connect`'s gateway). Tests: `app/test/e2e/tailscale.spec.ts`,
 `sockets.spec.ts`.
 
 ## What it does (built, a prototype)
@@ -262,7 +262,7 @@ longer shared. One project per port.
 
 ## Testing
 
-`tailscale-domain.spec.ts` (project `domain`):
+`tailscale.spec.ts` (Chromium):
 
 - **The hint, once:** an empty project's `httpc` to www.example.com gets
   502 and the dialog with the policy; after *Not now*, neither that
@@ -308,7 +308,7 @@ ports there), and a probe on `:8093` that has exit-box `tailscale nc`
 into the tailnet. `start` prints the test's environment:
 
 ```sh
-env $(tests/headscale.sh start) tests/run.sh --project=domain tailscale-domain
+env $(tests/headscale.sh start) tests/run.sh --project=chromium tailscale
 tests/headscale.sh stop
 ```
 
