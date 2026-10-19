@@ -22,7 +22,7 @@ test('the Hex esbuild package runs the page’s esbuild, never downloading one, 
   await writeText(
     page,
     '/work/demo/mix.exs',
-    mix.replace(/defp deps do\n\s*\[/, 'defp deps do\n    [{:esbuild, "0.10.0"},'),
+    mix.replace(/defp deps do\n\s*\[/, 'defp deps do\n    [{:esbuild, "0.10.1"},'),
   );
   await run(page, 'mkdir -p demo/config demo/assets/js demo/assets/css');
   await writeText(page, '/work/demo/config/config.exs', CONFIG);
@@ -44,7 +44,7 @@ test('the Hex esbuild package runs the page’s esbuild, never downloading one, 
     `.a { background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg"/>') }\n.b { background: url(https://example.com/x.png) }\n`,
   );
   await run(page, 'cd demo');
-  expect(await run(page, 'mix deps.get')).toMatch(/esbuild 0\.10\.0/);
+  expect(await run(page, 'mix deps.get')).toMatch(/esbuild 0\.10\.1/);
   const path = await run(page, `mix run -e 'IO.inspect Esbuild.bin_path()'`);
   expect(path).toContain('"/usr/bin/esbuild"');
   // The configured version is not the page's: esbuild's own check says so.
