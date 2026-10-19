@@ -65,6 +65,10 @@ test('the page installs on a home screen', async ({ page, request }) => {
     expect(response.ok(), url).toBe(true);
     expect(response.headers()['content-type'], url).toMatch(/^image\//);
   }
+  // No rubber-banding under the terminal's swipes.
+  expect(
+    await page.evaluate(() => getComputedStyle(document.documentElement).overscrollBehaviorY),
+  ).toBe('none');
 });
 
 test('a Phoenix project on a phone opens on its preview', async ({ page }) => {

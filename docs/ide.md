@@ -44,6 +44,9 @@ page the list; its scope is the whole origin. iOS reads the manifest when
 the app is added; an app added before keeps what it had until it is added
 again.
 
+The page does not rubber-band (`overscroll-behavior: none`): on iOS it
+bounced under a swipe meant for the terminal.
+
 ## Layout
 
 | Source | Role |

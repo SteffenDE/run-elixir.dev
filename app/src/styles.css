@@ -57,6 +57,13 @@ body,
   margin: 0;
 }
 
+/* No rubber-banding: on iOS the page bounced under a swipe meant for the
+   terminal. */
+html,
+body {
+  overscroll-behavior: none;
+}
+
 body {
   background: var(--bg);
   color: var(--fg);
