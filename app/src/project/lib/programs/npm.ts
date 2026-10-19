@@ -139,6 +139,21 @@ function allows(list: string[] | undefined, value: string): boolean {
 }
 const fits = (m: Manifest) => allows(m.os, PLATFORM.os) && allows(m.cpu, PLATFORM.cpu);
 
+// napi-rs packages name their native builds as optional dependencies
+// (PREFIX-linux-x64-gnu, PREFIX-darwin-arm64, …) but not their WebAssembly
+// one, PREFIX-wasm32-wasi, which is the one that runs here: it, at their
+// version, as one more optional dependency (left out if there is none).
+const NATIVE = /^(.+)-(?:darwin|linux|win32|freebsd|android|openharmony|sunos|aix)-[\w-]+$/;
+function wasmSibling(manifest: Manifest): Record<string, string> | null {
+  const optional = manifest.optionalDependencies ?? {};
+  for (const [name, version] of Object.entries(optional)) {
+    const prefix = NATIVE.exec(name)?.[1];
+    if (prefix && !(`${prefix}-wasm32-wasi` in optional))
+      return { [`${prefix}-wasm32-wasi`]: version };
+  }
+  return null;
+}
+
 // A package's bins by name.
 function bins(name: string, bin: PackageJson['bin']): Record<string, string> {
   if (!bin) return {};
@@ -254,6 +269,7 @@ async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: str
       tree.set(location, { location, manifest, dev: w.dev, optional: w.optional });
       want(location, manifest.dependencies, w.dev, w.optional);
       want(location, manifest.optionalDependencies, w.dev, true);
+      want(location, wasmSibling(manifest) ?? undefined, w.dev, true);
       const peers = Object.fromEntries(
         Object.entries(manifest.peerDependencies ?? {}).filter(
           ([name]) => !manifest.peerDependenciesMeta?.[name]?.optional,
