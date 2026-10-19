@@ -36,7 +36,7 @@ modules out of kernel) is gone ([distribution.md](../docs/distribution.md)).
 | 0017 wasm-tty-mode-eof | the terminal's raw mode told to JS, the end of standard input |
 | 0018 wasm-spawn-driver | `spawn_driver_entry` is `host/wasm_spawn.c`'s; `erl_init` starts its pump |
 | 0019 wasm-system-architecture | `system_architecture` from `ROTP_SYSTEM_ARCHITECTURE` |
-| 0020 playground-https | `ssl:connect` through the page's fetch (`PLAYGROUND_HTTPS_GATEWAY`) |
+| 0020 playground-https | `ssl:connect` through the page's gateway (`PLAYGROUND_HTTPS_GATEWAY`): its fetch, or a TCP connection the node does TLS over |
 | 0021 wasm-nif-libraries | `load_nif` of a library built to WebAssembly (`host/wasm_nifs.c`) |
 | 0022 memory-without-alloc-util | `erlang:memory/0,1` with erts' allocators off (`+Mea min`) |
 | 0023 wasm-gethostname | the host is `localhost` without `prim_net`'s NIF (`global`, `-sname`) |
@@ -115,8 +115,11 @@ the emulator's.
   playground's `Network`. A project's nodes reach each other's ports
   through the page (Mix's compile notices go so); other hosts' through
   the page too, which dials them. HTTPS: `ssl:connect` connects to a
-  gateway port whose first line names the host; the page answers its
-  plain HTTP with fetch (patch 0020).
+  gateway port,
+  names the host in its first line, and the page's says how it goes on:
+  `fetch` (the page answers its plain HTTP with fetch), `tcp` (a TCP
+  connection the page made, which `ssl` upgrades with the options it
+  was given) or `error REASON` (patch 0020).
 - **Ports.** `host/wasm_spawn.c` runs the playground's programs
   (`spawn.js`, the host's `Module.beamSpawn` over the playground's
   `Process` and programs, `wasi/process.ts`); `{spawn, Command}` is `/bin/sh -c`. Output and exit come

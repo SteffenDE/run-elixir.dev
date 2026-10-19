@@ -38,7 +38,7 @@ JavaScript.
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT). |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
-| `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on an HTTPS connection with a fetch of `https://NAME[:PORT]/path`. |
+| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, over which the node does TLS). |
 | `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: no such name, for now). |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
@@ -115,9 +115,10 @@ Connections from the page have odd ids and the node's own even ones.
 `remote.listening(port, on, ephemeral)` reports listeners to the page; a
 listener is ephemeral when it asked for port 0. HTTPS that the page
 carries (`remote.https`): `ssl:connect` to a host name connects to a
-gateway port whose first line names the host, and the connection is then
-plain HTTP/1.1 to the page (patch 0020); without it the node's `ssl` does
-TLS itself.
+gateway port, names the host in its first line, and waits for the page's:
+`fetch` (then plain HTTP/1.1 to the page) or `tcp` (a TCP connection to the
+host, which `ssl` upgrades with the options it was given), or `error
+REASON` (patch 0020); without it the node's `ssl` does TLS itself.
 
 Names: the hosts file (`localhost`), then, when the page serves DNS
 (UDP port 53), `inet_res` at 127.0.0.53 (`/etc/resolv.conf`, which it
@@ -312,15 +313,20 @@ What is missing, the worker fetches and compiles itself.
 | `nif` | `make` waits for the backend to build a package's NIF library, or stopped waiting: `{ name, version, status, error }` (`onnif`; [nif.md](nif.md#in-the-node)). |
 
 `https: (connection, { host, port }) => …` answers the node's
-HTTPS connections; the playground's is `https.ts`'s
-`httpsByFetch()`. It reads requests with a body (Content-Length or
-chunked) and answers each with `fetch()`: the browser does TLS, checks the
-certificate, follows redirects, decompresses, and leaves out request
-headers it sets itself (Host, User-Agent, Cookie, Accept-Encoding) and
-response headers the site does not expose; the answer comes back chunked,
-as it arrives, and the connection closes after it. A site without CORS
-headers fails the fetch, answered 502 with why. Without `https`, the node
-has no HTTPS.
+HTTPS connections (patch 0020's gateway, which waits for the page's first
+line); the playground's is `https.ts`'s `httpsByFetch()`. Its `fetch`:
+it reads requests with a body (Content-Length or chunked) and answers each
+with `fetch()`: the browser does TLS, checks the certificate, follows
+redirects, decompresses, and leaves out request headers it sets itself
+(Host, User-Agent, Cookie, Accept-Encoding) and response headers the site
+does not expose; the answer comes back chunked, as it arrives, and the
+connection closes after it. A site without CORS headers fails the fetch,
+answered 502 with why. Without `https`, the node has no HTTPS (its `ssl`
+does TLS itself, over sockets that reach no other host).
+`httpsByFetch({ tunnel, onblocked })`: `tunnel(host, port)` may give a
+TCP connection there instead (`tcp`: the node's `ssl` upgrades the
+gateway's socket, with its own options), or fail (`error REASON`);
+`onblocked(url)` hears of a fetch the browser would not make.
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
 `onend` and `onclose`, with `write`, `end` and `close`. `serve: { port:

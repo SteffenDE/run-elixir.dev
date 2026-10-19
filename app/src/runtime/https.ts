@@ -1,13 +1,20 @@
 // HTTPS for the node by the page's fetch(): what a host offers at
-// /.net/https/NAME/PORT (crates/rotp/src/host/wasm_net.rs). The node writes
-// plain HTTP/1.1 on the connection, and each request is answered with a
-// fetch() of https://NAME[:PORT]/path; the browser does TLS and checks the
+// /.net/https/NAME/PORT (crates/rotp/src/host/wasm_net.rs), and the
+// gateway of the Emscripten BEAM's ssl (patch 0020), which waits for the
+// page's first line: "fetch", then the node writes plain HTTP/1.1 on the
+// connection, and each request is answered with a fetch() of
+// https://NAME[:PORT]/path; the browser does TLS and checks the
 // certificate. It reads only what CORS lets it: a site that sends no CORS
 // headers answers 502, with why. The browser leaves out request headers it
 // sets itself (Host, User-Agent, Cookie, Accept-Encoding) and response
 // headers the site does not expose, follows redirects itself, and
 // decompresses: the answer is chunked, without Content-Encoding. A
 // connection carries one request and closes after its answer.
+//
+// Or "tcp" through a tunnel (`tunnel`): a TCP
+// connection to NAME:PORT, over which the node does TLS itself (its own
+// ssl, with the options it was given), both ways, for as long as it keeps
+// it; or "error REASON" (a POSIX name) when the tunnel did not open.
 import type { Connection, Https } from './host/node';
 
 const HEAD_END = [13, 10, 13, 10];
@@ -98,9 +105,63 @@ function failed(connection: Connection, status: number, reason: string, text: st
   connection.end();
 }
 
+// A connection to a host by other means than fetch(): its bytes as they
+// are, and (`local`) this side's address and port there.
+export interface Tunnel {
+  write(bytes: Uint8Array): void;
+  end(): void;
+  close(): void;
+  ondata: (bytes: Uint8Array) => void;
+  onend: (error: string | null) => void;
+  local?: string;
+}
+
+const say = (connection: Connection, text: string) => connection.write(encoder.encode(`${text}\n`));
+
 // (connection, { host, port }): a handler for host/node.ts's `https` option.
-export function httpsByFetch({ onrequest = (_method: string, _url: string) => {} } = {}): Https {
+// `tunnel(host, port)` gives a tunnel there (or, resolving null, fetch()
+// after all), or null for fetch(); one that fails says why in its error's
+// `code` (a POSIX name). onblocked(url) hears of a fetch() the browser
+// would not make.
+export function httpsByFetch({
+  onrequest = (_method: string, _url: string) => {},
+  tunnel = (_host: string, _port: number): Promise<Tunnel | null> | null => null,
+  onblocked = (_url: string) => {},
+} = {}): Https {
+  const fetched = byFetch(onrequest, onblocked);
+  return (connection, target) => {
+    const tunneled = tunnel(target.host, target.port);
+    if (!tunneled) return fetched(connection, target);
+    // The node writes nothing before the page's line.
+    let closed = false;
+    connection.onclose = () => (closed = true);
+    tunneled.then(
+      (open) => {
+        if (!open) return closed || fetched(connection, target);
+        if (closed) return open.close();
+        say(connection, 'tcp');
+        connection.ondata = (bytes) => open.write(bytes);
+        connection.onend = () => open.end();
+        connection.onclose = () => open.close();
+        open.ondata = (bytes) => connection.write(bytes);
+        open.onend = () => connection.end();
+      },
+      (error: Error & { code?: string }) => {
+        if (closed) return;
+        say(connection, `error ${error.code ?? 'ehostunreach'}`);
+        connection.end();
+      },
+    );
+  };
+}
+
+// The gateway's fetch(): each request on the connection, answered.
+function byFetch(
+  onrequest: (method: string, url: string) => void,
+  onblocked: (url: string) => void,
+): Https {
   return (connection, { host, port }) => {
+    say(connection, 'fetch');
     let buffer = new Uint8Array(0);
     let answered = false;
     connection.ondata = async (bytes) => {
@@ -147,6 +208,7 @@ export function httpsByFetch({ onrequest = (_method: string, _url: string) => {}
           redirect: 'follow',
         });
       } catch (error) {
+        onblocked(url);
         return failed(
           connection,
           502,
