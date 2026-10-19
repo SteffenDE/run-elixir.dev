@@ -25,6 +25,7 @@ import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
 import { nodeProgram } from '@/project/lib/programs/nodejs';
+import { npmProgram, npxProgram, type Program } from '@/project/lib/programs/npm';
 import {
   commandProgram,
   rebar3Program,
@@ -166,6 +167,10 @@ function routePeer(connection: Connection, port: number): boolean {
   return true;
 }
 
+// The page programs, for those that run others (npm: node, sh).
+const pagePrograms = (): Record<string, Program> =>
+  nodeServices().programs as Record<string, Program>;
+
 function nodeServices() {
   // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
   // page lets them (docs/tailscale.md); else unreachable, no such name,
@@ -191,6 +196,8 @@ function nodeServices() {
       esbuild,
       git: gitProgram,
       node: nodeProgram(start!.build, () => files),
+      npm: npmProgram(pagePrograms),
+      npx: npxProgram(pagePrograms),
       sh: shProgram(startNode),
       rebar3: rebar3Program(startNode),
       ...Object.fromEntries(

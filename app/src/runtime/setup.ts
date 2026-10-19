@@ -64,8 +64,10 @@ export function prepare(root: Dir, { dns = false } = {}): void {
     'esbuild',
     'tailwind',
     'make',
-    // Node.js, on the page (programs/nodejs.ts).
+    // Node.js, npm and npx, on the page (programs/nodejs.ts, npm.ts).
     'node',
+    'npm',
+    'npx',
     'sh',
     'elixir',
     'iex',
