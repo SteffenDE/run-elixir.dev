@@ -466,6 +466,33 @@ onmessage = async ({
           shared: sharedFs,
           line,
           out: (bytes) => say('out', bytes),
+          terminal: {
+            raw: (on) => channel.mode(on),
+            size: () => channel.size,
+            read: (max, timeout) => {
+              // The page's first commands, as if typed.
+              const first = initial.shift();
+              if (first !== undefined) return new TextEncoder().encode(`${first}\r`);
+              const deadline = timeout < 0 ? Infinity : performance.now() + timeout;
+              const [columns, rows] = channel.size;
+              for (;;) {
+                channel.pump();
+                if (channel.size[0] !== columns || channel.size[1] !== rows) return null;
+                // Ctrl+C, which the page sends as an interrupt.
+                if (channel.interrupted) {
+                  channel.interrupted = false;
+                  channel.input = [];
+                  return Uint8Array.of(3);
+                }
+                const bytes = channel.take(max);
+                // Enter: a newline is Ctrl+J to raw input.
+                if (bytes.length) return bytes.map((byte) => (byte === 10 ? 13 : byte));
+                const left = deadline - performance.now();
+                if (left <= 0) return new Uint8Array(0);
+                channel.sleep(Math.min(left, 1000));
+              }
+            },
+          },
           run: external,
         });
         text('The shell exited; a new one starts.\n');

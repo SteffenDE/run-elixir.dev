@@ -7,6 +7,11 @@
 // output, so everyone sees it, as they see the node's. `typed`: lines the
 // shell ran before the terminal opened, as if typed here (the history).
 // raw(on) switches.
+// A terminal's own reports to the program on it: the cursor's position
+// (ESC [ row ; column R), which the shell's line editor asks for.
+// oxlint-disable-next-line no-control-regex -- an escape sequence.
+export const REPORT = /^\x1b\[\d+;\d+R$/;
+
 export interface Typist {
   input(text: string): void;
   interrupt(): void;

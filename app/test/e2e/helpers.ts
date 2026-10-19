@@ -6,7 +6,6 @@ export const APP = '/work/playground';
 export const HOME_HEEX = `${APP}/lib/playground_web/controllers/page_html/home.html.heex`;
 
 // oxlint-disable-next-line no-control-regex -- terminal colours.
-const strip = (text: string) => text.replace(/\x1b\[[0-9;]*m/g, '');
 
 declare global {
   interface Window {
@@ -30,14 +29,32 @@ export async function serverRunning(page: Page): Promise<void> {
   );
 }
 
-// A shell's output without colours (the first shell's by default).
+// A shell's output as its screen shows it (the first shell's by default):
+// its lines, scrollback and all, a wrapped one joined, without trailing
+// blanks but up to the cursor (a prompt's last space).
 export function output(page: Page, session = 1): Promise<string> {
   return (
     page
-      .evaluate((id) => window.playground?.sessions.get(id)?.backlog ?? '', session)
+      .evaluate((id) => {
+        const screen = window.playground?.sessions.get(id)?.screen;
+        if (!screen) return '';
+        const buffer = screen.buffer.active;
+        const cursor = buffer.baseY + buffer.cursorY;
+        let text = '';
+        for (let row = 0; row <= cursor; row++) {
+          const line = buffer.getLine(row);
+          if (!line) continue;
+          let part = line.translateToString(true);
+          if (row === cursor) {
+            const upTo = line.translateToString(false, 0, buffer.cursorX);
+            if (upTo.length > part.length) part = upTo;
+          }
+          text += (row && !line.isWrapped ? '\n' : '') + part;
+        }
+        return text;
+      }, session)
       // Navigating: nothing yet.
       .catch(() => '')
-      .then(strip)
   );
 }
 

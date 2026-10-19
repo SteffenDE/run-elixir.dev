@@ -49,6 +49,14 @@ export interface BrushOptions {
   line: () => string | null;
   // The terminal's output.
   out: (bytes: Uint8Array) => void;
+  // The terminal as brush's line editor (reedline, over crossterm) has it:
+  // raw input on or off, its size, and up to `max` bytes of its input
+  // within `timeout` ms (-1: until some come); null when it was resized.
+  terminal: {
+    raw(on: boolean): void;
+    size(): number[];
+    read(max: number, timeout: number): Uint8Array | null;
+  };
   run: Run;
 }
 
@@ -127,9 +135,30 @@ export async function brush(options: BrushOptions): Promise<number> {
     return n;
   };
 
+  // crossterm's WASI backend (brush/crossterm/patches).
+  const crossterm = {
+    raw_mode: (on: number) => {
+      options.terminal.raw(on !== 0);
+      return 0;
+    },
+    size: (columns: number, rows: number) => {
+      const [width, height] = options.terminal.size();
+      const data = new DataView(memory!.buffer);
+      data.setUint16(columns, width, true);
+      data.setUint16(rows, height, true);
+      return 0;
+    },
+    read: (buffer: number, max: number, timeout: number) => {
+      const bytes = options.terminal.read(max, timeout);
+      if (!bytes) return -1;
+      view(buffer, bytes.length).set(bytes);
+      return bytes.length;
+    },
+  };
   const instance = new WebAssembly.Instance(options.module, {
     ...wasi.imports,
     playground: { spawn: spawn as unknown as WebAssembly.ImportValue, output },
+    crossterm,
   });
   memory = instance.exports.memory as WebAssembly.Memory;
   wasi.memory = memory;

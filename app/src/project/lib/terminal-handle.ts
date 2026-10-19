@@ -13,6 +13,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useStore } from '@/project/lib/store';
 import { workspace } from '@/project/lib/workspace';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
+import { REPORT } from '@/runtime/terminal';
 import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
 
 export class TerminalHandle {
@@ -69,7 +70,11 @@ export class TerminalHandle {
     // The shell's line discipline is the project's (playground.ts), one
     // for everyone in a live session: keys go to it, its echo comes back
     // with the output.
-    this.terminal.onData((data) => workspace().keys(this.id, data));
+    // Its reports (the cursor's position) are the shell's screen's to give
+    // (playground.ts), once, for every terminal showing the shell.
+    this.terminal.onData((data) => {
+      if (!REPORT.test(data)) workspace().keys(this.id, data);
+    });
     // The node's line editing needs the terminal's size.
     this.terminal.onResize(({ cols, rows }) => workspace().resize(this.id, cols, rows));
     workspace().resize(this.id, this.terminal.cols, this.terminal.rows);

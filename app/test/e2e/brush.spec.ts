@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject, prompted, readText, run } from './helpers';
+import { newProject, output, prompted, prompts, readText, run } from './helpers';
 
 // The terminal's shell is brush (runtime/worker/brush.ts): bash's language,
 // with the playground's commands (coreutils, nodes) in its pipelines,
@@ -25,4 +25,33 @@ test('brush runs pipelines, substitutions and redirections over the playground c
   expect(await run(page, `elixir -e 'IO.puts(:from_node)' | tr a-z A-Z`)).toContain('FROM_NODE');
   expect(await run(page, 'ls nope 2>/dev/null || echo missing')).toContain('missing');
   expect(await run(page, 'nosuch; echo "status $?"')).toContain('status 127');
+});
+
+// Its line editor (reedline, over crossterm on the page's terminal): Tab
+// completes a path and a command, Up recalls a line, and a loop typed over
+// lines runs as one.
+test("brush's line editor completes, recalls and continues lines", async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mkdir -p docs && echo completed > docs/notes.txt');
+  const keys = (text: string) =>
+    page.evaluate((data) => window.playground.sessions.get(1).node.input(data), text);
+  let before = await output(page);
+  await keys('cat docs/no\t');
+  await expect.poll(() => output(page)).toMatch(/cat docs\/notes\.txt $/);
+  await keys('\r');
+  await prompted(page, prompts(before) + 1);
+  expect((await output(page)).slice(before.length)).toContain('completed');
+  before = await output(page);
+  await keys('ech\t');
+  await expect.poll(() => output(page)).toMatch(/\$ echo $/);
+  await keys('again\r');
+  await prompted(page, prompts(before) + 1);
+  await keys('\x1b[A');
+  await expect.poll(() => output(page)).toMatch(/\$ echo again$/);
+  await keys('\x15for i in 1 2; do\r');
+  await keys('echo "n$i"\r');
+  await keys('done\r');
+  await expect.poll(() => output(page)).toMatch(/n1\s+n2\s+\/work \$ $/);
 });

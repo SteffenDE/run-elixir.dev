@@ -167,14 +167,15 @@ to the page as `{ kind: 'warning', message }`.
 ## The shell (`worker/brush.ts`)
 
 The terminal's shell is [brush](https://github.com/reubeno/brush) 0.4, a
-bash-compatible shell in Rust, built for `wasm32-wasip1` by
-`brush/build.py` (3.1 MB, 1.0 MB gzipped, with `opt-level = "z"`). The worker loads it with
+bash-compatible shell in Rust, with its line editor (reedline), built for
+`wasm32-wasip1` by `brush/build.py` (3.4 MB, 1.2 MB gzipped, with
+`opt-level = "z"`). The worker loads it with
 the boot images and runs it on the terminal (`--rcfile /etc/brushrc -i`: the
 prompt, and the directory to start in, since WASI has none). Without
 `brush.wasm` in the site, the old shell in `worker/index.ts` answers.
 
-brush on WASI has no processes, pipes or `dup`. Our patch to brush-core
-(`brush/patches/`, its `sys/wasm/playground.rs`) gives it:
+brush on WASI has no processes, pipes or `dup`. Our patches to it
+(`brush/patches/brush/`; brush-core's `sys/wasm/playground.rs`) give it:
 
 - **External commands through the host:** one import,
   `playground.spawn(request, input, flags)`, runs a command to its end and
@@ -191,10 +192,22 @@ brush on WASI has no processes, pipes or `dup`. Our patch to brush-core
   run inline (no threads), and `$(…)` runs, then its output is read. So a
   command that never ends feeding a pipe (`yes | head`) does not end.
 
-Its line reader is brush's plain one (no readline: crossterm needs a
-terminal WASI does not have), so the page still edits the line and the
-worker joins a line ending in `\`; a construct over several lines (`for`
-… `done` typed on separate lines) is not read as one yet.
+**Its line editor** is reedline, as brush has it natively: Tab completes
+(paths, commands, with bash's `complete`), Up and Down go through the
+history, Ctrl+R searches it, and a line that does not end a command (a
+`for` … `done` over several lines) goes on. It runs on crossterm, whose WASI
+backend (`brush/patches/crossterm/`) is the host's terminal through three
+imports (`crossterm.raw_mode`, `size`, and `read`, the terminal's input
+within a timeout; `worker/brush.ts`): the page's line discipline is raw
+while reedline reads, and Ctrl+C reaches it as `\x03`. reedline asks the
+terminal where its cursor is (`ESC [ 6 n`): a shell's screen on the page
+(`screen` in `playground.ts`, an xterm `Terminal` that is always fed,
+shown or not) answers, and the terminals showing it do not (`REPORT`), so
+one answer comes for every view of a live session. brush-interactive's
+bridge from reedline's callbacks to the shell (`block_on`) polls in place
+on WASI, outside tokio's cooperative budget: with one thread, a budget
+spent would never be renewed. reedline's history file locks with fd-lock,
+whose WASI locks are always granted (`brush/patches/fd-lock/`).
 
 ## coreutils (`coreutils.ts`)
 

@@ -3,6 +3,7 @@
 // The first runs what the project's kind starts with (the Phoenix server,
 // IEx, or nothing); the others are for mix and friends beside it.
 // Everything the UI does to the nodes goes through here.
+import { Terminal } from '@xterm/xterm';
 import { PGlite } from '@electric-sql/pglite';
 import { citext } from '@electric-sql/pglite/contrib/citext';
 import { fuzzystrmatch } from '@electric-sql/pglite/contrib/fuzzystrmatch';
@@ -14,7 +15,7 @@ import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
 import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import { Files, type SearchQuery, type SearchResult } from '@/runtime/host/files';
 import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
-import { lineDiscipline } from '@/runtime/terminal';
+import { REPORT, lineDiscipline } from '@/runtime/terminal';
 import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Bridge } from '@/runtime/bridge';
 import { postgres } from '@/runtime/postgres';
@@ -57,6 +58,10 @@ interface Session {
   // Its tty's line discipline: everyone's keys, one line being typed, and
   // the command lines it ran first as if typed (the history).
   discipline: ReturnType<typeof lineDiscipline>;
+  // Its screen, whether a terminal shows it or not: it answers the cursor
+  // position the shell's line editor asks for, and is what the shell
+  // looks like (the visible terminals only show it; they do not answer).
+  screen: Terminal;
 }
 
 const sessions = new Map<number, Session>();
@@ -235,6 +240,7 @@ export function keys(id: number, data: string): void {
 // The size of shell `id`'s terminal, for the node's line editing.
 export function resize(id: number, columns: number, rows: number): void {
   sessions.get(id)?.node.resize(columns, rows);
+  sessions.get(id)?.screen.resize(columns, rows);
 }
 
 // Stop whatever runs in the first shell, then start the Phoenix server
@@ -443,9 +449,14 @@ export function openTerminal(initial: string[] = []): number {
     backlog: '',
     listeners: new Set(),
     discipline: null as unknown as Session['discipline'],
+    screen: new Terminal({ cols: 80, rows: 24, convertEol: true, scrollback: 5000 }),
   };
+  session.screen.onData((data) => {
+    if (REPORT.test(data)) session.node.input(data);
+  });
   const emit = (text: string) => {
     session.backlog = (session.backlog + text).slice(-200_000);
+    session.screen.write(text);
     for (const listener of session.listeners) listener(text);
   };
   session.discipline = lineDiscipline(
@@ -498,6 +509,7 @@ export function openTerminal(initial: string[] = []): number {
 export function closeTerminal(id: number): void {
   if (id === FIRST_SESSION) return;
   const node = sessions.get(id)?.node;
+  sessions.get(id)?.screen.dispose();
   node?.stop();
   if (node) nodes.delete(node);
   sessions.delete(id);
