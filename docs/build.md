@@ -36,12 +36,12 @@ rebar3), and builds the template with the host's Mix in
 - **NIF builds,** optional: `python3 -I nif/build.py` first
   ([nif.md](nif.md)); the site takes what is in
   `target/nif/packages` (also `build.py app`).
-- **brush,** optional: `python3 -I brush/build.py` first (the
+- **brush:** `python3 -I brush/build.py` first (the
   `brush/src/` submodules, `git submodule update --init brush/src`: brush,
   crossterm and fd-lock, each with `brush/patches/NAME/`, in Docker, about
   a minute; cached until its image, commits or patches change); the site
   takes `target/brush/brush.wasm` (also `build.py app`).
-- **coreutils,** optional: `python3 -I coreutils/build.py` first (uutils
+- **coreutils:** `python3 -I coreutils/build.py` first (uutils
   coreutils for WASI, in Docker, about a minute; cached until its image,
   version or patches change); the site takes
   `target/coreutils/coreutils.wasm` (also `build.py app`).

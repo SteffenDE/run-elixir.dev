@@ -171,8 +171,9 @@ bash-compatible shell in Rust, with its line editor (reedline), built for
 `wasm32-wasip1` by `brush/build.py` (3.4 MB, 1.2 MB gzipped, with
 `opt-level = "z"`). The worker loads it with
 the boot images and runs it on the terminal (`--rcfile /etc/brushrc -i`: the
-prompt, and the directory to start in, since WASI has none). Without
-`brush.wasm` in the site, the old shell in `worker/index.ts` answers.
+prompt, the directory to start in, since WASI has none, and `help`, the
+playground's, with brush's `help NAME` for a built-in). A site without
+`brush.wasm` does not build (`runtime/build.py`).
 
 brush on WASI has no processes, pipes or `dup`. Our patches to it
 (`brush/patches/brush/`; brush-core's `sys/wasm/playground.rs`) give it:
@@ -181,7 +182,7 @@ brush on WASI has no processes, pipes or `dup`. Our patches to it
   `playground.spawn(request, input, flags)`, runs a command to its end and
   answers its status (or -1: not found). The host makes it suspending with
   JSPI (`WebAssembly.Suspending`; Chromium, Firefox and WebKit have it), so
-  a node runs in the worker as the old shell ran it, terminal and all,
+  a node runs in the worker, terminal and all,
   while brush waits. `playground.output` answers what it wrote that was
   not the terminal's. `run` in `worker/index.ts`: node commands (and
   escripts), the page's programs, coreutils' tools.
@@ -225,9 +226,8 @@ port, which waits for it, as for any quick command. So a tool gets the
 input that is there when it starts and then its end, and runs nothing
 that waits for more (`tail -f`, an interactive `sort`).
 
-- **The shell** runs a tool for a command it does not have itself (`cd`,
-  `pwd`, `echo`, `help`, `clear` stay its own); without `coreutils.wasm`,
-  its old `ls`, `cat`, `mkdir` and `rm` answer.
+- **The shell** (brush) runs a tool for a command it does not have as a
+  built-in (`ls`, `cp`, `sort`, …; `echo`, `pwd`, `test` are brush's).
 - **A node** finds the tools on `PATH` (`/usr/bin`) and spawns them by
   name: `System.cmd("rm", ["-rf", "c"])`.
 - **`sh -c LINE`** with a tool in it runs here: the tools, `cd`, and each

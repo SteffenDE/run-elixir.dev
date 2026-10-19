@@ -396,15 +396,13 @@ def page(out):
     packages = os.path.join(ROOT, "target", "nif", "packages")
     if os.path.isdir(packages):
         shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
-    # uutils coreutils built to WebAssembly (coreutils/build.py): ls, cp,
-    # rm, … for the shell and the nodes.
-    coreutils = os.path.join(ROOT, "target", "coreutils", "coreutils.wasm")
-    if os.path.exists(coreutils):
-        shutil.copy(coreutils, os.path.join(out, "coreutils.wasm"))
-    # brush built to WebAssembly (brush/build.py): the terminal's shell.
-    shell = os.path.join(ROOT, "target", "brush", "brush.wasm")
-    if os.path.exists(shell):
-        shutil.copy(shell, os.path.join(out, "brush.wasm"))
+    # The terminal's shell, brush, and uutils coreutils (ls, cp, rm, … for
+    # the shell and the nodes), built to WebAssembly by their own scripts.
+    for name, script in (("brush", "brush/build.py"), ("coreutils", "coreutils/build.py")):
+        built = os.path.join(ROOT, "target", name, f"{name}.wasm")
+        if not os.path.exists(built):
+            raise SystemExit(f"{built}: missing (python3 -I {script} first)")
+        shutil.copy(built, os.path.join(out, f"{name}.wasm"))
     # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
     # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
     with open(os.path.join(out, "playground.json"), "w") as f:
