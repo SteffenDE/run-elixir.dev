@@ -23,8 +23,11 @@ int __syscall_linkat(int olddirfd, const char *oldpath, int newdirfd,
     return wasm_host_linkat(olddirfd, oldpath, newdirfd, newpath, flags);
 }
 
-/* The node presents itself as Linux, as Rust-OTP does (os:type() is
- * {unix, linux}): packages choose their paths and tools by it. */
+/* The node presents itself as Linux (os:type() is {unix, linux}): OTP
+ * supports only the systems it knows by name, public_key's
+ * pubkey_os_cacerts (the system's CA certificates, which httpc and Mint
+ * ask for: /etc/ssl/certs/ca-certificates.crt on Linux) and os_mon's
+ * memsup (unsupported_os otherwise; the playground's memsup program). */
 int __syscall_uname(struct utsname *buf)
 {
     if (!buf)

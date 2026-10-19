@@ -160,7 +160,7 @@ and `clock_res_get`.
 - Releasing resources when the node collects their references, and the
   rest of the API above (threads, `enif_select`, monitors).
 - Rustler: rustler_precompiled downloads its build (its target is the
-  node's `x86_64-pc-linux-gnu`); Rust NIFs need a recipe that builds the
+  node's `wasm32-unknown-emscripten`, which none lists); Rust NIFs need a recipe that builds the
   crate for `wasm32-wasip1` against the layer.
 - The backend as the only source of builds, the request naming the
   page's layer ([backend.md](backend.md#plan-one-source-of-nif-builds));

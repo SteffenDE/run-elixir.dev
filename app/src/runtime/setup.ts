@@ -6,10 +6,11 @@ import { git, esbuild, tailwind, make, memsup, type NifSource } from './programs
 import type { Vfs } from './vfs';
 import { TOOLS } from './coreutils';
 
-// The node presents itself as Linux x86_64 (crates/rotp/src/host/mod.rs),
-// so Hex tool wrappers take their Linux paths; the esbuild and tailwind
-// packages run /usr/bin/esbuild and /usr/bin/tailwind (their :path,
-// worker/index.ts), the programs below.
+// The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
+// Hex tool wrappers take their Linux paths; its architecture is its own
+// (wasm32): the esbuild and tailwind packages run /usr/bin/esbuild and
+// /usr/bin/tailwind (their :path, worker/index.ts), the programs below,
+// and with :path set look no further (esbuild from 0.10.1).
 export const ENV = {
   ROOTDIR: '/rotp',
   // Home is not the project's: Mix's, Hex's and the tools' caches and
@@ -21,8 +22,6 @@ export const ENV = {
   PATH: '/usr/bin:/rotp/bin:/home/user/.mix/escripts',
   MIX_HOME: '/home/user/.mix',
   MIX_ARCHIVES: '/rotp/mix/archives',
-  ROTP_OS_TYPE: 'linux',
-  ROTP_SYSTEM_ARCHITECTURE: 'x86_64-pc-linux-gnu',
   // cc_precompiler's target (lazy_html's): the node's own on WebAssembly,
   // which no package lists, so elixir_make runs make (programs.ts) rather
   // than downloading the x86_64 Linux build.
