@@ -108,5 +108,5 @@ test('IEx edits its own lines: tab completes, up recalls, Ctrl+C leaves', async 
   await page.keyboard.press('Enter');
   await prompted(page, 3);
   // The output has what was typed too: the shell's line discipline echoes.
-  expect(await output(page)).toMatch(/iex\(5\)> \^C\n~ \$ pwd\r?\n\/work\n~ \$ $/);
+  expect(await output(page)).toMatch(/iex\(5\)> \^C\n\/work \$ pwd\r?\n\/work\n\/work \$ $/);
 });

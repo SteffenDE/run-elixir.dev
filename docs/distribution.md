@@ -143,7 +143,7 @@ took, beyond distribution:
 **As a user installs it** (Playwright's `livebook-domain`, `@slow`, about
 3 minutes in Chromium): `mix escript.install hex livebook 0.19.10` builds
 it in the tab (about 2 minutes), `livebook server` is a command (an
-escript on `PATH`: `$MIX_HOME/escripts` is on it, and the shell and a
+escript on `PATH`: `$MIX_HOME/escripts` (`/home/user/.mix/escripts`) is on it, and the shell and a
 port's program run an escript found there), `Mix.install([:kino])` in the
 setup cell builds Kino on the standalone runtime, and a `Kino.HTML`
 output shows in Livebook's iframe endpoint, its port (8081) on an origin

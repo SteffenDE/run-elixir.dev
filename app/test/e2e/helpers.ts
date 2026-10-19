@@ -41,7 +41,8 @@ export function output(page: Page, session = 1): Promise<string> {
   );
 }
 
-const prompts = (text: string) => (text.match(/~\S* \$ /g) ?? []).length;
+// A prompt: the directory (~ for home), then $.
+export const prompts = (text: string) => (text.match(/(?:~|\/)\S* \$ /g) ?? []).length;
 
 // Until shell `session` has shown `count` prompts.
 export async function prompted(page: Page, count: number, session = 1): Promise<void> {

@@ -85,7 +85,9 @@ const E = {
   XDEV: 75,
 };
 const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
-export const SHARED = ['/work', '/tmp'];
+export const SHARED = ['/work', '/tmp', '/home'];
+// What is kept in the project's database: its files, and its home's.
+const KEPT = ['/work/', '/home/'];
 export const CHANNEL = 1 << 20;
 
 const now = () => BigInt(Date.now()) * 1000000n;
@@ -137,7 +139,7 @@ function report(path: string, deep = false): void {
   changed.add(path);
   if (!overlay) return;
   path = physical(path);
-  if (path.startsWith('/work/')) dirty.set(path, dirty.get(path) || deep);
+  if (KEPT.some((prefix) => path.startsWith(prefix))) dirty.set(path, dirty.get(path) || deep);
 }
 
 // An absolute path with its directory's symbolic links resolved (its last
@@ -642,6 +644,7 @@ onmessage = async ({ data }) => {
           walkFiles(found.node, prefix, (path) => templateFiles.add(path));
       }
       for (const prefix of SHARED) root.mkdirs(prefix);
+      root.mkdirs('/home/user');
       if (store) {
         const db = await overlays.open(store);
         let kept = await overlays.load(db);

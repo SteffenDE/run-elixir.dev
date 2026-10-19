@@ -30,6 +30,23 @@ test('an empty project keeps its files across reloads', async ({ page }) => {
   expect(await run(page, 'elixir hello.exs')).toContain('kept: by elixir');
 });
 
+// Home (/home/user: Mix's, Hex's and the tools' caches, escripts) is kept
+// with the project, but is not one of its files: the tree has /work only.
+test("an empty project keeps its home's files across reloads, out of its tree", async ({
+  page,
+}) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(await run(page, 'echo kept > ~/note.txt && cat ~/note.txt && pwd')).toMatch(
+    /kept\s+\/work/,
+  );
+  await page.evaluate(() => window.playground.files.flush());
+  await page.reload();
+  await prompted(page, 1);
+  expect(await readText(page, '/home/user/note.txt')).toBe('kept\n');
+  await expect(page.locator('.file-tree')).not.toContainText('note.txt');
+});
+
 test('a Phoenix project keeps edits, removals and moves over its template', async ({ page }) => {
   await newProject(page, 'phoenix');
   await serverRunning(page);

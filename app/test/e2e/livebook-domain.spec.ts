@@ -22,7 +22,7 @@ test('Livebook installed with mix escript.install, a Kino output in its iframe @
   try {
     await input(page, 'mix escript.install hex livebook 0.19.10 --force');
     await prompted(page, 2);
-    expect(await output(page)).toContain('creating /work/.mix/escripts/livebook');
+    expect(await output(page)).toContain('creating /home/user/.mix/escripts/livebook');
     await input(page, 'LIVEBOOK_TOKEN_ENABLED=false livebook server');
     await expect
       .poll(() => output(page), { timeout: 600_000 })

@@ -12,12 +12,14 @@ import { TOOLS } from './coreutils';
 // worker/index.ts), the programs below.
 export const ENV = {
   ROOTDIR: '/rotp',
-  HOME: '/work',
+  // Home is not the project's: Mix's, Hex's and the tools' caches and
+  // escripts are kept with the project (files.ts) but are not its files.
+  HOME: '/home/user',
   LANG: 'C.UTF-8',
   TERM: 'xterm-256color',
   // Mix's escripts (mix escript.install) are commands too.
-  PATH: '/usr/bin:/rotp/bin:/work/.mix/escripts',
-  MIX_HOME: '/work/.mix',
+  PATH: '/usr/bin:/rotp/bin:/home/user/.mix/escripts',
+  MIX_HOME: '/home/user/.mix',
   MIX_ARCHIVES: '/rotp/mix/archives',
   ROTP_OS_TYPE: 'linux',
   ROTP_SYSTEM_ARCHITECTURE: 'x86_64-pc-linux-gnu',
@@ -37,6 +39,7 @@ export const ENV = {
 export function prepare(root: Dir): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
+  root.mkdirs('home/user');
   root.put('dev/urandom', urandom());
   // Names from the hosts file only (the Emscripten BEAM's inet, with
   // ERL_INETRC; it has no inet_gethost).

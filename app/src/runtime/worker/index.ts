@@ -55,7 +55,7 @@ interface Start {
   boots?: string[];
 }
 
-const SHARED = ['/work', '/tmp'];
+const SHARED = ['/work', '/tmp', '/home'];
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
 
@@ -447,10 +447,9 @@ onmessage = async ({
       };
       // Its prompt, as the playground's shell had it (the directory, ~ for
       // $HOME), and its directory: WASI has none, so brush starts in / (and
-      // sets PWD so). brush takes HOME from the users it knows, none here.
+      // sets PWD so).
       const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
       const rc = [
-        `export HOME=${quote(ENV.HOME)}`,
         "__home='~'",
         // oxlint-disable-next-line no-template-curly-in-string -- the shell's ${…}.
         "PS1='\\[\\e[1;35m\\]${PWD/#$HOME/$__home}\\[\\e[0m\\] $ '",
@@ -473,7 +472,7 @@ onmessage = async ({
       }
     }
     for (;;) {
-      text(`\x1b[1;35m${cwd.replace(/^\/work/, '~')}\x1b[0m $ `);
+      text(`\x1b[1;35m${cwd.replace(/^\/home\/user(?=\/|$)/, '~')}\x1b[0m $ `);
       // The page's first commands run as if typed.
       let line: string | null;
       if (initial.length) {

@@ -2,7 +2,7 @@
 // with lazy_html, a NIF built to WebAssembly. The test environment's
 // dependencies compile first (about 5 minutes in Chromium).
 import { expect, test } from './fixtures';
-import { APP, newProject, newShell, output, serverRunning, writeText } from './helpers';
+import { APP, newProject, newShell, output, prompts, serverRunning, writeText } from './helpers';
 
 const COUNTER_TEST = `defmodule PlaygroundWeb.CounterLiveTest do
   use PlaygroundWeb.ConnCase
@@ -33,7 +33,7 @@ test("mix test runs the app's tests and a LiveView test @slow", async ({ page })
   await writeText(page, `${APP}/test/playground_web/live/counter_live_test.exs`, COUNTER_TEST);
   await page.evaluate((id) => window.playground.sessions.get(id).node.input('mix test\n'), shell);
   await expect
-    .poll(async () => ((await output(page, shell)).match(/~\S* \$ /g) ?? []).length, {
+    .poll(async () => prompts(await output(page, shell)), {
       timeout: 3_000_000,
       intervals: [5000],
     })
