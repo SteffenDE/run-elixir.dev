@@ -239,12 +239,22 @@ def compiler_stamp():
 
 
 def phoenix_app():
-    """The phx.new app, generated once into the cache; built again when
-    configure changes it or another OTP or Elixir compiled it."""
+    """The phx.new app, generated once into the cache; its deps locked
+    afresh every build (the newest its mix.exs allows, as a new phx.new
+    app gets); built again when that or configure changes it or another
+    OTP or Elixir compiled it."""
     app = os.path.join(CACHE, "playground")
     env = mix_env()
     stamp = os.path.join(CACHE, "playground.compiler")
     if os.path.exists(os.path.join(app, "priv", "static", "assets", "css", "app.css")):
+        lock = os.path.join(app, "mix.lock")
+        with open(lock) as f:
+            locked = f.read()
+        os.remove(lock)
+        subprocess.run(["mix", "deps.get"], cwd=app, env=env, check=True)
+        subprocess.run(["mix", "deps.clean", "--unused"], cwd=app, env=env, check=True)
+        with open(lock) as f:
+            relocked = f.read() != locked
         built = open(stamp).read() if os.path.exists(stamp) else None
         if built != compiler_stamp():
             shutil.rmtree(os.path.join(app, BUILD, "dev"), ignore_errors=True)
@@ -252,7 +262,7 @@ def phoenix_app():
             subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
             with open(stamp, "w") as f:
                 f.write(compiler_stamp())
-        elif configure(app):
+        elif configure(app) or relocked:
             subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
         return app
     os.makedirs(CACHE, exist_ok=True)
@@ -374,6 +384,10 @@ def record(out, boot, snapshot):
             fetched = {line for line in f.read().split("\n") if line}
         if not fetched:
             sys.exit(f"recording {boot}: the node fetched nothing (exit {result.returncode})")
+        # A node that failed (the Phoenix server not starting) recorded
+        # what a failing boot reads, and the site would ship it.
+        if result.returncode != 0:
+            sys.exit(f"recording {boot}: the node exited {result.returncode}")
         return fetched
 
 
