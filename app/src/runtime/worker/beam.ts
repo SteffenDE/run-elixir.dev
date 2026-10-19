@@ -108,9 +108,11 @@ export async function runBeam(run: BeamRun): Promise<number> {
   const watch = async () => {
     while (watching.on) {
       take();
-      const seen = Atomics.load(control, 0);
+      // Until the write count passes what was read (Channel.sleep's wait):
+      // a frame written since take() wakes it at once.
+      const read = Atomics.load(control, 1);
       if (waitAsync) {
-        const wait = waitAsync(control, 0, seen, 1000);
+        const wait = waitAsync(control, 0, read, 1000);
         if (wait.async) await wait.value;
       } else await new Promise((resolve) => setTimeout(resolve, 10));
     }
