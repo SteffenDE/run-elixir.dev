@@ -59,6 +59,7 @@ interface PageRequest {
   op: string;
   path: string;
   to: string;
+  target?: string;
   skip?: string[];
   data: Uint8Array;
   query?: SearchQuery;
@@ -462,11 +463,11 @@ function walkFiles(
 }
 
 // The page's requests (host/files.ts): the same filesystem, by message.
-function page({ id, op, path, to, skip = [], data, query, limit = 1000 }: PageRequest): PageReply {
+function page({ id, op, path, to, target, skip = [], data, query, limit = 1000 }: PageRequest): PageReply {
   // Symbolic links are followed, but by what removes or renames them.
   // Every request with a path needs it.
   const found = (
-    path ? resolve(path, !['unlink', 'rmdir', 'remove', 'rename'].includes(op)) : null
+    path ? resolve(path, !['unlink', 'rmdir', 'remove', 'rename', 'symlink'].includes(op)) : null
   ) as Found;
   switch (op) {
     case 'list': {
@@ -601,6 +602,11 @@ function page({ id, op, path, to, skip = [], data, query, limit = 1000 }: PageRe
     case 'rename': {
       const result = handle({ op: 'rename', path, to } as NodeRequest);
       return result.error ? { id, error: `${path}: cannot rename` } : { id };
+    }
+    // A symbolic link at `path` to `target` (npm's bin links).
+    case 'symlink': {
+      const result = handle({ op: 'symlink', path, target } as NodeRequest);
+      return result.error ? { id, error: `${path}: cannot link`, code: 'EEXIST' } : { id };
     }
   }
   return { id, error: `${op}: no such request` };
