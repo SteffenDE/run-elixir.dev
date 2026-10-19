@@ -24,6 +24,7 @@ import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
+import { nodeProgram } from '@/project/lib/programs/nodejs';
 import {
   commandProgram,
   rebar3Program,
@@ -189,6 +190,7 @@ function nodeServices() {
       tailwind,
       esbuild,
       git: gitProgram,
+      node: nodeProgram(start!.build, () => files),
       sh: shProgram(startNode),
       rebar3: rebar3Program(startNode),
       ...Object.fromEntries(
