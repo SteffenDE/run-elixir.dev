@@ -5,6 +5,7 @@ import { Buffer } from './buffer';
 import { EventEmitter, once } from 'events';
 import * as stream from 'readable-stream';
 import { StringDecoder } from 'string_decoder';
+import { hashes } from './hashes';
 import { createHttp, METHODS, STATUS_CODES } from './http';
 import type { Net } from './net';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
@@ -705,10 +706,8 @@ function createCrypto() {
     },
     timingSafeEqual: (a: Uint8Array, b: Uint8Array) =>
       a.length === b.length && a.every((x, i) => x === b[i]),
-    getHashes: () => [],
+    ...hashes,
     ...missing('crypto', [
-      'createHash',
-      'createHmac',
       'createCipheriv',
       'createDecipheriv',
       'pbkdf2Sync',
@@ -716,7 +715,6 @@ function createCrypto() {
       'createSign',
       'createVerify',
       'generateKeyPairSync',
-      'hash',
     ]),
   };
 }
