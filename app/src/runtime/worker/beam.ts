@@ -91,8 +91,14 @@ export async function runBeam(run: BeamRun): Promise<number> {
       size = channel.size;
       node.resize(size[0], size[1]);
     }
+    // Ctrl+C: SIGINT, as a terminal sends it (erts' break menu); before
+    // the node is there, it stops.
     if (channel.interrupted) {
       channel.interrupted = false;
+      if (!node.signal(2)) channel.terminated = true;
+    }
+    if (channel.terminated) {
+      channel.terminated = false;
       channel.input = [];
       status = 130;
       node.kill(130);

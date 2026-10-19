@@ -36,7 +36,7 @@ JavaScript.
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
-| `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts. |
+| `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT). |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on an HTTPS connection with a fetch of `https://NAME[:PORT]/path`. |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
@@ -264,7 +264,8 @@ the shell with `initial` commands typed first, or one command (erl's
 | 0 `INPUT` | Standard input. |
 | 1 `OPEN` | The page connects (id) to a port (payload: u16, big-endian). |
 | 2 `DATA`, 3 `END`, 4 `CLOSE` | A connection's data, end, close. |
-| 5 `INTERRUPT` | Ctrl+C: stop the running node. |
+| 5 `INTERRUPT` | Ctrl+C: the running node's SIGINT (erts' break menu: c continues, a aborts); a page program stops. |
+| 11 `TERMINATE` | Stop what runs now at once (the server's restart). |
 | 7 `OUTPUT`, 8 `EXIT` | A page program's output and exit code (u8). |
 
 **Node → page: messages.**

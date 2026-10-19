@@ -248,7 +248,7 @@ export function resize(id: number, columns: number, rows: number): void {
 export function restartServer(): void {
   const node = sessions.get(FIRST_SESSION)?.node;
   if (!node || kind !== 'phoenix') return;
-  node.interrupt();
+  node.terminate();
   setTimeout(() => node.input(serverCommand(setup.cwd)), 300);
 }
 

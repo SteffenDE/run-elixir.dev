@@ -69,13 +69,16 @@ test('the first terminal keeps the server command in its history', async ({ page
   await newProject(page, 'phoenix');
   await serverRunning(page);
   await page.locator('.terminal-host:not([hidden]) .xterm').click();
+  // Ctrl+C: erts' break menu, as on a terminal; a aborts.
   await page.keyboard.press('Control+c');
+  await expect.poll(() => output(page)).toMatch(/BREAK: \(a\)bort/);
+  await page.keyboard.press('a');
   await prompted(page, 2);
   await page.keyboard.press('ArrowUp');
   await expect.poll(() => lastLine(page)).toMatch(/\$ iex -S mix phx\.server$/);
 });
 
-test('IEx edits its own lines: tab completes, up recalls, Ctrl+C leaves', async ({ page }) => {
+test('IEx edits its own lines: tab completes, up recalls, Ctrl+C breaks', async ({ page }) => {
   await page.goto('/iex');
   await expect.poll(() => output(page), { timeout: 120_000 }).toMatch(/iex\(1\)> $/);
   await page.locator('.terminal-host:not([hidden]) .xterm').click();
@@ -101,12 +104,22 @@ test('IEx edits its own lines: tab completes, up recalls, Ctrl+C leaves', async 
   await page.setViewportSize({ width: 900, height: 700 });
   await page.waitForTimeout(1000);
   expect(await columns(4)).toBeLessThan(wide);
-  // The shell's prompt (it ran `iex` at the first), and lines again.
+  // Ctrl+C: erts' break menu; c continues, and IEx answers again.
   await page.keyboard.press('Control+c');
+  await expect.poll(() => output(page)).toMatch(/BREAK: \(a\)bort[\s\S]*\(c\)ontinue/);
+  await page.keyboard.press('c');
+  await page.keyboard.type('6 * 7');
+  await page.keyboard.press('Enter');
+  await expect.poll(() => output(page)).toMatch(/42\s+iex\(6\)> $/);
+  // Ctrl+C and a: the shell's prompt (it ran `iex` at the first), and
+  // lines again.
+  await page.keyboard.press('Control+c');
+  await expect.poll(() => (output(page)).then((text) => text.split('BREAK:').length)).toBe(3);
+  await page.keyboard.press('a');
   await prompted(page, 2);
   await page.keyboard.type('pwd');
   await page.keyboard.press('Enter');
   await prompted(page, 3);
   // The output has what was typed too: the shell's line discipline echoes.
-  expect(await output(page)).toMatch(/iex\(5\)> \^C\n\/work \$ pwd\r?\n\/work\n\/work \$ $/);
+  expect(await output(page)).toMatch(/\n\/work \$ pwd\r?\n\/work\n\/work \$ $/);
 });

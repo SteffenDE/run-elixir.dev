@@ -8,7 +8,8 @@
 // mix, erl) as a fresh instance over the same filesystem, as a Unix shell
 // runs processes; the page's programs (git, …) run as they would for a
 // node, and coreutils' tools in the worker. Ctrl+C (an interrupt frame)
-// stops the node or the program. With `files`, /work and /tmp are files.js's, which
+// is a node's SIGINT (erts' break menu) and stops a program; a terminate
+// frame stops either at once. With `files`, /work and /tmp are files.js's, which
 // every shell (each in its own worker) and the page share.
 import { Dir, File, untar, mount, bundled, fetchBundle, type Manifest } from '../wasi/fs';
 import { Network } from '../wasi/net';
@@ -206,7 +207,8 @@ function command(
 const HELP = `Commands: iex, elixir, mix, erl (each runs OTP), git (clone, pull),
 and coreutils' ls, cp, mv, rm, cat, sort, wc, …, in a bash-like shell:
 pipes, redirections, $(…), loops. Tab completes, Up recalls, Ctrl+R
-searches; Ctrl+C stops what is running. help NAME: a shell built-in.
+searches. Ctrl+C: a node's break menu (a aborts), a program stops.
+help NAME: a shell built-in.
 `;
 
 // boots: the boot images (fs/NAME.tar.gz) to unpack, the site's first
@@ -299,6 +301,7 @@ onmessage = async ({
       channel.network = network;
       network.peers = channel.peers;
       channel.interrupted = false;
+      channel.terminated = false;
       try {
         return await runBeam({
           module: runtime('beam.mjs').href,
@@ -322,6 +325,7 @@ onmessage = async ({
         });
       } finally {
         channel.interrupted = false;
+        channel.terminated = false;
         channel.mode(false);
         channel.network = null;
         for (const port of network.listeners.keys())
@@ -345,8 +349,9 @@ onmessage = async ({
         channel.pump();
         for (const bytes of process.output.splice(0)) out(bytes);
         if (process.ended) return process.status ?? 1;
-        if (channel.interrupted) {
+        if (channel.interrupted || channel.terminated) {
           channel.interrupted = false;
+          channel.terminated = false;
           channel.input = [];
           process.onclose?.();
           return 130;
@@ -451,6 +456,8 @@ onmessage = async ({
                 channel.input = [];
                 return Uint8Array.of(3);
               }
+              // Nothing runs to stop.
+              channel.terminated = false;
               const bytes = channel.take(max);
               // Enter: a newline is Ctrl+J to raw input.
               if (bytes.length) return bytes.map((byte) => (byte === 10 ? 13 : byte));

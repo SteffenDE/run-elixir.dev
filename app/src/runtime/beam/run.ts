@@ -54,8 +54,12 @@ export interface BeamNode {
   // Standard input has ended.
   end(): void;
   resize(columns: number, rows: number): void;
-  // Stops the node at once (Ctrl+C), with this status.
+  // Stops the node at once, with this status.
   kill(status: number): void;
+  // Sends the node a signal (Ctrl+C: SIGINT): erts' own handler runs, on
+  // the main thread (beam/host/wasm_pipes.c). False before the module is
+  // there.
+  signal(signum: number): boolean;
 }
 
 // prim_tty's buffer (patch 0011), which the host keeps from overflowing.
@@ -79,6 +83,8 @@ export function startBeam(options: BeamOptions): BeamNode {
   let ended = false;
   let endSent = false;
   let retry: ReturnType<typeof setTimeout> | null = null;
+  // A SIGINT was sent and erts' break menu may be reading fd 0.
+  let breaking = false;
   // A C function the module exports (Emscripten names them _name).
   const c = (name: string, ...args: number[]): number => module[`_${name}`](...args);
   const later = () => {
@@ -175,6 +181,8 @@ export function startBeam(options: BeamOptions): BeamNode {
           },
           onTtyMode: (raw: boolean) => options.onMode?.(raw),
           onStdinConsumed: (count: number) => {
+            // prim_tty reads again: a break is over.
+            breaking = false;
             buffered -= count;
             flush();
           },
@@ -191,6 +199,23 @@ export function startBeam(options: BeamOptions): BeamNode {
             (instance: Module) => {
               module = instance;
               const { FS, ENV } = instance;
+              // The terminal's own reads of fd 0: erts' break menu (Ctrl+C)
+              // reads its key there while prim_tty, which has the input
+              // (patch 0024), waits. While a break is on, a byte or
+              // undefined (none yet); otherwise its end, as Emscripten's
+              // terminal answers in a worker (a reader of fd 0 would spin).
+              if (options.tty && instance.TTY) {
+                // A byte of the module's memory, once it runs (not in preRun).
+                let one = 0;
+                instance.TTY.default_tty_ops.get_char = () => {
+                  if (!breaking) return null;
+                  one ||= c('malloc', 1);
+                  if (c('popcornStdinTake', one, 1) < 1) return undefined;
+                  buffered -= 1;
+                  flush();
+                  return new Uint8Array(memory.buffer)[one];
+                };
+              }
               const proxyfs = FS.filesystems.PROXYFS;
               const shared = options.shared;
               // Emscripten's ErrnoError says only its number.
@@ -248,6 +273,18 @@ export function startBeam(options: BeamOptions): BeamNode {
     resize(columns, rows) {
       size = [columns, rows];
       if (module && !exited) c('popcornTtyResize', columns, rows);
+    },
+    signal(signum) {
+      if (!module || exited) return false;
+      if (signum === 2) breaking = true;
+      try {
+        c('raise', signum);
+      } catch (error) {
+        // Its default action ended the node (SIGINT without erts' break
+        // handler, +Bd): Emscripten unwinds by throwing its ExitStatus.
+        if ((error as Error).name !== 'ExitStatus') throw error;
+      }
+      return true;
     },
     kill(status) {
       if (!module || exited) return;

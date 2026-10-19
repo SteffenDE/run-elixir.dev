@@ -22,6 +22,8 @@ export const FRAME = {
   RESIZE: 9,
   // The ports the project's other nodes listen on (u16s, big-endian).
   PEERS: 10,
+  // Stop what runs now, at once (not Ctrl+C: a node's SIGINT).
+  TERMINATE: 11,
 } as const;
 export const RING = 1 << 20;
 export const CHUNK = 1 << 16;
@@ -293,8 +295,13 @@ export class Node {
   input(text: string): void {
     this.frame(FRAME.INPUT, 0, new TextEncoder().encode(text));
   }
+  // Ctrl+C: the node's SIGINT (erts' break menu), a program's stop.
   interrupt(): void {
     this.frame(FRAME.INTERRUPT, 0);
+  }
+  // Stops what runs now at once, the shell staying.
+  terminate(): void {
+    this.frame(FRAME.TERMINATE, 0);
   }
   // The terminal's size, which the node reads from /.tty/size.
   resize(columns: number, rows: number): void {

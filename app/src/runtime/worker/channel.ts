@@ -14,6 +14,7 @@ export const FRAME = {
   EXIT: 8,
   RESIZE: 9,
   PEERS: 10,
+  TERMINATE: 11,
 };
 export const RING = 1 << 20;
 
@@ -24,6 +25,8 @@ export class Channel {
   declare input: Uint8Array[];
   declare network: Network | null;
   declare interrupted: boolean;
+  // The page stops what runs at once (TERMINATE).
+  declare terminated: boolean;
   declare size: number[];
   declare raw: boolean;
   declare processes: Map<number, Process>;
@@ -36,6 +39,7 @@ export class Channel {
     this.input = [];
     this.network = null;
     this.interrupted = false;
+    this.terminated = false;
     // The terminal's size (RESIZE frames) and whether the node set it to
     // raw input.
     this.size = [80, 24];
@@ -62,6 +66,7 @@ export class Channel {
       const net = this.network;
       if (kind === FRAME.INPUT) this.input.push(payload);
       else if (kind === FRAME.INTERRUPT) this.interrupted = true;
+      else if (kind === FRAME.TERMINATE) this.terminated = true;
       else if (kind === FRAME.RESIZE) {
         const view = new DataView(payload.buffer);
         this.size = [view.getUint16(0, true), view.getUint16(2, true)];
