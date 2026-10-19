@@ -14,7 +14,7 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type Datagram, type NifBuild, type Served } from '@/runtime/host/node';
+import { Node, type Connection, type Datagram, type Link, type NifBuild, type Served } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
@@ -119,8 +119,8 @@ const nodeId = (node: object) => {
   return id;
 };
 
-// A service the apex answers (Postgres, Hex's cache): the connection
-// carried there.
+// A service the apex answers (Postgres, Hex's cache): the connection (a
+// node's, or a Node.js process's) carried there.
 function apex(service: 'postgres' | 'hex') {
   return (connection: Served) => {
     const channel = new MessageChannel();
@@ -160,7 +160,31 @@ const scriptPorts: Ports = {
     updatePeers();
     updateListening();
   },
+  // A process's connection: to the services, as a node's goes, or to what
+  // listens on the port.
+  route(port) {
+    const service = services()[port];
+    if (service) return service;
+    const target =
+      scripts.get(port)?.listener ?? [...nodes].find((node) => node.listening.has(port));
+    return target ? (connection) => join(connection, target.connect(port)) : null;
+  },
 };
+
+// Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
+// page lets them (docs/tailscale.md); else unreachable, no such name,
+// fetch().
+let net: ReturnType<typeof tailnet> | null = null;
+const tailnetWays = () => (net ??= tailnet(rpc));
+
+// What answers on the project's ports for every node and process.
+const services = (): Record<number, (connection: Served) => void> => ({
+  5432: apex('postgres'),
+  [HEX_PORT]: apex('hex'),
+  [EPMD_PORT]: serveNames,
+  // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
+  53: dnsTcp(tailnetWays().resolve),
+});
 
 function updatePeers(): void {
   for (const node of nodes)
@@ -186,7 +210,12 @@ function routePeer(connection: Connection, port: number): boolean {
     [...nodes].find((node) => node !== connection.node && node.listening.has(port)) ??
     scripts.get(port)?.listener;
   if (!target) return false;
-  const other = target.connect(port);
+  join(connection, target.connect(port));
+  return true;
+}
+
+// Two connections' ends, each writing what the other hears.
+function join(connection: Link, other: Link): void {
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -200,7 +229,6 @@ function routePeer(connection: Connection, port: number): boolean {
   other.onend = () => connection.end();
   connection.onclose = close;
   other.onclose = close;
-  return true;
 }
 
 // The page programs, for those that run others (npm: node, sh).
@@ -208,20 +236,11 @@ const pagePrograms = (): Record<string, Program> =>
   nodeServices().programs as Record<string, Program>;
 
 function nodeServices() {
-  // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
-  // page lets them (docs/tailscale.md); else unreachable, no such name,
-  // fetch().
-  const net = tailnet(rpc);
+  const net = tailnetWays();
   return {
     peer: routePeer,
     udpPeer: routeUdpPeer,
-    serve: {
-      5432: apex('postgres'),
-      [HEX_PORT]: apex('hex'),
-      [EPMD_PORT]: serveNames,
-      // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
-      53: dnsTcp(net.resolve),
-    },
+    serve: services(),
     udpServe: { 53: dnsUdp(net.resolve) },
     outbound: net.outbound,
     udp: net.udp(),

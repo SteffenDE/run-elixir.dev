@@ -1,10 +1,13 @@
-// node:net on the page's TCP: a process's listeners are the page's to
-// route (programs/nodejs.ts), as a node's are, so the preview and the
-// project's other processes reach a port a script listens on.
+// node:net on the page's TCP: a process's listeners and connections are
+// the page's to route (programs/nodejs.ts), as a node's are, so the
+// preview and the project's other processes reach a port a script listens
+// on, and a script reaches theirs and the page's services (Postgres).
 //
 // The process tells the page { kind: 'net', op: 'listen', ref, port } and
 // hears { op: 'listening', ref, port } (null when the port is taken);
-// a connection comes as { op: 'open', id, port }; then { op: 'data', id,
+// a connection comes as { op: 'open', id, port } (odd ids). The process
+// connects with { op: 'connect', id, port } (even ids) and hears { op:
+// 'connected', id } or { op: 'refused', id }. Then { op: 'data', id,
 // bytes }, { op: 'end', id } and { op: 'close', id } go both ways, and
 // { op: 'unlisten', port } stops a listener.
 import { Buffer } from './buffer';
@@ -17,7 +20,7 @@ export type NetMessage =
   | { kind: 'net'; op: 'listening'; ref: number; port: number | null }
   | { kind: 'net'; op: 'open'; id: number; port: number }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
-  | { kind: 'net'; op: 'end' | 'close'; id: number };
+  | { kind: 'net'; op: 'end' | 'close' | 'connected' | 'refused'; id: number };
 
 type Hold = () => () => void;
 
@@ -28,6 +31,9 @@ interface Address {
 }
 
 const isIPv4 = (s: string) => /^\d+\.\d+\.\d+\.\d+$/.test(s);
+// The machine's own names: what a connection reaches.
+const LOCAL = new Set(['', 'localhost', '127.0.0.1', '::1', '0.0.0.0', '::']);
+const isLocal = (host: string) => LOCAL.has(host) || host.endsWith('.localhost');
 const isIPv6 = (s: string) => s.includes(':');
 
 const netError = (code: string, syscall: string, port: number, message: string) =>
@@ -44,6 +50,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
   const servers = new Map<number, Server>();
   const asked = new Map<number, (port: number | null) => void>();
   let ref = 0;
+  // The ids of connections the process makes.
+  let nextId = 0;
 
   // A connection: the page's end of it is `id`.
   class Socket extends Duplex {
@@ -84,6 +92,55 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         if (this.timer) clearTimeout(this.timer);
       });
     }
+    // connect(port, host?, listener?) or connect({ port, host }, listener?).
+    connect(...args: unknown[]) {
+      const listener = typeof args.at(-1) === 'function' ? (args.pop() as () => void) : null;
+      const options = (
+        args[0] && typeof args[0] === 'object'
+          ? args[0]
+          : { port: args[0], host: typeof args[1] === 'string' ? args[1] : undefined }
+      ) as { port?: unknown; host?: string; path?: string; timeout?: number };
+      if (listener) this.once('connect', listener);
+      if (options.timeout) this.setTimeout(options.timeout);
+      const port = Number(options.port);
+      const host = options.host ?? 'localhost';
+      this.connecting = true;
+      if (options.path !== undefined || !isLocal(host) || !(port > 0 && port < 65536)) {
+        const error =
+          options.path !== undefined
+            ? netError('ENOENT', 'connect', 0, 'no Unix sockets in the playground')
+            : !isLocal(host)
+              ? Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), {
+                  code: 'ENOTFOUND',
+                  errno: -3008,
+                  syscall: 'getaddrinfo',
+                  hostname: host,
+                })
+              : Object.assign(new RangeError(`Port should be > 0 and < 65536. Received ${port}.`), {
+                  code: 'ERR_SOCKET_BAD_PORT',
+                });
+        queueMicrotask(() => this.destroy(error));
+        return this;
+      }
+      this.id = nextId += 2;
+      this.remotePort = port;
+      this.localPort = 49152 + Math.floor(Math.random() * 16384);
+      this.release ??= hold();
+      sockets.set(this.id, this);
+      post({ kind: 'net', op: 'connect', id: this.id, port });
+      return this;
+    }
+    // The page's answer to connect.
+    connected(ok: boolean) {
+      this.connecting = false;
+      if (!ok) {
+        sockets.delete(this.id);
+        this.destroy(netError('ECONNREFUSED', 'connect', this.remotePort, 'connection refused'));
+        return;
+      }
+      this.emit('connect');
+      this.emit('ready');
+    }
     // From the page.
     receive(bytes: Uint8Array) {
       this.bytesRead += bytes.length;
@@ -91,13 +148,22 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       this.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
     }
     _read() {}
+    // Written, or ended, before the page answered: once it has.
     _write(chunk: Buffer, _encoding: string, callback: (error?: Error | null) => void) {
+      if (this.connecting) this.once('connect', () => this.send(chunk, callback));
+      else this.send(chunk, callback);
+    }
+    _final(callback: (error?: Error | null) => void) {
+      if (this.connecting) this.once('connect', () => this.finish(callback));
+      else this.finish(callback);
+    }
+    send(chunk: Buffer, callback: (error?: Error | null) => void) {
       this.bytesWritten += chunk.length;
       this.touch();
       post({ kind: 'net', op: 'data', id: this.id, bytes: new Uint8Array(chunk) });
       callback();
     }
-    _final(callback: (error?: Error | null) => void) {
+    finish(callback: (error?: Error | null) => void) {
       post({ kind: 'net', op: 'end', id: this.id });
       callback();
     }
@@ -110,7 +176,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       return this.destroyed ? 'closed' : 'open';
     }
     get pending() {
-      return false;
+      return this.connecting || !this.id;
     }
     get bufferSize() {
       return this.writableLength;
@@ -281,7 +347,9 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     } else {
       const socket = sockets.get(message.id);
       if (!socket) return;
-      if (message.op === 'data') socket.receive(message.bytes);
+      if (message.op === 'connected' || message.op === 'refused')
+        socket.connected(message.op === 'connected');
+      else if (message.op === 'data') socket.receive(message.bytes);
       else if (message.op === 'end') socket.push(null);
       else {
         sockets.delete(message.id);
@@ -289,14 +357,6 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         socket.destroy();
       }
     }
-  };
-
-  const unavailable = (name: string) => () => {
-    const error = new Error(`net.${name} is not available in the playground yet`) as Error & {
-      code: string;
-    };
-    error.code = 'ERR_NOT_AVAILABLE';
-    throw error;
   };
 
   const module = {
@@ -307,8 +367,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       options?: { allowHalfOpen?: boolean } | ((socket: Socket) => void),
       listener?: (socket: Socket) => void,
     ) => new Server(options, listener),
-    createConnection: unavailable('createConnection'),
-    connect: unavailable('connect'),
+    createConnection: (...args: unknown[]) => new Socket().connect(...args),
+    connect: (...args: unknown[]) => new Socket().connect(...args),
     isIP: (s: string) => (isIPv4(s) ? 4 : isIPv6(s) ? 6 : 0),
     isIPv4,
     isIPv6,

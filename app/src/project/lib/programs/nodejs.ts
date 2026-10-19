@@ -6,9 +6,11 @@
 // A port the process listens on is the page's to route (`ports`), as a
 // node's is: the preview and the project's nodes connect to it here, and
 // the connection's bytes go to the process as messages (nodejs/net.ts).
+// A connection the process makes goes where a node's would: to the page's
+// services (Postgres), another process's port, or a node's.
 // What changes in the files goes to it too, for fs.watch.
 import type { Files } from '@/runtime/host/files';
-import type { CloseReason, Link } from '@/runtime/host/node';
+import type { CloseReason, Link, Served } from '@/runtime/host/node';
 import { worker } from '@/runtime/host/worker';
 import type { Context, Process } from './tailwind';
 import { watchers, type Watcher } from './watch';
@@ -19,14 +21,17 @@ export interface Listener {
 }
 
 // The project's ports (playground.ts): listen takes `port`, or (0) a free
-// one, and answers it, or null when it is taken.
+// one, and answers it, or null when it is taken; route answers what takes
+// a connection to `port`, or null when nothing listens there.
 export interface Ports {
   listen(port: number, listener: Listener): number | null;
   unlisten(port: number, listener: Listener): void;
+  route(port: number): ((connection: Served) => void) | null;
 }
 
-// The page's end of a connection to a process's listener.
-class ScriptConnection implements Link {
+// The page's end of a connection with a process: to its listener, or one
+// it made (`node`: the process, for the page's services).
+class ScriptConnection implements Served {
   ondata: (bytes: Uint8Array) => void = () => {};
   onend: () => void = () => {};
   onclose: (why?: CloseReason) => void = () => {};
@@ -36,6 +41,7 @@ class ScriptConnection implements Link {
     private thread: Worker,
     public id: number,
     private forget: (id: number) => void,
+    public node: object,
   ) {}
   write(bytes: Uint8Array): void {
     if (!this.closed) this.thread.postMessage({ kind: 'net', op: 'data', id: this.id, bytes });
@@ -61,6 +67,7 @@ class ScriptConnection implements Link {
 type NetMessage =
   | { kind: 'net'; op: 'listen'; ref: number; port: number }
   | { kind: 'net'; op: 'unlisten'; port: number }
+  | { kind: 'net'; op: 'connect'; id: number; port: number }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'end' | 'close'; id: number };
 
@@ -79,7 +86,7 @@ export const nodeProgram =
     let next = 1;
     const listener: Listener = {
       connect(port) {
-        const connection = new ScriptConnection(thread, (next += 2), forget);
+        const connection = new ScriptConnection(thread, (next += 2), forget, listener);
         connections.set(connection.id, connection);
         thread.postMessage({ kind: 'net', op: 'open', id: connection.id, port });
         return connection;
@@ -94,6 +101,13 @@ export const nodeProgram =
       } else if (message.op === 'unlisten') {
         listening.delete(message.port);
         ports?.unlisten(message.port, listener);
+      } else if (message.op === 'connect') {
+        const take = ports?.route(message.port) ?? null;
+        thread.postMessage({ kind: 'net', op: take ? 'connected' : 'refused', id: message.id });
+        if (!take) return;
+        const connection = new ScriptConnection(thread, message.id, forget, listener);
+        connections.set(message.id, connection);
+        take(connection);
       } else {
         const connection = connections.get(message.id);
         if (!connection) return;
