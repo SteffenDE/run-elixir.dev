@@ -396,7 +396,9 @@ function listen(rpc: Rpc): void {
       if (session) session.node.serving = new Set(served);
     }
     for (const each of ports) void previewRelay(previewKey, each, serveRelay).catch(() => {});
-    if (port !== useStore.getState().previewPort) useStore.getState().setPreviewPort(port);
+    const store = useStore.getState();
+    if (ports.join() !== store.serving.join()) store.setServing(ports);
+    if (port !== store.previewPort) store.setPreviewPort(port);
   });
   on('changed', (paths) => void changed(paths));
   on('warning', (message) => useStore.getState().setStatus(message));

@@ -5,6 +5,7 @@ import { moveAllFormerStores } from '@/shared/lib/migrate';
 import { listProjects, type Project } from '@/shared/lib/projects';
 import { projectUrl } from '@/shared/lib/site';
 import { deleteProject, openProjects } from '@/shared/lib/storage';
+import { TailscaleButton } from '@/tailscale/components/TailscaleButton';
 
 function ago(time: number): string {
   const minutes = Math.round((Date.now() - time) / 60000);
@@ -101,6 +102,9 @@ export function HomePage() {
 
   return (
     <div className="home">
+      <div className="home-corner">
+        <TailscaleButton />
+      </div>
       <main className="home-main">
         <h1 className="home-title">
           Elixir <span>Playground</span>

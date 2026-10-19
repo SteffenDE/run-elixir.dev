@@ -19,6 +19,9 @@ import { Preview } from '@/project/components/Preview';
 import { QuickOpen } from '@/project/components/QuickOpen';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { ConsentDialog } from '@/tailscale/components/ConsentDialog';
+import { TailscaleDialog } from '@/tailscale/components/TailscaleDialog';
+import { TailscaleMenu } from '@/tailscale/components/TailscaleMenu';
 import { NifBuildDialog } from '@/project/components/NifBuildDialog';
 import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
@@ -192,10 +195,13 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
             </span>
           </button>
         )}
+        {!guest && <TailscaleMenu />}
       </header>
       <TemplateNotice project={project} />
       <StartError />
       <NifBuildDialog />
+      <TailscaleDialog />
+      <ConsentDialog name={project?.name ?? 'this temporary IEx'} />
       <QuickOpen />
       {narrow ? (
         <NarrowWorkspace

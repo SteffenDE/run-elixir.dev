@@ -80,6 +80,7 @@ so a pinch could not zoom the preview alone.
 | `project/components/Terminals.tsx`, `TerminalPanel.tsx`, `lib/terminal-handle.ts`, `lib/terminal-links.ts` | Terminal tabs, each a node of its own over the same files, and their xterm terminals and links. |
 | `project/components/Preview.tsx`, `PreviewFrame.tsx`, `project/preview.tsx` | The preview, docked or popped out. |
 | `project/lib/workspace.ts` | What the components do to a project (read, save, the tree's operations, terminals), wherever it runs: this page's nodes, or a live session's host. |
+| `src/tailscale/` | Tailscale ([tailscale.md](tailscale.md)): the top bar's button (on the projects' list, a link) and menu (`TailscaleMenu`, on a project's page: the device's state, whether the project may use the tailnet, its servers' ports to share there), the setup hint a project shows once (`TailscaleDialog`), the question a project asks first (`ConsentDialog`), the apex's `/tailscale` page, and the client of the apex's shared worker. |
 | `project/components/ShareButton.tsx`, `src/live/` | *Share*: a link, or a live session ([collaboration.md](collaboration.md)): the host's panel, a guest's page and top bar, the relay, encryption, shared files and the editor's binding to them. |
 ## Editing and saving
 

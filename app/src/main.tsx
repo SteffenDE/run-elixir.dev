@@ -6,6 +6,7 @@ import { GuestPage } from '@/live/components/GuestPage';
 import { NotFound } from '@/home/components/NotFound';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
+import { TailscalePage } from '@/tailscale/components/TailscalePage';
 import { endSession } from '@/live/lib/host';
 import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
@@ -24,6 +25,7 @@ import '@/styles.css';
 //   /phoenix    a new Phoenix project; /empty, a new empty one
 //   /iex        a temporary IEx, kept nowhere
 //   /import#…   a shared project's link
+//   /tailscale  this browser's Tailscale node (docs/tailscale.md)
 //   /live/ID#…  a live session's link, to join it
 //
 // All of them on the apex (site.ts). A project's former origin (p-ID) and
@@ -43,6 +45,7 @@ async function page(path: string): Promise<ReactNode> {
   const name = path.split('/').filter(Boolean)[0] ?? '';
   if (!name) return <HomePage />;
   if (name === 'import') return <ImportPage />;
+  if (name === 'tailscale') return <TailscalePage />;
   if (name === 'live') {
     const session = path.split('/').filter(Boolean)[1] ?? '';
     if (!/^[\w-]{22}$/.test(session)) return <NotFound />;
