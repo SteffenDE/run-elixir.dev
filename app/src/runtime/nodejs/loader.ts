@@ -6,6 +6,7 @@
 // import() answers a namespace as Node's does: an ES module's exports, a
 // CommonJS module's as its default and its names.
 import { transform } from 'sucrase';
+import { rewriteCode } from './source';
 import type { createPath } from './path';
 
 type Path = ReturnType<typeof createPath>;
@@ -36,6 +37,8 @@ export class Module {
   parent: Module | null;
   // An ES module with top-level await: its evaluation.
   evaluation: Promise<void> | null = null;
+  // An ES module (turned into CommonJS by sucrase).
+  esm = false;
   declare require: NodeRequire;
   constructor(filename: string, parent: Module | null) {
     this.id = filename;
@@ -313,11 +316,24 @@ export function createLoader(options: {
         disableESTransforms: true,
         production: true,
         keepUnusedImports: !TYPESCRIPT.has(ext),
+        // import() is the loader's (held, and awaiting a module's top-level await).
+        preserveDynamicImport: true,
       }).code;
     }
-    if (esm) code = code.replace(/\bimport\.meta\b/g, '__importMeta');
-    // A CommonJS module's import(): the loader's.
-    code = code.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2');
+    // An ES module may declare require (createRequire's) or module as
+    // its own: the imports sucrase made are the loader's require, under a
+    // name of its own, which resolves as createRequire(import.meta.url).
+    // A module's import() is the loader's. Only code changes, not what its
+    // strings and comments say (source.ts).
+    code = rewriteCode(code, (text) => {
+      let out = text.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2');
+      if (esm)
+        out = out
+          .replace(/\bimport\s*\.\s*meta\b/g, '__importMeta')
+          .replace(/(^|[^\w$.])require(\s*\()/g, '$1__nodeRequire$2');
+      return out;
+    });
+    module.esm = esm;
     const meta = {
       url: `file://${file}`,
       filename: file,
@@ -327,32 +343,44 @@ export function createLoader(options: {
         return found.startsWith('node:') ? found : `file://${found}`;
       },
     };
-    // An ES module has no __filename or __dirname (it may declare its
-    // own); CommonJS has them as Node's wrapper passes them.
+    // An ES module has no __filename, __dirname, require or module (it may
+    // declare its own); CommonJS has them as Node's wrapper passes them.
     const names = esm
-      ? 'exports, require, module, __importMeta, __dynamicImport'
+      ? 'exports, __nodeRequire, __nodeModule, __importMeta, __dynamicImport'
       : 'exports, require, module, __filename, __dirname, __importMeta, __dynamicImport';
     const run = (prefix: string) =>
       // oxlint-disable-next-line no-eval -- modules are code to run.
       (0, eval)(`(${prefix}function (${names}) {${code}\n})\n//# sourceURL=file://${file}`);
     let fn: (...args: unknown[]) => unknown;
     let async = false;
+    // A syntax error names its file, as Node's does.
+    const named = (error: unknown) => {
+      if (error instanceof SyntaxError) error.message = `${file}: ${error.message}`;
+      return error;
+    };
     try {
       fn = run('');
     } catch (error) {
       // Top-level await: the module's body, asynchronously. (Engines word
       // the error differently; an ES module that awaits gets the retry.)
-      if (!(error instanceof SyntaxError) || !esm || !/\bawait\b/.test(code)) throw error;
+      if (!(error instanceof SyntaxError) || !esm || !/\bawait\b/.test(code)) throw named(error);
       try {
         fn = run('async ');
       } catch {
-        throw error;
+        throw named(error);
       }
       async = true;
     }
     const load = (specifier: string) => dynamicImport(specifier, module);
     const result = esm
-      ? fn.call(undefined, module.exports, module.require, module, meta, load)
+      ? fn.call(
+          undefined,
+          module.exports,
+          makeRequire(module, module.path, true),
+          module,
+          meta,
+          load,
+        )
       : fn.call(
           module.exports,
           module.exports,
@@ -370,12 +398,22 @@ export function createLoader(options: {
     }
   };
 
-  const load = (file: string, parent: Module | null): unknown => {
+  // What require answers for a module: an ES module's namespace, but for
+  // CommonJS its "module.exports" export if it has one (Node's
+  // require(esm)); `namespace`: for an ES module's own imports.
+  const value = (module: Module, namespace: boolean) =>
+    !namespace &&
+    module.esm &&
+    Object.prototype.hasOwnProperty.call(module.exports, 'module.exports')
+      ? (module.exports as Record<string, unknown>)['module.exports']
+      : module.exports;
+
+  const load = (file: string, parent: Module | null, namespace = false): unknown => {
     if (file.startsWith('node:')) return builtin(file.slice(5));
     const cached = cache[file];
     if (cached) {
       if (parent && !parent.children.includes(cached)) parent.children.push(cached);
-      return cached.exports;
+      return value(cached, namespace);
     }
     const module = new Module(file, parent);
     module.paths = nodeModulesPaths(module.path);
@@ -402,14 +440,18 @@ export function createLoader(options: {
       delete cache[file];
       throw error;
     }
-    return module.exports;
+    return value(module, namespace);
   };
 
-  const makeRequire = (module: Module | null, dir = module?.path ?? '/'): NodeRequire => {
+  const makeRequire = (
+    module: Module | null,
+    dir = module?.path ?? '/',
+    namespace = false,
+  ): NodeRequire => {
     const require = ((request: string) => {
       if (typeof request !== 'string')
         throw new TypeError('The "id" argument must be of type string');
-      return load(resolve(request, dir, module), module);
+      return load(resolve(request, dir, module), module, namespace);
     }) as NodeRequire;
     const resolveFn = ((request: string, opts?: { paths?: string[] }) => {
       const found = opts?.paths
@@ -500,7 +542,7 @@ export function createLoader(options: {
         '__filename',
         '__dirname',
         '__dynamicImport',
-        `return eval(${JSON.stringify(code.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2'))});`,
+        `return eval(${JSON.stringify(rewriteCode(code, (text) => text.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2')))});`,
       );
       return fn(module.exports, module.require, module, '[eval]', cwd, (s: string) =>
         dynamicImport(s, module),
