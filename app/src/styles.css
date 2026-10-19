@@ -64,6 +64,32 @@ body {
   overscroll-behavior: none;
 }
 
+/* iOS 27 blurs the top of a home-screen web app, over the top bar, unless a
+   fixed box with a background spans the top edge: WebKit
+   (LocalFrameView::fixedContainerEdges) hit-tests the edge's middle 4 px
+   down, takes a fixed box there at least 90% as wide as the viewport, and
+   samples the colour 4 to 6 px down for the status bar. So this strip, 6 px
+   of the colour it covers (the page, or the top bar); taller, it would
+   cover the top bar's buttons. */
+.top-edge {
+  display: none;
+}
+
+@media (display-mode: standalone) {
+  .top-edge {
+    display: block;
+    position: fixed;
+    inset: 0 0 auto;
+    height: 6px;
+    background: var(--bg);
+    pointer-events: none;
+  }
+
+  body:has(.top-bar) .top-edge {
+    background: var(--panel);
+  }
+}
+
 body {
   background: var(--bg);
   color: var(--fg);

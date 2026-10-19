@@ -47,6 +47,11 @@ again.
 The page does not rubber-band (`overscroll-behavior: none`): on iOS it
 bounced under a swipe meant for the terminal.
 
+In a standalone window, a fixed strip 6 px high along the top edge, the
+colour of what it covers, keeps iOS 27 from blurring the top bar: WebKit
+leaves the top unblurred, and gives the status bar that colour, when a
+fixed box with a background spans the edge (`styles.css`).
+
 ## Layout
 
 | Source | Role |

@@ -71,6 +71,64 @@ test('the page installs on a home screen', async ({ page, request }) => {
   ).toBe('none');
 });
 
+test('a home-screen app has a strip of the top bar’s colour along the top edge', async ({
+  page,
+}) => {
+  // Playwright does not emulate display-mode: the standalone rules are made
+  // to apply in any display.
+  const standalone = () =>
+    page.evaluate(() => {
+      for (const sheet of document.styleSheets)
+        for (const rule of sheet.cssRules)
+          if (rule instanceof CSSMediaRule && rule.conditionText === '(display-mode: standalone)')
+            rule.media.mediaText = 'all';
+    });
+  // What WebKit looks for (styles.css): a fixed box 4 to 6 px down, as wide
+  // as the viewport, with a background.
+  const edge = () =>
+    page.evaluate(() => {
+      const strip = document.querySelector('.top-edge')!;
+      const box = strip.getBoundingClientRect();
+      return {
+        position: getComputedStyle(strip).position,
+        top: box.top,
+        wide: box.width === document.documentElement.clientWidth,
+        height: box.height,
+        colour: getComputedStyle(strip).backgroundColor,
+      };
+    });
+
+  await page.goto('/');
+  await expect(page.getByRole('link', { name: /Phoenix project/ })).toBeVisible();
+  await standalone();
+  expect(await edge()).toEqual({
+    position: 'fixed',
+    top: 0,
+    wide: true,
+    height: 6,
+    colour: await page.evaluate(() => getComputedStyle(document.body).backgroundColor),
+  });
+
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await standalone();
+  const bar = page.locator('.top-bar');
+  expect(await edge()).toMatchObject({
+    top: 0,
+    wide: true,
+    height: 6,
+    colour: await bar.evaluate((e) => getComputedStyle(e).backgroundColor),
+  });
+  // It covers the top bar's padding, not its buttons.
+  const tops = await bar.evaluate((e) =>
+    [...e.children]
+      .map((child) => child.getBoundingClientRect())
+      .filter((box) => box.width > 0)
+      .map((box) => box.top),
+  );
+  expect(Math.min(...tops)).toBeGreaterThanOrEqual(6);
+});
+
 test('a Phoenix project on a phone opens on its preview', async ({ page }) => {
   await newProject(page, 'phoenix');
   const bar = page.getByRole('navigation', { name: 'Panes' });
