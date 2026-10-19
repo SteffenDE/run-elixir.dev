@@ -167,14 +167,14 @@ to the page as `{ kind: 'warning', message }`.
 ## The shell (`worker/brush.ts`)
 
 The terminal's shell is [brush](https://github.com/reubeno/brush) 0.4, a
-bash-compatible shell in Rust, built for `wasm32-wasip1` (2.7 MB, 1.0 MB
-gzipped; `opt-level = "z"`, then `wasm-opt -Oz`). The worker loads it with
+bash-compatible shell in Rust, built for `wasm32-wasip1` by
+`brush/build.py` (3.1 MB, 1.0 MB gzipped, with `opt-level = "z"`). The worker loads it with
 the boot images and runs it on the terminal (`--rcfile /etc/brushrc -i`: the
 prompt, and the directory to start in, since WASI has none). Without
 `brush.wasm` in the site, the old shell in `worker/index.ts` answers.
 
 brush on WASI has no processes, pipes or `dup`. Our patch to brush-core
-(`sys/wasm/playground.rs`) gives it:
+(`brush/patches/`, its `sys/wasm/playground.rs`) gives it:
 
 - **External commands through the host:** one import,
   `playground.spawn(request, input, flags)`, runs a command to its end and

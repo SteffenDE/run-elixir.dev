@@ -1,0 +1,432 @@
+From 6142da2575f3776daf4f07bac87b49e2f80aad44 Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 11:23:48 +0000
+Subject: [PATCH] brush-core: the Elixir playground's host on WASI: external
+ commands, pipes and files
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ brush-core/src/commands.rs            |  37 +++++
+ brush-core/src/interp.rs              |  29 ++--
+ brush-core/src/openfiles.rs           |  15 ++
+ brush-core/src/sys/wasm/mod.rs        |   2 +
+ brush-core/src/sys/wasm/playground.rs | 206 ++++++++++++++++++++++++++
+ 5 files changed, 278 insertions(+), 11 deletions(-)
+ create mode 100644 brush-core/src/sys/wasm/playground.rs
+
+diff --git a/brush-core/src/commands.rs b/brush-core/src/commands.rs
+index 077c4ac..c01d277 100644
+--- a/brush-core/src/commands.rs
++++ b/brush-core/src/commands.rs
+@@ -429,6 +429,21 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
+         builtin: builtins::Registration<SE>,
+     ) -> Result<ExecutionSpawnResult, error::Error> {
+         match self.shell {
++            // WASI has no threads: in its subshell, to its end.
++            #[cfg(target_os = "wasi")]
++            ShellForCommand::OwnedShell { target, .. } => {
++                let mut shell = *target;
++                let last_arg = Self::take_last_arg(&self.args);
++                let cmd_context = ExecutionContext {
++                    shell: &mut shell,
++                    command_name: self.command_name,
++                    params: self.params,
++                };
++                let result = execute_builtin_command(&builtin, cmd_context, self.args).await?;
++                shell.update_last_arg_variable(last_arg);
++                Ok(ExecutionSpawnResult::Completed(result))
++            }
++            #[cfg(not(target_os = "wasi"))]
+             ShellForCommand::OwnedShell { target, .. } => {
+                 Ok(Self::execute_via_builtin_in_owned_shell(
+                     *target,
+@@ -444,6 +459,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
+         }
+     }
+ 
++    #[cfg_attr(target_os = "wasi", allow(dead_code))]
+     fn execute_via_builtin_in_owned_shell(
+         mut shell: Shell<SE>,
+         params: ExecutionParameters,
+@@ -557,6 +573,7 @@ impl<'a, SE: extensions::ShellExtensions> SimpleCommand<'a, SE> {
+     }
+ }
+ 
++#[cfg_attr(target_os = "wasi", allow(unreachable_code, unused_variables, unused_mut))]
+ pub(crate) fn execute_external_command(
+     context: ExecutionContext<'_, impl extensions::ShellExtensions>,
+     executable_path: &str,
+@@ -576,6 +593,13 @@ pub(crate) fn execute_external_command(
+         })
+         .collect::<Vec<_>>();
+ 
++    // WASI: the host runs it (sys/wasm/playground.rs).
++    #[cfg(target_os = "wasi")]
++    {
++        let _ = (process_group_id, argv0_override);
++        return sys::platform::playground::run_external(&context, executable_path, args);
++    }
++
+     // Before we lose ownership of the open files, figure out if stdin will be a terminal.
+     let child_stdin_is_terminal = context
+         .try_fd(openfiles::OpenFiles::STDIN_FD)
+@@ -750,6 +774,7 @@ pub(crate) async fn invoke_shell_function(
+     Ok(result.into())
+ }
+ 
++#[cfg_attr(target_os = "wasi", allow(unreachable_code, unused_variables, unused_mut))]
+ pub(crate) async fn invoke_command_in_subshell_and_get_output(
+     shell: &mut Shell<impl extensions::ShellExtensions>,
+     params: &ExecutionParameters,
+@@ -768,6 +793,18 @@ pub(crate) async fn invoke_command_in_subshell_and_get_output(
+     let mut params = params.clone();
+     params.process_group_policy = ProcessGroupPolicy::SameProcessGroup;
+ 
++    // WASI: the command to its end, then what it wrote.
++    #[cfg(target_os = "wasi")]
++    {
++        let (mut reader, writer) = openfiles::pipe()?;
++        params.set_fd(OpenFiles::STDOUT_FD, writer);
++        let cmd_result = run_substitution_command(subshell, params, s).await?;
++        let mut output_str = String::new();
++        std::io::Read::read_to_string(&mut reader, &mut output_str)?;
++        shell.set_last_exit_status(cmd_result.exit_code.into());
++        return Ok(output_str);
++    }
++
+     // Set up pipe so we can read the output.
+     let (reader, writer) = std::io::pipe()?;
+     params.set_fd(OpenFiles::STDOUT_FD, writer.into());
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index 212e305..5330bdb 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -457,9 +457,9 @@ async fn spawn_pipeline_processes(
+     // command.
+     if pipeline_len > 1 {
+         for _ in 0..(pipeline_len - 1) {
+-            let (reader, writer) = std::io::pipe()?;
+-            pipe_readers.push(Some(reader.into()));
+-            pipe_writers.push(Some(writer.into()));
++            let (reader, writer) = openfiles::pipe()?;
++            pipe_readers.push(Some(reader));
++            pipe_writers.push(Some(writer));
+         }
+         // Push `None` to the readers; it will be popped off by the *first* command, which will
+         // mean that command gets its stdin from the execution parameters' current stdin.
+@@ -738,13 +738,13 @@ impl Execute for ast::CoprocessCommand {
+         }
+ 
+         // Set up the pipes that we'll use to communicate with the coprocess.
+-        let (stdin_reader, stdin_writer) = std::io::pipe()?;
+-        let (stdout_reader, stdout_writer) = std::io::pipe()?;
++        let (stdin_reader, stdin_writer) = openfiles::pipe()?;
++        let (stdout_reader, stdout_writer) = openfiles::pipe()?;
+ 
+         // Allocate new fds in the (parent) shell for the read end of the coprocess's stdout
+         // and the write end of the coprocess's stdin.
+-        let stdout_fd = shell.open_files_mut().add(stdout_reader.into())?;
+-        let stdin_fd = shell.open_files_mut().add(stdin_writer.into())?;
++        let stdout_fd = shell.open_files_mut().add(stdout_reader)?;
++        let stdin_fd = shell.open_files_mut().add(stdin_writer)?;
+ 
+         // Crete a subshell that the coprocess will own and run in.
+         let mut child_shell = shell.clone();
+@@ -754,10 +754,10 @@ impl Execute for ast::CoprocessCommand {
+         let mut child_params = params.clone();
+         child_params
+             .open_files
+-            .set_fd(OpenFiles::STDIN_FD, stdin_reader.into());
++            .set_fd(OpenFiles::STDIN_FD, stdin_reader);
+         child_params
+             .open_files
+-            .set_fd(OpenFiles::STDOUT_FD, stdout_writer.into());
++            .set_fd(OpenFiles::STDOUT_FD, stdout_writer);
+ 
+         let body = self.body.clone();
+         let join_handle = tokio::spawn(async move {
+@@ -1925,8 +1925,7 @@ fn setup_process_substitution(
+     child_params.process_group_policy = ProcessGroupPolicy::SameProcessGroup;
+ 
+     // Set up pipe so we can connect to the command.
+-    let (reader, writer) = std::io::pipe()?;
+-    let (reader, writer) = (reader.into(), writer.into());
++    let (reader, writer) = openfiles::pipe()?;
+ 
+     let target_file = match kind {
+         ast::ProcessSubstitutionKind::Read => {
+@@ -1963,7 +1962,15 @@ fn setup_process_substitution(
+     Ok((candidate_fd_num, target_file))
+ }
+ 
++#[cfg_attr(target_os = "wasi", allow(unreachable_code, unused_variables, unused_mut))]
+ fn setup_open_file_with_contents(contents: &str) -> Result<OpenFile, error::Error> {
++    #[cfg(target_os = "wasi")]
++    {
++        let (reader, mut writer) = openfiles::pipe()?;
++        writer.write_all(contents.as_bytes())?;
++        return Ok(reader);
++    }
++
+     let (reader, mut writer) = std::io::pipe()?;
+ 
+     let bytes = contents.as_bytes();
+diff --git a/brush-core/src/openfiles.rs b/brush-core/src/openfiles.rs
+index c34e794..a0adc08 100644
+--- a/brush-core/src/openfiles.rs
++++ b/brush-core/src/openfiles.rs
+@@ -212,10 +212,25 @@ impl From<std::io::Stderr> for OpenFile {
+ 
+ impl From<std::fs::File> for OpenFile {
+     fn from(file: std::fs::File) -> Self {
++        // WASI cannot duplicate a file: its clones share it.
++        #[cfg(target_os = "wasi")]
++        return crate::sys::platform::playground::file(file);
++        #[cfg(not(target_os = "wasi"))]
+         Self::File(file)
+     }
+ }
+ 
++/// A pipe: its read end and its write end.
++pub(crate) fn pipe() -> std::io::Result<(OpenFile, OpenFile)> {
++    #[cfg(target_os = "wasi")]
++    return Ok(crate::sys::platform::playground::pipe());
++    #[cfg(not(target_os = "wasi"))]
++    {
++        let (reader, writer) = std::io::pipe()?;
++        Ok((reader.into(), writer.into()))
++    }
++}
++
+ impl From<std::io::PipeReader> for OpenFile {
+     fn from(reader: std::io::PipeReader) -> Self {
+         Self::PipeReader(reader)
+diff --git a/brush-core/src/sys/wasm/mod.rs b/brush-core/src/sys/wasm/mod.rs
+index 9e863ec..1eb16cb 100644
+--- a/brush-core/src/sys/wasm/mod.rs
++++ b/brush-core/src/sys/wasm/mod.rs
+@@ -3,6 +3,8 @@ pub use crate::sys::stubs::commands;
+ pub(crate) use crate::sys::stubs::env;
+ pub use crate::sys::stubs::fd;
+ pub(crate) mod fs;
++#[cfg(target_os = "wasi")]
++pub(crate) mod playground;
+ pub use crate::sys::stubs::input;
+ pub(crate) use crate::sys::stubs::network;
+ pub(crate) use crate::sys::stubs::pipes;
+diff --git a/brush-core/src/sys/wasm/playground.rs b/brush-core/src/sys/wasm/playground.rs
+new file mode 100644
+index 0000000..aab657b
+--- /dev/null
++++ b/brush-core/src/sys/wasm/playground.rs
+@@ -0,0 +1,206 @@
++//! The Elixir playground's host (run-elixir.dev) on WASI: its programs as
++//! the shell's external commands, and pipes and files that clone.
++//!
++//! WASI has no processes, pipes or `dup`. A command runs to its end when the
++//! shell starts it, so a pipeline's commands run one after another, each
++//! with what the one before wrote: pipes hold what is written until it is
++//! read, and a read of an empty one is its end.
++
++use std::collections::VecDeque;
++use std::io::{Read, Write};
++use std::sync::{Arc, Mutex};
++
++use crate::commands::{CommandArg, ExecutionContext};
++use crate::openfiles::{OpenFile, OpenFiles, Stream};
++use crate::results::{ExecutionResult, ExecutionSpawnResult};
++use crate::{error, extensions};
++
++#[link(wasm_import_module = "playground")]
++unsafe extern "C" {
++    /// Runs a program to its end; the host may suspend the shell meanwhile.
++    /// `request`: NUL-separated program, cwd, argc, args, envc, env.
++    /// `input`: its standard input, unless `flags` has 1 (it has the
++    /// shell's); 2 and 4: its output and errors are the shell's.
++    /// Its exit status, or -1 when there is no such program.
++    fn spawn(
++        request: *const u8,
++        request_len: usize,
++        input: *const u8,
++        input_len: usize,
++        flags: u32,
++    ) -> i32;
++    /// What the last program wrote to `stream` (1 or 2) that was not the
++    /// shell's, up to `max` bytes at a time; 0 at its end.
++    fn output(stream: u32, buf: *mut u8, max: usize) -> usize;
++}
++
++/// One end of a pipe; both ends share the bytes.
++#[derive(Clone, Default)]
++struct Pipe(Arc<Mutex<VecDeque<u8>>>);
++
++impl Read for Pipe {
++    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
++        let mut data = self.0.lock().unwrap_or_else(|e| e.into_inner());
++        let n = buf.len().min(data.len());
++        for (slot, byte) in buf.iter_mut().zip(data.drain(..n)) {
++            *slot = byte;
++        }
++        Ok(n)
++    }
++}
++
++impl Write for Pipe {
++    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
++        self.0
++            .lock()
++            .unwrap_or_else(|e| e.into_inner())
++            .extend(buf);
++        Ok(buf.len())
++    }
++
++    fn flush(&mut self) -> std::io::Result<()> {
++        Ok(())
++    }
++}
++
++impl Stream for Pipe {
++    fn clone_box(&self) -> Box<dyn Stream> {
++        Box::new(self.clone())
++    }
++}
++
++/// A pipe: its read end and its write end.
++pub(crate) fn pipe() -> (OpenFile, OpenFile) {
++    let pipe = Pipe::default();
++    (
++        OpenFile::Stream(Box::new(pipe.clone())),
++        OpenFile::Stream(Box::new(pipe)),
++    )
++}
++
++/// A file every clone of which is the same open file (WASI has no `dup`).
++#[derive(Clone)]
++struct SharedFile(Arc<Mutex<std::fs::File>>);
++
++impl Read for SharedFile {
++    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
++        self.0.lock().unwrap_or_else(|e| e.into_inner()).read(buf)
++    }
++}
++
++impl Write for SharedFile {
++    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
++        self.0.lock().unwrap_or_else(|e| e.into_inner()).write(buf)
++    }
++
++    fn flush(&mut self) -> std::io::Result<()> {
++        self.0.lock().unwrap_or_else(|e| e.into_inner()).flush()
++    }
++}
++
++impl Stream for SharedFile {
++    fn clone_box(&self) -> Box<dyn Stream> {
++        Box::new(self.clone())
++    }
++}
++
++/// An open file that clones.
++pub(crate) fn file(file: std::fs::File) -> OpenFile {
++    OpenFile::Stream(Box::new(SharedFile(Arc::new(Mutex::new(file)))))
++}
++
++/// Runs an external command through the host, to its end.
++pub(crate) fn run_external(
++    context: &ExecutionContext<'_, impl extensions::ShellExtensions>,
++    executable_path: &str,
++    args: &[CommandArg],
++) -> Result<ExecutionSpawnResult, error::Error> {
++    let args = args
++        .iter()
++        .filter_map(|arg| match arg {
++            CommandArg::String(s) => Some(s.as_str()),
++            CommandArg::Assignment(_) => None,
++        })
++        .collect::<Vec<_>>();
++    let mut env = context
++        .shell
++        .env()
++        .iter_exported()
++        .filter(|(_, v)| v.value().is_set())
++        .map(|(k, v)| format!("{k}={}", v.value().to_cow_str(context.shell)))
++        .collect::<Vec<_>>();
++    env.push(format!("_={executable_path}"));
++
++    let mut request = Vec::new();
++    let mut field = |text: &str| {
++        request.extend_from_slice(text.as_bytes());
++        request.push(0);
++    };
++    field(executable_path);
++    field(&context.shell.working_dir().to_string_lossy());
++    field(&args.len().to_string());
++    for arg in &args {
++        field(arg);
++    }
++    field(&env.len().to_string());
++    for var in &env {
++        field(var);
++    }
++
++    let mut flags = 0;
++    let mut input = Vec::new();
++    match context.try_fd(OpenFiles::STDIN_FD) {
++        Some(OpenFile::Stdin(_)) | None => flags |= 1,
++        Some(mut file) => {
++            file.read_to_end(&mut input)?;
++        }
++    }
++    let stdout = match context.try_fd(OpenFiles::STDOUT_FD) {
++        Some(OpenFile::Stdout(_)) | None => {
++            flags |= 2;
++            None
++        }
++        Some(file) => Some(file),
++    };
++    let stderr = match context.try_fd(OpenFiles::STDERR_FD) {
++        Some(OpenFile::Stderr(_)) | None => {
++            flags |= 4;
++            None
++        }
++        Some(file) => Some(file),
++    };
++
++    // SAFETY: the pointers and lengths are of live buffers the host only
++    // reads during the call.
++    let status = unsafe {
++        spawn(
++            request.as_ptr(),
++            request.len(),
++            input.as_ptr(),
++            input.len(),
++            flags,
++        )
++    };
++    if status < 0 {
++        return Err(error::ErrorKind::CommandNotFound(context.command_name.clone()).into());
++    }
++
++    for (stream, file) in [(1, stdout), (2, stderr)] {
++        let Some(mut file) = file else { continue };
++        let mut buf = vec![0u8; 64 * 1024];
++        loop {
++            // SAFETY: the host writes at most `buf.len()` bytes into `buf`.
++            let n = unsafe { output(stream, buf.as_mut_ptr(), buf.len()) };
++            if n == 0 {
++                break;
++            }
++            file.write_all(&buf[..n])?;
++        }
++        file.flush()?;
++    }
++
++    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
++    Ok(ExecutionSpawnResult::Completed(ExecutionResult::new(
++        (status & 0xff) as u8,
++    )))
++}
+-- 
+2.53.0
+

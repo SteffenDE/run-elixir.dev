@@ -1,0 +1,3 @@
+[submodule "brush/upstream"]
+	path = brush/upstream
+	url = https://github.com/reubeno/brush

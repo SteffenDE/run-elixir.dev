@@ -12,4 +12,5 @@ if command -v mise >/dev/null 2>&1; then
 fi
 python3 -I nif/build.py
 python3 -I coreutils/build.py
+python3 -I brush/build.py
 python3 -I runtime/build.py
