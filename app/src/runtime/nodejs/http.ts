@@ -3,6 +3,9 @@
 // is kept), 'upgrade' for a WebSocket, and responses with Node's header
 // calls, sent with their length or in chunks. A client: request and get,
 // each on a connection of its own, and 'upgrade' (a proxied WebSocket).
+// https's client is the same over a connection the page carries to the
+// host by its fetch (https.ts, as a node's HTTPS goes): the browser does
+// TLS, and reads only what the site's CORS lets it. No HTTPS server.
 import { Buffer } from './buffer';
 import type { Net } from './net';
 import * as streams from 'readable-stream';
@@ -446,10 +449,12 @@ export function createHttp(net: Net) {
 
     constructor(options: RequestOptions, callback?: (res: IncomingMessage) => void) {
       const host = options.hostname ?? options.host?.replace(/:\d+$/, '') ?? 'localhost';
-      const port = Number(options.port ?? 80);
+      const https = options.protocol === 'https:';
+      const standard = https ? 443 : 80;
+      const port = Number(options.port ?? standard);
       const socket = options.createConnection
         ? options.createConnection({ host, port })
-        : (new net.Socket().connect({ port, host }) as Socket);
+        : (new net.Socket().connect({ port, host, https }) as Socket);
       super(socket, false);
       this.method = (options.method ?? 'GET').toUpperCase();
       this.path = options.path ?? '/';
@@ -465,7 +470,7 @@ export function createHttp(net: Net) {
       else if (headers)
         for (const [name, value] of Object.entries(headers)) this.setHeader(name, value);
       if (options.setHost !== false && !this.fields.has('host'))
-        this.setHeader('Host', port === 80 ? host : `${host}:${port}`);
+        this.setHeader('Host', port === standard ? host : `${host}:${port}`);
       if (options.auth && !this.fields.has('authorization'))
         this.setHeader('Authorization', `Basic ${Buffer.from(options.auth).toString('base64')}`);
       if (callback) this.once('response', callback);
@@ -571,7 +576,8 @@ export function createHttp(net: Net) {
     });
 
   // request(url, [options], [callback]) or request(options, [callback]).
-  const makeRequest = (...args: unknown[]) => {
+  // protocol: http's or https's.
+  const makeRequest = (protocol: 'http:' | 'https:', ...args: unknown[]) => {
     const callback =
       typeof args.at(-1) === 'function'
         ? (args.pop() as (res: IncomingMessage) => void)
@@ -579,24 +585,24 @@ export function createHttp(net: Net) {
     let options: RequestOptions = {};
     if (typeof args[0] === 'string' || args[0] instanceof URL) {
       const url = new URL(String(args[0]));
-      if (url.protocol !== 'http:')
+      if (url.protocol !== protocol)
         throw Object.assign(
-          new TypeError(`Protocol "${url.protocol}" not supported. Expected "http:"`),
+          new TypeError(`Protocol "${url.protocol}" not supported. Expected "${protocol}"`),
           {
             code: 'ERR_INVALID_PROTOCOL',
           },
         );
       options = {
-        protocol: url.protocol,
+        protocol,
         hostname: url.hostname.replace(/^\[|\]$/g, ''),
-        port: url.port || 80,
+        port: url.port || (protocol === 'https:' ? 443 : 80),
         path: url.pathname + url.search,
         ...(url.username
           ? { auth: `${decodeURIComponent(url.username)}:${decodeURIComponent(url.password)}` }
           : {}),
         ...((args[1] as RequestOptions) ?? {}),
       };
-    } else options = (args[0] as RequestOptions) ?? {};
+    } else options = { ...((args[0] as RequestOptions) ?? {}), protocol };
     return new ClientRequest(options, callback);
   };
 
@@ -730,7 +736,16 @@ export function createHttp(net: Net) {
     destroy() {}
   }
 
-  return {
+  const client = (protocol: 'http:' | 'https:') => ({
+    request: (...args: unknown[]) => makeRequest(protocol, ...args),
+    get: (...args: unknown[]) => {
+      const req = makeRequest(protocol, ...args);
+      req.end();
+      return req;
+    },
+  });
+
+  const http = {
     Server,
     IncomingMessage,
     ServerResponse,
@@ -745,14 +760,22 @@ export function createHttp(net: Net) {
       options?: Record<string, unknown> | ((req: IncomingMessage, res: ServerResponse) => void),
       listener?: (req: IncomingMessage, res: ServerResponse) => void,
     ) => new Server(options, listener),
-    request: makeRequest,
-    get: (...args: unknown[]) => {
-      const req = makeRequest(...args);
-      req.end();
-      return req;
-    },
+    ...client('http:'),
     validateHeaderName() {},
     validateHeaderValue() {},
     setMaxIdleHTTPParsers() {},
   };
+  const unavailable = (name: string) => () => {
+    throw Object.assign(new Error(`https.${name} is not available in the playground yet`), {
+      code: 'ERR_NOT_AVAILABLE',
+    });
+  };
+  const https = {
+    Agent,
+    globalAgent: new Agent({ defaultPort: 443 }),
+    ...client('https:'),
+    createServer: unavailable('createServer'),
+    Server: unavailable('Server'),
+  };
+  return { http, https };
 }

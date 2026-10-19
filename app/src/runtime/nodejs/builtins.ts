@@ -98,6 +98,9 @@ export function createBuiltins(deps: {
   const util = createUtil(warn);
 
   const assert = createAssert();
+  // http and https, over the process's net (a thread has none).
+  let webModules: ReturnType<typeof createHttp> | null = null;
+  const web = () => (deps.net ? (webModules ??= createHttp(deps.net)) : null);
 
   const factories: Factories = {
     assert: () => assert,
@@ -272,16 +275,16 @@ export function createBuiltins(deps: {
     fs: () => deps.fs,
     'fs/promises': () => deps.fsPromises,
     http: () =>
-      deps.net
-        ? createHttp(deps.net)
-        : missing('http', ['createServer', 'request', 'get'], {
-            STATUS_CODES,
-            METHODS,
-            Agent,
-            globalAgent: {},
-          }),
+      web()?.http ??
+      missing('http', ['createServer', 'request', 'get'], {
+        STATUS_CODES,
+        METHODS,
+        Agent,
+        globalAgent: {},
+      }),
     http2: () => missing('http2', ['createServer', 'connect']),
     https: () =>
+      web()?.https ??
       missing('https', ['createServer', 'request', 'get'], { Agent, globalAgent: new Agent() }),
     inspector: () => ({
       url: () => undefined,
