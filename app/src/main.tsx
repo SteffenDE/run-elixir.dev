@@ -115,6 +115,18 @@ async function projectPage(id: string, path: string): Promise<ReactNode> {
   );
 }
 
+// The installed app (Add to Home Screen) does not zoom, as an app would not.
+// In a tab, iOS zooms in on a field whose text is under 16 px when it takes
+// focus (the editor, a terminal, the address bar) and stays zoomed in; a
+// maximum scale stops that, and Safari's tabs still pinch-zoom (they ignore
+// the limit for pinching; the installed app does not). Android's tabs would
+// stop pinching, and do not zoom on focus: only iOS's (-webkit-touch-callout
+// is iOS's).
+const viewport = document.querySelector<HTMLMetaElement>('meta[name=viewport]')!;
+if (matchMedia('(display-mode: standalone)').matches)
+  viewport.content += ', maximum-scale=1, user-scalable=no';
+else if (CSS.supports('-webkit-touch-callout', 'none')) viewport.content += ', maximum-scale=1';
+
 const root = createRoot(document.getElementById('root')!);
 void page(location.pathname).then((content) => {
   if (content) root.render(<StrictMode>{content}</StrictMode>);

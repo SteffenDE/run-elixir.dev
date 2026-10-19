@@ -52,6 +52,14 @@ colour of what it covers, keeps iOS 27 from blurring the top bar: WebKit
 leaves the top unblurred, and gives the status bar that colour, when a
 fixed box with a background spans the edge (`styles.css`).
 
+The installed app does not zoom (`main.tsx`: the viewport's
+`maximum-scale=1, user-scalable=no`, which home-screen apps honour and
+Safari's tabs ignore for pinching). In an iOS tab the maximum scale is 1
+too: iOS zooms in on a focused field whose text is under 16 px (the
+editor, a terminal) and stays zoomed, and the tab still pinch-zooms;
+Android's tabs would not, and do not zoom on focus. Zoom is the page's,
+so a pinch could not zoom the preview alone.
+
 ## Layout
 
 | Source | Role |

@@ -129,6 +129,25 @@ test('a home-screen app has a strip of the top bar’s colour along the top edge
   expect(Math.min(...tops)).toBeGreaterThanOrEqual(6);
 });
 
+test('the installed app does not zoom; a tab does', async ({ page }) => {
+  const viewport = () =>
+    page.evaluate(() => document.querySelector<HTMLMetaElement>('meta[name=viewport]')!.content);
+  await page.goto('/');
+  // Not iOS: a tab keeps its viewport (Android's tabs would stop pinching).
+  expect(await viewport()).not.toContain('maximum-scale');
+
+  // Playwright does not emulate display-mode: the page is told it is installed.
+  await page.addInitScript(() => {
+    const matchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (query) =>
+      query === '(display-mode: standalone)'
+        ? ({ ...matchMedia('all'), matches: true, media: query } as MediaQueryList)
+        : matchMedia(query);
+  });
+  await page.reload();
+  expect(await viewport()).toContain('maximum-scale=1, user-scalable=no');
+});
+
 test('a Phoenix project on a phone opens on its preview', async ({ page }) => {
   await newProject(page, 'phoenix');
   const bar = page.getByRole('navigation', { name: 'Panes' });
