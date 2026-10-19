@@ -45,6 +45,11 @@ rebar3), and builds the template with the host's Mix in
   coreutils for WASI, in Docker, about a minute; cached until its image,
   version or patches change); the site takes
   `target/coreutils/coreutils.wasm` (also `build.py app`).
+- **Tailscale:** `python3 -I tailscale/build.py` first (the node's
+  Tailscale client for `js/wasm`, Go 1.27 in Docker, under a minute with
+  its module cache in `target/tailscale/gomod`; cached until its image,
+  tags or sources change); the site takes
+  `target/tailscale/tailscale.wasm` (also `build.py app`).
 
 ## What the site is
 
@@ -67,6 +72,7 @@ target/site/
     beam.wasm                  the emulator, 4.9 MB
     brush.wasm                 the terminal's shell (brush, patched), 3.4 MB (1.2 MB gzipped)
     coreutils.wasm             ls, cp, rm, … (coreutils/build.py), 7.8 MB (3.0 MB gzipped)
+    tailscale.wasm             the Tailscale node (tailscale/build.py), 29.3 MB (6.8 MB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
