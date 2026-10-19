@@ -39,6 +39,7 @@ JavaScript.
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT). |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on an HTTPS connection with a fetch of `https://NAME[:PORT]/path`. |
+| `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: no such name, for now). |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
@@ -106,7 +107,7 @@ then says); the socket answers `select` until then, and connect returns
 unreachable. UDP ports (`udpBind`, 0 for an ephemeral one; the page hears
 of each, `remote.bound`): a datagram to the node's own address goes to
 its port there, else to the page (`remote.datagram`), which takes it to
-one of its UDP ports (`remote.udpPorts`), to the project's
+one of its UDP ports (`remote.udpPorts`, 53 for DNS), to the project's
 other node with that port, or to another host; the page's come back as
 `DATAGRAM` frames. A datagram nobody takes is dropped, as UDP's are.
 
@@ -117,6 +118,11 @@ carries (`remote.https`): `ssl:connect` to a host name connects to a
 gateway port whose first line names the host, and the connection is then
 plain HTTP/1.1 to the page (patch 0020); without it the node's `ssl` does
 TLS itself.
+
+Names: the hosts file (`localhost`), then, when the page serves DNS
+(UDP port 53), `inet_res` at 127.0.0.53 (`/etc/resolv.conf`, which it
+reads again before each query; `setup.ts`), answered by the page
+(`dns.ts`).
 
 ### Programs (`process.ts`)
 
@@ -324,7 +330,7 @@ handler }` answers the node's connections to those ports (5432: PGlite).
 connections to other hosts: `connection.dialed(local)` once there (from
 `local`, address:port), or `refuse(errno)` (negative, as WASI numbers it).
 `udpServe: { port: (datagram, reply) => … }` answers datagrams to the
-page's UDP ports; `udpPeer(datagram, node)` takes those to
+page's UDP ports (53: `dns.ts`); `udpPeer(datagram, node)` takes those to
 another node's port of the project's (`node.udpPorts`); `udp: {
 send(datagram, reply), unbound(port) }` takes those to other hosts,
 `reply(address, port, bytes)` sending one back. Without them, other

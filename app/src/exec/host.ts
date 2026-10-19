@@ -16,6 +16,7 @@ import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
 import { Node, type Connection, type Datagram, type NifBuild } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
+import { dnsTcp, dnsUdp, failure, NXDOMAIN } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
@@ -161,11 +162,21 @@ function routePeer(connection: Connection, port: number): boolean {
   return true;
 }
 
+// Every name but the hosts file's, unknown (NXDOMAIN), at once.
+const noNames = async (query: Uint8Array) => failure(query, NXDOMAIN);
+
 function nodeServices() {
   return {
     peer: routePeer,
     udpPeer: routeUdpPeer,
-    serve: { 5432: apex('postgres'), [HEX_PORT]: apex('hex'), [EPMD_PORT]: serveNames },
+    serve: {
+      5432: apex('postgres'),
+      [HEX_PORT]: apex('hex'),
+      [EPMD_PORT]: serveNames,
+      // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
+      53: dnsTcp(noNames),
+    },
+    udpServe: { 53: dnsUdp(noNames) },
     onnif: (build: NifBuild) => rpc.emit('nif', build),
     https: httpsByFetch(),
     programs: {
