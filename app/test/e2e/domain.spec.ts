@@ -2,13 +2,14 @@ import { expect, test } from './fixtures';
 import type { Page } from '@playwright/test';
 import { preview, prompted, readText, run, syncLV, writeText } from './helpers';
 
-// With a project domain (serve.py --domain playground.localhost:8082),
+// With a project domain (serve.py --domain playground.localhost:PORT+1),
 // each project runs on its own origin, and the apex keeps the list
 // (src/shared/lib/site.ts). Two labels: Chromium takes localhost for a
 // top-level domain, so ID.localhost would be a site of its own.
-const APEX = 'http://playground.localhost:8082';
-const ORIGIN = /^http:\/\/p-([a-z0-9]{10})\.playground\.localhost:8082\/$/;
-const origin = (id: string) => `http://p-${id}.playground.localhost:8082/`;
+const PORT = Number(process.env.PORT || 8081) + 1;
+const APEX = `http://playground.localhost:${PORT}`;
+const ORIGIN = new RegExp(`^http://p-([a-z0-9]{10})\\.playground\\.localhost:${PORT}/$`);
+const origin = (id: string) => `http://p-${id}.playground.localhost:${PORT}/`;
 
 // Written through the page, and kept now (not a second later).
 async function keep(page: Page, path: string, text: string) {
@@ -104,7 +105,7 @@ test('a name under the domain that is no project’s is not found, with the way 
   page,
 }) => {
   for (const name of ['random-foo', 'phoenix', 'p-zzzzzzzzzz']) {
-    await page.goto(`http://${name}.playground.localhost:8082/`);
+    await page.goto(`http://${name}.playground.localhost:${PORT}/`);
     await expect(
       page.getByText(/There is (nothing at this address|no such project)/),
     ).toBeVisible();

@@ -5,8 +5,9 @@ import { prompted, writeText } from './helpers';
 // origin of its own (v-ID-PORT, site.ts), so two show at once: here port
 // 4000's page has port 4001's in an iframe (as Livebook's page has its
 // iframe endpoint's), and a link to the other port goes to its origin.
-const APEX = 'http://playground.localhost:8082';
-const ORIGIN = /^http:\/\/p-([a-z0-9]{10})\.playground\.localhost:8082\/$/;
+const PORT = Number(process.env.PORT || 8081) + 1;
+const APEX = `http://playground.localhost:${PORT}`;
+const ORIGIN = new RegExp(`^http://p-([a-z0-9]{10})\\.playground\\.localhost:${PORT}/$`);
 
 // Two ports of one app, each answering with a page of its own.
 const server = (inner: string) => `
@@ -49,7 +50,7 @@ test('two ports of the app show at once, each on its own origin', async ({ page 
   await page.goto(`${APEX}/empty`);
   await page.waitForURL(ORIGIN);
   const id = ORIGIN.exec(page.url())![1];
-  const port = (n: number) => `http://v-${id}-${n}.playground.localhost:8082`;
+  const port = (n: number) => `http://v-${id}-${n}.playground.localhost:${PORT}`;
   await prompted(page, 1);
   await writeText(page, '/work/two.exs', server(port(4001)));
   await page.evaluate(() => window.playground.node.input('elixir two.exs\n'));
