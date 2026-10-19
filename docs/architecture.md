@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # Architecture
@@ -62,7 +62,11 @@ child processes, a clock, random bytes and a terminal.
   name is Rust-OTP's).
   Every worker has its own copy: its project kind's boot images unpacked
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
-  on first use (see [build.md](build.md)).
+  on first use (see [build.md](build.md)). The images are gunzipped once,
+  by `files.js`, and the page compiles `beam.wasm`, `brush.wasm` and
+  `coreutils.wasm` once: each worker gets them with its start and builds
+  its tree from the tars (tens of milliseconds), rather than fetching and
+  compiling for itself.
 - **`/work` and `/tmp`** live in `src/runtime/files.ts`, a worker that runs no node
   and so is always free to answer. Nodes reach it synchronously: `wasi/shared.ts`
   sends each call on those paths through a SharedArrayBuffer channel and

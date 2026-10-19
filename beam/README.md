@@ -84,6 +84,12 @@ browser's worker runs it (`worker/beam.ts`). Both go through
 `app/src/runtime/beam/run.ts`; `beam/args.ts` turns erl's arguments into
 the emulator's.
 
+- **Loading.** The page compiles `beam.wasm` once and every node's worker
+  instantiates that module (`instantiateWasm`, in the link's
+  `INCOMING_MODULE_JS_API`; `beam/run.ts`), so a node no longer fetches and
+  compiles 5 MB: its BEAM loads in some 12–40 ms after the first (97–165 ms
+  each before). Its threads get the module from the worker, as Emscripten
+  passes it.
 - **Threads.** The module's main thread is the node's worker; erts' threads
   are its pthreads, and each file and network call they make is proxied
   to the worker, which must not block while the node runs: it takes the

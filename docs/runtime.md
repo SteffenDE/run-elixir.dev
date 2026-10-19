@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-19
 ---
 
 # The runtime (`app/src/runtime`)
@@ -25,7 +25,7 @@ JavaScript.
 | File | Runs in | Role |
 | --- | --- | --- |
 | `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
-| `worker/` (`worker.js`) | worker | A node. `index.ts` unpacks the boot images and runs one command or the shell, each node through `beam.ts`; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's). |
+| `worker/` (`worker.js`) | worker | A node. `index.ts` builds the node's tree from the boot images (the page's tars, else fetched) and runs one command or the shell, each node through `beam.ts`; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's). |
 | `files.ts` (`files.js`) | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
@@ -250,13 +250,20 @@ worker controls, and a blob worker takes the page's cross-origin isolation.
 the shell with `initial` commands typed first, or one command (erl's
 `args`, or a `command` by name as the shell runs it, such as `['mix',
 'deps.get']` or `['escript', FILE, ...]`), over the boot images `boots`
-(default `['boot']`).
+(default `['boot']`). The start message carries what the page has once
+for every worker: the boot images as `files.js` gunzipped them and the
+manifest (`Files.boot`), and `beam.wasm`, `coreutils.wasm` and, for a
+shell, `brush.wasm`, compiled (`siteModule`; a compiled module posts to a
+worker as it is). The worker builds its tree from the tars; the emulator
+instantiates the module through Emscripten's `instantiateWasm` (beam/run.ts).
+What is missing, the worker fetches and compiles itself.
 
 **Page → node: frames** in a SharedArrayBuffer ring of 1 MiB:
 
 - each frame is `[kind u8][id u32][length u32][payload]`, little-endian;
 - `control[0]` counts bytes written and `control[1]` bytes read;
-- the worker sleeps on `control[0]`, so a frame wakes it;
+- the worker sleeps on `control[0]` while it equals `control[1]` (all read),
+  so a frame wakes it, also one written while it was taking the others;
 - the page queues frames the ring has no room for, and retries every 2 ms.
 
 | Kind | Frame |
@@ -301,7 +308,9 @@ handler }` answers the node's connections to those ports (5432: PGlite).
 
 `new Files({ base, boots, template, store, onchange, onwarning })` starts
 `files.js` from the site's boot images and manifest (only the shared paths
-and the template). It offers `list`, `stat`, `read`, `write`, `mkdir`,
+and the template); once `ready`, `boot` holds the images gunzipped (plain
+tars, transferred from `files.js`, which keeps copies of its files only)
+and the manifest, for the nodes' workers. It offers `list`, `stat`, `read`, `write`, `mkdir`,
 `remove`, `rename`, `search` and `flush` (write the pending changes now)
 for the page, and `connect()`, which makes a node's channel. `search(path,
 query, skip, limit)` finds a text or a regular expression (of any case, or
