@@ -155,7 +155,14 @@ async function run(start: Start) {
     env,
     tty: start.tty ?? false,
   });
-  loader = createLoader({ fs: files.module as never, path, builtin, builtins: BUILTINS, env });
+  loader = createLoader({
+    fs: files.module as never,
+    path,
+    builtin,
+    builtins: BUILTINS,
+    env,
+    hold,
+  });
   loader.setProcess(() => ({ cwd: process.cwd as () => string }));
 
   // Node's globals over the worker's.

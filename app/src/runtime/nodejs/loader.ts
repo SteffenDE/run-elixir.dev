@@ -70,6 +70,9 @@ export function createLoader(options: {
   builtin: (name: string) => unknown;
   builtins: string[];
   env: Record<string, string>;
+  // Keeps the process alive until the returned release: a pending
+  // import(), as Node's loading is I/O that holds its loop.
+  hold?: () => () => void;
 }) {
   const { fs, path, builtin, builtins } = options;
   const cache: Record<string, Module> = Object.create(null);
@@ -324,11 +327,14 @@ export function createLoader(options: {
         return found.startsWith('node:') ? found : `file://${found}`;
       },
     };
+    // An ES module has no __filename or __dirname (it may declare its
+    // own); CommonJS has them as Node's wrapper passes them.
+    const names = esm
+      ? 'exports, require, module, __importMeta, __dynamicImport'
+      : 'exports, require, module, __filename, __dirname, __importMeta, __dynamicImport';
     const run = (prefix: string) =>
       // oxlint-disable-next-line no-eval -- modules are code to run.
-      (0, eval)(
-        `(${prefix}function (exports, require, module, __filename, __dirname, __importMeta, __dynamicImport) {${code}\n})\n//# sourceURL=file://${file}`,
-      );
+      (0, eval)(`(${prefix}function (${names}) {${code}\n})\n//# sourceURL=file://${file}`);
     let fn: (...args: unknown[]) => unknown;
     let async = false;
     try {
@@ -344,16 +350,19 @@ export function createLoader(options: {
       }
       async = true;
     }
-    const result = fn.call(
-      module.exports,
-      module.exports,
-      module.require,
-      module,
-      file,
-      module.path,
-      meta,
-      (specifier: string) => importFrom(specifier, module),
-    );
+    const load = (specifier: string) => dynamicImport(specifier, module);
+    const result = esm
+      ? fn.call(undefined, module.exports, module.require, module, meta, load)
+      : fn.call(
+          module.exports,
+          module.exports,
+          module.require,
+          module,
+          file,
+          module.path,
+          meta,
+          load,
+        );
     if (async) {
       module.evaluation = (result as Promise<void>).then(() => {
         module.loaded = true;
@@ -444,6 +453,14 @@ export function createLoader(options: {
     return namespace(module ? module.exports : exports);
   };
 
+  // import() in a module: held until it settles.
+  const dynamicImport = (specifier: string, parent: Module | null): Promise<unknown> => {
+    const release = options.hold?.() ?? (() => {});
+    const loading = importFrom(specifier, parent);
+    loading.then(release, release);
+    return loading;
+  };
+
   let process: () => { cwd(): string } = () => ({ cwd: () => '/' });
 
   const createRequire = (filename: string | URL) => {
@@ -486,7 +503,7 @@ export function createLoader(options: {
         `return eval(${JSON.stringify(code.replace(/(^|[^\w$.])import(\s*\()/g, '$1__dynamicImport$2'))});`,
       );
       return fn(module.exports, module.require, module, '[eval]', cwd, (s: string) =>
-        importFrom(s, module),
+        dynamicImport(s, module),
       );
     },
     importFrom,
