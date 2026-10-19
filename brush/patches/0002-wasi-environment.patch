@@ -1,0 +1,44 @@
+From d5f51596cc46d0b96c21c3ce9cfa7c6ec22aa48b Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 12:12:13 +0000
+Subject: [PATCH] brush-core: on WASI, the shell inherits its environment
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ brush-core/src/sys/wasm/env.rs | 10 ++++++++++
+ brush-core/src/sys/wasm/mod.rs |  2 +-
+ 2 files changed, 11 insertions(+), 1 deletion(-)
+ create mode 100644 brush-core/src/sys/wasm/env.rs
+
+diff --git a/brush-core/src/sys/wasm/env.rs b/brush-core/src/sys/wasm/env.rs
+new file mode 100644
+index 0000000..8fe6b5a
+--- /dev/null
++++ b/brush-core/src/sys/wasm/env.rs
+@@ -0,0 +1,10 @@
++//! Environment variable retrieval for WASM.
++
++/// Retrieves environment variables from the host process: on WASI, its
++/// environment (the stubs' answer none, on other WASM targets).
++pub(crate) fn get_host_env_vars() -> impl Iterator<Item = (String, String)> {
++    #[cfg(target_os = "wasi")]
++    return std::env::vars();
++    #[cfg(not(target_os = "wasi"))]
++    crate::sys::stubs::env::get_host_env_vars()
++}
+diff --git a/brush-core/src/sys/wasm/mod.rs b/brush-core/src/sys/wasm/mod.rs
+index 1eb16cb..620bf69 100644
+--- a/brush-core/src/sys/wasm/mod.rs
++++ b/brush-core/src/sys/wasm/mod.rs
+@@ -1,6 +1,6 @@
+ pub use crate::sys::stubs::async_pipe;
+ pub use crate::sys::stubs::commands;
+-pub(crate) use crate::sys::stubs::env;
++pub(crate) mod env;
+ pub use crate::sys::stubs::fd;
+ pub(crate) mod fs;
+ #[cfg(target_os = "wasi")]
+-- 
+2.53.0
+

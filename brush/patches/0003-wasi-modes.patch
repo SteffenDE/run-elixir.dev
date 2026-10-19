@@ -1,0 +1,40 @@
+From ceffa1532ca4bb78ef0a48dbb455f42d174c015d Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Mon, 19 Oct 2026 12:14:20 +0000
+Subject: [PATCH] brush-core: on WASI, only what exists is readable, writable
+ or executable
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01UGVVBjQXpfeabXnRjA11nm
+---
+ brush-core/src/sys/wasm/fs.rs | 8 +++++---
+ 1 file changed, 5 insertions(+), 3 deletions(-)
+
+diff --git a/brush-core/src/sys/wasm/fs.rs b/brush-core/src/sys/wasm/fs.rs
+index 423ab3c..6bd731a 100644
+--- a/brush-core/src/sys/wasm/fs.rs
++++ b/brush-core/src/sys/wasm/fs.rs
+@@ -4,15 +4,17 @@ pub use crate::sys::stubs::fs::*;
+ 
+ impl crate::sys::fs::PathExt for std::path::Path {
+     fn readable(&self) -> bool {
+-        true
++        // WASI has no modes: what exists is all of them (and not what does
++        // not, for PATH lookups and `test`).
++        self.exists()
+     }
+ 
+     fn writable(&self) -> bool {
+-        true
++        self.exists()
+     }
+ 
+     fn executable(&self) -> bool {
+-        true
++        self.exists()
+     }
+ 
+     fn exists_and_is_block_device(&self) -> bool {
+-- 
+2.53.0
+
