@@ -14,6 +14,9 @@
 #
 #   SITE=/srv/playground/run-elixir   releases/ and current, Caddy's root
 #   DOMAIN=run-elixir.dev             checked in playground.json and served
+#   USERCONTENT=…                     the usercontent domain (docs/frames.md):
+#                                     checked in playground.json, its hosts
+#                                     served for the apex to frame
 #   CHECK_RESOLVE=127.0.0.1           where the check reaches the origin
 #                                     (empty: no check)
 #   KEEP_RELEASES=5 KEEP_BUILDS=3     releases kept; builds (b/ID) and
@@ -26,6 +29,7 @@ CONFIG=${PLAYGROUND_DEPLOY_CONFIG:-/etc/playground-deploy.env}
 [ -r "$CONFIG" ] && . "$CONFIG"
 : "${SITE:?SITE is not configured ($CONFIG)}"
 DOMAIN=${DOMAIN:-}
+USERCONTENT=${USERCONTENT:-}
 CHECK_RESOLVE=${CHECK_RESOLVE-127.0.0.1}
 KEEP_RELEASES=${KEEP_RELEASES:-5}
 KEEP_BUILDS=${KEEP_BUILDS:-3}
@@ -107,6 +111,17 @@ check() {
   fi
   "${curl[@]}" -o /dev/null -D - "$base/sw.js" | grep -qi '^cache-control: no-cache' ||
     { echo "check: sw.js is not no-cache" >&2; return 1; }
+  # A project's exec frame on the usercontent domain: framed by the apex,
+  # from another site.
+  if [ -n "$USERCONTENT" ]; then
+    local exec_host=e-aaaaaaaaaa.$USERCONTENT
+    headers=$(curl -fsS --max-time 30 --resolve "$exec_host:443:$CHECK_RESOLVE" -D - -o /dev/null \
+      "https://$exec_host/exec.html") || { echo "check: $exec_host/exec.html failed" >&2; return 1; }
+    grep -qi '^cross-origin-embedder-policy: require-corp' <<<"$headers" ||
+      { echo "check: no COEP on $exec_host" >&2; return 1; }
+    grep -qi '^cross-origin-resource-policy: cross-origin' <<<"$headers" ||
+      { echo "check: $exec_host is not CORP cross-origin" >&2; return 1; }
+  fi
 }
 
 # The pages keep their names: drop the edge's copies (b/ and _playground/
@@ -138,6 +153,10 @@ activate() {
   done
   if [ -n "$DOMAIN" ]; then
     grep -q "\"domain\": *\"$DOMAIN\"" "$partial/playground.json" || die "$rid: playground.json does not name $DOMAIN"
+  fi
+  if [ -n "$USERCONTENT" ]; then
+    grep -q "\"usercontent\": *\"$USERCONTENT\"" "$partial/playground.json" ||
+      die "$rid: playground.json does not name $USERCONTENT"
   fi
   # The builds and runtimes of the newest releases, this one's first, stay.
   for top in b:build r:runtime; do

@@ -11,7 +11,9 @@ The site is static; the backend is what it can't be: a Phoenix API app
 libraries to WebAssembly on request, and relays live sessions between
 browsers ([collaboration.md](collaboration.md)). It runs at
 run-elixir.steffend.me for its admin, and answers the playground's
-pages at `/api/nif/` and `/socket` on run-elixir.dev and its subdomains.
+pages at `/socket` on run-elixir.dev (the apex: every page), and at
+`/api/nif/` there and on the usercontent domain, whose exec frames' nodes
+fetch NIF builds ([frames.md](frames.md)).
 
 Its sandbox, notifications and GitHub sign-in come from SCA (~/sca), a
 different project, cut down to what the backend needs.
@@ -101,8 +103,8 @@ What each message and command does, the limits and what the relay sees:
 [collaboration.md](collaboration.md#the-relay). The limits are
 `config :playground, Playground.Live`. In production, only the site's
 origins may open the socket: `PLAYGROUND_ORIGINS` (comma-separated, as
-`check_origin` takes them; `//run-elixir.dev,//*.run-elixir.dev` by
-default).
+`check_origin` takes them; `//run-elixir.dev` by default: every page is
+the apex's, and no page of the usercontent domain opens it).
 
 ## The sandbox
 

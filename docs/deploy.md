@@ -12,8 +12,8 @@ Forgejo runner and makes it live on the server as a new release
 
 1. **Build** (`build-site.sh`): the NIF libraries, then the site with
    the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.1 and
-   Elixir 1.20.4), with `PLAYGROUND_DOMAIN` from the
-   repository's variables.
+   Elixir 1.20.4), with `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`
+   from the repository's variables.
 2. **Upload** (`upload.sh SITE user@host`): the server seeds
    `releases/RID.partial` with the live release's files, hard-linked, and
    this build's `b/ID/` and runtime's `r/RID/` with the live ones' (a
@@ -39,7 +39,7 @@ again; `status` names the live one. Both also work over the deploy key
 Deploying by hand from a machine with the key is the same:
 
 ```sh
-PLAYGROUND_DOMAIN=run-elixir.dev deploy/build-site.sh
+PLAYGROUND_DOMAIN=run-elixir.dev PLAYGROUND_USERCONTENT=USERCONTENT deploy/build-site.sh
 deploy/upload.sh target/site deploy@server
 ```
 
@@ -52,7 +52,7 @@ the repository:
 sudo deploy/setup.sh
 ```
 
-It asks for the project domain, the site's directory, Forgejo's URL
+It asks for the apex, the usercontent domain, the site's directory, Forgejo's URL
 (from the clone's remote), a runner made in Forgejo (the repository's
 Settings → Actions → Runners → Create new runner: its UUID and token) and
 the runner VM's size; or takes them from the environment (`DOMAIN`,
@@ -96,7 +96,7 @@ sudo ssh -i /var/lib/playground-runner/admin_key -p 2222 runner@127.0.0.1
 
 Then point Caddy's `root` at `SITE/current` (below; it resolves the link
 on each request, so a release goes live at once and whole), and set the
-repository's variable `PLAYGROUND_DOMAIN`.
+repository's variables `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`.
 
 ### The runner elsewhere
 
@@ -153,7 +153,7 @@ that caches more.
     named by digests of their contents ([build.md](build.md#what-the-site-is)):
     all can be cached for good, and a deploy of JavaScript alone keeps
     `r/RID/`.
-  - The pages (`index.html`, `preview.html`, `registry.html`,
+  - The pages (`index.html`, `preview.html`, `relay.html`, `exec.html`,
     `storage.html`), `sw.js`, `playground.json` and `app/public`'s files
     (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
     names, so they should revalidate (ETag or Last-Modified, which Caddy's
@@ -166,29 +166,50 @@ that caches more.
   and a project's next start drops its template build records
   ([projects.md](projects.md#what-is-kept)).
 
-## A project domain
+## The two domains
 
-With `PLAYGROUND_DOMAIN` set when building (written to
-`playground.json`), each project runs on its own origin, `p-ID.DOMAIN`, and
-the domain itself has the projects' list
-([projects.md](projects.md#a-project-domain)). The server then serves
-the same site for `DOMAIN` and `*.DOMAIN`, which needs a wildcard
-certificate, and so a DNS challenge: a Caddy built with its DNS
-provider's module (`xcaddy build --with github.com/caddy-dns/PROVIDER`).
-Every response also carries `Cross-Origin-Resource-Policy: same-site`:
-the apex and a project's origin frame each other's pages (`registry.html`,
-`storage.html`), which `require-corp` lets in only so. Without
-`PLAYGROUND_DOMAIN`, a project is a path (`/ID/`) on one origin.
+The site has two (`PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT` when
+building, written to `playground.json`; [frames.md](frames.md)):
+
+- **The apex** (run-elixir.dev): every page, cross-origin isolated (COOP
+  `same-origin`, COEP `require-corp`), each response with
+  `Cross-Origin-Resource-Policy: same-site`. Its subdomains stay served
+  for the former layout's addresses (`p-ID`, `l-ID`), which send their
+  visitors to the apex, and whose `storage.html` moves a project's
+  stores to it ([frames.md](frames.md#moving-the-former-layouts-stores));
+  they can go once those have moved.
+- **The usercontent domain**, another registrable domain (so another
+  site: none of the apex's cookies, its own processes): `e-ID` (a
+  project's exec frame) and `v-ID-PORT` (its preview), every response with
+  COEP `require-corp` and `Cross-Origin-Resource-Policy: cross-origin`,
+  for the apex's pages to frame. The same files; the Hex and git proxies
+  and `/api/nif/`, which the exec frame's nodes and programs ask of their
+  own origin; not `/socket`.
+
+Both need wildcard certificates, and so DNS challenges: a Caddy built
+with its DNS provider's module (`xcaddy build --with
+github.com/caddy-dns/PROVIDER`). A site without the usercontent domain
+starts no project: its pages say so.
 
 ## Caddy
 
 ```caddy
-(playground) {
+# The apex's headers, and the usercontent domain's (frames.md).
+(apex) {
 	header {
 		Cross-Origin-Opener-Policy same-origin
 		Cross-Origin-Embedder-Policy require-corp
 		Cross-Origin-Resource-Policy same-site
 	}
+}
+(usercontent) {
+	header {
+		Cross-Origin-Embedder-Policy require-corp
+		Cross-Origin-Resource-Policy cross-origin
+	}
+}
+
+(playground) {
 	header /_playground/* Cache-Control "public, max-age=31536000, immutable"
 	header /b/* Cache-Control "public, max-age=31536000, immutable"
 	header /sw.js Cache-Control no-cache
@@ -238,13 +259,15 @@ the apex and a project's origin frame each other's pages (`registry.html`,
 	}
 }
 
+# Without a usercontent domain it starts no project (frames.md).
 elixir-playground.steffend.me {
 	root * /srv/playground/elixir-playground/current
+	import apex
 	import playground
 }
 
-# With a project domain (PLAYGROUND_DOMAIN=run-elixir.dev): the same site
-# for the apex and every project's origin, one wildcard certificate.
+# The apex (PLAYGROUND_DOMAIN=run-elixir.dev), and the former layout's
+# subdomains (p-ID, l-ID), one wildcard certificate.
 run-elixir.dev, *.run-elixir.dev {
 	tls {
 		dns PROVIDER {env.DNS_API_TOKEN}
@@ -255,6 +278,23 @@ run-elixir.dev, *.run-elixir.dev {
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000
 	}
+	import apex
+	import playground
+}
+
+# The usercontent domain (PLAYGROUND_USERCONTENT): projects' exec frames
+# and previews, the same files, framed by the apex from another site.
+*.USERCONTENT {
+	tls {
+		dns PROVIDER {env.DNS_API_TOKEN}
+	}
+	root * /srv/playground/run-elixir/current
+	# NIF builds, which the exec frame's nodes fetch from their origin.
+	@backend path /api/nif/*
+	handle @backend {
+		reverse_proxy 127.0.0.1:4000
+	}
+	import usercontent
 	import playground
 }
 
@@ -279,8 +319,9 @@ phoenix-playground.steffend.me {
 `index.html` fallback, and proxies `/hex/` as above, and `/api/nif/` to
 the backend: production's (run-elixir.dev), or the one `--api URL`
 names (`--api http://localhost:4000` for a local `mix phx.server`). It
-does not compress. With `--domain playground.localhost:PORT` it answers
-`playground.json` with that project domain, whatever the build says:
-browsers resolve `*.localhost` to this machine, and with two labels the
-apex and its projects are one site (Chromium takes `localhost` for a
-top-level domain, so `ID.localhost` would be a site of its own).
+does not compress. With `--domain playground.localhost:PORT --usercontent
+usercontent.localhost:PORT` it answers `playground.json` with the two
+domains, whatever the build says, and the usercontent domain's hosts
+with its headers: browsers resolve `*.localhost` to this machine, and
+with two labels each is a site of its own (Chromium takes `localhost` for
+a top-level domain).

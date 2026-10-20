@@ -101,11 +101,11 @@ if config_env() == :prod do
 
   config :playground, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
-  # The site's pages may open the socket: the domain and its project
-  # origins (PLAYGROUND_ORIGINS, comma-separated, as check_origin takes
-  # them).
+  # The site's pages may open the socket: the apex's (PLAYGROUND_ORIGINS,
+  # comma-separated, as check_origin takes them); what projects' code runs
+  # is another domain's (docs/frames.md), and opens none.
   origins =
-    String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev,//*.run-elixir.dev", ",",
+    String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev", ",",
       trim: true
     )
 
