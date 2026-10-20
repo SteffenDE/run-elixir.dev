@@ -14,7 +14,15 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type Datagram, type Https, type Link, type NifBuild, type Served } from '@/runtime/host/node';
+import {
+  Node,
+  type Connection,
+  type Datagram,
+  type Https,
+  type Link,
+  type NifBuild,
+  type Served,
+} from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
@@ -175,8 +183,8 @@ const scriptPorts: Ports = {
 // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
 // page lets them (docs/tailscale.md); else unreachable, no such name,
 // fetch().
-let net: ReturnType<typeof tailnet> | null = null;
-const tailnetWays = () => (net ??= tailnet(rpc));
+let ways: ReturnType<typeof tailnet> | null = null;
+const tailnetWays = () => (ways ??= tailnet(rpc));
 
 // A Node.js process's HTTPS to a host: by fetch (from this origin) alone,
 // since a process has no TLS of its own to do over the tailnet's TCP.
