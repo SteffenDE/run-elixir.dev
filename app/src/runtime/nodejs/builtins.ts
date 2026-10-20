@@ -9,6 +9,7 @@ import { hashes } from './hashes';
 import { createHttp, METHODS, STATUS_CODES } from './http';
 import type { Net } from './net';
 import { createDns } from './dns';
+import { createTls } from './tls';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
 
 type Factories = Record<string, () => unknown>;
@@ -91,8 +92,10 @@ export function createBuiltins(deps: {
   // node:wasi (wasi.ts) and worker_threads (threads.ts).
   wasi: () => Record<string, unknown>;
   threads: () => Record<string, unknown>;
-  // node:net on the page's TCP (net.ts); a worker thread has none.
+  // node:net on the project's TCP (net.ts); a worker thread has none.
   net: Net | null;
+  // The site's runtime files (tls.wasm, tls.ts).
+  runtime: string;
 }) {
   const { process, timers } = deps;
   const warn = (text: string) => (process.stderr as { write(t: string): void }).write(text);
@@ -377,7 +380,11 @@ export function createBuiltins(deps: {
       },
     }),
     tls: () =>
-      missing('tls', ['connect', 'createServer', 'createSecureContext'], { rootCertificates: [] }),
+      deps.net
+        ? createTls(deps.net, deps.runtime, deps.env)
+        : missing('tls', ['connect', 'createServer', 'createSecureContext'], {
+            rootCertificates: [],
+          }),
     tty: () => ({
       isatty: (fd: number) => deps.tty && fd >= 0 && fd <= 2,
       ReadStream: class ReadStream extends EventEmitter {},

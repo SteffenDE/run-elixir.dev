@@ -98,7 +98,7 @@ type NetMessage =
   | { kind: 'net'; op: 'udp-close'; port: number };
 
 export const nodeProgram =
-  (base: string, files: () => Files | null, ports?: Ports) =>
+  (base: string, files: () => Files | null, ports?: Ports, runtime = base) =>
   (process: Process, context: Context): void => {
     const shared = files();
     if (!shared) {
@@ -204,5 +204,6 @@ export const nodeProgram =
       env: context.env,
       doorbell: channel.doorbell,
       channel: channel.channel,
+      runtime: new URL(runtime, location.href).href,
     });
   };

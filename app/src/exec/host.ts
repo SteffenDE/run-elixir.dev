@@ -174,9 +174,9 @@ const scriptPorts: Ports = {
     updateListening();
   },
   // A process's connection: to the services, as a node's goes, or to what
-  // listens on the port; with a host, HTTPS by fetch.
+  // listens on the port; with a host, HTTPS by the gateway.
   route(port, host) {
-    if (host !== undefined) return (connection) => httpsFetch(connection, { host, port });
+    if (host !== undefined) return (connection) => httpsGateway(connection, { host, port });
     const service = services()[port];
     if (service) return service;
     const target =
@@ -270,11 +270,15 @@ const loopback = (address: string) =>
 let ways: ReturnType<typeof tailnet> | null = null;
 const tailnetWays = () => (ways ??= tailnet(rpc));
 
-// A Node.js process's HTTPS to a host: by fetch (from this origin) alone,
-// since a process has no TLS of its own to do over the tailnet's TCP.
-let processHttps: Https | null = null;
-const httpsFetch: Https = (connection, target) =>
-  (processHttps ??= httpsByFetch({ onblocked: tailnetWays().blocked }))(connection, target);
+// HTTPS to a host, for the nodes and the Node.js processes, by the
+// gateway (https.ts): through the tailnet where it takes it, with their
+// own TLS over its TCP (a process's: tls.ts); else fetch().
+let gateway: Https | null = null;
+const httpsGateway: Https = (connection, target) =>
+  (gateway ??= httpsByFetch({
+    tunnel: tailnetWays().tunnel,
+    onblocked: tailnetWays().blocked,
+  }))(connection, target);
 
 // What answers on the project's ports for every node and process.
 const services = (): Record<number, (connection: Served) => void> => ({
@@ -349,12 +353,12 @@ function nodeServices() {
     outbound: net.outbound,
     udp: net.udp(),
     onnif: (build: NifBuild) => rpc.emit('nif', build),
-    https: httpsByFetch({ tunnel: net.tunnel, onblocked: net.blocked }),
+    https: httpsGateway,
     programs: {
       tailwind,
       esbuild,
       git: gitProgram,
-      node: nodeProgram(start!.build, () => files, scriptPorts),
+      node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
       sh: shProgram(startNode),

@@ -8,6 +8,7 @@
 // TLS, and reads only what the site's CORS lets it. No HTTPS server.
 import { Buffer } from './buffer';
 import type { Net } from './net';
+import type { TlsOptions } from './tls';
 import * as streams from 'readable-stream';
 
 const { Readable, Writable } = streams as typeof import('node:stream');
@@ -433,7 +434,27 @@ interface RequestOptions {
   signal?: AbortSignal;
   setHost?: boolean;
   createConnection?: (options: object, callback?: () => void) => Socket;
+  // https's TLS, when it goes through the tailnet (tls.ts).
+  servername?: string;
+  ca?: TlsOptions['ca'];
+  cert?: TlsOptions['cert'];
+  key?: TlsOptions['key'];
+  rejectUnauthorized?: boolean;
+  agent?: { options?: TlsOptions } | false;
 }
+
+// The TLS options of a request (or its agent's).
+const tlsOf = (options: RequestOptions): TlsOptions => {
+  const agent = (options.agent || undefined)?.options ?? {};
+  const pick = <K extends keyof TlsOptions>(key: K) => (options as TlsOptions)[key] ?? agent[key];
+  return {
+    servername: pick('servername'),
+    ca: pick('ca'),
+    cert: pick('cert'),
+    key: pick('key'),
+    rejectUnauthorized: pick('rejectUnauthorized'),
+  };
+};
 
 export function createHttp(net: Net) {
   // A request a client makes, on a connection of its own (no pooling: it
@@ -454,7 +475,7 @@ export function createHttp(net: Net) {
       const port = Number(options.port ?? standard);
       const socket = options.createConnection
         ? options.createConnection({ host, port })
-        : (new net.Socket().connect({ port, host, https }) as Socket);
+        : (new net.Socket().connect({ port, host, https, tls: tlsOf(options) }) as Socket);
       super(socket, false);
       this.method = (options.method ?? 'GET').toUpperCase();
       this.path = options.path ?? '/';

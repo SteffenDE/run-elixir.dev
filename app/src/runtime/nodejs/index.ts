@@ -37,6 +37,8 @@ interface Start {
   tty?: boolean;
   columns?: number;
   thread?: ThreadStart;
+  // The site's runtime files (tls.wasm).
+  runtime?: string;
 }
 
 const USAGE = `Usage: node [options] [ script.js | -e "script" ] [arguments]
@@ -205,7 +207,7 @@ async function run(start: Start) {
   });
   const ownThreads = threads;
   const wasi = createWasi(call, (fd, bytes) => io.write(fd, bytes), proc.end);
-  net = thread ? null : createNet(post, hold);
+  net = thread ? null : createNet(post, hold, start.runtime ?? '');
 
   let loader: ReturnType<typeof createLoader>;
   const builtin = createBuiltins({
@@ -221,6 +223,7 @@ async function run(start: Start) {
     wasi: () => wasi,
     threads: () => ownThreads,
     net,
+    runtime: start.runtime ?? '',
   });
   loader = createLoader({
     fs: files.module as never,

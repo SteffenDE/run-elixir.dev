@@ -9,9 +9,11 @@
 // a connection comes as { op: 'open', id, port } (odd ids). The process
 // connects with { op: 'connect', id, port } (even ids); { op: 'connect',
 // id, port, host, via: 'tcp' } to another host's address, through the
-// tailnet; or { ..., via: 'https' } for HTTPS carried to a host by fetch
-// (http.ts's https: the gateway's line, then plain HTTP on the
-// connection, as a node's goes). It hears { op: 'connected', id, local? }
+// tailnet; or { ..., via: 'https' } for http.ts's HTTPS by the gateway
+// (https.ts), as a node's goes: its first line says how, "fetch" (plain
+// HTTP on the connection, answered by fetch()), "tcp" (a TCP connection to
+// the host through the tailnet, over which the socket does TLS itself,
+// tls.ts's Engine) or "error REASON". It hears { op: 'connected', id, local? }
 // or { op: 'refused', id, code? }. Then { op: 'data', id, bytes },
 // { op: 'end', id } and { op: 'close', id } go both ways, and { op:
 // 'unlisten', port } stops a listener. A DNS message goes as { op: 'dns',
@@ -19,6 +21,7 @@
 import { Buffer } from './buffer';
 import { createDgram, type DgramMessage } from './dgram';
 import { createDns } from './dns';
+import { Engine, type TlsOptions } from './tls';
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
 
@@ -77,7 +80,8 @@ const netError = (
     port,
   });
 
-export function createNet(post: (message: unknown) => void, hold: Hold) {
+// runtime: the site's runtime files (tls.wasm).
+export function createNet(post: (message: unknown) => void, hold: Hold, runtime = '') {
   const sockets = new Map<number, Socket>();
   const servers = new Map<number, Server>();
   const asked = new Map<number, (port: number | null) => void>();
@@ -115,8 +119,15 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     declare release: (() => void) | null;
     declare timer: ReturnType<typeof setTimeout> | null;
     declare timeout: number;
-    // HTTPS by the gateway: its first line still to come (what of it came).
+    // HTTPS by the gateway: its first line still to come (what of it came);
+    // over the tailnet, its TLS (what came while it loads), the handshake
+    // under way, and the host and options it is for.
     declare gateway: string | null;
+    declare engine: Engine | null;
+    declare securing: Uint8Array[] | null;
+    declare handshaking: boolean;
+    declare host: string;
+    declare tlsOptions: TlsOptions;
 
     constructor(options: { id?: number; port?: number; allowHalfOpen?: boolean } = {}) {
       super({ allowHalfOpen: options.allowHalfOpen ?? false, decodeStrings: true });
@@ -134,6 +145,11 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       this.timer = null;
       this.timeout = 0;
       this.gateway = null;
+      this.engine = null;
+      this.securing = null;
+      this.handshaking = false;
+      this.host = 'localhost';
+      this.tlsOptions = {};
       if (this.id) sockets.set(this.id, this);
       this.on('close', () => {
         sockets.delete(this.id);
@@ -149,7 +165,14 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         args[0] && typeof args[0] === 'object'
           ? args[0]
           : { port: args[0], host: typeof args[1] === 'string' ? args[1] : undefined }
-      ) as { port?: unknown; host?: string; path?: string; timeout?: number; https?: boolean };
+      ) as {
+        port?: unknown;
+        host?: string;
+        path?: string;
+        timeout?: number;
+        https?: boolean;
+        tls?: TlsOptions;
+      };
       if (listener) this.once('connect', listener);
       if (options.timeout) this.setTimeout(options.timeout);
       const port = Number(options.port);
@@ -158,6 +181,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       // https: HTTPS to any host, which the exec frame carries (not a
       // socket's own bytes to the host: http.ts's https alone asks for it).
       const https = Boolean(options.https);
+      this.host = host;
+      this.tlsOptions = options.tls ?? {};
       if (options.path !== undefined || !(port > 0 && port < 65536)) {
         const error =
           options.path !== undefined
@@ -226,9 +251,11 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         this.emit('ready');
       }
     }
-    // From the other end; for HTTPS by the gateway, its first line
-    // ("fetch", or "error REASON") before.
+    // From the other end; for HTTPS by the gateway, its first line before
+    // ("fetch", "tcp", or "error REASON"), and after "tcp", TLS.
     receive(bytes: Uint8Array) {
+      if (this.securing) return void this.securing.push(bytes);
+      if (this.engine) return this.decrypt(bytes);
       if (this.gateway !== null) {
         const text = this.gateway + new TextDecoder().decode(bytes);
         const end = text.indexOf('\n');
@@ -238,6 +265,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         }
         this.gateway = null;
         const line = text.slice(0, end);
+        if (line === 'tcp') return this.secure(new TextEncoder().encode(text.slice(end + 1)));
         if (line !== 'fetch') {
           const code = (line.match(/^error (\w+)/)?.[1] ?? 'ehostunreach').toUpperCase();
           this.destroy(
@@ -251,9 +279,57 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
         if (!rest.length) return;
         bytes = rest;
       }
+      this.deliver(bytes);
+    }
+    deliver(bytes: Uint8Array) {
       this.bytesRead += bytes.length;
       this.touch();
       this.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
+    }
+    // TLS to the host over the tailnet's TCP (the gateway's "tcp"); its
+    // 'connect' once the handshake is done.
+    secure(rest: Uint8Array) {
+      this.securing = rest.length ? [rest] : [];
+      this.handshaking = true;
+      const servername =
+        this.tlsOptions.servername ?? (isIPv4(this.host) || isIPv6(this.host) ? '' : this.host);
+      Engine.open(runtime, this.host, {
+        ALPNProtocols: ['http/1.1'],
+        ...this.tlsOptions,
+        servername,
+      }).then(
+        (engine) => {
+          if (this.destroyed) return engine.forget();
+          this.engine = engine;
+          this.transmit();
+          for (const bytes of this.securing!.splice(0)) this.decrypt(bytes);
+          this.securing = null;
+        },
+        (error: Error) => this.destroy(error),
+      );
+    }
+    // The TLS records to send now.
+    transmit() {
+      const out = this.engine?.take();
+      if (out?.length) post({ kind: 'net', op: 'data', id: this.id, bytes: out });
+    }
+    decrypt(bytes: Uint8Array) {
+      let plain: Uint8Array | null;
+      try {
+        plain = this.engine!.feed(bytes);
+      } catch (error) {
+        this.transmit();
+        this.destroy(error as Error);
+        return;
+      }
+      this.transmit();
+      if (this.handshaking && !this.engine!.handshaking) {
+        this.handshaking = false;
+        this.emit('connect');
+        this.emit('ready');
+      }
+      if (plain === null) this.push(null);
+      else if (plain.length) this.deliver(plain);
     }
     _read() {}
     // Written, or ended, before the page answered: once it has.
@@ -268,14 +344,25 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     send(chunk: Buffer, callback: (error?: Error | null) => void) {
       this.bytesWritten += chunk.length;
       this.touch();
-      post({ kind: 'net', op: 'data', id: this.id, bytes: new Uint8Array(chunk) });
+      if (this.engine) {
+        try {
+          this.engine.write(new Uint8Array(chunk));
+        } catch (error) {
+          return callback(error as Error);
+        }
+        this.transmit();
+      } else post({ kind: 'net', op: 'data', id: this.id, bytes: new Uint8Array(chunk) });
       callback();
     }
     finish(callback: (error?: Error | null) => void) {
+      this.engine?.close();
+      this.transmit();
       post({ kind: 'net', op: 'end', id: this.id });
       callback();
     }
     _destroy(error: Error | null, callback: (error?: Error | null) => void) {
+      this.engine?.forget();
+      this.engine = null;
       if (sockets.has(this.id)) post({ kind: 'net', op: 'close', id: this.id });
       sockets.delete(this.id);
       callback(error);
@@ -284,7 +371,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       return this.destroyed ? 'closed' : 'open';
     }
     get pending() {
-      return this.connecting || this.gateway !== null || !this.id;
+      return this.connecting || this.gateway !== null || this.handshaking || !this.id;
     }
     get bufferSize() {
       return this.writableLength;
