@@ -6,7 +6,7 @@
 // import() answers a namespace as Node's does: an ES module's exports, a
 // CommonJS module's as its default and its names.
 import { transform } from 'sucrase';
-import { rewriteCode } from './source';
+import { pieces, rewriteCode } from './source';
 import type { createPath } from './path';
 
 type Path = ReturnType<typeof createPath>;
@@ -309,10 +309,16 @@ export function createLoader(options: {
     if (ext === '.cjs' || ext === '.cts') return false;
     if (packageScope(file)?.[1].type === 'module') return true;
     // Node's syntax detection, as far as a glance goes: import or export
-    // statements at a line's start.
-    return /^\s*(import\s*[\w{*'"]|export\s+(?:\{|\*|default|const|let|var|function|class|async))/m.test(
-      source,
-    );
+    // statements at a line's start (import x, import {, import "…", not a
+    // name such as importName), in the code (not a string's or a
+    // template's lines, as TypeScript's compiler has both).
+    const statement =
+      /^\s*(import(?:\s+[\w$]|\s*[{*'"])|export\s+(?:\{|\*|default|const|let|var|function|class|async))/m;
+    if (!statement.test(source)) return false;
+    const code = pieces(source)
+      .map((piece) => (piece.code ? piece.text : piece.text.replace(/[^\n]/g, ' ')))
+      .join('');
+    return statement.test(code);
   };
 
   const compile = (module: Module, source: string): void => {
