@@ -3,7 +3,7 @@
 # libraries, then the site into target/site, with the Emscripten BEAM
 # (beam/build.sh, emsdk at ~/emsdk) and the host's Erlang and Elixir
 # (mise's, the versions the BEAM is built from). PLAYGROUND_DOMAIN names
-# the project domain, if any.
+# the apex, PLAYGROUND_USERCONTENT the usercontent domain (frames.md).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export PATH="$HOME/.local/bin:$PATH"

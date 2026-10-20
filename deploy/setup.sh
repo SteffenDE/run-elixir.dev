@@ -19,6 +19,7 @@
 #   `ssh -i /var/lib/playground-runner/admin_key runner@127.0.0.1 -p PORT`.
 #
 # Asked for the first time (or given in the environment): DOMAIN,
+# USERCONTENT,
 # FORGEJO_URL, and the runner made in Forgejo (the repository's or the
 # user's Settings → Actions → Runners → Create new runner): its
 # FORGEJO_UUID and FORGEJO_TOKEN. Given to a later run, those two replace
@@ -76,19 +77,23 @@ fi
 [ -e /dev/kvm ] || { echo "setup.sh: no /dev/kvm: the runner VM needs KVM" >&2; exit 1; }
 
 # --- The deploy side ------------------------------------------------------
-setting DOMAIN run-elixir.dev "$DEPLOY_ENV" "The project domain (empty: none)"
+setting DOMAIN run-elixir.dev "$DEPLOY_ENV" "The apex: every page (docs/frames.md)"
+setting USERCONTENT "" "$DEPLOY_ENV" "The usercontent domain, another registrable domain: what projects' code runs"
 setting SITE "/srv/playground/${DOMAIN%%.*}" "$DEPLOY_ENV" "The site's directory (Caddy's root is its current/)"
 if [ ! -f "$DEPLOY_ENV" ]; then
   cat > "$DEPLOY_ENV" <<EOF
 # playground-deploy's settings (its header lists them all).
 SITE=$SITE
 DOMAIN=$DOMAIN
+USERCONTENT=$USERCONTENT
 # Cloudflare, to purge the pages: a token with Zone → Cache Purge only.
 #CF_ZONE_ID=
 #CF_API_TOKEN=
 EOF
   chmod 640 "$DEPLOY_ENV"
 fi
+# A configuration from before the usercontent domain: it gets one.
+grep -q '^USERCONTENT=' "$DEPLOY_ENV" || echo "USERCONTENT=$USERCONTENT" >> "$DEPLOY_ENV"
 id deploy >/dev/null 2>&1 || useradd --system --create-home --home-dir /var/lib/deploy --shell /bin/bash deploy
 chgrp deploy "$DEPLOY_ENV"
 install -d -o deploy -g deploy -m 755 "$SITE" "$SITE/releases"
@@ -255,6 +260,7 @@ cat <<EOF
 Done. Still to do by hand:
 - Caddy's root: $SITE/current (docs/deploy.md).
 - Cloudflare's CF_ZONE_ID and CF_API_TOKEN in $DEPLOY_ENV, if wanted.
-- The repository's variables: PLAYGROUND_DOMAIN=$DOMAIN (DEPLOY_TARGET defaults
+- The repository's variables: PLAYGROUND_DOMAIN=$DOMAIN and
+  PLAYGROUND_USERCONTENT=$USERCONTENT (DEPLOY_TARGET defaults
   to playground-prod, the VM's way here).
 EOF

@@ -7,7 +7,8 @@
 #
 # On the runner VM deploy/setup.sh makes, ssh's host
 # `playground-prod` is the production machine with its deploy key, and
-# nothing needs configuring but PLAYGROUND_DOMAIN. Elsewhere: the
+# nothing needs configuring but PLAYGROUND_DOMAIN and
+# PLAYGROUND_USERCONTENT (docs/frames.md). Elsewhere: the
 # variable DEPLOY_TARGET (user@host) and the secrets DEPLOY_SSH_KEY (the
 # key whose authorized_keys entry runs playground-deploy) and
 # DEPLOY_KNOWN_HOSTS (the server's host key line). DEPLOY_BUILD_DIR: the
@@ -25,6 +26,7 @@ jobs:
     timeout-minutes: 120
     env:
       PLAYGROUND_DOMAIN: ${{ vars.PLAYGROUND_DOMAIN }}
+      PLAYGROUND_USERCONTENT: ${{ vars.PLAYGROUND_USERCONTENT }}
       DEPLOY_TARGET: ${{ vars.DEPLOY_TARGET }}
       BUILD_DIR: ${{ vars.DEPLOY_BUILD_DIR }}
     steps:

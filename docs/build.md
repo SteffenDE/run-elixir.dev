@@ -51,8 +51,8 @@ rebar3), and builds the template with the host's Mix in
 ```
 target/site/
   index.html, preview.html,  the app's Vite build (assets in _playground/), each
-  relay.html                   naming its build and runtime: <meta name="playground-build">,
-                               <meta name="playground-runtime">
+  relay.html, exec.html,       naming its build and runtime: <meta name="playground-build">,
+  storage.html                 <meta name="playground-runtime">
   sw.js                      the service worker, at the root for its scope /
   playground.json            the apex and the usercontent domain (frames.md)
   favicon.ico, icons/,       app/public as it is: the icons, the web app manifest,

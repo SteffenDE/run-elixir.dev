@@ -138,7 +138,20 @@ and skip what needs a hand inside the preview (`helpers.ts`
 `domcontentloaded`: Playwright would wait for those frames' `load`
 forever.
 
-## Next
+## Deploying
 
-1. **Deploy.** A second site in Caddy with a wildcard certificate of its
-   own; the old `*.DOMAIN` names for the move only.
+A second site in Caddy for the usercontent domain, with a wildcard
+certificate of its own, its headers, the Hex and git proxies and
+`/api/nif/` ([deploy.md](deploy.md#the-two-domains)); `PLAYGROUND_USERCONTENT`
+in the build, `USERCONTENT` in `playground-deploy`'s configuration, which
+checks an exec frame's headers there. The apex's subdomains stay for the
+former layout's addresses until their stores have moved.
+
+## Not yet
+
+- **A real Safari.** Playwright's WebKit runs all of this; Safari's own
+  storage rules (ITP) for a frame of another site are not.
+- **Firefox leaving a page** with a frame of another site in it hung in
+  Playwright's Firefox, which the pages now avoid (`leave.ts`); a stock
+  Firefox is not checked.
+- **The usercontent domain's name**, and its DNS and certificate.
