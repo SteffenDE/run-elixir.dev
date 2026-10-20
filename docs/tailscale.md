@@ -60,6 +60,9 @@ sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
     address is the device's tailnet address.
   - Without Tailscale, another host is `enetunreach` and a name `nxdomain`,
     at once.
+  - On the `worktree-node` branch, a Node.js process's `net`, `dns` and
+    `dgram` go the same ways; its HTTPS stays `fetch()`'s (it has no TLS
+    of its own, [nodejs.md](nodejs.md#other-hosts-the-tailnet-tailscalemd)).
 - **Its servers in the tailnet:** the Tailscale menu shares a port a
   project's server listens on, at the device's own port
   (`http://elixir-playground.TAILNET.ts.net:4000/`), for the tailnet's

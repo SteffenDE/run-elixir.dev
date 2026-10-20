@@ -36,18 +36,18 @@ in `node_modules/.bin`) with it.
 | `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. |
 | `threads.ts` | `worker_threads`: a `Worker` is a nested worker running `nodejs.js` as a thread of the same process, sharing its files channel (one call at a time, by a lock in shared memory); messages as structured clones (shared memories, WebAssembly modules); a thread's output and uncaught error go to its parent. Node's `MessageChannel`: ports with `ref`/`unref` and `on('message')`. |
 | `wasi.ts` | `node:wasi` over the runtime's WASI (`wasi/index.ts`), on the shared files. |
-| `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the project's ports (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too; `https.request` and `get`, the same over HTTPS the exec frame carries (below). |
+| `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the project's ports, and to other hosts through the tailnet (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too; `https.request` and `get`, the same over HTTPS the exec frame carries (below). |
+| `dns.ts`, `dgram.ts` | `dns` (`lookup`, `resolve4`/`6`, CNAME, MX, NS, SRV, TXT) by the node's DNS; `dgram` on the project's UDP ports (below). |
 | `hashes.ts` | `crypto.createHash`, `createHmac` and `hash` (md5, sha1, sha2, ripemd160), synchronous, by `@noble/hashes`. |
-| `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `dns` (the machine's own names), `Buffer` with `base64url`. |
+| `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `Buffer` with `base64url`. |
 
 Stacks print as Node's (`at f (file:line:col)`) whatever the engine wrote,
 without the runtime's own frames.
 
 **What is missing** says so when called: an HTTPS server and `tls`
-(a socket's own TLS), connections to names other than the machine's but
-by `https` (`ENOTFOUND`; `fetch` is the browser's, and reaches the
-internet, not the project's ports), `child_process`, `zlib`, ciphers and
-keys in `crypto`. There is no
+(a socket's own TLS, so HTTPS stays `fetch()`'s even with Tailscale),
+`child_process`, `zlib`, ciphers and keys in `crypto`. `fetch` is the
+browser's, and reaches the internet, not the project's ports. There is no
 REPL, and a process reads no standard input: `process.stdin` stays open
 with nothing in it, as a terminal's with nothing typed, and does not hold
 the loop (ending it at once stopped servers that close with their input,
@@ -137,7 +137,34 @@ on it as plain HTTP, and the exec frame's worker answers it with a
 certificate; it reads only what the site's CORS allows (a site without
 CORS headers answers 502, saying why), sets Host, User-Agent and Cookie
 itself, follows redirects and decompresses. Each connection carries one
-request.
+request. The gateway says how first (`https.ts`: a line,
+`fetch` or `error REASON`), which the socket reads before its
+`connect`. A node's HTTPS takes the tailnet when Tailscale is set up
+(its own TLS over a TCP connection, the `tcp` line); a process's does
+not, having no TLS to do there.
+
+### Other hosts: the tailnet ([tailscale.md](tailscale.md))
+
+As a node's, a process's network beyond the machine goes through the
+user's tailnet, through the IDE's page's gates (`tailnet.ts`), and is out
+of reach without it:
+
+- **Names:** `dns` sends DNS messages to the node's DNS (`{ op: 'dns',
+  ref, query }`, `runtime/dns.ts`): Tailscale's resolver, else NXDOMAIN
+  at once (`ENOTFOUND`). The machine's own names and addresses stay
+  local. A worker thread resolves only those.
+- **TCP:** `net.connect` (and `http.request`) to another host looks the
+  name up, then asks for a connection to the address (`{ op: 'connect',
+  id, port, host, via: 'tcp' }`), which `exec/host.ts`'s `dial` opens
+  through the tailnet and pipes; `connected` carries the device's end
+  (`socket.localAddress`), `refused` the error's code (`ENETUNREACH`
+  without Tailscale, and the setup hint; `ECONNREFUSED`, `ETIMEDOUT`).
+- **UDP:** `dgram` sockets bind ports of the project's UDP (`udp-bind`,
+  0 a free one), shared with the nodes' (`node.udpPorts`); a datagram to
+  the machine's own address goes to a process's port or a node's, or to
+  the node's DNS on 53, from 127.0.0.1; to another host, through the
+  tailnet (`tailnet.ts`'s `udp`, one route per process: its answers come
+  back to the port they were sent from); dropped without it.
 
 What files.js reports changed (every 200 ms at most) the exec frame's
 worker passes on
@@ -164,7 +191,11 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   through Vite's proxy to a backend; a process's `http.get` to a node's
   `:gen_tcp` server, and a node's `:httpc` to a process's server;
   `https.get` of hex.pm's API by fetch, and a site without
-  CORS answering 502.
+  CORS answering 502; without Tailscale, `net.connect` to an address
+  (`ENETUNREACH`), `dns.lookup`, `resolve4` and an `http.get` by name
+  (`ENOTFOUND`), at once; `dgram` between processes, a node and a process
+  both ways, a DNS query to 127.0.0.53 (NXDOMAIN), and a datagram to
+  another host dropped.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`.
 
@@ -180,3 +211,7 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 4. Standard input for a process (the terminal's typing, Vite's
    shortcuts; a pipeline's input), and a REPL.
 5. `fs.watch` in a worker thread (only a process hears the changes).
+6. Through a tailnet, tried: `tailscale.spec.ts`'s Headscale setup for a
+   process's `http.get`, `net.connect`, `dns` and `dgram`. A TLS of the
+   process's own (`tls.connect`, HTTPS through the tailnet) would need a
+   TLS library in JavaScript.
