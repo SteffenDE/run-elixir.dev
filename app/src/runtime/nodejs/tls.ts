@@ -259,6 +259,17 @@ export class Engine {
 }
 
 type Socket = ReturnType<Net['module']['connect']>;
+
+// A stream whose other side closed: its end once what it holds is read,
+// then its destroy.
+export function closeAfterEnd(stream: InstanceType<typeof Duplex>): void {
+  if (stream.destroyed) return;
+  if (stream.readableEnded) return void stream.destroy();
+  stream.once('end', () => stream.destroy());
+  stream.push(null);
+  // Nobody reading: the end will not come, so not wait for it.
+  if (!stream.readableFlowing && !stream.listenerCount('readable')) stream.destroy();
+}
 type Duplex = InstanceType<typeof Duplex>;
 
 // What Node's getPeerCertificate answers, as far as the DER is not parsed:
@@ -287,6 +298,9 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
     declare servername: string;
     declare connecting: boolean;
     declare pendingWrites: [Uint8Array, (error?: Error | null) => void][];
+    // Plain HTTP to the gateway's fetch() (no tailnet for port 443): the
+    // browser does the TLS, and checks the certificate.
+    declare plain: boolean;
 
     constructor(raw: Duplex, host: string, options: TlsOptions) {
       super({ allowHalfOpen: false, decodeStrings: true });
@@ -299,33 +313,40 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
       this.servername = options.servername ?? host;
       this.connecting = true;
       this.pendingWrites = [];
+      this.plain = false;
+      raw.once('gateway', (line: string) => (this.plain = line === 'fetch'));
       const reject = options.rejectUnauthorized ?? env.NODE_TLS_REJECT_UNAUTHORIZED !== '0';
-      const opened = Engine.open(runtime, host, { ...options, rejectUnauthorized: reject });
-      const ready = () =>
-        opened.then(
+      // What came before the engine waits for it.
+      const early: Uint8Array[] = [];
+      const ready = () => {
+        if (this.plain) {
+          this.authorized = true;
+          this.alpnProtocol = 'http/1.1';
+          this.secured();
+          for (const chunk of early.splice(0)) this.received(chunk);
+          return;
+        }
+        Engine.open(runtime, host, { ...options, rejectUnauthorized: reject }).then(
           (engine) => {
             if (this.destroyed) return engine.forget();
             this.engine = engine;
             this.flush();
+            for (const chunk of early.splice(0)) this.received(chunk);
           },
           (error: Error) => this.destroy(error),
         );
-      if ((raw as Partial<Socket>).connecting) raw.once('connect', ready);
-      else void ready();
-      // What came before the engine waits for it.
-      const early: Uint8Array[] = [];
+      };
+      if ((raw as Partial<Socket>).connecting || (raw as Partial<Socket>).pending)
+        raw.once('connect', ready);
+      else ready();
       raw.on('data', (chunk: Uint8Array) => {
-        if (!this.engine) return void early.push(chunk);
+        if (!this.engine && !(this.plain && !this.connecting)) return void early.push(chunk);
         this.received(chunk);
       });
-      void opened.then(
-        () => {
-          for (const chunk of early.splice(0)) this.received(chunk);
-        },
-        () => {},
-      );
       raw.on('end', () => this.push(null));
-      raw.on('close', () => this.destroy());
+      // The connection closed: what it gave is read first, then the end,
+      // then the close (destroying at once would drop what is buffered).
+      raw.on('close', () => closeAfterEnd(this));
       raw.on('error', (error: Error) => this.destroy(error));
     }
 
@@ -336,6 +357,7 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
     }
 
     received(chunk: Uint8Array) {
+      if (this.plain) return void this.push(Buffer.from(chunk));
       const engine = this.engine!;
       let plain: Uint8Array | null;
       try {
@@ -352,13 +374,16 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
       else if (plain.length) this.push(Buffer.from(plain.buffer, plain.byteOffset, plain.length));
     }
 
+    // The handshake done (or, plain, the gateway's fetch() there: the
+    // browser checked the certificate).
     secured() {
-      const engine = this.engine!;
       this.connecting = false;
-      const refused = engine.refused;
-      this.authorized = refused === null;
-      this.authorizationError = refused && certificateCode(refused)[0];
-      this.alpnProtocol = engine.alpn;
+      if (this.engine) {
+        const refused = this.engine.refused;
+        this.authorized = refused === null;
+        this.authorizationError = refused && certificateCode(refused)[0];
+        this.alpnProtocol = this.engine.alpn;
+      }
       for (const [chunk, callback] of this.pendingWrites.splice(0)) this.send(chunk, callback);
       this.emit('secureConnect');
       this.emit('secure');
@@ -373,6 +398,10 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
       else this.send(new Uint8Array(chunk), callback);
     }
     send(chunk: Uint8Array, callback: (error?: Error | null) => void) {
+      if (this.plain) {
+        this.raw.write(chunk);
+        return callback();
+      }
       try {
         this.engine!.write(chunk);
       } catch (error) {
@@ -472,9 +501,17 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
       };
     }
     const host = options.host ?? 'localhost';
+    // HTTPS's port goes by the gateway (https.ts), as https.request does:
+    // the tailnet's TCP and this TLS, else plain HTTP to its fetch(); other
+    // ports (a database's TLS) by the tailnet alone.
     const raw =
       options.socket ??
-      (net.module.connect({ port: options.port, host, timeout: options.timeout }) as Duplex);
+      (net.module.connect({
+        port: options.port,
+        host,
+        timeout: options.timeout,
+        gateway: Number(options.port) === 443 && !net.module.isIP(host),
+      }) as Duplex);
     // An address names no server (no SNI), unless the options do.
     const servername = options.servername ?? (net.module.isIP(host) ? '' : host);
     const socket = new TLSSocket(raw, host, { ...options, servername });

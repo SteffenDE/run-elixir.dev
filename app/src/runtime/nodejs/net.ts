@@ -21,7 +21,7 @@
 import { Buffer } from './buffer';
 import { createDgram, type DgramMessage } from './dgram';
 import { createDns } from './dns';
-import { Engine, type TlsOptions } from './tls';
+import { Engine, closeAfterEnd, type TlsOptions } from './tls';
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
 
@@ -128,6 +128,9 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
     declare handshaking: boolean;
     declare host: string;
     declare tlsOptions: TlsOptions;
+    // Whether "tcp" from the gateway means this socket's TLS (https), or
+    // its caller's (gateway: tls.ts).
+    declare ownTls: boolean;
 
     constructor(options: { id?: number; port?: number; allowHalfOpen?: boolean } = {}) {
       super({ allowHalfOpen: options.allowHalfOpen ?? false, decodeStrings: true });
@@ -172,6 +175,9 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
         timeout?: number;
         https?: boolean;
         tls?: TlsOptions;
+        // The gateway, with TLS the caller's (tls.ts): raw TCP on "tcp",
+        // plain HTTP for its fetch() on "fetch" ('gateway' says which).
+        gateway?: boolean;
       };
       if (listener) this.once('connect', listener);
       if (options.timeout) this.setTimeout(options.timeout);
@@ -180,7 +186,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
       this.connecting = true;
       // https: HTTPS to any host, which the exec frame carries (not a
       // socket's own bytes to the host: http.ts's https alone asks for it).
-      const https = Boolean(options.https);
+      const https = Boolean(options.https) || Boolean(options.gateway);
+      this.ownTls = !options.gateway;
       this.host = host;
       this.tlsOptions = options.tls ?? {};
       if (options.path !== undefined || !(port > 0 && port < 65536)) {
@@ -257,16 +264,18 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
       if (this.securing) return void this.securing.push(bytes);
       if (this.engine) return this.decrypt(bytes);
       if (this.gateway !== null) {
-        const text = this.gateway + new TextDecoder().decode(bytes);
-        const end = text.indexOf('\n');
-        if (end < 0) {
-          this.gateway = text;
+        // The line is ASCII; what follows it, bytes as they came.
+        const at = bytes.indexOf(10);
+        if (at < 0) {
+          this.gateway += new TextDecoder().decode(bytes);
           return;
         }
+        const line = this.gateway + new TextDecoder().decode(bytes.subarray(0, at));
+        const after = bytes.subarray(at + 1);
         this.gateway = null;
-        const line = text.slice(0, end);
-        if (line === 'tcp') return this.secure(new TextEncoder().encode(text.slice(end + 1)));
-        if (line !== 'fetch') {
+        if (line === 'tcp' && this.ownTls) return this.secure(after.slice());
+        if (line === 'tcp' || line === 'fetch') this.emit('gateway', line);
+        if (line !== 'fetch' && line !== 'tcp') {
           const code = (line.match(/^error (\w+)/)?.[1] ?? 'ehostunreach').toUpperCase();
           this.destroy(
             netError(code, 'connect', this.remotePort, MESSAGES[code] ?? code.toLowerCase()),
@@ -275,9 +284,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
         }
         this.emit('connect');
         this.emit('ready');
-        const rest = new TextEncoder().encode(text.slice(end + 1));
-        if (!rest.length) return;
-        bytes = rest;
+        if (!after.length) return;
+        bytes = after;
       }
       this.deliver(bytes);
     }
@@ -554,8 +562,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
       else if (message.op === 'end') socket.push(null);
       else {
         sockets.delete(message.id);
-        socket.push(null);
-        socket.destroy();
+        // What came before it is read first (tls.ts closeAfterEnd).
+        closeAfterEnd(socket);
       }
     }
   };
