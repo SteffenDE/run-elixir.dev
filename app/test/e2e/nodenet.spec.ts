@@ -222,3 +222,90 @@ test('a Node.js process’s other hosts and names, without Tailscale', async ({ 
   expect(away).toContain('http ENOTFOUND getaddrinfo');
   expect(Number(/took (\d+) ms/.exec(away)?.[1])).toBeLessThan(1500);
 });
+
+// dgram on the project's UDP, as a node's: between processes and nodes as
+// on one machine, the node's DNS on 127.0.0.53, and (without Tailscale)
+// another host's datagrams dropped.
+test('a Node.js process’s UDP: processes, nodes and the DNS', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/echo.cjs',
+    [
+      "const s = require('dgram').createSocket('udp4');",
+      "s.on('message', (m, r) => {",
+      '  console.log(`served ${m} from ${r.address}`);',
+      "  s.send(`re:${m}`, r.port, r.address, () => m.toString() === 'last' && s.close());",
+      '});',
+      "s.bind(41300, () => console.log('echo on', s.address().port));",
+    ].join('\n'),
+  );
+  // Sends `text` to `port` until it is answered; prints the answer.
+  await writeText(
+    page,
+    '/work/ask.cjs',
+    [
+      "const dgram = require('dgram');",
+      'const [port, text] = [Number(process.argv[2]), process.argv[3]];',
+      "const s = dgram.createSocket('udp4');",
+      "const timer = setInterval(() => s.send(text, port, '127.0.0.1'), 300);",
+      "s.on('message', (m, r) => {",
+      '  console.log(`answer ${m} from ${r.address}:${r.port}`);',
+      '  clearInterval(timer);',
+      '  s.close();',
+      '});',
+      "s.send(text, port, 'localhost');",
+    ].join('\n'),
+  );
+  await writeText(
+    page,
+    '/work/dns.cjs',
+    [
+      "const s = require('dgram').createSocket('udp4');",
+      // A query for www.example.com's A records.
+      'const q = Buffer.from([0x12, 0x34, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 3, ...Buffer.from("www"), 7, ...Buffer.from("example"), 3, ...Buffer.from("com"), 0, 0, 1, 0, 1]);',
+      "s.connect(53, '127.0.0.53', () => s.send(q));",
+      "s.on('message', (m) => {",
+      "  console.log('dns id', m.readUInt16BE(0).toString(16), 'rcode', m[3] & 15);",
+      "  const away = require('dgram').createSocket('udp4');",
+      "  away.on('message', () => console.log('away answered'));",
+      "  away.send(q, 53, '1.1.1.1', () => setTimeout(() => {",
+      "    console.log('away dropped');",
+      '    away.close();',
+      '    s.close();',
+      '  }, 500));',
+      '});',
+    ].join('\n'),
+  );
+  await background(page, 'node echo.cjs', /^echo on 41300$/m);
+
+  // Process to process.
+  expect(await run(page, 'node ask.cjs 41300 hi')).toMatch(/answer re:hi from 127\.0\.0\.1:41300/);
+  // A node to a process.
+  expect(
+    await run(
+      page,
+      `elixir -e '{:ok, s} = :gen_udp.open(0, [:binary, active: false]); :ok = :gen_udp.send(s, {127, 0, 0, 1}, 41300, "node"); IO.inspect(:gen_udp.recv(s, 0, 5000))'`,
+    ),
+  ).toContain('{:ok, {{127, 0, 0, 1}, 41300, "re:node"}}');
+  // A process to a node.
+  const shell = await newShell(page);
+  const served = run(
+    page,
+    `elixir -e '{:ok, s} = :gen_udp.open(41301, [:binary, active: false]); {:ok, {ip, port, data}} = :gen_udp.recv(s, 0, 60_000); :ok = :gen_udp.send(s, ip, port, "re:" <> data); IO.puts("served #{data}")'`,
+    shell,
+  );
+  expect(await run(page, 'node ask.cjs 41301 process')).toContain(
+    'answer re:process from 127.0.0.1:41301',
+  );
+  expect(await served).toContain('served process');
+  // The node's DNS, without Tailscale: no such name; another host's
+  // datagrams go nowhere.
+  const dns = await run(page, 'node dns.cjs');
+  expect(dns).toContain('dns id 1234 rcode 3');
+  expect(dns).toContain('away dropped');
+  expect(dns).not.toContain('away answered');
+  expect(await run(page, 'node ask.cjs 41300 last')).toContain('answer re:last');
+});
