@@ -5,15 +5,22 @@
 import type { Context, Process } from './tailwind';
 
 // Start a node for `command` (['mix', 'deps.get']): its output is the
-// process's, and its exit status the process's.
+// process's, and its exit status the process's; terminal(raw, signals):
+// it set the terminal's input mode. It takes the process's input and the
+// terminal's size.
 export type StartNode = (
   command: string[],
   context: Context,
   output: (bytes: Uint8Array) => void,
   exit: (code: number) => void,
-) => { stop(): void };
+  terminal?: (raw: boolean, signals: boolean) => void,
+) => { stop(): void; input?(text: string): void; resize?(columns: number, rows: number): void };
 
-// Run `command` as a node; its exit status is the process's.
+const decoder = new TextDecoder();
+
+// Run `command` as a node; its exit status is the process's. What the
+// process reads is the node's input (its end a Ctrl+D, as typed), and the
+// terminal's mode the node sets is the process's to set.
 function run(start: StartNode, process: Process, command: string[], context: Context): void {
   const node = start(
     command,
@@ -23,7 +30,12 @@ function run(start: StartNode, process: Process, command: string[], context: Con
       node.stop();
       process.exit(code);
     },
+    (raw, signals) => process.raw?.(raw, signals),
   );
+  process.oninput = (bytes) => node.input?.(bytes ? decoder.decode(bytes) : '\x04');
+  process.onresize = (columns, rows) => node.resize?.(columns, rows);
+  const [columns, rows] = process.size?.() ?? [80, 24];
+  node.resize?.(columns, rows);
   // Its port closed: the node runs on, as an OS process outlives its
   // port (Livebook's runtime node is started from a process that then
   // ends), until it ends by itself or the node that started it stops.

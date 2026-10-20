@@ -17,6 +17,7 @@ export const FRAME = {
   TERMINATE: 11,
   CONNECTED: 12,
   DATAGRAM: 13,
+  MODE: 14,
 };
 export const RING = 1 << 20;
 
@@ -39,6 +40,15 @@ export class Channel {
   declare terminated: boolean;
   declare size: number[];
   declare raw: boolean;
+  // Whether Ctrl+C interrupts (a tty's ISIG): off while a page program
+  // set raw input itself (Node's setRawMode), which reads it as a key.
+  declare signals: boolean;
+  // The page program the terminal's input goes to now (runOnPage), or
+  // null: Ctrl+D (end of input) is the shell's to ignore.
+  declare reading: number | null;
+  // Whether the node's own input and output are a terminal (a shell's) or
+  // not (sh -c from a program that pipes, child_process).
+  declare tty: boolean[];
   declare processes: Map<number, Process>;
   // The ports the project's other nodes listen on (PEERS frames).
   declare peers: Set<number>;
@@ -54,6 +64,9 @@ export class Channel {
     // raw input.
     this.size = [80, 24];
     this.raw = false;
+    this.signals = true;
+    this.reading = null;
+    this.tty = [true, true];
     // Programs the page runs (host/programs.ts), by id.
     this.processes = new Map();
     this.peers = new Set();
@@ -74,7 +87,12 @@ export class Channel {
       const payload = this.bytes(read + 9, length);
       read += 9 + length;
       const net = this.network;
-      if (kind === FRAME.INPUT) this.input.push(payload);
+      if (kind === FRAME.INPUT) {
+        // Ctrl+D on an empty line (the line discipline's end of input) is
+        // a page program's to read; nothing else reads it.
+        if (payload.length !== 1 || payload[0] !== 4 || this.reading !== null || this.raw)
+          this.input.push(payload);
+      } else if (kind === FRAME.MODE) this.mode(payload[0] === 1, payload[1] === 1);
       else if (kind === FRAME.INTERRUPT) this.interrupted = true;
       else if (kind === FRAME.TERMINATE) this.terminated = true;
       else if (kind === FRAME.RESIZE) {
@@ -142,11 +160,13 @@ export class Channel {
     return bytes;
   }
   // The node set the terminal to raw input (IEx's line editing) or back:
-  // the page passes keys through instead of editing lines.
-  mode(raw: boolean): void {
-    if (raw === this.raw) return;
+  // the page passes keys through instead of editing lines; `signals`: Ctrl+C
+  // still interrupts (off: it is a key, as Node's setRawMode has it).
+  mode(raw: boolean, signals = true): void {
+    if (raw === this.raw && signals === this.signals) return;
     this.raw = raw;
-    postMessage({ kind: 'tty', raw });
+    this.signals = signals;
+    postMessage({ kind: 'tty', raw, signals });
   }
   // A line typed at the shell (blocking).
   line(): string | null {
@@ -170,9 +190,20 @@ export class Channel {
 }
 
 // A program the page runs (host/programs.ts): its output and exit come back
-// as frames; it is told when the node closes its port.
+// as frames; it is told when the node closes its port. Its input: bytes,
+// then their end; or (null) none that ends, as an open pipe's (the BEAM's
+// ports), unless the caller forwards some (runOnPage, the terminal's);
+// `tty`: whether its stdin and stdout are the terminal. started(id) hears
+// its id.
 let processes = 0;
-export function onPage(channel: Channel, name: string): Program {
+export function onPage(
+  channel: Channel,
+  name: string,
+  io: { input: Uint8Array | null; tty: boolean[]; started?: (id: number) => void } = {
+    input: null,
+    tty: [false, false],
+  },
+): Program {
   return (process, { args, cwd, env }) => {
     const id = (processes += 1);
     channel.processes.set(id, process);
@@ -180,6 +211,11 @@ export function onPage(channel: Channel, name: string): Program {
       channel.processes.delete(id);
       postMessage({ kind: 'kill', id });
     };
-    postMessage({ kind: 'spawn', id, name, args, cwd, env });
+    postMessage({ kind: 'spawn', id, name, args, cwd, env, tty: io.tty });
+    if (io.input) {
+      if (io.input.length) postMessage({ kind: 'stdin', id, bytes: io.input });
+      postMessage({ kind: 'stdin', id, end: true });
+    }
+    io.started?.(id);
   };
 }

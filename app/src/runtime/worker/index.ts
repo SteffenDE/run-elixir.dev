@@ -62,6 +62,9 @@ interface Start {
   https?: boolean;
   initial?: string[];
   pagePrograms?: string[];
+  // Whether the node's input and output are a terminal (default both: a
+  // shell's; a program's sh -c may say no, its page programs then too).
+  tty?: boolean[];
   cwd?: string;
   boots?: string[];
   // What the page has of them already (host/node.ts Node.start): the boot
@@ -249,6 +252,7 @@ onmessage = async ({
     https = false,
     initial = [],
     pagePrograms = [],
+    tty = [true, true],
     cwd: start = '/work',
     boots = ['boot'],
     images: tars,
@@ -289,6 +293,7 @@ onmessage = async ({
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
       : null;
     const channel = new Channel(shared);
+    channel.tty = tty;
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
     const fetchFile = bundled((bundle) => fetchBundle(runtime(`fs/bundles/${bundle}.tar`)));
     const fs = vfs(root, fetchFile, sharedFs);
@@ -375,29 +380,55 @@ onmessage = async ({
       }
     };
 
-    // A page program (git, tailwind, …) the shell runs, until it exits or
-    // Ctrl+C stops it.
+    // A page program (git, tailwind, node, …) the shell runs, until it
+    // exits or Ctrl+C stops it. Its input: a pipe's (`input`), else the
+    // terminal's as it is typed (Ctrl+D its end), as a node's own is; its
+    // output the pipe's or the terminal's. The terminal's mode, which it
+    // may set (Node's setRawMode), is the shell's again after it.
     const runOnPage = (
       name: string,
       args: string[],
       cwd: string,
       vars: Record<string, string> = env,
-      out: (bytes: Uint8Array) => void = (bytes) => say('out', bytes),
+      out: ((bytes: Uint8Array) => void) | null = null,
+      input: Uint8Array | null = null,
     ): number => {
       const process = new Process();
-      onPage(channel, name)(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
-      for (;;) {
-        channel.pump();
-        for (const bytes of process.output.splice(0)) out(bytes);
-        if (process.ended) return process.status ?? 1;
-        if (channel.interrupted || channel.terminated) {
-          channel.interrupted = false;
-          channel.terminated = false;
-          channel.input = [];
-          process.onclose?.();
-          return 130;
+      const terminal = !input && channel.tty[0];
+      let id = 0;
+      onPage(channel, name, {
+        // A pipe's bytes and their end; the terminal's as forwarded below;
+        // else nothing, and no end (sh -c with no terminal: an open pipe).
+        input,
+        tty: [terminal, !out && channel.tty[1]],
+        started: (started) => (id = started),
+      })(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
+      const mode = [channel.raw, channel.signals] as const;
+      if (terminal) channel.reading = id;
+      try {
+        for (;;) {
+          channel.pump();
+          for (const bytes of process.output.splice(0)) (out ?? ((b) => say('out', b)))(bytes);
+          if (process.ended) return process.status ?? 1;
+          if (channel.interrupted || channel.terminated) {
+            channel.interrupted = false;
+            channel.terminated = false;
+            channel.input = [];
+            process.onclose?.();
+            return 130;
+          }
+          if (terminal)
+            for (const bytes of channel.input.splice(0))
+              postMessage(
+                !channel.raw && bytes.length === 1 && bytes[0] === 4
+                  ? { kind: 'stdin', id, end: true }
+                  : { kind: 'stdin', id, bytes },
+              );
+          channel.sleep(1000);
         }
-        channel.sleep(1000);
+      } finally {
+        if (terminal) channel.reading = null;
+        channel.mode(...mode);
       }
     };
 
@@ -435,8 +466,7 @@ onmessage = async ({
         if (status === 130) text('\n');
         return status;
       }
-      if (pagePrograms.includes(name))
-        return runOnPage(name, given, at, vars, io.stdout ?? undefined);
+      if (pagePrograms.includes(name)) return runOnPage(name, given, at, vars, io.stdout, io.input);
       // A script for node (#!/usr/bin/env node: a package's bin in
       // node_modules/.bin): the page's node runs it.
       if (
@@ -444,7 +474,7 @@ onmessage = async ({
         /^#!.*\bnode\b/.test(new TextDecoder().decode(head)) &&
         pagePrograms.includes('node')
       )
-        return runOnPage('node', [program, ...given], at, vars, io.stdout ?? undefined);
+        return runOnPage('node', [program, ...given], at, vars, io.stdout, io.input);
       if (TOOLS.has(name) && module()) {
         const tool = coreutils(
           {

@@ -401,7 +401,7 @@ function listen(rpc: Rpc): void {
       store.failedToStart(text.replace(/^failed: /, ''));
     } else store.setStatus(text);
   });
-  on('terminal', ({ id, raw }) => sessions.get(id)?.discipline.raw(raw));
+  on('terminal', ({ id, raw, signals }) => sessions.get(id)?.discipline.raw(raw, signals));
   on('serving', ({ ports, port, byShell, scripts }) => {
     scriptPorts = new Set(scripts);
     for (const [id, served] of Object.entries(byShell)) {

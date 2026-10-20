@@ -77,7 +77,7 @@ export interface ShellStart {
 export type ExecEvents = {
   output: { id: number; bytes: Uint8Array };
   status: { id: number; text: string };
-  terminal: { id: number; raw: boolean };
+  terminal: { id: number; raw: boolean; signals: boolean };
   // scripts: the ports Node.js processes serve on (programs/nodejs.ts).
   serving: {
     ports: number[];
@@ -374,7 +374,7 @@ function nodeServices() {
 }
 
 // A node for one command a node ran (sh, rebar3), in its own worker.
-const startNode: StartNode = (command, { cwd, env }, output, exit) => {
+const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal) => {
   if (!files || !start) {
     exit(1);
     return { stop() {} };
@@ -403,11 +403,18 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
       exit(1);
     },
     onlistening: updatePeers,
+    onterminal: (raw, signals) => terminal?.(raw, signals),
   });
   nodes.add(node);
   commands.set(node, command.join(' '));
   updatePeers();
-  node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
+  node.start({
+    command,
+    cwd,
+    env: { ...env, PWD: cwd },
+    boots: setup.boots,
+    tty: [tty?.stdin ?? false, tty?.stdout ?? false],
+  });
   return node;
 };
 
@@ -569,7 +576,7 @@ const handlers = {
         updateListening();
         updatePeers();
       },
-      onterminal: (raw) => rpc.emit('terminal', { id, raw }),
+      onterminal: (raw, signals) => rpc.emit('terminal', { id, raw, signals }),
     });
     shells.set(id, node);
     nodes.add(node);

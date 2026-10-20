@@ -2,7 +2,9 @@
 // Cooked: echo, line editing (left, right, backspace), history (up, down)
 // and pastes; the node gets whole lines. Raw (the node asked for it, as
 // IEx's line editing does): keys go to the node as typed, and it echoes.
-// Ctrl+C interrupts the node in both. `keys` are what anyone's terminal
+// Ctrl+C interrupts the node in both, unless raw input came without signals
+// (Node's setRawMode, as a tty without ISIG): then it is a key too. Ctrl+D
+// on an empty line is the end of input (what reads the terminal hears it). `keys` are what anyone's terminal
 // typed (a live session's guests too); `echo` goes into the shell's
 // output, so everyone sees it, as they see the node's. `typed`: lines the
 // shell ran before the terminal opened, as if typed here (the history).
@@ -21,12 +23,13 @@ export function lineDiscipline(
   echo: (text: string) => void,
   node: Typist,
   typed: string[] = [],
-): { keys(data: string): void; raw(on: boolean): void } {
+): { keys(data: string): void; raw(on: boolean, signals?: boolean): void } {
   let line = '';
   let cursor = 0;
   const history = typed.filter((text) => text.trim());
   let recalled = history.length;
   let raw = false;
+  let signals = true;
   // The line as `next`, the caret at `at`: from where the two first
   // differ, so a key typed at the end echoes just itself.
   const redraw = (next: string, at = next.length) => {
@@ -45,7 +48,7 @@ export function lineDiscipline(
   };
   const keys = (data: string) => {
     if (raw) {
-      if (data === '\x03') {
+      if (data === '\x03' && signals) {
         echo('^C');
         node.interrupt();
       } else node.input(data);
@@ -69,6 +72,8 @@ export function lineDiscipline(
         echo(line[cursor]);
         cursor++;
       }
+    } else if (data === '\x04') {
+      if (!line) node.input('\x04');
     } else if (data === '\x03') {
       echo('^C\r\n');
       line = '';
@@ -92,7 +97,8 @@ export function lineDiscipline(
   return {
     keys,
     // A line being typed goes to the node to edit, off the screen here.
-    raw(on: boolean) {
+    raw(on: boolean, withSignals = true) {
+      signals = withSignals;
       if (on === raw) return;
       raw = on;
       if (raw && line) {

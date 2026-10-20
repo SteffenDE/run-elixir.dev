@@ -513,9 +513,13 @@ function runProgram(program: Program, process: Process, context: Context): Promi
       },
       onkill: null,
       onowner: null,
+      raw: process.raw ? (on, signals) => process.raw!(on, signals) : undefined,
+      size: process.size ? () => process.size!() : undefined,
     };
     process.onkill = () => inner.onkill?.();
     process.onowner = () => inner.onowner?.();
+    process.oninput = (bytes) => inner.oninput?.(bytes);
+    process.onresize = (columns, rows) => inner.onresize?.(columns, rows);
     Promise.resolve(program(inner, context)).catch((error) => {
       process.write(`${(error as Error).message}\n`);
       inner.exit(1);
