@@ -32,7 +32,7 @@ import { Channel, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
-import { TOOLS, coreutils, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { TOOLS, coreutils, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
@@ -313,7 +313,18 @@ onmessage = async ({
       }
       return compiled;
     };
-    const tools: CoreutilsOptions = { module, fetch: fetchFile, shared: sharedFs };
+    // The site's other WASI programs (coreutils.ts PROGRAMS: rg.wasm), each
+    // fetched and compiled once it first runs.
+    const others = new Map<string, WebAssembly.Module | null>();
+    const load = (file: string) => {
+      if (!others.has(file)) {
+        const [status, bytes] = get(runtime(file));
+        const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
+        others.set(file, wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null);
+      }
+      return others.get(file)!;
+    };
+    const tools: CoreutilsOptions = { module, load, fetch: fetchFile, shared: sharedFs };
 
     // One node, until it halts or is interrupted.
     // extra: a command line's NAME=value assignments, for it alone.
@@ -478,7 +489,7 @@ onmessage = async ({
         pagePrograms.includes('node')
       )
         return runOnPage('node', [program, ...given], at, vars, io.stdout, io.input);
-      if (TOOLS.has(name) && module()) {
+      if (isTool(name) && (!TOOLS.has(name) || module())) {
         const tool = coreutils(
           {
             ...tools,

@@ -2,7 +2,9 @@
 // … for the shell and the nodes, as an OS has them. One module holds them
 // all; its first argument names the tool. Each run is an instance of its
 // own over the node's files (wasi/), run to its end on the caller's thread:
-// a node's port or the shell waits for it, as for a quick command.
+// a node's port or the shell waits for it, as for a quick command. Other
+// programs built for WASI run the same way, each its own module
+// (PROGRAMS: ripgrep's rg, ripgrep/build.py).
 import { WASI } from './wasi';
 import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';
@@ -21,9 +23,17 @@ export const TOOLS = new Set(
   ).split(' '),
 );
 
+// Programs of their own module (the site's NAME.wasm), by name.
+export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm' };
+
+// A tool of coreutils' or a program of PROGRAMS'.
+export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;
+
 export interface CoreutilsOptions {
   // coreutils.wasm, compiled; null when the site has none.
   module: () => WebAssembly.Module | null;
+  // Another of the site's modules (PROGRAMS), compiled; null without.
+  load?: (file: string) => WebAssembly.Module | null;
   fetch: Fetch;
   shared: Shared | null;
   // The standard streams are a terminal's (the shell's), this wide.
@@ -36,11 +46,12 @@ const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(
 
 // The program for tool `name`, or undefined (not one, or no coreutils.wasm).
 export function coreutils(options: CoreutilsOptions, name: string): Program | undefined {
-  if (!TOOLS.has(name)) return undefined;
+  if (!isTool(name)) return undefined;
+  const file = PROGRAMS[name] ?? 'coreutils.wasm';
   return (process, { args, cwd, env, root }) => {
-    const module = options.module();
+    const module = name in PROGRAMS ? (options.load?.(file) ?? null) : options.module();
     if (!module) {
-      process.write(`${name}: not in this site (coreutils.wasm)\n`);
+      process.write(`${name}: not in this site (${file})\n`);
       return process.exit(127);
     }
     const size = options.terminal?.() ?? null;
@@ -110,7 +121,7 @@ export function shWith(options: CoreutilsOptions, page: Program | undefined): Pr
 export function withCoreutils(programs: Programs, options: CoreutilsOptions): Programs {
   const out = { ...programs } as Programs;
   out.sh = shWith(options, programs.sh);
-  for (const name of TOOLS) out[name] ??= coreutils(options, name)!;
+  for (const name of [...TOOLS, ...Object.keys(PROGRAMS)]) out[name] ??= coreutils(options, name)!;
   return out;
 }
 

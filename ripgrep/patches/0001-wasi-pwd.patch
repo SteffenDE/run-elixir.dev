@@ -1,0 +1,14 @@
+--- a/crates/core/main.rs
++++ b/crates/core/main.rs
+@@ -41,6 +41,11 @@
+ 
+ /// Then, as it was, then again it will be.
+ fn main() -> ExitCode {
++    // WASI has no working directory: the playground passes it as PWD.
++    #[cfg(target_os = "wasi")]
++    if let Some(pwd) = std::env::var_os("PWD") {
++        let _ = std::env::set_current_dir(pwd);
++    }
+     match run(flags::parse()) {
+         Ok(code) => code,
+         Err(err) => {

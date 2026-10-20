@@ -4,7 +4,7 @@ import { File, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
 import { git, esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
-import { TOOLS } from './coreutils';
+import { PROGRAMS, TOOLS } from './coreutils';
 
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
 // Hex tool wrappers take their Linux paths; its architecture is its own
@@ -73,8 +73,9 @@ export function prepare(root: Dir, { dns = false } = {}): void {
     'iex',
     'erl',
     'escript',
-    // coreutils.wasm's (coreutils.ts).
+    // coreutils.wasm's, and the site's other WASI programs (coreutils.ts).
     ...TOOLS,
+    ...Object.keys(PROGRAMS),
   ])
     root.put(`usr/bin/${name}`, new File());
 }
