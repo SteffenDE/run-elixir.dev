@@ -114,7 +114,7 @@ test('IEx edits its own lines: tab completes, up recalls, Ctrl+C breaks', async 
   // Ctrl+C and a: the shell's prompt (it ran `iex` at the first), and
   // lines again.
   await page.keyboard.press('Control+c');
-  await expect.poll(() => (output(page)).then((text) => text.split('BREAK:').length)).toBe(3);
+  await expect.poll(() => output(page).then((text) => text.split('BREAK:').length)).toBe(3);
   await page.keyboard.press('a');
   await prompted(page, 2);
   await page.keyboard.type('pwd');

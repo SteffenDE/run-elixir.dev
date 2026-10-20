@@ -157,7 +157,7 @@ async function preview(port: number | null) {
     bridge.onport = shows;
     setPreviewHost({
       ready: (at) =>
-        previewRelay(previewKey, at, (requests) => serveRelayRequests(requests, () => bridge)),
+        previewRelay(previewKey, at, (relayed) => serveRelayRequests(relayed, () => bridge)),
       shows,
     });
   }

@@ -250,8 +250,9 @@ worker controls, and a blob worker takes the page's cross-origin isolation.
 the shell with `initial` commands typed first, or one command (erl's
 `args`, or a `command` by name as the shell runs it, such as `['mix',
 'deps.get']` or `['escript', FILE, ...]`), over the boot images `boots`
-(default `['boot']`). The start message carries what the page has once
-for every worker: the boot images as `files.js` gunzipped them and the
+(default `['boot']`). The start message carries what the exec frame's
+worker (`Node`'s owner, [frames.md](frames.md)) has once for every node's
+worker: the boot images as `files.js` gunzipped them and the
 manifest (`Files.boot`), and `beam.wasm`, `coreutils.wasm` and, for a
 shell, `brush.wasm`, compiled (`siteModule`; a compiled module posts to a
 worker as it is). The worker builds its tree from the tars; the emulator
