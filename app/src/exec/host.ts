@@ -314,9 +314,13 @@ function listenerOn(port: number): Listener {
   return scripts.get(port)?.listener ?? nodeOn(port)!;
 }
 
+// The ports servers listen on, in the order they started.
+let served: number[] = [];
+
 // The ports the shells' nodes and the Node.js processes serve on, and the
-// one the preview shows. Ephemeral listeners (Mix's compile lock) are no
-// server.
+// one the preview shows: Phoenix's, else the server that started last
+// (Vite's, started after the backend it proxies to). Ephemeral listeners
+// (Mix's compile lock) are no server.
 function updateListening(): void {
   const ports = new Set<number>();
   const byShell: Record<number, number[]> = {};
@@ -324,14 +328,16 @@ function updateListening(): void {
     byShell[id] = [...node.serving];
     for (const port of node.serving) ports.add(port);
   }
-  const served = [...scripts].filter(([, { serving }]) => serving).map(([port]) => port);
-  for (const port of served) ports.add(port);
+  const fromScripts = [...scripts].filter(([, { serving }]) => serving).map(([port]) => port);
+  for (const port of fromScripts) ports.add(port);
+  served = served.filter((port) => ports.has(port));
+  for (const port of ports) if (!served.includes(port)) served.push(port);
   const sorted = [...ports].sort((a, b) => a - b);
   const port = !ports.size
     ? null
-    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : sorted[0]));
+    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : served.at(-1)!));
   if (bridge && port !== null) bridge.port = port;
-  rpc.emit('serving', { ports: sorted, port, byShell, scripts: served });
+  rpc.emit('serving', { ports: sorted, port, byShell, scripts: fromScripts });
 }
 
 // Where the preview shows a port, for the app (PLAYGROUND_PREVIEW_ORIGIN),
@@ -403,6 +409,7 @@ const handlers = {
       options.ide,
     );
     chosenPort = null;
+    served = [];
     bridge.onport = (port) => {
       chosenPort = port;
       updateListening();
