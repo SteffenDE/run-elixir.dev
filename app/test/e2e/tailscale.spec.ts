@@ -203,9 +203,13 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
       "  console.log('short', (await dns.promises.lookup('exit-box')).address);",
       "  const s = net.connect(80, 'www.example.com', () => {",
       "    console.log('local', s.localAddress);",
-      "    s.end('GET / HTTP/1.0\\r\\nHost: www.example.com\\r\\n\\r\\n');",
+      "    s.write('GET / HTTP/1.0\\r\\nHost: www.example.com\\r\\n\\r\\n');",
       '  });',
-      "  s.once('data', (d) => console.log('tcp', d.toString().slice(0, 12)));",
+      // Ended once answered: a half-close first, some edges answer none.
+      "  s.once('data', (d) => {",
+      "    console.log('tcp', d.toString().slice(0, 12));",
+      '    s.end();',
+      '  });',
       "  await new Promise((done) => s.on('close', done));",
       "  await new Promise((done) => http.get('http://www.example.com/', (r) => {",
       "    console.log('http', r.statusCode);",
@@ -225,6 +229,51 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
   expect(node).toMatch(/tcp HTTP\/1\.[01] 200/);
   expect(node).toContain('http 200');
   expect(node).toContain('udp true');
+
+  // Its TLS, its own (rustls, tls.wasm) over the tailnet's TCP: https.get of
+  // a site without CORS headers, tls.connect with ALPN, and a certificate
+  // the roots refuse, refused or (rejectUnauthorized: false) let through.
+  await writeText(
+    project,
+    '/work/tls.cjs',
+    [
+      "const [https, tls] = ['https', 'tls'].map(require);",
+      '(async () => {',
+      "  await new Promise((done) => https.get('https://www.example.com/', (r) => {",
+      "    let body = '';",
+      "    r.on('data', (c) => (body += c)).on('end', () => {",
+      "      console.log('https', r.statusCode, /Example Domain/.test(body));",
+      '      done();',
+      '    });',
+      '  }));',
+      '  await new Promise((done) => {',
+      "    const s = tls.connect(443, 'www.example.com', { ALPNProtocols: ['h2', 'http/1.1'] }, () => {",
+      "      console.log('tls', s.authorized, s.getProtocol(), s.alpnProtocol, s.getPeerCertificate().raw.length > 0);",
+      '      s.end();',
+      "      s.on('close', done);",
+      '    });',
+      '  });',
+      '  await new Promise((done) =>',
+      "    tls.connect(443, 'expired.badssl.com').on('error', (e) => {",
+      "      console.log('expired', e.code);",
+      '      done();',
+      '    }),',
+      '  );',
+      '  await new Promise((done) => {',
+      "    const s = tls.connect(443, 'expired.badssl.com', { rejectUnauthorized: false }, () => {",
+      "      console.log('allowed', s.authorized, s.authorizationError);",
+      '      s.destroy();',
+      '      done();',
+      '    });',
+      '  });',
+      '})();',
+    ].join('\n'),
+  );
+  const secure = await run(project, 'node tls.cjs');
+  expect(secure).toContain('https 200 true');
+  expect(secure).toMatch(/tls true TLSv1\.[23] (h2|http\/1\.1) true/);
+  expect(secure).toContain('expired CERT_HAS_EXPIRED');
+  expect(secure).toContain('allowed false CERT_HAS_EXPIRED');
 
   // Erlang distribution to a node in the tailnet, on exit-box's machine:
   // its name through MagicDNS, its epmd and its distribution port (which
