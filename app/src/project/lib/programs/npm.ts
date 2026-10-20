@@ -526,6 +526,7 @@ const HELP = `npm ${NPM_VERSION} on the playground's Node.js
   npm run [SCRIPT] [-- ARGS]    (also npm test, npm start)
   npm exec PACKAGE [ARGS]   as npx
   npm init [-y]
+  npm create NAME [ARGS]    npm init NAME: npx create-NAME ARGS
 
 Packages come from registry.npmjs.org; install scripts do not run, and
 packages with native code only (no WebAssembly build) do not load.
@@ -636,7 +637,17 @@ export const npmProgram =
           return process.exit(
             await npx(programs, process, { ...context, args: rest.filter((a) => a !== '--') }),
           );
+        case 'create':
         case 'init': {
+          // An initializer: its create- package's bin, with what follows.
+          const at = rest.findIndex((a) => !a.startsWith('-'));
+          if (at >= 0) {
+            const args = rest.slice(at + 1).filter((a) => a !== '--');
+            return process.exit(
+              await npx(programs, process, { ...context, args: [initializer(rest[at]), ...args] }),
+            );
+          }
+          if (command === 'create') throw new NpmError('npm create NAME: which initializer');
           const root = context.cwd;
           if (await fs.stat(`${root}/package.json`))
             throw new NpmError('package.json is there already');
@@ -672,6 +683,18 @@ export const npmProgram =
 
 // npx PACKAGE[@VERSION] [ARGS]: the project's bin of that name, else the
 // package installed into ~/.npm/_npx and its bin. Its exit status.
+// npm init's initializer as the package it runs: foo → create-foo,
+// @scope → @scope/create, @scope/foo → @scope/create-foo (a version kept).
+export function initializer(name: string): string {
+  const at = name.lastIndexOf('@');
+  const [bare, version] = at > 0 ? [name.slice(0, at), name.slice(at)] : [name, ''];
+  if (bare.startsWith('@')) {
+    const [scope, rest] = bare.split('/');
+    return `${scope}/${rest ? `create-${rest}` : 'create'}${version}`;
+  }
+  return `create-${bare}${version}`;
+}
+
 async function npx(
   programs: () => Record<string, Program>,
   process: Process,
