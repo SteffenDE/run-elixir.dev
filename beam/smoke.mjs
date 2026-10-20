@@ -3,7 +3,9 @@
 //   node beam/smoke.mjs ['io:format("~p~n", [erlang:system_info(otp_release)])']
 //
 // The VM's file system is MEMFS: the dist's application ebins are copied
-// into /otp/lib/<app>/ebin before main runs.
+// into /otp/lib/<app>/ebin before main runs. Names come from its hosts
+// file only, as the page's inetrc has it: there is no inet_gethost (no
+// Module.beamSpawn here to run it), and kernel stops if it cannot start.
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +40,10 @@ await createModule({
       mod.FS_mkdirTree("/otp/bin");
       mod.FS_mkdirTree("/home");
       mod.FS_mkdirTree("/tmp");
+      mod.FS_mkdirTree("/etc");
+      mod.FS_createDataFile("/etc", "hosts", "127.0.0.1 localhost\n::1 localhost\n", true, true, true);
+      mod.FS_createDataFile("/etc", "inetrc", "{lookup, [file]}.\n", true, true, true);
+      mod.ENV.ERL_INETRC = "/etc/inetrc";
       mod.FS_createDataFile("/otp/bin/vm.boot", null, readFileSync(join(dist, "vm.boot")), true, true, true);
       for (const app of apps) {
         const ebin = join(otp, "lib", app, "ebin");
