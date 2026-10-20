@@ -327,6 +327,145 @@ export function isDeepStrictEqual(a: unknown, b: unknown): boolean {
   );
 }
 
+interface ArgOption {
+  type: 'boolean' | 'string';
+  short?: string;
+  multiple?: boolean;
+  default?: unknown;
+}
+
+type ArgToken =
+  | {
+      kind: 'option';
+      name: string;
+      rawName: string;
+      index: number;
+      value: string | undefined;
+      inlineValue: boolean | undefined;
+    }
+  | { kind: 'positional'; index: number; value: string }
+  | { kind: 'option-terminator'; index: number };
+
+const argError = (code: string, message: string) => Object.assign(new TypeError(message), { code });
+
+// util.parseArgs, as Node's: --name, --name=value, -n, -abc (booleans
+// grouped), -nvalue, --no-name (allowNegative), -- ending the options;
+// strict refuses an unknown option, a string without its value and a
+// positional unless allowed.
+function parseArgs(
+  config: {
+    args?: string[];
+    options?: Record<string, ArgOption>;
+    strict?: boolean;
+    allowPositionals?: boolean;
+    allowNegative?: boolean;
+    tokens?: boolean;
+  } = {},
+) {
+  const args =
+    config.args ?? (globalThis as { process?: { argv: string[] } }).process!.argv.slice(2);
+  const options = config.options ?? {};
+  const strict = config.strict ?? true;
+  const allowPositionals = config.allowPositionals ?? !strict;
+  const byShort = new Map(
+    Object.entries(options)
+      .filter(([, o]) => o.short)
+      .map(([name, o]) => [o.short!, name]),
+  );
+  const values: Record<string, unknown> = Object.create(null);
+  const positionals: string[] = [];
+  const tokens: ArgToken[] = [];
+  const store = (name: string, value: unknown) => {
+    if (options[name]?.multiple) ((values[name] as unknown[]) ??= []).push(value);
+    else values[name] = value;
+  };
+  // An option `name` as written (`raw`), its value (inline or the next
+  // argument's) as its type asks.
+  const option = (index: number, raw: string, name: string, inline: string | undefined) => {
+    let known = options[name];
+    let negated = false;
+    if (
+      !known &&
+      config.allowNegative &&
+      name.startsWith('no-') &&
+      options[name.slice(3)]?.type === 'boolean'
+    ) {
+      name = name.slice(3);
+      known = options[name];
+      negated = true;
+    }
+    if (!known && strict)
+      throw argError(
+        'ERR_PARSE_ARGS_UNKNOWN_OPTION',
+        `Unknown option '${raw}'${allowPositionals ? `. To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- "${raw}"` : ''}`,
+      );
+    let value: string | undefined = inline;
+    let consumed = 0;
+    if (known?.type === 'string' && value === undefined) {
+      value = args[index + 1];
+      if (value === undefined || (strict && value.startsWith('-')))
+        throw argError(
+          'ERR_PARSE_ARGS_INVALID_OPTION_VALUE',
+          `Option '${raw}${known.short && raw.startsWith('--') ? `, -${known.short}` : ''} <value>' argument missing`,
+        );
+      consumed = 1;
+    } else if (known?.type === 'boolean' && value !== undefined && strict)
+      throw argError(
+        'ERR_PARSE_ARGS_INVALID_OPTION_VALUE',
+        `Option '${raw}' does not take an argument`,
+      );
+    tokens.push({
+      kind: 'option',
+      name,
+      rawName: raw,
+      index,
+      value,
+      inlineValue: value === undefined ? undefined : inline !== undefined,
+    });
+    store(name, known?.type === 'string' ? value : value === undefined ? !negated : value);
+    return consumed;
+  };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--') {
+      tokens.push({ kind: 'option-terminator', index: i });
+      for (let j = i + 1; j < args.length; j++) {
+        tokens.push({ kind: 'positional', index: j, value: args[j] });
+        positionals.push(args[j]);
+      }
+      break;
+    }
+    if (arg.startsWith('--')) {
+      const eq = arg.indexOf('=');
+      const name = eq < 0 ? arg.slice(2) : arg.slice(2, eq);
+      i += option(i, eq < 0 ? arg : arg.slice(0, eq), name, eq < 0 ? undefined : arg.slice(eq + 1));
+    } else if (arg.startsWith('-') && arg.length > 1) {
+      // -abc: booleans each; -nvalue: a string's value after its letter.
+      for (let at = 1; at < arg.length; at++) {
+        const letter = arg[at];
+        const name = byShort.get(letter) ?? letter;
+        const rest = arg.slice(at + 1);
+        if (options[name]?.type === 'string' && rest) {
+          option(i, `-${letter}`, name, rest);
+          break;
+        }
+        i += option(i, `-${letter}`, name, undefined);
+      }
+    } else {
+      if (strict && !allowPositionals)
+        throw argError(
+          'ERR_PARSE_ARGS_UNEXPECTED_POSITIONAL',
+          `Unexpected argument '${arg}'. This command does not take positional arguments`,
+        );
+      tokens.push({ kind: 'positional', index: i, value: arg });
+      positionals.push(arg);
+    }
+  }
+  for (const [name, o] of Object.entries(options))
+    if (values[name] === undefined && o.default !== undefined) values[name] = o.default;
+  return config.tokens ? { values, positionals, tokens } : { values, positionals };
+}
+
 export function createUtil(warn: (text: string) => void) {
   const warned = new Set<string>();
   return {
@@ -382,6 +521,7 @@ export function createUtil(warn: (text: string) => void) {
       }
       return out;
     },
+    parseArgs,
     stripVTControlCharacters: (text: string) =>
       // oxlint-disable-next-line no-control-regex -- ANSI sequences.
       text.replace(/\x1b\[[0-9;]*[A-Za-z]/g, ''),
