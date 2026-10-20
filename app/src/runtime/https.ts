@@ -22,6 +22,13 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 // What fetch() must not be given, or sets itself.
+// Hosts whose API lets a browser in only when it says so: what the
+// gateway's fetch() adds for them (a tunnel's TLS is the node's own, and
+// carries what it sends as it is).
+const BROWSER_HEADERS: Record<string, [string, string][]> = {
+  'api.anthropic.com': [['anthropic-dangerous-direct-browser-access', 'true']],
+};
+
 const SKIP_REQUEST = new Set([
   'host',
   'connection',
@@ -198,6 +205,8 @@ function byFetch(
       const path = target.replace(/^https?:\/\/[^/]+/, '');
       const url = `https://${host}${port === 443 ? '' : `:${port}`}${path}`;
       onrequest(method, url);
+      for (const [name, value] of BROWSER_HEADERS[host.toLowerCase()] ?? [])
+        if (!header(name)) headers.push([name, value]);
       let response: Response;
       try {
         response = await fetch(url, {
