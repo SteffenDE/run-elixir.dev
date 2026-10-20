@@ -42,7 +42,7 @@ sudo -iu runner bash -eu <<'USER'
 ~/emsdk/emsdk install 6.0.2
 ~/emsdk/emsdk activate 6.0.2
 [ -x ~/.local/bin/mise ] || curl -sSf https://mise.run | sh
-~/.local/bin/mise use -g -y erlang@29.1.1 elixir@1.20.4-otp-29
+~/.local/bin/mise use -g -y erlang@29.1.2 elixir@1.20.4-otp-29
 USER
 
 # The Forgejo runner, with the host executor (run-elixir-build:host).

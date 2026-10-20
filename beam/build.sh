@@ -19,7 +19,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "${HERE}/.." && pwd)"
-OTP_TAG="${OTP_TAG:-OTP-29.1.1}"
+OTP_TAG="${OTP_TAG:-OTP-29.1.2}"
 MODE=debug
 JOBS="$(nproc)"
 OPT="${OPT:--Os}"
@@ -55,16 +55,21 @@ fi
 
 GIT=(git -C "${OTP_DIR}" -c user.name=beam-wasm -c user.email=beam-wasm@localhost)
 
+# The tree's stamp: the tag it was cloned at and the patches applied over it.
+patched_stamp() {
+    { echo "${OTP_TAG}"; cat "${HERE}"/patches/*.patch; } | git hash-object --stdin
+}
+
 checkout_and_patch() {
     if [[ -d "${OTP_DIR}/.git" ]]; then
         local want have
-        want=$(cat "${HERE}"/patches/*.patch | git hash-object --stdin)
+        want=$(patched_stamp)
         have=$(cat "${OTP_DIR}/.stamp-patched" 2>/dev/null || true)
         if [[ "${want}" == "${have}" ]]; then
-            log "patches up to date"
+            log "${OTP_TAG} and patches up to date"
             return
         fi
-        log "patches changed; recreate ${OTP_DIR}"
+        log "${OTP_TAG} or patches changed; recreate ${OTP_DIR}"
         rm -rf "${OTP_DIR}"
     fi
     mkdir -p "${WORK}"
@@ -81,7 +86,7 @@ checkout_and_patch() {
         git -C "${OTP_DIR}" apply --index "${patch}"
         "${GIT[@]}" commit --quiet -m "beam-wasm: $(basename "${patch}" .patch)"
     done
-    cat "${HERE}"/patches/*.patch | git hash-object --stdin > "${OTP_DIR}/.stamp-patched"
+    patched_stamp > "${OTP_DIR}/.stamp-patched"
 }
 
 autoconf_once() {

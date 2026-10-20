@@ -11,7 +11,7 @@ comparisons with Rust-OTP below are from then.
 [Popcorn](https://github.com/software-mansion/popcorn) (Software Mansion,
 Apache License 2.0), `popcorn/patches` and `popcorn/emscripten` at commit
 `a64cbbc23cf1244a27d69a6d684e10c5040aa0e6`. Popcorn wrote them for
-OTP-29.0.6; all fourteen apply in order to OTP-29.1.1, our host version.
+OTP-29.0.6; all fourteen apply in order to OTP-29.1.2, our host version.
 `build.sh` follows Popcorn's `scripts/build-beam.sh`, and `openssl.sh` its
 `build-openssl.sh`. Patches 0015 to 0023 are ours; Popcorn's 0004
 (without-distribution, which stubbed `dist.c` and left the distribution
@@ -50,10 +50,10 @@ called again in a loop made compiling Ash 5.2 times as fast.
 
 ## Build
 
-Needs emsdk 6.0.2 (Popcorn's CI's, at `~/emsdk`), host Erlang 29.1.1,
+Needs emsdk 6.0.2 (Popcorn's CI's, at `~/emsdk`), host Erlang 29.1.2,
 autoconf 2.72, and network access the first time.
 
-    OTP_SOURCE=~/src/otp-29.1.1 OPT=-O2 DIST=out/beam-wasm/site beam/build.sh release
+    OTP_SOURCE=~/src/otp-29.1.2 OPT=-O2 DIST=out/beam-wasm/site beam/build.sh release
 
 `build.sh` runs `openssl.sh` (OpenSSL 3.0.15, for crypto, ssl and asn1,
 their NIFs linked in) and `ncurses.sh` (libtinfo with its terminals

@@ -11,7 +11,7 @@ Forgejo runner and makes it live on the server as a new release
 (`.forgejo/workflows/deploy.yml`, `deploy/`):
 
 1. **Build** (`build-site.sh`): the NIF libraries, then the site with
-   the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.1 and
+   the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.2 and
    Elixir 1.20.4), with `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`
    from the repository's variables.
 2. **Upload** (`upload.sh SITE user@host`): the server seeds

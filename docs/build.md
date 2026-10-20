@@ -24,7 +24,7 @@ rebar3), and builds the template with the host's Mix in
 
 ## Requirements
 
-- **emsdk 6.0.2** at `~/emsdk`, autoconf, and the host's Erlang 29.1.1
+- **emsdk 6.0.2** at `~/emsdk`, autoconf, and the host's Erlang 29.1.2
   and Elixir 1.20.4, which build the BEAM and the template
   ([`../beam/README.md`](../beam/README.md#build)). The host's `~/.mix`
   must hold Hex and phx_new 1.8.15 (`mix archive.install hex phx_new

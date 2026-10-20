@@ -32,7 +32,7 @@ python3 -I runtime/build.py        # → target/site
 python3 -I runtime/serve.py 8081   # http://localhost:8081/
 ```
 
-The build needs emsdk 6.0.2 (`~/emsdk`), the host's Erlang 29.1.1 and
+The build needs emsdk 6.0.2 (`~/emsdk`), the host's Erlang 29.1.2 and
 Elixir 1.20.4, and Docker (for Node, the recording runs and the Vite
 build). See [build.md](build.md).
 

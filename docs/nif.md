@@ -16,7 +16,7 @@ own beside the node. The node and the library exchange external terms
 
 ## The erl_nif layer (`beamos_nif.c`)
 
-A NIF library is OTP's `erl_nif.h` (OTP 29.1.1's, in `nif/include` with
+A NIF library is OTP's `erl_nif.h` (OTP 29.1.2's, in `nif/include` with
 `include/erl_int_sizes_config.h` for wasm32), linked with `beamos_nif.o`
 into a WASI reactor. The layer implements the API over terms of its own:
 
