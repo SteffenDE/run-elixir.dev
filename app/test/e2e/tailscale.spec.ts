@@ -275,6 +275,16 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
   expect(secure).toContain('expired CERT_HAS_EXPIRED');
   expect(secure).toContain('allowed false CERT_HAS_EXPIRED');
 
+  // A coding agent on Node.js (Pi): its requests are Node's fetch (by the
+  // process's https, fetch.ts), so through the tailnet with its own TLS; a
+  // key that is none, which Anthropic's API refuses (its answer is what the
+  // test needs, not a model's).
+  const pi = await run(
+    project,
+    'npx -y @earendil-works/pi-coding-agent@1.3.0 -p --provider anthropic --model sonnet --api-key sk-ant-none "Say hi"',
+  );
+  expect(pi).toContain('authentication_error');
+
   // Erlang distribution to a node in the tailnet, on exit-box's machine:
   // its name through MagicDNS, its epmd and its distribution port (which
   // the test's policy lets the tag reach).
