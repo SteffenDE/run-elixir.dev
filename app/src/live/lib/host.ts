@@ -654,6 +654,14 @@ export function kick(id: string): Promise<void> {
   return peer?.relay.command('kick', { id }) ?? Promise.resolve();
 }
 
+// The page goes to another of the apex's pages in place (navigate.ts): the
+// session stays, as when the page is left by a load, to resume when the
+// project opens again in this tab.
+export function leaveSession(): void {
+  if (peer) finish(null, false);
+  useLive.setState(useLive.getInitialState(), true);
+}
+
 export async function endSession(): Promise<void> {
   await peer?.relay.command('end').catch(() => {});
   finish(null);

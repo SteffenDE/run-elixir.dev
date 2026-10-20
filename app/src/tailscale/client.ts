@@ -77,6 +77,13 @@ export const useTailscale = create<TailscaleState>(() => ({
 let project: string | null = null;
 
 export function setTailnetProject(key: string | null): void {
+  if (key === null) {
+    // It stopped: its shared ports go, and what waited for an answer is
+    // refused.
+    for (const port of [...exposures.keys()]) unshare(port);
+    for (const resolve of waiting.splice(0)) resolve(false);
+    useTailscale.setState({ asking: null, blocked: null, shared: {} });
+  }
   project = key;
   useTailscale.setState({ consent: key === null ? null : (consents()[key] ?? null) });
 }

@@ -36,11 +36,14 @@ import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled } from '@/project/lib/programs/esbuild';
 import {
-  previewChannel,
+  closePopup,
+  onPreviewMessage,
   previewKey,
   send,
+  setPreviewKey,
   type PreviewMessage,
 } from '@/project/lib/previewChannel';
+import { disposeTerminals } from '@/project/lib/terminal-handle';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
 import { seedTaken, takeSeed } from '@/shared/lib/projects';
@@ -428,13 +431,22 @@ bundled.add(() => {
   if (reloading) clearTimeout(reloading);
   reloading = setTimeout(() => useStore.getState().reloadPreview(), 100);
 });
-previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessage>) => {
+onPreviewMessage(({ data }: MessageEvent<PreviewMessage>) => {
   if (data.type === 'closed') useStore.getState().popOut(false);
   else if (data.type === 'opened') {
     useStore.getState().popOut(true);
     send({ type: 'port', port: useStore.getState().previewPort });
   }
 });
+
+// The page starts its project once (React may run its effect twice), and
+// again only after shutdown().
+let begun = false;
+export function beginStart(): boolean {
+  if (begun) return false;
+  begun = true;
+  return true;
+}
 
 // Keep what changed and stop every node: the project runs elsewhere now.
 export async function shutdown(): Promise<void> {
@@ -445,11 +457,24 @@ export async function shutdown(): Promise<void> {
   frame?.remove();
   frame = null;
   forgetRelays();
+  for (const session of sessions.values()) session.screen.dispose();
   sessions.clear();
+  nextSession = 1;
   const pglite = await db?.catch(() => null);
   await pglite?.close().catch(() => {});
   db = null;
   serveDatabase = postgres(database);
+}
+
+// The page goes to another of the apex's pages in place (navigate.ts):
+// what leaving it by a load would end ends, and the next project starts
+// afresh.
+export async function leave(): Promise<void> {
+  await shutdown();
+  closePopup();
+  disposeTerminals();
+  begun = false;
+  useStore.setState(useStore.getInitialState(), true);
 }
 
 // What this project changed over its template, to share: its sources, not
@@ -522,6 +547,8 @@ async function startFrame(origin: string): Promise<Rpc> {
 export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<void> {
   kind = workspaceKind;
   projectId = id;
+  // This page's project (it may have run another before).
+  setPreviewKey();
   setWorkspace(local);
   setPreviewHost(preview);
   setup = setupOf(kind);

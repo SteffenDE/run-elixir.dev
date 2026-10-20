@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { KindChip } from '@/shared/components/KindChip';
 import { importProject } from '@/shared/lib/projects';
+import { navigate } from '@/shared/lib/navigate';
 import { apexUrl, projectUrl } from '@/shared/lib/site';
 import { decodeShared, type Shared } from '@/shared/lib/share';
 import { siteTemplate, type Template } from '@/shared/lib/templates';
@@ -66,9 +67,7 @@ export function ImportPage() {
                 disabled={opening}
                 onClick={() => {
                   setOpening(true);
-                  void importProject(shared).then((project) =>
-                    location.assign(projectUrl(project.id)),
-                  );
+                  void importProject(shared).then((project) => navigate(projectUrl(project.id)));
                 }}
               >
                 {opening ? 'Opening…' : 'Open as a new project'}

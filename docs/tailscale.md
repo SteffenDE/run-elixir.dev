@@ -176,6 +176,9 @@ domain ([frames.md](frames.md)).
   workers (a shared worker is its script's URL); a Web Lock
   (`playground-tailscale`) lets one run the node, the other says so.
   Its last 1000 log lines: `window.tailscale.logs()` on an apex page.
+  A shared worker ends with its last page, so the tab moves between the
+  apex's pages in place ([projects.md](projects.md)): going from a project
+  to `/tailscale` or another project keeps the node running.
 - **The IDE's page** (`client.ts`), on the apex, reaches the worker
   directly, as the projects' list and `/tailscale` do. It follows the
   node's status, keeps the hint's dismissal and which projects may
