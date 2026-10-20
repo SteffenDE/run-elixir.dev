@@ -1,18 +1,36 @@
+import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, prompted, run } from './helpers';
+import { newProject, output, prompted, prompts, run } from './helpers';
 
 // Scaffolding tools in an empty project (docs/nodejs.md): npm create
-// (create-vue: util.parseArgs) and sv create, each project installed and
-// built (Vue's run-p by child_process, its CSS minified by lightningcss's
-// WebAssembly build; SvelteKit's TypeScript and zlib).
+// (create-vue, its questions answered at the terminal: raw input, clack's
+// prompts) and sv create, each project installed and built (Vue's run-p by
+// child_process, its CSS minified by lightningcss's WebAssembly build;
+// SvelteKit's TypeScript and zlib).
 
-test('npm create vue@latest: a Vue project installs and builds', async ({ page }) => {
+// Keys typed at the terminal, once it shows `asked`.
+async function answer(page: Page, asked: string, keys: string): Promise<void> {
+  await expect.poll(() => output(page), { timeout: 120_000 }).toContain(asked);
+  await page.evaluate((k) => window.playground.sessions.get(1).discipline.keys(k), keys);
+}
+
+test('npm create vue@latest: asked at the terminal, a Vue project installs and builds', async ({
+  page,
+}) => {
   test.setTimeout(600_000);
   await newProject(page, 'empty');
   await prompted(page, 1);
-  expect(await run(page, 'npm create vue@latest my-vue -- --default')).toContain(
-    'Scaffolding project in /work/my-vue',
+  const before = prompts(await output(page));
+  await page.evaluate(() =>
+    window.playground.sessions.get(1).node.input('npm create vue@latest\n'),
   );
+  await answer(page, 'Project name', 'my-vue\r');
+  await answer(page, 'Use TypeScript?', '\r');
+  await answer(page, 'Select features to include', '\r');
+  await answer(page, 'Select experimental features', '\r');
+  await answer(page, 'blank Vue project?', '\r');
+  await prompted(page, before + 1);
+  expect(await output(page)).toContain('Scaffolding project in /work/my-vue');
   expect(await run(page, 'cd my-vue && npm install')).toMatch(/added \d+ packages/);
   const build = await run(page, 'npm run build');
   expect(build).toContain('> vue-tsc --build');
