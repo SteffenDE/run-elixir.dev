@@ -13,7 +13,7 @@ Nothing is stored on the server.
 
 | Path | What |
 | --- | --- |
-| `/` | The home page: new projects, and the projects in this browser, last opened first, each deletable. |
+| `/` | The home page: new projects (also from a folder on this computer), and the projects in this browser, last opened first, each deletable. |
 | `/phoenix` | Make a Phoenix project and go to it. |
 | `/empty` | Make an empty project and go to it. |
 | `/iex` | A temporary IEx: an empty project whose first shell runs `iex`, kept nowhere, marked *ephemeral*. Each visit is a new one. |
@@ -171,6 +171,48 @@ Phoenix project with one edited template file and one removed makes a
 link of a few KB. A link holds what a URL can; very large projects will
 want a server to keep them
 ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)).
+
+## A folder from this computer
+
+A note under the new projects' cards offers a Mix project on the user's
+computer: dropped anywhere on the home page, or chosen
+(`src/home/components/FolderImport.tsx`, `src/shared/lib/folder.ts`). It
+becomes an empty project named after the folder, whose files go straight
+into `/work` (the first shell starts in the project): the same seed a
+shared link makes, laid down before the first shell starts. Nothing
+reaches a server.
+
+Left out from the start, and not shown:
+
+- what the file tree hides (`_build`, `deps`, `.mix`, `.hex`,
+  `node_modules`, `.git`, `.elixir_ls`): builds were made on another
+  machine, and `mix deps.get` fetches the dependencies;
+- what the folder's `.gitignore` files ignore (`src/shared/lib/gitignore.ts`:
+  comments, `!`, a trailing `/`, anchoring, `*`, `?`, `[…]`, `**`; a deeper
+  file over a shallower one; what is below an ignored directory is not
+  taken back).
+
+A dropped folder's left-out directories are not even read. The picker
+(`<input webkitdirectory>`) lists every file, and the page filters them;
+WebKit (Safari, and every browser on iOS) gives no files or directories
+whose names start with a dot, so no `.gitignore` either, and no symlinks;
+the panel says so there (`losesDotfiles`). A folder of more than 100,000 files past all that is
+refused as it is read (someone's home, not a project's).
+
+Reading lists the files without their bytes (a `File` is a handle), so
+the folder is then shown as a tree of its directories, largest first (by
+what they take of the limits), each with its files and size and a
+checkbox to leave it out with all below it. Editors' and tools'
+directories a `.gitignore` often misses (`.expert`, `.lexical`,
+`.elixir-tools`, `.next-ls`, `cover`) start unchecked. A project starts
+with at most 5000 files and 64 MB (they are read into memory, kept in
+IndexedDB until it starts, and then in the tree): past that the panel says
+so and *Open as a new project* waits until enough is left out. Only the
+files kept are read.
+
+A Phoenix app comes in as an empty project too, not over the Phoenix
+template: PGlite starts on its first connection and the preview once it
+serves.
 
 ## Deleting
 
