@@ -35,8 +35,11 @@ interface Start {
   // The channel's lock, which a process's threads share; made by the
   // process.
   lock?: SharedArrayBuffer;
+  // Whether stdout is the terminal, its size, and whether stdin is.
   tty?: boolean;
   columns?: number;
+  rows?: number;
+  stdinTty?: boolean;
   thread?: ThreadStart;
   // The site's runtime files (tls.wasm).
   runtime?: string;
@@ -135,6 +138,17 @@ let threads: ReturnType<typeof createThreads> | null = null;
 let net: Net | null = null;
 let child: ChildProcesses | null = null;
 let watched: ((paths: string[]) => void) | null = null;
+// The terminal's input and size for the process, kept until it is there.
+let terminal: Pick<ReturnType<typeof createProcess>, 'input' | 'resized'> | null = null;
+const early: (
+  | { kind: 'stdin'; bytes?: Uint8Array; end?: boolean }
+  | { kind: 'resize'; columns: number; rows: number }
+)[] = [];
+const toTerminal = (message: (typeof early)[number]) => {
+  if (!terminal) return void early.push(message);
+  if (message.kind === 'resize') terminal.resized(message.columns, message.rows);
+  else terminal.input(message.end ? null : message.bytes!);
+};
 
 async function run(start: Start) {
   const thread = start.thread ?? null;
@@ -180,8 +194,16 @@ async function run(start: Start) {
     io,
     tty: start.tty ?? false,
     columns: start.columns ?? 80,
+    rows: start.rows ?? 24,
+    // A thread reads no stdin of its own.
+    stdinTty: !thread && (start.stdinTty ?? false),
+    raw: (on) => post({ kind: 'tty', raw: on }),
     report: thread ? (error) => post({ kind: 'error', error }) : undefined,
   });
+  if (!thread) {
+    terminal = proc;
+    for (const message of early.splice(0)) toTerminal(message);
+  }
   const { process, console, timers, hold, fail } = proc;
   files.setStdio((fd, bytes) => io.write(fd, bytes));
   files.setLater((fn) => (timers.setImmediate as (f: () => void) => void)(fn));
@@ -311,6 +333,7 @@ addEventListener(
       | NetMessage
       | ChildMessage
       | { kind: 'changed'; paths: string[] }
+      | (typeof early)[number]
     >,
   ) => {
     const data = event.data;
@@ -319,5 +342,6 @@ addEventListener(
     else if (data?.kind === 'net') net?.receive(data);
     else if (data?.kind === 'child') child?.receive(data);
     else if (data?.kind === 'changed') watched?.(data.paths);
+    else if (data?.kind === 'stdin' || data?.kind === 'resize') toTerminal(data);
   },
 );

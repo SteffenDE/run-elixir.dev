@@ -1,10 +1,11 @@
 // Node's process in the worker: its arguments, environment and directory,
-// stdout and stderr (to the page), a stdin with nothing to read, and its
-// end. The worker ends the process when nothing keeps it alive, as Node's
+// stdout and stderr (to the page), stdin (the terminal's typing or a
+// pipe's bytes, `input`), and its end. The worker ends the process when nothing keeps it alive, as Node's
 // event loop does: timers, intervals, immediates and the operations it
 // holds (`hold`) are its handles; promises are not.
 import { Buffer } from './buffer';
 import { EventEmitter } from 'events';
+import * as streams from 'readable-stream';
 import { formatWithOptions, inspect } from './util';
 
 export const VERSION = 'v24.11.0';
@@ -23,6 +24,10 @@ export function createProcess(options: {
   io: Io;
   tty: boolean;
   columns: number;
+  rows?: number;
+  // Whether stdin is the terminal, and how it asks for raw input.
+  stdinTty?: boolean;
+  raw?: (on: boolean) => void;
   // A worker thread's uncaught error: its parent's 'error' (Node prints
   // nothing in the thread).
   report?: (error: unknown) => void;
@@ -157,13 +162,14 @@ export function createProcess(options: {
   const encode = (text: string) => new TextEncoder().encode(text);
 
   // stdout and stderr: what they write goes to the page at once.
+  let size = [options.columns, options.rows ?? 24];
   const stream = (fd: number) => {
     const out = new EventEmitter() as EventEmitter & Record<string, unknown>;
     Object.assign(out, {
       fd,
       isTTY: options.tty,
       columns: options.columns,
-      rows: 24,
+      rows: options.rows ?? 24,
       writable: true,
       _isStdio: true,
       write(chunk: string | Uint8Array, encoding?: unknown, callback?: () => void) {
@@ -188,11 +194,32 @@ export function createProcess(options: {
       setDefaultEncoding: () => out,
       getColorDepth: () => (options.tty ? 8 : 1),
       hasColors: (count = 16) => options.tty && count <= 256,
-      getWindowSize: () => [options.columns, 24],
-      cursorTo: () => true,
-      moveCursor: () => true,
-      clearLine: () => true,
-      clearScreenDown: () => true,
+      getWindowSize: () => [...size],
+      // ANSI's, as a TTY WriteStream's.
+      cursorTo(x: number, y?: number | (() => void), callback?: () => void) {
+        if (typeof y === 'function') [callback, y] = [y, undefined];
+        io.write(fd, encode(y === undefined ? `\x1b[${x + 1}G` : `\x1b[${y + 1};${x + 1}H`));
+        if (callback) queueMicrotask(callback);
+        return true;
+      },
+      moveCursor(dx: number, dy: number, callback?: () => void) {
+        let text = '';
+        if (dx) text += dx < 0 ? `\x1b[${-dx}D` : `\x1b[${dx}C`;
+        if (dy) text += dy < 0 ? `\x1b[${-dy}A` : `\x1b[${dy}B`;
+        if (text) io.write(fd, encode(text));
+        if (callback) queueMicrotask(callback);
+        return true;
+      },
+      clearLine(dir = 0, callback?: () => void) {
+        io.write(fd, encode(dir < 0 ? '\x1b[1K' : dir > 0 ? '\x1b[0K' : '\x1b[2K'));
+        if (callback) queueMicrotask(callback);
+        return true;
+      },
+      clearScreenDown(callback?: () => void) {
+        io.write(fd, encode('\x1b[0J'));
+        if (callback) queueMicrotask(callback);
+        return true;
+      },
       _writableState: { needDrain: false, length: 0 },
       writableLength: 0,
       writableHighWaterMark: 16384,
@@ -205,24 +232,68 @@ export function createProcess(options: {
   const stdout = stream(1);
   const stderr = stream(2);
 
-  // stdin: a terminal's with nothing typed (the page gives a process no
-  // input yet): it neither ends nor holds the loop. Ending it at once
-  // stopped servers that end with their input (Vite's dev server).
-  const stdin = new EventEmitter() as EventEmitter & Record<string, unknown>;
+  // stdin: what is typed at the terminal (or a pipe's bytes, `input`), and
+  // its end (Ctrl+D, the pipe's). It holds the loop while something reads
+  // it (flowing, or a 'readable' listener), unless unref'd, as Node's does:
+  // a process that never reads it ends as before.
+  const { Readable } = streams as typeof import('node:stream');
+  const stdin = new Readable({ read() {} }) as InstanceType<typeof Readable> &
+    Record<string, unknown>;
+  let reading: (() => void) | null = null;
+  let referenced = true;
+  const update = () => {
+    const wanted =
+      referenced &&
+      !stdin.readableEnded &&
+      !stdin.destroyed &&
+      (stdin.readableFlowing === true || stdin.listenerCount('readable') > 0);
+    if (wanted) reading ??= hold();
+    else {
+      reading?.();
+      reading = null;
+    }
+  };
+  const later = () => queueMicrotask(update);
+  for (const event of ['resume', 'pause', 'end', 'close']) stdin.on(event, later);
+  stdin.on('newListener', later);
+  stdin.on('removeListener', later);
   Object.assign(stdin, {
     fd: 0,
-    isTTY: false,
-    readable: true,
-    setEncoding: () => stdin,
-    setRawMode: () => stdin,
-    resume: () => stdin,
-    pause: () => stdin,
-    read: () => null,
-    ref: () => stdin,
-    unref: () => stdin,
-    pipe: (target: unknown) => target,
-    [Symbol.asyncIterator]: async function* () {},
+    isTTY: options.stdinTty ?? false,
+    isRaw: false,
+    // Keys as typed, Ctrl+C one of them, or lines again.
+    setRawMode(on: boolean) {
+      if (!stdin.isTTY) return stdin;
+      stdin.isRaw = Boolean(on);
+      options.raw?.(Boolean(on));
+      return stdin;
+    },
+    ref() {
+      referenced = true;
+      update();
+      return stdin;
+    },
+    unref() {
+      referenced = false;
+      update();
+      return stdin;
+    },
   });
+  // What the process reads (null: its end).
+  const input = (bytes: Uint8Array | null) => {
+    if (bytes === null) stdin.push(null);
+    else stdin.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
+  };
+  // The terminal's size changed: stdout's and stderr's, and SIGWINCH.
+  const resized = (columns: number, rows: number) => {
+    size = [columns, rows];
+    for (const out of [stdout, stderr]) {
+      out.columns = columns;
+      out.rows = rows;
+      out.emit('resize');
+    }
+    process.emit('SIGWINCH');
+  };
 
   const fail = (error: unknown) => {
     if (process.listenerCount('uncaughtException')) {
@@ -340,6 +411,8 @@ export function createProcess(options: {
     check,
     fail,
     end,
+    input,
+    resized,
   };
 }
 

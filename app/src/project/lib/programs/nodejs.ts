@@ -240,6 +240,8 @@ export const nodeProgram =
     thread.onmessage = ({ data }) => {
       if (data.kind === 'out') process.write(data.bytes);
       else if (data.kind === 'net') network(data);
+      // setRawMode: keys as typed, Ctrl+C one of them.
+      else if (data.kind === 'tty') process.raw?.(data.raw, !data.raw);
       else if (data.kind === 'child' && data.op === 'spawn') spawned(data);
       else if (data.kind === 'child' && data.op === 'kill') children.get(data.id)?.onkill?.();
       else if (data.kind === 'exit') stop(data.code);
@@ -259,5 +261,13 @@ export const nodeProgram =
       doorbell: channel.doorbell,
       channel: channel.channel,
       runtime: new URL(runtime, location.href).href,
+      tty: context.tty?.stdout ?? false,
+      stdinTty: context.tty?.stdin ?? false,
+      columns: process.size?.()[0] ?? 80,
+      rows: process.size?.()[1] ?? 24,
     });
+    // What it reads, and the terminal's size as it changes.
+    process.oninput = (bytes) =>
+      thread.postMessage(bytes === null ? { kind: 'stdin', end: true } : { kind: 'stdin', bytes });
+    process.onresize = (columns, rows) => thread.postMessage({ kind: 'resize', columns, rows });
   };
