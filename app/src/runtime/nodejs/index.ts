@@ -133,6 +133,40 @@ function parse(args: string[]) {
   return out;
 }
 
+// The browser's stream reads and body reads, each holding the process's
+// loop (`hold`) until it settles, or a second has gone.
+const workerSetTimeout = globalThis.setTimeout.bind(globalThis);
+const workerClearTimeout = globalThis.clearTimeout.bind(globalThis);
+function holdWhile(hold: () => () => void): void {
+  const wrap = (proto: object | undefined, names: string[]) => {
+    for (const name of names) {
+      const target = proto as Record<string, unknown> | undefined;
+      const original = target?.[name];
+      if (typeof original !== 'function') continue;
+      target![name] = function (this: unknown, ...args: unknown[]) {
+        const result = (original as (...a: unknown[]) => unknown).apply(this, args);
+        if (result instanceof Promise) {
+          const release = hold();
+          const timer = workerSetTimeout(release, 1000);
+          const settled = () => {
+            workerClearTimeout(timer);
+            release();
+          };
+          result.then(settled, settled);
+        }
+        return result;
+      };
+    }
+  };
+  wrap(globalThis.ReadableStreamDefaultReader?.prototype, ['read']);
+  wrap(globalThis.ReadableStreamBYOBReader?.prototype, ['read']);
+  wrap(globalThis.ReadableStream?.prototype, ['pipeTo']);
+  const bodies = ['arrayBuffer', 'blob', 'bytes', 'formData', 'json', 'text'];
+  wrap(globalThis.Response?.prototype, bodies);
+  wrap(globalThis.Request?.prototype, bodies);
+  wrap(globalThis.Blob?.prototype, ['arrayBuffer', 'bytes', 'text']);
+}
+
 // The thread's worker_threads, for its parent's messages; the process's
 // net and its files' watchers, for the page's.
 let threads: ReturnType<typeof createThreads> | null = null;
@@ -284,6 +318,14 @@ async function run(start: Start) {
 
   // Node's MessageChannel, whose ports hold the process as Node's do.
   globalThis.MessageChannel = nodeMessageChannel(hold);
+
+  // A read of a web stream, or of a body, holds the loop until it settles,
+  // for a second at most: the browser passes bytes along its streams over
+  // tasks (Node's within the turn), and under load more of them, while
+  // nothing else may hold it (undici unrefs its socket once a response
+  // has come whole). A read that waits on more (a socket, a timer) has
+  // that to hold the loop, and a stream nothing will feed, nothing.
+  holdWhile(hold);
 
   // Node's globals over the worker's. self and navigator are the worker
   // scope's getters, which scripts assign as Node lets them (napi-rs's

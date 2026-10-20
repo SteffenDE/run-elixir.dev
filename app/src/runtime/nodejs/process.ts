@@ -46,9 +46,8 @@ export function createProcess(options: {
 
   // Whether the loop has run dry: then beforeExit, and the end. Dry for
   // some turns in a row, not one: what the browser does for a script holds
-  // nothing here (its streams pass buffered bytes on over a few tasks, as
-  // a response's body read through a TextDecoderStream), where Node's
-  // native work would hold its loop until done.
+  // nothing here unless it is a read the process holds for (index.ts
+  // holdWhile), where Node's native work would hold its loop until done.
   const DRY_TURNS = 8;
   let dry = 0;
   const turn = () => {
