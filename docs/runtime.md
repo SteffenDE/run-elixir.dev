@@ -30,7 +30,7 @@ JavaScript.
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation (`/etc/hosts`; `/etc/resolv.conf` when the page serves DNS), programs. |
-| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. |
+| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. The site's other WASI programs run the same way, each of its own module (`PROGRAMS`: ripgrep's `rg`, `rg.wasm`). |
 | `nodejs/` (`nodejs.js`) | worker | A Node.js process or worker thread: Node's modules over the shared files ([nodejs.md](nodejs.md)). |
 | `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
 | `sh.ts` | worker, page | Command lines split into words; `&&`-joined commands for the Node harness's `sh -c` (with a page, `sh -c` is brush). |

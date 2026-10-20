@@ -123,22 +123,30 @@ initializer's package, `create-NAME`, `@scope/create`, by npx), and
 
 A child is a command line the page program `sh` runs in the exec frame
 (brush in a worker of its own, below), as the terminal would: node, npm,
-npx, git, mix, coreutils, `node_modules/.bin`'s scripts. `spawn` quotes
+npx, git, mix, coreutils, rg, `node_modules/.bin`'s scripts. `spawn` quotes
 the command and its arguments unless `shell`; `exec` and `execFile`
 collect the output (and `promisify` answers `{ stdout, stderr }`); `fork`
 is `node` without the IPC channel. The process asks `{ kind: 'child', op:
-'spawn', id, line, cwd, env }` and `{ op: 'kill', id }`, and hears `out`
-and `exit`; a child holds the loop while it runs, and goes with the
-process. A command `sh` did not find (127) is spawn's `ENOENT`.
+'spawn', id, line, cwd, env }`, `{ op: 'stdin', id, bytes }` (or its
+end) and `{ op: 'kill', id }`, and hears `out` and `exit`; a child holds
+the loop until its `'close'`, and goes with the process. A command `sh`
+did not find (127) is spawn's `ENOENT`. `kill()` stops the child's node
+(which a closed port alone leaves running, as a node's port's program
+does), its status a SIGTERM's.
 
 - A page program has one output: a child's stderr comes on its stdout.
-- Its stdin stays open with nothing in it (what the program writes to
-  `child.stdin` goes nowhere yet).
+- What the program writes to `child.stdin` is the child's input, and
+  `end()` its end (its `sh -c` node passes it on to what it runs).
 - `stdio` may name a stream, such as `process.stdout` itself (npm-run-all2
   does on a TTY): the child's output goes there.
-- `spawnSync`, `execSync` and `execFileSync` say they are missing: the
-  process would wait in `Atomics.wait` for the exec frame to run the
-  child, not done yet.
+- **`spawnSync`, `execSync`, `execFileSync`:** the spawn carries a
+  SharedArrayBuffer of `maxBuffer`'s size (Node's 1 MiB; more is
+  `ENOBUFS`), which the exec frame fills with the child's output and then
+  its status, and the process waits on it (`Atomics.wait`), standing
+  still meanwhile as Node's does. `input` is the child's stdin and then
+  its end; `timeout` stops it (`ETIMEDOUT`); with `stdio: 'inherit'` its
+  output is the process's own as it comes. `execSync` throws on a failure,
+  the result on the error (`status`, `stdout`).
 
 ## A node's sh -c is brush
 
@@ -304,17 +312,20 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   `vite build`, its CSS minified by lightningcss-wasm); `npx sv create`
   (a minimal SvelteKit project in TypeScript), installed and built
   (TypeScript's compiler by `import()`, zlib). Each about 30 s.
+- `child.spec.ts`: `execSync`'s output, `input` into a Node.js child,
+  `spawnSync`'s status, `execSync` throwing, `ENOENT`, an asynchronous
+  child's stdin, and `kill()`.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
-  redirections and `node`.
+  redirections and `node`; `rg` at the shell (an `.ignore`d directory
+  left out), in a pipe, from `execSync` and from `System.cmd`.
 
 ## Next
 
 1. A pool of kept connections for `http.Agent({ keepAlive })`; Node's
    `fetch` (undici's) to the project's ports, which the browser's cannot
    reach.
-2. `child_process`'s rest: the synchronous forms, a child's own stderr
-   and its stdin (`child.stdin`, and the terminal for one that inherits
-   it), fork's IPC; brotli in
+2. `child_process`'s rest: a child's own stderr, the terminal for one
+   that inherits stdin, fork's IPC; brotli in
    `zlib`; more entries in npm's `STAND_INS` as projects need them
    (`@swc/core` → `@swc/wasm`, `rollup` → `@rollup/wasm-node`,
    `sass-embedded` → `sass`), each checked by hand.
