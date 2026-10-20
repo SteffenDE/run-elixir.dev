@@ -37,6 +37,7 @@ in `node_modules/.bin`) with it.
 | `threads.ts` | `worker_threads`: a `Worker` is a nested worker running `nodejs.js` as a thread of the same process, sharing its files channel (one call at a time, by a lock in shared memory); messages as structured clones (shared memories, WebAssembly modules); a thread's output and uncaught error go to its parent. Node's `MessageChannel`: ports with `ref`/`unref` and `on('message')`. |
 | `wasi.ts` | `node:wasi` over the runtime's WASI (`wasi/index.ts`), on the shared files. |
 | `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the project's ports, and to other hosts through the tailnet (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too; `https.request` and `get`, the same over HTTPS the exec frame carries (below). |
+| `tls.ts` | `tls.connect` and `TLSSocket`: rustls built to WebAssembly (`tls/`, below), over a socket it opens or one it is given. |
 | `dns.ts`, `dgram.ts` | `dns` (`lookup`, `resolve4`/`6`, CNAME, MX, NS, SRV, TXT) by the node's DNS; `dgram` on the project's UDP ports (below). |
 | `hashes.ts` | `crypto.createHash`, `createHmac` and `hash` (md5, sha1, sha2, ripemd160), synchronous, by `@noble/hashes`. |
 | `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `Buffer` with `base64url`. |
@@ -44,9 +45,8 @@ in `node_modules/.bin`) with it.
 Stacks print as Node's (`at f (file:line:col)`) whatever the engine wrote,
 without the runtime's own frames.
 
-**What is missing** says so when called: an HTTPS server and `tls`
-(a socket's own TLS, so HTTPS stays `fetch()`'s even with Tailscale),
-`child_process`, `zlib`, ciphers and keys in `crypto`. `fetch` is the
+**What is missing** says so when called: an HTTPS server and
+`tls.createServer`, `child_process`, `zlib`, ciphers and keys in `crypto`. `fetch` is the
 browser's, and reaches the internet, not the project's ports. There is no
 REPL, and a process reads no standard input: `process.stdin` stays open
 with nothing in it, as a terminal's with nothing typed, and does not hold
@@ -137,11 +137,41 @@ on it as plain HTTP, and the exec frame's worker answers it with a
 certificate; it reads only what the site's CORS allows (a site without
 CORS headers answers 502, saying why), sets Host, User-Agent and Cookie
 itself, follows redirects and decompresses. Each connection carries one
-request. The gateway says how first (`https.ts`: a line,
-`fetch` or `error REASON`), which the socket reads before its
-`connect`. A node's HTTPS takes the tailnet when Tailscale is set up
-(its own TLS over a TCP connection, the `tcp` line); a process's does
-not, having no TLS to do there.
+request. The gateway says how first (`https.ts`: a line, `fetch`, `tcp`
+or `error REASON`), which the socket reads before its `connect`. With
+Tailscale set up and the project allowed, it says `tcp`: a TCP connection
+to the host through the tailnet, over which the socket does TLS itself
+(`tls.ts`'s Engine, ALPN `http/1.1`, the request's or its agent's `ca`,
+`cert`, `key`, `servername` and `rejectUnauthorized`), as a node's HTTPS
+does: any site, CORS or not.
+
+### TLS (`tls/`, `tls.ts`)
+
+A process does TLS itself, as a node does: rustls 0.23 with ring's crypto
+and Mozilla's roots (webpki-roots), built for `wasm32-wasip1` in Docker
+(`tls/build.py`, `target/tls/tls.wasm`: 0.71 MB, 0.29 MB gzipped), with a
+C-like API over handles and no I/O of its own (`tls/src/lib.rs`): feed
+what the socket read, write what the program writes, take what to send,
+read what the program reads. WASI gives it randomness and the clock
+(`crypto.getRandomValues`, `Date.now`), the rest of WASI it does not use.
+The process fetches and instantiates it on its first TLS connection, one
+instance and a handle per connection. Plaintext stays in the process's
+worker: what crosses to the apex's Tailscale worker is TLS.
+
+- `tls.connect(port, host, options)` or `({ socket })`: SNI from the host
+  (none for an address, unless `servername`); `ALPNProtocols`; `ca`
+  (replacing Mozilla's roots), `cert` and `key` (a client certificate);
+  `rejectUnauthorized` (default true, `NODE_TLS_REJECT_UNAUTHORIZED=0`
+  too). `secureConnect` once the handshake is done.
+- `authorized` and `authorizationError` (OpenSSL's codes from rustls's
+  reasons: `CERT_HAS_EXPIRED`, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`,
+  `ERR_TLS_CERT_ALTNAME_INVALID`, …; with `rejectUnauthorized: false` the
+  reason is kept and the connection goes on), `alpnProtocol`,
+  `getProtocol()` (TLSv1.2 or 1.3), `getCipher()`, and
+  `getPeerCertificate()`'s `raw` DER (not parsed: no subject, issuer or
+  dates yet).
+- Not yet: `tls.createServer`, sessions and resumption, `rootCertificates`'
+  PEMs, a certificate's fields.
 
 ### Other hosts: the tailnet ([tailscale.md](tailscale.md))
 
@@ -199,8 +229,12 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 - `tailscale.spec.ts` (with `tests/headscale.sh`'s tailnet): a process's
   `dns.lookup` (a MagicDNS short name too), `net.connect` by name (its
   local address the device's), `http.get` by name, and a DNS query to
-  1.1.1.1 over `dgram`, out of the exit node. Its Caddy holds port 8091,
-  so the worktree runs it with `PORT=8095`.
+  1.1.1.1 over `dgram`, out of the exit node; its TLS: `https.get` of
+  www.example.com (no CORS headers: 200 and its page), `tls.connect` with
+  ALPN (authorized, TLS 1.3, h2), expired.badssl.com refused
+  (`CERT_HAS_EXPIRED`) and, with `rejectUnauthorized: false`, let through
+  unauthorized. Its Caddy holds port 8091, so the worktree runs it with
+  `PORT=8095`.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`.
 
@@ -216,6 +250,6 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 4. Standard input for a process (the terminal's typing, Vite's
    shortcuts; a pipeline's input), and a REPL.
 5. `fs.watch` in a worker thread (only a process hears the changes).
-6. A TLS of the process's own (`tls.connect`, HTTPS through the
-   tailnet to sites without CORS headers) would need a TLS library in
-   JavaScript.
+6. TLS's rest: `getPeerCertificate()`'s fields (an X.509 parser), session
+   resumption, `tls.createServer`; tls.wasm compiled once by the exec
+   frame (as `beam.wasm` is) rather than once per process.
