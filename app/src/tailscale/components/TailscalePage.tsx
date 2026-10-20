@@ -54,7 +54,7 @@ export function TailscalePage() {
 
   const running = status?.state === 'Running';
   const signInButton = running ? (
-    <span className="muted">(done)</span>
+    <span className="muted">Signed in.</span>
   ) : (
     <button
       type="button"
@@ -116,6 +116,25 @@ function Device({
   const { label, tone } = describe(status);
   const running = status.state === 'Running';
   const tagged = status.tags?.includes(TAG);
+  if (status.state === 'off')
+    return (
+      <div className="tailscale-device tailscale-unset">
+        <span className="tailscale-unset-icon">
+          <TailscaleIcon size={22} />
+        </span>
+        <div className="tailscale-unset-text">
+          <p className="tailscale-state">Tailscale is not set up in this browser</p>
+          <p className="muted">
+            Let the playground into your tailnet's policy and have an exit node (the steps below),
+            then sign in.
+          </p>
+        </div>
+        <button type="button" className="button primary" disabled={busy} onClick={signIn}>
+          <TailscaleIcon size={14} />
+          Sign in with Tailscale
+        </button>
+      </div>
+    );
   return (
     <div className="tailscale-device">
       <p className={`tailscale-state tailscale-${tone}`}>

@@ -20,12 +20,17 @@ export const POLICY = `"tagOwners": {
 // The same grant in the older acls syntax.
 export const POLICY_ACL = `{ "action": "accept", "src": ["${TAG}"], "dst": ["autogroup:internet:*"] }`;
 
-export function CopyButton({ text }: { text: string }) {
+// An icon-only button that copies `text` (the policy floats it over its
+// code's corner).
+export function CopyButton({ text, className = '' }: { text: string; className?: string }) {
   const [copied, setCopied] = useState(false);
+  const label = copied ? 'Copied' : 'Copy';
   return (
     <button
       type="button"
-      className="button"
+      className={`icon-button copy-button ${className}`}
+      title={label}
+      aria-label={label}
       onClick={() =>
         void navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -33,8 +38,7 @@ export function CopyButton({ text }: { text: string }) {
         })
       }
     >
-      {copied ? <RiCheckLine size={14} /> : <RiFileCopyLine size={14} />}
-      {copied ? 'Copied' : 'Copy'}
+      {copied ? <RiCheckLine size={15} /> : <RiFileCopyLine size={15} />}
     </button>
   );
 }
@@ -52,7 +56,7 @@ export function SetupSteps({ signIn }: { signIn: ReactNode }) {
         , add these to your policy file's <code>tagOwners</code> and <code>grants</code>:
         <div className="tailscale-policy">
           <pre>{POLICY}</pre>
-          <CopyButton text={POLICY} />
+          <CopyButton text={POLICY} className="tailscale-policy-copy" />
         </div>
         The playground signs in as <code>{TAG}</code>, which may then use exit nodes and reach
         nothing in your tailnet. A rule that lets every device reach everything (
@@ -66,8 +70,9 @@ export function SetupSteps({ signIn }: { signIn: ReactNode }) {
         route settings, Use as exit node), or add Mullvad's.
       </li>
       <li>
-        <strong>Sign in</strong> {signIn} and pick the exit node. This browser's projects share one
-        device, <code>elixir-playground</code>; a tagged device's key does not expire.
+        <strong>Sign in</strong> and pick the exit node. This browser's projects share one device,{' '}
+        <code>elixir-playground</code>; a tagged device's key does not expire.
+        <div className="tailscale-step-action">{signIn}</div>
       </li>
     </ol>
   );

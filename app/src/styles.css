@@ -1697,17 +1697,13 @@ button {
 }
 
 .tailscale-policy {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
+  position: relative;
   margin: 6px 0;
 }
 
 .tailscale-policy pre {
-  flex: 1;
-  min-width: 0;
   margin: 0;
-  padding: 8px 12px;
+  padding: 8px 44px 8px 12px;
   overflow: auto;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -1717,6 +1713,72 @@ button {
     SFMono-Regular,
     Menlo,
     monospace;
+}
+
+.copy-button {
+  color: var(--muted);
+}
+
+.copy-button:hover {
+  border-color: var(--line);
+  background: var(--panel);
+  color: var(--fg);
+}
+
+/* Over the code's top right corner, over the code scrolled under it. */
+.tailscale-policy-copy {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  background: var(--panel-2);
+}
+
+.tailscale-step-action {
+  margin-top: 8px;
+}
+
+/* The device card before Tailscale is set up: the mark, what to do, and
+   signing in. */
+.tailscale-unset {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px;
+}
+
+.tailscale-unset-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  flex: none;
+  border-radius: 10px;
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.tailscale-unset-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.tailscale-unset-text p {
+  margin: 0;
+}
+
+.tailscale-unset .tailscale-state {
+  margin-bottom: 2px;
+}
+
+@media (max-width: 600px) {
+  .tailscale-unset {
+    flex-wrap: wrap;
+  }
+
+  .tailscale-unset .button {
+    width: 100%;
+    justify-content: center;
+  }
 }
 
 .tailscale-back {

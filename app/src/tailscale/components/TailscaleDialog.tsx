@@ -21,7 +21,7 @@ export function TailscaleDialog() {
   const host = URL.canParse(blocked) ? new URL(blocked).host : blocked;
   const setup = (
     <a href={apexUrl('/tailscale')} target="_blank" rel="noopener">
-      on the playground's Tailscale page
+      Sign in on the playground's Tailscale page
     </a>
   );
   return (
