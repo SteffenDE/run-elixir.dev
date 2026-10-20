@@ -54,6 +54,22 @@ test('a project is renamed in place', async ({ page }) => {
   await page.getByLabel('Project name').fill('my experiment');
   await page.getByLabel('Project name').press('Enter');
   await expect(page.locator('.project-name')).toHaveText('my experiment');
+  // Kept (IndexedDB) before the page goes: a write left in flight goes
+  // with it.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          new Promise<string[]>((resolve) => {
+            const opening = indexedDB.open('playground');
+            opening.onsuccess = () => {
+              const all = opening.result.transaction('projects').objectStore('projects').getAll();
+              all.onsuccess = () => resolve(all.result.map((project) => project.name));
+            };
+          }),
+      ),
+    )
+    .toContain('my experiment');
   await page.goto('/');
   await expect(page.locator('.project-row', { hasText: 'my experiment' })).toBeVisible();
 });
