@@ -14,7 +14,7 @@ test("a Phoenix project's database is kept, and deleted with it", async ({ page 
         db.exec("create table notes (body text); insert into notes values ('kept')"),
       ),
   );
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await serverRunning(page);
   const rows = await page.evaluate(() =>
     window.playground

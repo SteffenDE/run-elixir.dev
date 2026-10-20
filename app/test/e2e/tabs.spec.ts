@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { markHome, newProject, preview, reloadPreview, serverRunning } from './helpers';
+import { markHome, newProject, reloadPreview, seesInPreview, serverRunning } from './helpers';
 
 test('projects run in parallel tabs, one tab per project', async ({
   context,
@@ -16,8 +16,8 @@ test('projects run in parallel tabs, one tab per project', async ({
     await markHome(page, marker);
     await reloadPreview(page);
   }
-  await expect(preview(a).locator('#marker')).toHaveText('Project A', { timeout: 90_000 });
-  await expect(preview(b).locator('#marker')).toHaveText('Project B', { timeout: 90_000 });
+  await seesInPreview(a, 'Project A', 90_000);
+  await seesInPreview(b, 'Project B', 90_000);
 
   if (browserName === 'chromium') {
     // The routes outlive the service worker.
@@ -30,7 +30,7 @@ test('projects run in parallel tabs, one tab per project', async ({
       [a, 'Project A'],
     ] as const) {
       await reloadPreview(page);
-      await expect(preview(page).locator('#marker')).toHaveText(marker, { timeout: 90_000 });
+      await seesInPreview(page, marker, 90_000);
     }
   }
 
@@ -41,5 +41,5 @@ test('projects run in parallel tabs, one tab per project', async ({
   await serverRunning(c);
   await expect(a.getByText('it stopped here')).toBeVisible();
   await reloadPreview(c);
-  await expect(preview(c).locator('#marker')).toHaveText('Project A', { timeout: 90_000 });
+  await seesInPreview(c, 'Project A', 90_000);
 });

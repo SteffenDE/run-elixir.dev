@@ -9,24 +9,36 @@ last_updated: 2026-10-19
 A project runs in one browser tab. Nothing on the server knows about
 Elixir: the site is static files. The home page (`/`) only lists projects;
 a project's page (`/ID/`, `/iex`) runs it, and several tabs may run
-several projects (one tab per project, [projects.md](projects.md)).
+several projects (one tab per project, [projects.md](projects.md)). Every
+page is the apex's; what the project's code runs is in frames of the
+usercontent domain, another site ([frames.md](frames.md)).
 
 ```
- project page (React IDE, app)
- ├─ host/ Node ────────────────► worker.js  (one per shell / terminal tab)
- │    frames in a SharedArrayBuffer ring;      the Emscripten BEAM
- │    messages back                            its own /rotp, /dev, /usr
- ├─ host/ Files ───────────────► files.js   (one; runs no node)
- │    messages                                 /work and /tmp, shared;
- │                                             keeps /work's changes in
- │                                             IndexedDB (overlay.ts)
- │                   worker.js ═══════════════► files.js
- │                   synchronous calls (SharedArrayBuffer + Atomics.wait)
- ├─ bridge.ts ◄──── sw.js (service worker) ◄─── preview <iframe> (the app)
- │                  routes by project key       or a popped-out window
- ├─ postgres.ts ─── PGlite (Postgres in WebAssembly; IndexedDB)
- └─ page programs: tailwind, git, and sh and rebar3 (programs/node.ts),
-                    which start a node of their own
+ project page (React IDE, apex)
+ ├─ terminals' screens and line disciplines, the tree, the tabs
+ ├─ postgres.ts ─── PGlite (Postgres in WebAssembly; the apex's IndexedDB)
+ ├─ overlay.ts serveStore: /work's changes, in the apex's IndexedDB
+ ├─ hex.ts: Hex's tarballs, in the apex's Cache Storage
+ │
+ ├─ exec frame (e-ID.USERCONTENT) ─► exec/host.ts, a worker: rpc.ts ◄─► the page
+ │   ├─ host/ Node ──────────► worker.js  (one per shell / terminal tab)
+ │   │    frames in a SharedArrayBuffer ring;   the Emscripten BEAM
+ │   │    messages back                         its own /rotp, /dev, /usr
+ │   ├─ host/ Files ─────────► files.js   (one; runs no node)
+ │   │    messages                              /work and /tmp, shared;
+ │   │                                          keeps /work's changes
+ │   │                                          through the page's store
+ │   │                worker.js ═══════════► files.js
+ │   │                synchronous calls (SharedArrayBuffer + Atomics.wait)
+ │   ├─ bridge.ts: the preview's requests, to the app
+ │   ├─ 5432, Hex's port ──► carried to the page (portConnection.ts)
+ │   └─ page programs: tailwind (the project's plugins), esbuild, git,
+ │       and sh and rebar3 (programs/node.ts), which start a node of
+ │       their own
+ │
+ └─ relay frame (v-ID-PORT.USERCONTENT), per port ◄── sw.js ◄── preview <iframe>
+     passes requests to the exec frame's bridge         (the app), or a
+                                                        popped-out window
 ```
 
 ## The node
@@ -89,9 +101,10 @@ child processes, a clock, random bytes and a terminal.
    project. Each project page announces itself under its project's key, and
    each preview document takes the key of what navigated it; the routes
    outlive a service worker restart ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
-   With a project domain each project has an origin, and so a service
-   worker, of its own ([projects.md](projects.md#a-project-domain)). Its
-   frames (`registry.html`, `storage.html`) are never a preview.
+   Each port of a project's app has an origin of its own on the
+   usercontent domain, and so a service worker
+   ([frames.md](frames.md)); its relay frame (`relay.html`) is never a
+   preview.
 3. `src/runtime/bridge.ts` on the page opens a connection to the preview's port
    (4000, else the lowest port a node serves on; ports a node asked for
    with 0, such as Mix's compile lock's, are no server) of the node that

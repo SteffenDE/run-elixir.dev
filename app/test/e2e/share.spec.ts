@@ -1,13 +1,13 @@
 import { expect, test } from './fixtures';
 import {
   APP,
-  HOME_HEEX,
   exists,
+  HOME_HEEX,
   markHome,
   newProject,
-  preview,
   prompted,
   readText,
+  seesInPreview,
   serverRunning,
   writeText,
 } from './helpers';
@@ -63,7 +63,7 @@ test('a Phoenix project travels as its changes over the template', async ({ page
   await serverRunning(other);
   expect(await readText(other, HOME_HEEX)).toMatch(/^<h1 id="marker">Shared by link/);
   expect(await exists(other, `${APP}/README.md`)).toBe(false);
-  await expect(preview(other).locator('#marker')).toHaveText('Shared by link', { timeout: 90_000 });
+  await seesInPreview(other, 'Shared by link', 90_000);
   await other.context().close();
 });
 

@@ -55,17 +55,16 @@ self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim(
 
 // What every answer to the preview carries: it is in a cross-origin
 // isolated page, which loads no frame without them. require-corp, as the
-// site sends: WebKit takes no credentialless. same-site: on a project
-// domain the preview is an origin of its own (v-ID-PORT, site.ts) in the
-// IDE's page (p-ID), the same site.
+// site sends: WebKit takes no credentialless. cross-origin: the preview is
+// an origin of the usercontent domain (v-ID-PORT, site.ts) in the apex's
+// page, another site.
 const ISOLATION = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
-  'Cross-Origin-Resource-Policy': 'same-site',
+  'Cross-Origin-Resource-Policy': 'cross-origin',
 };
-// The site's own frames: the apex's and a project's (frames.ts), and a
-// preview origin's relay to its IDE (frames/relay.ts), whose page is this
-// worker's host there.
-const FRAMES = ['/registry.html', '/storage.html', '/relay.html'];
+// The site's own frames: a preview origin's relay to its IDE
+// (frames/relay.ts), whose page is this worker's host there.
+const FRAMES = ['/relay.html', '/exec.html'];
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
 // client id → key (hosts, preview windows, the app's documents), and

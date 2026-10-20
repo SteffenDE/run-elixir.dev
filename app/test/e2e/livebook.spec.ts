@@ -1,6 +1,13 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, output, preview, prompted, reloadPreview } from './helpers';
+import {
+  newProject,
+  NO_FRAME_IN_FIREFOX,
+  output,
+  preview,
+  prompted,
+  reloadPreview,
+} from './helpers';
 
 const input = (page: Page, session: number, text: string) =>
   page.evaluate(([id, line]) => window.playground.sessions.get(id).node.input(`${line}\n`), [
@@ -14,7 +21,8 @@ const input = (page: Page, session: number, text: string) =>
 // (docs/distribution.md). The escript is built natively
 // (`mix escript.install hex livebook 0.19.10`, the same OTP and Elixir)
 // and put in the site as /livebook-escript; without it, the test skips.
-test('Livebook runs a notebook on its standalone runtime @slow', async ({ page }) => {
+test('Livebook runs a notebook on its standalone runtime @slow', async ({ page, browserName }) => {
+  test.skip(browserName === 'firefox', NO_FRAME_IN_FIREFOX);
   test.setTimeout(900_000);
   await page.goto('/');
   const escript = await page.evaluate(async () =>

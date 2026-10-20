@@ -25,12 +25,12 @@ test('a project made from an older template says so, until dismissed', async ({ 
   await serverRunning(page);
   await expect(page.locator('.template-notice')).toHaveCount(0);
   await madeFrom(page, id, { id: 'older', label: 'phx.new 1.8.0' });
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   const notice = page.locator('.template-notice');
   await expect(notice).toContainText('phx.new 1.8.0');
   await notice.getByRole('button', { name: 'Dismiss' }).click();
   await expect(notice).toHaveCount(0);
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await serverRunning(page);
   await expect(page.locator('.template-notice')).toHaveCount(0);
 });

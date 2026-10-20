@@ -9,20 +9,10 @@ import { ProjectPage } from '@/project/components/ProjectPage';
 import { endSession } from '@/live/lib/host';
 import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
+import { dropFramesOnLeave } from '@/shared/lib/leave';
 import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
-import { createProject, isId, type Kind } from '@/shared/lib/projects';
-import { apexPartitioned, getProject, heldOpen, openedProject } from '@/shared/lib/registry';
-import {
-  liveOrigin,
-  liveUrl,
-  loadSite,
-  previewSite,
-  onDomain,
-  oneOriginUrl,
-  projectOrigin,
-  projectUrl,
-  strayOrigin,
-} from '@/shared/lib/site';
+import { createProject, getProject, isId, openedProject, type Kind } from '@/shared/lib/projects';
+import { loadSite, movedTo, previewSite, projectUrl, strayOrigin } from '@/shared/lib/site';
 import '@/styles.css';
 
 // Pages are whole page loads: a project's page owns its workers, and
@@ -35,31 +25,26 @@ import '@/styles.css';
 //   /import#…   a shared project's link
 //   /live/ID#…  a live session's link, to join it
 //
-// With a project domain (site.ts), a project is its own origin's /, and
-// the rest is the apex's; an old /ID/ link on the apex goes there. Any
-// other name under the domain is reserved: not found. Where a frame's
-// storage is the page origin's own (Safari), the apex runs projects itself.
+// All of them on the apex (site.ts). A project's former origin (p-ID) and
+// a guest's (l-ID) go to the apex's address; a preview origin opened by
+// itself, and any other name, is not found.
 const SHORTCUTS: Record<string, Kind> = { phoenix: 'phoenix', empty: 'empty' };
 
 async function page(path: string): Promise<ReactNode> {
   await loadSite();
-  if (strayOrigin()) return <NotFound />;
+  const moved = movedTo();
+  if (moved) {
+    location.replace(moved + location.hash);
+    return null;
+  }
   // A preview origin (v-ID-PORT) opened by itself: the app is shown in the IDE.
-  if (previewSite()) return <NotFound />;
-  if (liveOrigin() && !path.startsWith('/live/')) return <NotFound />;
-  const own = projectOrigin();
-  if (own) return projectPage(own, path);
+  if (strayOrigin() || previewSite()) return <NotFound />;
   const name = path.split('/').filter(Boolean)[0] ?? '';
   if (!name) return <HomePage />;
   if (name === 'import') return <ImportPage />;
   if (name === 'live') {
     const session = path.split('/').filter(Boolean)[1] ?? '';
     if (!/^[\w-]{22}$/.test(session)) return <NotFound />;
-    // On a project domain, the guest's page has an origin of its own.
-    if (onDomain() && !liveOrigin()) {
-      location.replace(liveUrl(session) + location.hash);
-      return null;
-    }
     return <GuestPage session={session} />;
   }
   if (name === 'iex') {
@@ -72,22 +57,14 @@ async function page(path: string): Promise<ReactNode> {
     return null;
   }
   if (!isId(name)) return <NotFound />;
-  if (onDomain()) {
-    location.replace(projectUrl(name));
-    return null;
-  }
   return projectPage(name, path);
 }
 
-// Project `id`'s page, at its path (/ID/, or its own origin's /).
+// Project `id`'s page, at /ID/.
 async function projectPage(id: string, path: string): Promise<ReactNode> {
   const project = await getProject(id);
-  if (!project && (await apexPartitioned())) {
-    location.replace(oneOriginUrl(id));
-    return null;
-  }
   if (!project) return <NotFound project />;
-  const home = projectOrigin() ? '/' : `/${project.id}/`;
+  const home = `/${project.id}/`;
   if (path !== home) history.replaceState(null, '', home);
   document.title = `${project.name} · Elixir Playground`;
   // Asked to let go: stop here first. Taken (after not answering): stop.
@@ -101,7 +78,6 @@ async function projectPage(id: string, path: string): Promise<ReactNode> {
   );
   const run = () => {
     void openedProject(project.id);
-    void heldOpen();
     return <ProjectPage project={project} />;
   };
   if (await claimProject(project.id)) return run();
@@ -127,6 +103,7 @@ if (matchMedia('(display-mode: standalone)').matches)
   viewport.content += ', maximum-scale=1, user-scalable=no';
 else if (CSS.supports('-webkit-touch-callout', 'none')) viewport.content += ', maximum-scale=1';
 
+dropFramesOnLeave();
 const root = createRoot(document.getElementById('root')!);
 void page(location.pathname).then((content) => {
   if (content) root.render(<StrictMode>{content}</StrictMode>);

@@ -11,12 +11,13 @@ import {
   preview,
   prompted,
   readText,
+  seesInPreview,
   serverRunning,
   syncLV,
   writeText,
 } from './helpers';
 
-const LIVE = `http://localhost:${Number(process.env.PORT || 8081) + 2}`;
+const LIVE = `http://playground.localhost:${Number(process.env.PORT || 8081) + 2}`;
 
 test.use({ baseURL: LIVE });
 
@@ -206,7 +207,7 @@ test('the host reloads its page; the session and its guests carry on', async ({
   await guest.getByRole('treeitem', { name: 'again.txt', exact: true }).click();
   await expect.poll(() => editorText(guest)).toContain('one');
 
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await expect(guest.locator('.guest-status')).toHaveText('The host is away…');
   await prompted(page, 1);
   await expect(page.getByRole('button', { name: /^Live/ })).toBeVisible();
@@ -224,17 +225,17 @@ test('the host reloads its page; the session and its guests carry on', async ({
 test('a guest sees the app in its own preview, LiveView and all', async ({ page, browser }) => {
   await newProject(page, 'phoenix');
   await serverRunning(page);
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 120_000 });
+  await seesInPreview(page, 'Peace of mind', 120_000);
   const link = await startLive(page);
   const guest = await join(browser, link);
   // The host's app, through the relay.
-  await expect(preview(guest).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await seesInPreview(guest, 'Peace of mind', 60_000);
 
   // LiveDashboard: the guest's own LiveView, over a WebSocket through the relay.
   await guest.locator('.preview-bar input').fill('/dev/dashboard');
   await guest.locator('.preview-bar input').press('Enter');
   await syncLV(preview(guest));
-  await expect(preview(guest).getByText('System limits')).toBeVisible();
+  await seesInPreview(guest, 'System limits');
   await preview(guest).getByRole('link', { name: 'Processes' }).click();
   await syncLV(preview(guest));
   await expect(preview(guest).locator('tr[phx-click="show_info"]').first()).toBeVisible();
@@ -243,7 +244,7 @@ test('a guest sees the app in its own preview, LiveView and all', async ({ page,
   // guest's with it: no click here.
   await guest.locator('.preview-bar input').fill('/');
   await guest.locator('.preview-bar input').press('Enter');
-  await expect(preview(guest).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await seesInPreview(guest, 'Peace of mind', 60_000);
   for (const name of ['playground_web', 'controllers', 'page_html', 'home.html.heex']) {
     await page.getByRole('treeitem', { name, exact: true }).first().click();
     await page.waitForTimeout(300);
@@ -253,9 +254,7 @@ test('a guest sees the app in its own preview, LiveView and all', async ({ page,
   await page.keyboard.press('Control+Home');
   await page.keyboard.type('<h1 id="marker">Seen by the guest</h1>\n');
   await page.keyboard.press('Control+s');
-  await expect(preview(guest).locator('#marker')).toHaveText('Seen by the guest', {
-    timeout: 120_000,
-  });
+  await seesInPreview(guest, 'Seen by the guest', 120_000);
   await guest.context().close();
 });
 

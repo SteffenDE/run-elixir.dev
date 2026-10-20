@@ -2,9 +2,8 @@ import { RiDeleteBinLine, RiFireLine, RiFolderAddLine, RiTerminalLine } from '@r
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { KindChip } from '@/shared/components/KindChip';
 import { listProjects, type Project } from '@/shared/lib/projects';
-import { deleteEverywhere } from '@/shared/lib/registry';
 import { projectUrl } from '@/shared/lib/site';
-import { openProjects } from '@/shared/lib/storage';
+import { deleteProject, openProjects } from '@/shared/lib/storage';
 
 function ago(time: number): string {
   const minutes = Math.round((Date.now() - time) / 60000);
@@ -51,7 +50,7 @@ function ProjectRow({
             type="button"
             className="button danger"
             onClick={() =>
-              deleteEverywhere(project.id).then(onDeleted, (failed: Error) => {
+              deleteProject(project.id).then(onDeleted, (failed: Error) => {
                 setConfirming(false);
                 setError(failed.message);
               })

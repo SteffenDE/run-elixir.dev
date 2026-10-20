@@ -374,9 +374,10 @@ one it:
   redirects to the path;
 - answers a page that reloads every two seconds while nothing listens.
 
-**On a project domain, a preview origin per port.** The preview shows
-port PORT of the app on `v-ID-PORT.DOMAIN` (`site.ts` `previewOrigin`),
-so several ports show at once (Livebook's page and its iframe endpoint's
+**A preview origin per port, on the usercontent domain.** The preview
+shows port PORT of the app on `v-ID-PORT.USERCONTENT` (`site.ts`
+`previewOrigin`; [frames.md](frames.md)), another site than the IDE's, so
+several ports show at once (Livebook's page and its iframe endpoint's
 outputs, on another port) and each is kept from the IDE's origin and
 from the others':
 
@@ -384,9 +385,13 @@ from the others':
   (`project/lib/previewOrigins.ts`, made as a server listens there); its
   page (`frames/relay.ts`) registers that origin's service worker, is its
   host, and passes the preview's requests and WebSockets to the IDE on a
-  MessagePort, with the port and the origin's `document.cookie`;
+  MessagePort, with the port and the origin's cookies (its jar,
+  `runtime/cookies.ts`: a frame of another site keeps few cookies of
+  its own, so they are kept in its local storage, and the app's pages
+  read and set them as `document.cookie` through a shim the bridge puts
+  in each);
 - `new Bridge({ connect }, port, origins)` with `origins`
-  (`v-ID-{port}.DOMAIN`) takes each request's port from it; cookies the
+  (`v-ID-{port}.USERCONTENT`) takes each request's port from it; cookies the
   app's JavaScript may read come back to the relay to set on its origin
   (HttpOnly ones stay in the bridge's jar, one per project, as a browser
   keeps cookies whatever the port);
@@ -413,9 +418,8 @@ from the others':
   and `LIVEBOOK_IFRAME_URL` (Livebook 0.19's iframe page on 8081's
   origin; another version of it sets its own).
 
-Without a project domain (and in Safari's one-origin fallback, and a live
-session's guest), the preview stays the page's origin and shows one port
-at a time.
+A live session's guest's preview (for now) stays the page's origin and
+shows one port at a time.
 
 **WebSockets.** A service worker sees no WebSocket connection. The
 injected `WebSocket` (the browser's API: `onopen`/`onmessage`/`onclose`,

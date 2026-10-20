@@ -87,7 +87,7 @@ test('files and folders are made, renamed, moved and deleted from the tree', asy
 
   // Kept, and shown again, after a reload.
   await page.evaluate(() => window.playground.files.flush());
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await prompted(page, 1);
   await expect(item(page, 'lib')).toBeVisible();
   expect(await exists(page, dragged ? '/work/inner.ex' : '/work/lib/inner.ex')).toBe(true);

@@ -1,20 +1,21 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { output, prompted, reloadPreview } from './helpers';
+import { APEX, NO_FRAME_IN_FIREFOX, output, prompted, reloadPreview, USERCONTENT } from './helpers';
 
 const input = (page: Page, text: string) =>
   page.evaluate((line) => window.playground.sessions.get(1).node.input(`${line}\n`), text);
 
-// Livebook as a user gets it, on a project domain: mix escript.install
+// Livebook as a user gets it: mix escript.install
 // builds it in the tab, `livebook` is a command (an escript on PATH), and
 // a notebook's Kino output shows in Livebook's iframe endpoint, its port
 // (8081) on an origin of its own (LIVEBOOK_IFRAME_URL from the page).
-const APEX = 'http://playground.localhost:8082';
-const ORIGIN = /^http:\/\/p-([a-z0-9]{10})\.playground\.localhost:8082\/$/;
+const ORIGIN = new RegExp(`^${APEX}/([a-z0-9]{10})/$`);
 
 test('Livebook installed with mix escript.install, a Kino output in its iframe @slow', async ({
   page,
+  browserName,
 }) => {
+  test.skip(browserName === 'firefox', NO_FRAME_IN_FIREFOX);
   test.setTimeout(3_600_000);
   await page.goto(`${APEX}/empty`);
   await page.waitForURL(ORIGIN);
@@ -75,7 +76,7 @@ test('Livebook installed with mix escript.install, a Kino output in its iframe @
         },
         { timeout: 300_000 },
       )
-      .toMatch(/^http:\/\/v-[a-z0-9]{10}-8081\.playground\.localhost:8082\//);
+      .toMatch(new RegExp(`^http://v-[a-z0-9]{10}-8081\\.${USERCONTENT.replace(/[.]/g, '\\.')}/`));
   } finally {
     await page.screenshot({ path: '/repo/target/tests/livebook-kino.png' });
   }

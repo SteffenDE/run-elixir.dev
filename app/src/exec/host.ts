@@ -1,0 +1,458 @@
+// The worker that runs a project, in its exec frame on the usercontent
+// domain (frames/exec.ts, docs/frames.md): the shared files, a node per
+// shell and per command the nodes run, the page programs (Tailwind, with
+// the project's plugins; esbuild; git), epmd, HTTPS by fetch, and the
+// bridge to the app for the preview. The IDE's page on the apex drives it
+// over a port (rpc.ts): calls in, events out. What the apex keeps for the
+// project (its files' changes, its Postgres, Hex's cache) the apex
+// answers: the files keep their changes through a port to its store, and
+// the nodes' connections to Postgres and Hex go there (portConnection.ts).
+//
+// A worker, not the frame's page: a hidden frame of another site has its
+// page's timers slowed to a second (WebKit, Firefox), a worker's not.
+import { Bridge, type PreviewResponse } from '@/runtime/bridge';
+import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
+import { Files, type SearchQuery } from '@/runtime/host/files';
+import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
+import { httpsByFetch } from '@/runtime/https';
+import { carry } from '@/runtime/portConnection';
+import { built } from '@/project/lib/programs/tailwind';
+import { bundled, esbuild } from '@/project/lib/programs/esbuild';
+import { tailwind } from '@/project/lib/programs/tailwind';
+import { filesChanged } from '@/project/lib/programs/watch';
+import { gitProgram } from '@/project/lib/programs/git';
+import {
+  commandProgram,
+  rebar3Program,
+  shProgram,
+  type StartNode,
+} from '@/project/lib/programs/node';
+import { HEX_PORT, hexEnv } from '@/project/lib/hex';
+import { setup as setupOf, type Setup, type WorkspaceKind } from '@/project/lib/kinds';
+import { Rpc, transfer } from '@/shared/lib/rpc';
+import { fileBytes, fileEntry, type Shared } from '@/shared/lib/share';
+import { loadSite, previewOrigin, previewOrigins } from '@/shared/lib/site';
+
+// What the IDE starts the project with.
+export interface ExecStart {
+  kind: WorkspaceKind;
+  // The preview's key (a project's id, a temporary IEx's own): its
+  // origins (site.ts previewOrigins).
+  key: string;
+  // The IDE's origin, which the preview's pages answer.
+  ide: string;
+  // The site's build and runtime paths (shared/lib/build.ts), on this
+  // frame's origin as on the apex's (the same site's files).
+  build: string;
+  runtime: string;
+  // Where the files keep their changes: a port to the apex's store, or
+  // none (a temporary IEx keeps nothing).
+  store: MessagePort | null;
+}
+
+// A shell's start (openShell).
+export interface ShellStart {
+  initial: string[];
+}
+
+// What the host tells the IDE (events): see the handlers below.
+export type ExecEvents = {
+  output: { id: number; bytes: Uint8Array };
+  status: { id: number; text: string };
+  terminal: { id: number; raw: boolean };
+  serving: { ports: number[]; port: number | null; byShell: Record<number, number[]> };
+  changed: string[];
+  warning: string;
+  nif: NifBuild;
+  css: string;
+  bundled: null;
+};
+
+const PREVIEW_PORT = 4000;
+const TAIL = 4096;
+// The project's nodes' cookie (worker/index.ts gives it to a node whose
+// command line names none).
+const COOKIE = Array.from(crypto.getRandomValues(new Uint8Array(15)), (byte) =>
+  String.fromCharCode(65 + (byte % 26)),
+).join('');
+
+// The IDE's port, which the frame's page hands over first.
+let rpc: Rpc = null!;
+let files: Files | null = null;
+let setup: Setup = setupOf('empty');
+let start: ExecStart | null = null;
+let bridge: Bridge | null = null;
+let chosenPort: number | null = null;
+let serveNames = serveEpmd(new EpmdRegistry());
+// Shells by id, and every node (shells and the commands they run).
+const shells = new Map<number, Node>();
+const nodes = new Set<Node>();
+const commands = new Map<Node, string>();
+const tails = new Map<Node, string>();
+const ended: { command: string; code: number; output: string }[] = [];
+const encoder = new TextEncoder();
+
+function running(): Files {
+  if (!files) throw new Error('the playground is not running');
+  return files;
+}
+
+// A node's stand-in for the apex's services, which tell nodes apart.
+const nodeIds = new WeakMap<object, number>();
+let nextNodeId = 1;
+const nodeId = (node: object) => {
+  let id = nodeIds.get(node);
+  if (id === undefined) nodeIds.set(node, (id = nextNodeId++));
+  return id;
+};
+
+// A service the apex answers (Postgres, Hex's cache): the connection
+// carried there.
+function apex(service: 'postgres' | 'hex') {
+  return (connection: Connection) => {
+    const channel = new MessageChannel();
+    carry(connection, channel.port1);
+    void rpc
+      .call(
+        'connect',
+        [service, nodeId(connection.node), connection.id, channel.port2],
+        [channel.port2],
+      )
+      .catch(() => connection.close());
+  };
+}
+
+function updatePeers(): void {
+  for (const node of nodes)
+    node.peers(
+      [...nodes].filter((other) => other !== node).flatMap((other) => [...other.listening]),
+    );
+}
+
+// A connection a node opened to another node's port: joined to one opened
+// there.
+function routePeer(connection: Connection, port: number): boolean {
+  const target = [...nodes].find((node) => node !== connection.node && node.listening.has(port));
+  if (!target) return false;
+  const other = target.connect(port);
+  let closed = false;
+  const close = () => {
+    if (closed) return;
+    closed = true;
+    connection.close();
+    other.close();
+  };
+  connection.ondata = (bytes) => other.write(bytes);
+  other.ondata = (bytes) => connection.write(bytes);
+  connection.onend = () => other.end();
+  other.onend = () => connection.end();
+  connection.onclose = close;
+  other.onclose = close;
+  return true;
+}
+
+function nodeServices() {
+  return {
+    peer: routePeer,
+    serve: { 5432: apex('postgres'), [HEX_PORT]: apex('hex'), [EPMD_PORT]: serveNames },
+    onnif: (build: NifBuild) => rpc.emit('nif', build),
+    https: httpsByFetch(),
+    programs: {
+      tailwind,
+      esbuild,
+      git: gitProgram,
+      sh: shProgram(startNode),
+      rebar3: rebar3Program(startNode),
+      ...Object.fromEntries(
+        ['mix', 'elixir', 'iex', 'erl', 'escript'].map((name) => [
+          name,
+          commandProgram(startNode, name),
+        ]),
+      ),
+    },
+  };
+}
+
+// A node for one command a node ran (sh, rebar3), in its own worker.
+const startNode: StartNode = (command, { cwd, env }, output, exit) => {
+  if (!files || !start) {
+    exit(1);
+    return { stop() {} };
+  }
+  const node = new Node({
+    base: start.build,
+    runtime: start.runtime,
+    files,
+    ...nodeServices(),
+    onoutput(bytes) {
+      tails.set(node, ((tails.get(node) ?? '') + new TextDecoder().decode(bytes)).slice(-TAIL));
+      output(bytes);
+    },
+    onexit(code) {
+      ended.push({ command: commands.get(node) ?? '', code, output: tails.get(node) ?? '' });
+      if (ended.length > 10) ended.shift();
+      nodes.delete(node);
+      commands.delete(node);
+      tails.delete(node);
+      updatePeers();
+      exit(code);
+    },
+    onstatus(text) {
+      if (!text.startsWith('failed')) return;
+      output(encoder.encode(`${command[0]}: ${text}\n`));
+      exit(1);
+    },
+    onlistening: updatePeers,
+  });
+  nodes.add(node);
+  commands.set(node, command.join(' '));
+  updatePeers();
+  node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
+  return node;
+};
+
+// Which node answers a port: the one listening on it.
+function nodeOn(port: number): Node | null {
+  for (const node of shells.values()) if (node.listening.has(port)) return node;
+  return shells.values().next().value ?? null;
+}
+
+// The ports the shells' nodes serve on, and the one the preview shows.
+// Ephemeral listeners (Mix's compile lock) are no server.
+function updateListening(): void {
+  const ports = new Set<number>();
+  const byShell: Record<number, number[]> = {};
+  for (const [id, node] of shells) {
+    byShell[id] = [...node.serving];
+    for (const port of node.serving) ports.add(port);
+  }
+  const sorted = [...ports].sort((a, b) => a - b);
+  const port = !ports.size
+    ? null
+    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : sorted[0]));
+  if (bridge && port !== null) bridge.port = port;
+  rpc.emit('serving', { ports: sorted, port, byShell });
+}
+
+// Where the preview shows a port, for the app (PLAYGROUND_PREVIEW_ORIGIN),
+// and Livebook's iframe endpoint.
+function previewEnv(): Record<string, string> {
+  const origins = start && previewOrigins(start.key);
+  return origins && start
+    ? {
+        PLAYGROUND_PREVIEW_ORIGIN: origins,
+        LIVEBOOK_IFRAME_URL: `${previewOrigin(start.key, 8081)}/iframe/v6.html`,
+      }
+    : {};
+}
+
+// A relay's requests and WebSockets (frames/relay.ts), on a port the IDE
+// handed over from it.
+function serveRelay(port: MessagePort): void {
+  port.onmessage = ({ data, ports }) => {
+    if (data?.kind === 'http') {
+      if (!bridge) {
+        const body = encoder.encode('The project is not running.');
+        ports[0].postMessage(
+          {
+            status: 503,
+            reason: 'Service Unavailable',
+            headers: [['content-type', 'text/plain']],
+            body,
+          } satisfies PreviewResponse,
+          [body.buffer],
+        );
+        return;
+      }
+      void bridge
+        .request(data)
+        .then((response) => ports[0].postMessage(response, [response.body.buffer]));
+    } else if (data?.kind === 'websocket') {
+      if (bridge) bridge.websocket(data, ports[0]);
+      else ports[0].postMessage({ close: { code: 1006, reason: '', clean: false } });
+    }
+  };
+}
+
+// What this project changed over its template, to share (the IDE adds its
+// name and template).
+async function changes(hidden: string[]): Promise<Omit<Shared, 'name' | 'template'>> {
+  const work = '/work';
+  const [{ changed, removed }, site] = await Promise.all([
+    running().changes(hidden),
+    fetch(new URL('fs/version', new URL(start!.runtime, location.href))).then((response) =>
+      response.text(),
+    ),
+  ]);
+  const relative = (path: string) => path.slice(work.length + 1);
+  const written = changed.filter(({ path }) => !path.includes('/priv/static/assets/'));
+  return {
+    v: 1,
+    kind: start!.kind === 'phoenix' ? 'phoenix' : 'empty',
+    site: site.trim(),
+    files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
+    removed: removed.map(relative),
+  };
+}
+
+const handlers = {
+  // The files, from the site and the apex's store.
+  async start(options: ExecStart) {
+    start = {
+      ...options,
+      build: new URL(options.build, location.origin).href,
+      runtime: new URL(options.runtime, location.origin).href,
+    };
+    setup = setupOf(options.kind);
+    await loadSite();
+    files = new Files({
+      base: start.build,
+      runtime: start.runtime,
+      boots: setup.boots,
+      template: setup.template,
+      storePort: options.store,
+      onchange: (paths: string[]) => {
+        filesChanged(paths);
+        rpc.emit('changed', paths);
+      },
+      onwarning: (message: string) => rpc.emit('warning', message),
+    });
+    await files.ready;
+    bridge = new Bridge(
+      { connect: (port: number) => nodeOn(port)!.connect(port) },
+      PREVIEW_PORT,
+      previewOrigins(options.key),
+      options.ide,
+    );
+    chosenPort = null;
+    bridge.onport = (port) => {
+      chosenPort = port;
+      updateListening();
+    };
+  },
+
+  // A shared project's changes, over this project's template.
+  async applyShared(shared: Shared) {
+    const target = running();
+    for (const path of shared.removed) await target.remove(`/work/${path}`).catch(() => {});
+    for (const [path, entry] of Object.entries(shared.files)) {
+      const file = `/work/${path}`;
+      await target.mkdir(file.slice(0, file.lastIndexOf('/')));
+      await target.write(file, fileBytes(entry));
+    }
+    await target.flush();
+  },
+
+  // The shared files, for the IDE (the tree, the editor, search, tests).
+  list: (path: string, skip: string[]) => running().list(path, skip),
+  stat: (path: string) => (files ? files.stat(path) : null),
+  async read(path: string) {
+    const bytes = await running().read(path);
+    return transfer(bytes, [bytes.buffer]);
+  },
+  write: (path: string, data: string | Uint8Array) => running().write(path, data),
+  mkdir: (path: string) => running().mkdir(path),
+  remove: (path: string) => running().remove(path),
+  rename: (from: string, to: string) => running().rename(from, to),
+  search: (path: string, query: SearchQuery, skip: string[]) => running().search(path, query, skip),
+  flush: () => files?.flush(),
+  changes,
+  // A save: the watchers hear of it (the IDE writes, then says so).
+  saved: (path: string) => filesChanged([path]),
+
+  // A shell (terminal tab `id`): its node, which runs the shell.
+  openShell(id: number, { initial }: ShellStart) {
+    if (!files || !start) throw new Error('the playground is not running');
+    const node = new Node({
+      base: start.build,
+      runtime: start.runtime,
+      files,
+      ...nodeServices(),
+      onoutput: (bytes) => rpc.emit('output', { id, bytes }),
+      onstatus: (text) => rpc.emit('status', { id, text }),
+      onlistening() {
+        updateListening();
+        updatePeers();
+      },
+      onterminal: (raw) => rpc.emit('terminal', { id, raw }),
+    });
+    shells.set(id, node);
+    nodes.add(node);
+    updatePeers();
+    node.start({
+      shell: true,
+      initial,
+      cwd: setup.cwd,
+      boots: setup.boots,
+      env: { ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
+    });
+  },
+  input: (id: number, text: string) => shells.get(id)?.input(text),
+  interrupt: (id: number) => shells.get(id)?.interrupt(),
+  terminate: (id: number) => shells.get(id)?.terminate(),
+  resize: (id: number, columns: number, rows: number) => shells.get(id)?.resize(columns, rows),
+  closeShell(id: number) {
+    const node = shells.get(id);
+    node?.stop();
+    if (node) nodes.delete(node);
+    shells.delete(id);
+    updatePeers();
+    updateListening();
+  },
+
+  // A connection to a server a node runs on `port` (a live session's
+  // guest's preview), carried on the port the IDE gave.
+  connectServer(port: number, through: MessagePort) {
+    for (const node of shells.values())
+      if (node.serving.has(port)) {
+        carry(node.connect(port), through);
+        return true;
+      }
+    through.close();
+    return false;
+  },
+
+  // A relay of the preview's (previewOrigins.ts), and which port it shows.
+  relay: (port: MessagePort) => serveRelay(port),
+  previewShows(port: number) {
+    chosenPort = port;
+    updateListening();
+  },
+
+  // The bridge's cookie jar (preview.spec), and what is under way.
+  cookieHeader: (jar?: string) => bridge?.cookieHeader(jar) ?? null,
+  remember(cookie: string) {
+    const sets: string[] = [];
+    bridge?.remember(cookie, sets);
+    return sets;
+  },
+  debug: () => ({
+    bridge: bridge?.debug(),
+    nodes: Object.fromEntries([...shells].map(([id, node]) => [id, node.debug()])),
+    commands: [...commands].map(([node, command]) => ({
+      command,
+      output: tails.get(node) ?? '',
+      ...node.debug(),
+    })),
+    ended,
+  }),
+
+  // Keep what changed and stop every node: the project runs elsewhere now.
+  async shutdown() {
+    await files?.flush().catch(() => {});
+    for (const node of nodes) node.stop();
+    nodes.clear();
+    shells.clear();
+    files?.worker.terminate();
+    files = null;
+    serveNames = serveEpmd(new EpmdRegistry());
+  },
+};
+
+self.onmessage = ({ data, ports }: MessageEvent) => {
+  if (data?.kind !== 'playground-exec' || rpc || !ports[0]) return;
+  rpc = new Rpc(ports[0]).handle(handlers);
+};
+
+built.add((output) => rpc?.emit('css', output));
+bundled.add(() => rpc?.emit('bundled', null));

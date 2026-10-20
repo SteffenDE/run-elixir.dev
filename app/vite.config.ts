@@ -15,15 +15,15 @@ export default defineConfig({
   build: {
     assetsDir: '_playground',
     target: 'es2022',
-    // The IDE, the preview popped out into its own window, and the frames
-    // the apex and a project's origin call each other through (site.ts).
+    // The IDE, the preview popped out into its own window, and the
+    // usercontent domain's frames: a preview origin's relay, and the frame
+    // that runs a project (docs/frames.md).
     rollupOptions: {
       input: {
         main: 'index.html',
         preview: 'preview.html',
-        registry: 'registry.html',
-        storage: 'storage.html',
         relay: 'relay.html',
+        exec: 'exec.html',
       },
     },
   },

@@ -65,12 +65,12 @@ test('an unknown project is not found', async ({ page }) => {
 
 test('a project that cannot start says why in a modal dialog', async ({ page }) => {
   await page.addInitScript(() => {
-    navigator.serviceWorker.register = () => Promise.reject(new Error('no service worker here'));
+    Object.defineProperty(window, 'crossOriginIsolated', { value: false });
   });
   await newProject(page, 'empty');
   const dialog = page.getByRole('dialog', { name: 'The project could not start' });
   await expect(dialog).toBeVisible();
-  await expect(dialog).toContainText('no service worker here');
+  await expect(dialog).toContainText('This page needs cross-origin isolation');
   await expect(page.locator('.status-text')).toHaveText('Could not start');
   await dialog.getByRole('button', { name: 'Close' }).click();
   await expect(dialog).toBeHidden();
@@ -87,7 +87,7 @@ test('a project starts again after a forced reload', async ({ page, browserName 
       page.waitForEvent('framenavigated'),
       cdp.send('Page.reload', { ignoreCache: true }),
     ]);
-  } else await page.reload();
+  } else await page.reload({ waitUntil: 'domcontentloaded' });
   await prompted(page, 1);
 });
 

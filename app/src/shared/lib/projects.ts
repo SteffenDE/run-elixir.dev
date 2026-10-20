@@ -2,6 +2,7 @@
 // files and its database are stores of their own, named after its id
 // (storage.ts), so deleting a project deletes them whole.
 import Dexie, { type Table } from 'dexie';
+import { newId } from './ids';
 import { randomName } from './names';
 import type { Shared } from './share';
 import { siteTemplate, type Template } from './templates';
@@ -42,19 +43,8 @@ class Database extends Dexie {
 
 export const database = new Database();
 
-const ALPHABET = 'abcdefghijklmnopqrstuvwxyz0123456789';
-const ID = /^[a-z0-9]{10}$/;
-
-// Ten random letters and digits: the project's path (/ID/) and the name
-// its stores are kept under.
-export function newId(): string {
-  const bytes = crypto.getRandomValues(new Uint8Array(10));
-  return Array.from(bytes, (byte) => ALPHABET[byte % ALPHABET.length]).join('');
-}
-
-export function isId(text: string): boolean {
-  return ID.test(text);
-}
+// A project's id (ids.ts).
+export { isId, newId } from './ids';
 
 export async function createProject(
   kind: Kind,

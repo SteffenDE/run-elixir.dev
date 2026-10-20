@@ -2,25 +2,25 @@ import { expect, test } from './fixtures';
 import {
   newProject,
   newShell,
+  NO_FRAME_IN_FIREFOX,
   preview,
+  previewFrame,
+  previewPath,
   prompted,
+  reachesPreview,
   reloadPreview,
+  seesInPreview,
   serverRunning,
   writeText,
 } from './helpers';
 
 test('the path bar navigates the preview, and a reload stays there', async ({ page }) => {
   await newProject(page, 'phoenix');
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  await seesInPreview(page, 'Peace of mind', 180_000);
   // /dev/dashboard redirects to /dev/dashboard/home.
   await page.locator('.preview-bar input').fill('/dev/dashboard');
   await page.locator('.preview-bar input').press('Enter');
-  const at = () =>
-    page.evaluate(
-      () =>
-        document.querySelector<HTMLIFrameElement>('.preview iframe')!.contentWindow!.location
-          .pathname,
-    );
+  const at = () => previewPath(page);
   await expect.poll(at, { timeout: 60_000 }).toMatch(/^\/dev\/dashboard/);
   await page.waitForTimeout(2000);
   const where = await at();
@@ -31,7 +31,7 @@ test('the path bar navigates the preview, and a reload stays there', async ({ pa
 
 test('the preview pops out and docks again', async ({ page }) => {
   await newProject(page, 'phoenix');
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  await seesInPreview(page, 'Peace of mind', 180_000);
   await page.getByRole('treeitem', { name: 'mix.exs', exact: true }).click();
   await expect(page.locator('.tab').first()).toBeVisible();
   const heights = await page.evaluate(() =>
@@ -44,9 +44,11 @@ test('the preview pops out and docks again', async ({ page }) => {
     page.waitForEvent('popup'),
     page.locator('.preview-bar button[title^="Pop out"]').click(),
   ]);
-  await expect(popup.frameLocator('.preview iframe').getByText('Peace of mind')).toBeVisible({
-    timeout: 60_000,
-  });
+  if (reachesPreview(page))
+    await expect(popup.frameLocator('.preview iframe').getByText('Peace of mind')).toBeVisible({
+      timeout: 60_000,
+    });
+  else await expect(popup.locator('.preview iframe')).toHaveAttribute('src', /usercontent/);
   await expect(page.locator('.preview')).toHaveCount(0);
   await page.getByRole('button', { name: 'Dock preview' }).click();
   await expect(page.locator('.preview iframe')).toBeVisible();
@@ -60,13 +62,13 @@ test('the preview comes back after the service worker restarts', async ({
   test.skip(browserName !== 'chromium', 'stops the service worker through CDP');
   await newProject(page, 'phoenix');
   await serverRunning(page);
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await seesInPreview(page, 'Peace of mind', 60_000);
   const cdp = await context.newCDPSession(page);
   await cdp.send('ServiceWorker.enable');
   await cdp.send('ServiceWorker.stopAllWorkers');
   await page.waitForTimeout(1000);
   await reloadPreview(page);
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await seesInPreview(page, 'Peace of mind', 60_000);
 });
 
 test("the server's HttpOnly Set-Cookie replaces or expires one the app's JavaScript set", async ({
@@ -74,23 +76,18 @@ test("the server's HttpOnly Set-Cookie replaces or expires one the app's JavaScr
 }) => {
   await newProject(page, 'empty');
   await prompted(page, 1);
-  // LiveView sets its reload status in document.cookie; Plug's
-  // delete_resp_cookie expires it as HttpOnly, as a browser's jar takes it.
-  const cookie = () => page.evaluate(() => document.cookie);
-  await page.evaluate(
-    () => (document.cookie = '__phoenix_reload_status__=401; max-age=60; path=/'),
-  );
-  expect(await cookie()).toContain('__phoenix_reload_status__=401');
-  await page.evaluate(() =>
+  // LiveView sets its reload status in document.cookie (the preview
+  // origin's jar, cookies.ts); Plug's delete_resp_cookie expires it as
+  // HttpOnly, as a browser's jar takes it: the bridge has the relay expire
+  // the one in the jar.
+  const sets = await page.evaluate(() =>
     window.playground.bridge.remember(
       '__phoenix_reload_status__=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT; max-age=0; HttpOnly',
     ),
   );
-  expect(await cookie()).not.toContain('__phoenix_reload_status__');
-  // Set anew as HttpOnly, it is the bridge's alone.
-  await page.evaluate(() => (document.cookie = 'kept=js; path=/'));
+  expect(sets).toContain('__phoenix_reload_status__=; path=/; max-age=0');
+  // Set as HttpOnly, it is the bridge's alone.
   await page.evaluate(() => window.playground.bridge.remember('kept=server; path=/; HttpOnly'));
-  expect(await cookie()).not.toContain('kept=');
   expect(await page.evaluate(() => window.playground.bridge.cookieHeader())).toContain(
     'kept=server',
   );
@@ -98,20 +95,19 @@ test("the server's HttpOnly Set-Cookie replaces or expires one the app's JavaScr
 
 test("the app's absolute links and the path bar go to its paths, in the preview", async ({
   page,
+  browserName,
 }) => {
+  test.skip(browserName === 'firefox', NO_FRAME_IN_FIREFOX);
   await newProject(page, 'phoenix');
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
-  const frame = () => page.frames().find((f) => f.parentFrame() === page.mainFrame())!;
-  const at = () =>
-    page.evaluate(
-      () =>
-        document.querySelector<HTMLIFrameElement>('.preview iframe')!.contentWindow!.location
-          .pathname,
-    );
+  await seesInPreview(page, 'Peace of mind', 180_000);
+  const frame = () => previewFrame(page);
+  const at = () => previewPath(page);
   const ide = page.url();
 
   // A link to http://localhost:4000/… (a magic link in a mail) goes to its path.
-  await frame().evaluate(() => {
+  await (
+    await frame()
+  ).evaluate(() => {
     const link = document.createElement('a');
     link.href = 'http://localhost:4000/dev/dashboard';
     link.id = 'absolute';
@@ -125,8 +121,10 @@ test("the app's absolute links and the path bar go to its paths, in the preview"
   // mailbox opens a mail's links so).
   await page.locator('.preview-bar input').fill('/');
   await page.locator('.preview-bar input').press('Enter');
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
-  await frame().evaluate(
+  await seesInPreview(page, 'Peace of mind', 60_000);
+  await (
+    await frame()
+  ).evaluate(
     () =>
       new Promise<void>((resolve) => {
         const inner = document.createElement('iframe');
@@ -156,7 +154,7 @@ test("the app's absolute links and the path bar go to its paths, in the preview"
 
 test("the path bar shows the app's port, and switches to another endpoint's", async ({ page }) => {
   await newProject(page, 'phoenix');
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  await seesInPreview(page, 'Peace of mind', 180_000);
   const bar = page.locator('.preview-bar input');
   await expect(bar).toHaveValue('localhost:4000/');
 
@@ -197,20 +195,19 @@ serve.(serve)
   // QueryInterface the subject): resolving the frame just before refreshes
   // it. A few seconds without a look at the frame lose its next
   // navigation.
-  await expect(preview(page).locator('body')).toBeVisible();
+  if (reachesPreview(page)) await expect(preview(page).locator('body')).toBeVisible();
   await bar.press('Enter');
-  await expect(preview(page).locator('#second')).toHaveText('second endpoint', {
-    timeout: 60_000,
-  });
+  await seesInPreview(page, 'second endpoint', 60_000);
   await expect(bar).toHaveValue('localhost:4001/admin');
   // A path alone stays on that port.
   await bar.fill('/other');
   await bar.press('Enter');
   await expect(bar).toHaveValue('localhost:4001/other');
-  await expect(preview(page).locator('#second')).toBeVisible();
+  await seesInPreview(page, 'second endpoint');
+  if (!reachesPreview(page)) return;
 
   // Its link to the first endpoint switches back.
   await preview(page).locator('#back').click();
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
+  await seesInPreview(page, 'Peace of mind', 60_000);
   await expect(bar).toHaveValue('localhost:4000/');
 });
