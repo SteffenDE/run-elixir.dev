@@ -108,6 +108,10 @@ test('IEx edits its own lines: tab completes, up recalls, Ctrl+C breaks', async 
   await page.keyboard.press('Control+c');
   await expect.poll(() => output(page)).toMatch(/BREAK: \(a\)bort[\s\S]*\(c\)ontinue/);
   await page.keyboard.press('c');
+  // A moment before typing, as a person takes: what comes while erts
+  // leaves the menu, it drops (the keys reach the node through the exec
+  // frame's worker, docs/frames.md), and it shows nothing to wait for.
+  await page.waitForTimeout(500);
   await page.keyboard.type('6 * 7');
   await page.keyboard.press('Enter');
   await expect.poll(() => output(page)).toMatch(/42\s+iex\(6\)> $/);
