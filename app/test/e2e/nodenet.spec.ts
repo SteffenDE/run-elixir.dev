@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, newShell, output, prompted, run, writeText } from './helpers';
+import { newProject, newShell, output, prompted, run, seesInPreview, writeText } from './helpers';
 
 // A Node.js process's connections: to the page's services, to other
 // processes' servers and to a node's, and a node's to a process's.
@@ -114,22 +114,9 @@ test('Node.js processes talk HTTP, and Vite proxies to a backend', async ({ page
   expect(client).toContain('post 200 {"method":"POST","url":"/api/post","body":"one,two"}');
 
   // The page Vite serves asks /api, which Vite's proxy takes to the backend.
+  // The frame goes from the backend's origin to Vite's as Vite starts.
   await page.evaluate(() => window.playground.sessions.get(1).node.input('npm run dev\n'));
-  // The frame goes from the backend's page to Vite's as Vite starts, which
-  // Firefox's frame locator may not follow: the frame's document, read here
-  // (the preview is this page's origin).
-  await expect
-    .poll(
-      () =>
-        page
-          .locator('.preview iframe')
-          .evaluate(
-            (frame: HTMLIFrameElement) =>
-              frame.contentDocument?.getElementById('answer')?.textContent ?? null,
-          ),
-      { timeout: 120_000 },
-    )
-    .toBe('GET /api/hello');
+  await seesInPreview(page, 'GET /api/hello', 120_000);
 });
 
 test('a Node.js process and a node reach each other’s servers', async ({ page }) => {

@@ -6,8 +6,10 @@ import {
   preview,
   prompted,
   prompts,
+  reachesPreview,
   readText,
   run,
+  seesInPreview,
   writeText,
 } from './helpers';
 
@@ -78,12 +80,14 @@ test('Vite’s dev server shows the app in the preview and updates it on an edit
   const before = await output(page);
   const started = Date.now();
   await page.evaluate(() => window.playground.sessions.get(1).node.input('npm run dev\n'));
-  const heading = preview(page).locator('h1');
-  await expect(heading).toHaveText('Hello from React', { timeout: 120_000 });
+  await seesInPreview(page, 'Hello from React', 120_000);
   console.log(`npm run dev to the page in the preview: ${Date.now() - started} ms`);
   expect((await output(page)).slice(before.length)).toContain('http://localhost:5173/');
-  // A mark on the page, which a reload would lose.
-  await heading.evaluate(() => Object.assign(window, { playgroundKept: true }));
+  // A mark on the page, which a reload would lose (where Playwright reaches
+  // the frame: not in Firefox, helpers.ts reachesPreview).
+  const heading = preview(page).locator('h1');
+  const inFrame = reachesPreview(page);
+  if (inFrame) await heading.evaluate(() => Object.assign(window, { playgroundKept: true }));
 
   for (const name of ['src', 'App.jsx']) {
     await page.getByRole('treeitem', { name, exact: true }).first().click();
@@ -96,12 +100,13 @@ test('Vite’s dev server shows the app in the preview and updates it on an edit
   await page.keyboard.type("const greeting = 'Edited in the editor';\n// ");
   await page.keyboard.press('Control+s');
   await expect(page.locator('.tab-close.dirty')).toHaveCount(0);
-  await expect(heading).toHaveText('Edited in the editor', { timeout: 30_000 });
-  expect(
-    await heading.evaluate(
-      () => (window as unknown as { playgroundKept?: boolean }).playgroundKept,
-    ),
-  ).toBe(true);
+  await seesInPreview(page, 'Edited in the editor');
+  if (inFrame)
+    expect(
+      await heading.evaluate(
+        () => (window as unknown as { playgroundKept?: boolean }).playgroundKept,
+      ),
+    ).toBe(true);
   await expect.poll(() => output(page)).toContain('hmr update /src/App.jsx');
 
   // Ctrl+C stops the server: the shell's prompt again.
