@@ -44,17 +44,30 @@ export function createProcess(options: {
 
   const process = new EventEmitter() as EventEmitter & Record<string, unknown>;
 
-  // Whether the loop has run dry: then beforeExit, and the end.
+  // Whether the loop has run dry: then beforeExit, and the end. Dry for
+  // some turns in a row, not one: what the browser does for a script holds
+  // nothing here (its streams pass buffered bytes on over a few tasks, as
+  // a response's body read through a TextDecoderStream), where Node's
+  // native work would hold its loop until done.
+  const DRY_TURNS = 8;
+  let dry = 0;
+  const turn = () => {
+    if (active > 0 || exiting) {
+      checking = false;
+      dry = 0;
+      return;
+    }
+    if (++dry < DRY_TURNS) return void nativeSetTimeout(turn, 0);
+    checking = false;
+    dry = 0;
+    process.emit('beforeExit', process.exitCode ?? 0);
+    if (active > 0) return;
+    end(Number(process.exitCode ?? 0));
+  };
   const check = () => {
     if (checking || exiting) return;
     checking = true;
-    nativeSetTimeout(() => {
-      checking = false;
-      if (active > 0 || exiting) return;
-      process.emit('beforeExit', process.exitCode ?? 0);
-      if (active > 0) return;
-      end(Number(process.exitCode ?? 0));
-    }, 0);
+    nativeSetTimeout(turn, 0);
   };
   const hold = () => {
     active++;
