@@ -1,0 +1,23 @@
+[package]
+name = "tls"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# A TLS client for a Node.js process (docs/nodejs.md): rustls with ring's
+# crypto and Mozilla's roots, built to wasm32-wasip1 (randomness and the clock
+# by WASI) with a C-like API (src/lib.rs) and no wasm-bindgen.
+[lib]
+crate-type = ["cdylib"]
+path = "src/lib.rs"
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "1"
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
