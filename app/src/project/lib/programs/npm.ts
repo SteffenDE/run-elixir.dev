@@ -144,7 +144,18 @@ const fits = (m: Manifest) => allows(m.os, PLATFORM.os) && allows(m.cpu, PLATFOR
 // one, PREFIX-wasm32-wasi, which is the one that runs here: it, at their
 // version, as one more optional dependency (left out if there is none).
 const NATIVE = /^(.+)-(?:darwin|linux|win32|freebsd|android|openharmony|sunos|aix)-[\w-]+$/;
+
+// Packages whose WebAssembly build is a package of another name, which
+// their own code does not look for: it, at their version, and a stand-in
+// for the native package they require (`binding`, beside them) that is it.
+// The process says it is linux on x64 (process.ts).
+const STAND_INS: Record<string, { wasm: string; binding: string }> = {
+  // Vite's CSS minifier; lightningcss-wasm's node entry loads synchronously.
+  lightningcss: { wasm: 'lightningcss-wasm', binding: 'lightningcss-linux-x64-gnu' },
+};
 function wasmSibling(manifest: Manifest): Record<string, string> | null {
+  const standIn = STAND_INS[manifest.name];
+  if (standIn) return { [standIn.wasm]: manifest.version };
   const optional = manifest.optionalDependencies ?? {};
   for (const [name, version] of Object.entries(optional)) {
     const prefix = NATIVE.exec(name)?.[1];
@@ -415,6 +426,21 @@ async function install(
         added++;
         if (p.manifest.hasInstallScript) scripts.push(`${p.manifest.name}@${p.manifest.version}`);
       }),
+    );
+  }
+  // The stand-ins for native packages (STAND_INS), beside theirs.
+  for (const p of placed) {
+    const standIn = STAND_INS[p.manifest.name];
+    if (!standIn) continue;
+    const dir = `${root}/${p.location.slice(0, p.location.length - p.manifest.name.length)}${standIn.binding}`;
+    await fs.mkdir(dir);
+    await fs.write(
+      `${dir}/package.json`,
+      `${JSON.stringify({ name: standIn.binding, version: p.manifest.version, main: 'index.js', description: `the playground's stand-in: ${standIn.wasm}` }, null, 2)}\n`,
+    );
+    await fs.write(
+      `${dir}/index.js`,
+      `module.exports = require(${JSON.stringify(standIn.wasm)});\n`,
     );
   }
   // Bins beside each package (node_modules/.bin), as links to its file.
