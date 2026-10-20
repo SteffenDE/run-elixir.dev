@@ -1,5 +1,14 @@
 import { expect, test } from './fixtures';
-import { newProject, output, preview, readText, serverRunning, writeText } from './helpers';
+import {
+  newProject,
+  output,
+  preview,
+  reachesPreview,
+  readText,
+  seesInPreview,
+  serverRunning,
+  writeText,
+} from './helpers';
 
 const APP_JS = '/work/playground/assets/js/app.js';
 const BUNDLE = '/work/playground/priv/static/assets/js/app.js';
@@ -19,11 +28,16 @@ test('an edit saved in the editor shows in the preview, with Tailwind', async ({
   await expect(page.locator('.tab-close.dirty')).toHaveCount(1);
   await page.keyboard.press('Control+s');
   await expect(page.locator('.tab-close.dirty')).toHaveCount(0);
+  await seesInPreview(page, 'Hello from the browser IDE!', 120_000);
+  if (!reachesPreview(page)) return;
   const heading = preview(page).getByText('Hello from the browser IDE!');
-  await expect(heading).toBeVisible({ timeout: 120_000 });
   // Tailwind's watcher on the page builds the new class.
   await expect
-    .poll(() => heading.evaluate((e) => getComputedStyle(e).fontSize), { timeout: 60_000 })
+    .poll(
+      // The preview may reload meanwhile (the save's reload, then the CSS's).
+      () => heading.evaluate((e) => getComputedStyle(e).fontSize).catch(() => ''),
+      { timeout: 60_000 },
+    )
     .toBe('36px');
 });
 
@@ -37,6 +51,7 @@ test('a change to the app’s JavaScript is bundled by esbuild on the page', asy
   await expect
     .poll(() => readText(page, BUNDLE), { timeout: 60_000 })
     .toContain('bundled on the page');
+  if (!reachesPreview(page)) return;
   await expect
     .poll(
       () =>

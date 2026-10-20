@@ -105,7 +105,7 @@ const channels: { control: Int32Array; data: Uint8Array }[] = [];
 let doorbell: Int32Array = null!;
 // The kept changes: { db, version, whiteouts }, and the paths below /work
 // changed since they were last written (true: with everything in them).
-let overlay: { db: IDBDatabase; version: string; whiteouts: Set<string> } | null = null;
+let overlay: { store: overlays.Store; version: string; whiteouts: Set<string> } | null = null;
 const dirty = new Map<string, boolean>();
 // The template's files, as the project started (what 'changes' compares
 // with).
@@ -211,8 +211,8 @@ function persist(): Promise<void> | null {
   }
   dirty.clear();
   saved = performance.now();
-  saving = overlays
-    .save(overlay!.db, records, cleared, overlay!.version)
+  saving = overlay!.store
+    .save(records, cleared, overlay!.version)
     .catch((error: Error) =>
       postMessage({ kind: 'warning', message: `changes not kept: ${error.message}` }),
     )
@@ -613,13 +613,21 @@ onmessage = async ({ data }) => {
       // boots: the boot images to unpack (worker.js); template: the
       // directories below /work the project starts with, from the site's
       // files (/work/playground for a Phoenix project); store: the
-      // IndexedDB database the project's changes are kept in.
+      // IndexedDB database the project's changes are kept in, or
+      // storePort: a port to the apex's (overlay.ts remote).
       const {
         runtime,
         boots = ['boot'],
         template = [],
         store = null,
-      }: { runtime: string; boots?: string[]; template?: string[]; store?: string | null } = data;
+        storePort = null,
+      }: {
+        runtime: string;
+        boots?: string[];
+        template?: string[];
+        store?: string | null;
+        storePort?: MessagePort | null;
+      } = data;
       const [images, manifest, version] = await Promise.all([
         Promise.all(
           boots.map((boot) =>
@@ -645,20 +653,24 @@ onmessage = async ({ data }) => {
       }
       for (const prefix of SHARED) root.mkdirs(prefix);
       root.mkdirs('/home/user');
-      if (store) {
-        const db = await overlays.open(store);
-        let kept = await overlays.load(db);
+      const keeper = store
+        ? await overlays.local(store)
+        : storePort
+          ? overlays.remote(storePort)
+          : null;
+      if (keeper) {
+        let kept = await keeper.load();
         // Another site build: the template's own build is the new one, and
         // the project's sources recompile over it.
         if (kept.version && kept.version !== version.trim() && template.length) {
-          for (const prefix of template) await overlays.drop(db, `${prefix}/_build`);
-          kept = await overlays.load(db);
+          for (const prefix of template) await keeper.drop(`${prefix}/_build`);
+          kept = await keeper.load();
         }
         apply(kept.records);
         const whiteouts = new Set<string>(
           kept.records.filter((record) => record.kind === 'gone').map((record) => record.path),
         );
-        overlay = { db, version: version.trim(), whiteouts };
+        overlay = { store: keeper, version: version.trim(), whiteouts };
       }
       fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, runtime)));
       doorbell = new Int32Array(data.doorbell);

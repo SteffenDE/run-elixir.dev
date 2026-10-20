@@ -4,15 +4,13 @@ import { follow } from '@/live/lib/follow';
 import { fork, leaveSession } from '@/live/lib/guest';
 import { useLive } from '@/live/lib/store';
 import { importProject } from '@/shared/lib/projects';
-import { encodeShared, type Shared } from '@/shared/lib/share';
-import { apexUrl, liveOrigin, projectUrl } from '@/shared/lib/site';
+import type { Shared } from '@/shared/lib/share';
+import { apexUrl, projectUrl } from '@/shared/lib/site';
 import { People } from './People';
 
-// A fork becomes a project of this browser's: here, where the projects'
-// list is this origin's; from a guest's own origin (l-ID), through the
-// apex's import page, as a link would.
+// A fork becomes a project of this browser's, in the apex's list (the
+// guest's page is the apex's too).
 async function keep(shared: Shared): Promise<string> {
-  if (liveOrigin()) return apexUrl(`/import#${await encodeShared(shared)}`);
   return projectUrl((await importProject(shared)).id);
 }
 

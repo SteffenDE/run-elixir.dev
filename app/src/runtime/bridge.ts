@@ -10,6 +10,7 @@
 // WebSocket of its own (webSocketShim): it asks the service worker, which
 // passes a MessagePort to the page running the project, where websocket()
 // connects to the node and speaks the protocol (RFC 6455) for it.
+import { COOKIES, cookieShim, setCookie } from './cookies';
 import type { Connection as NodeConnection } from './host/node';
 import { trace } from './trace';
 
@@ -226,7 +227,22 @@ function linkShim(port: number, origins: string | null, ide: string) {
   addEventListener('hashchange', tell);
   tell();
   addEventListener('message', (event) => {
-    if (event.source !== window.parent || event.data?.kind !== 'playground-css') return;
+    if (event.source !== window.parent) return;
+    // What the page shows, for the IDE (its tests: a frame of another site
+    // is out of a test's reach in Firefox).
+    if (event.data?.kind === 'playground-snapshot' && event.origin === ide) {
+      window.parent.postMessage(
+        {
+          kind: 'playground-snapshot',
+          id: event.data.id,
+          title: document.title,
+          text: document.body?.innerText ?? '',
+        },
+        ide,
+      );
+      return;
+    }
+    if (event.data?.kind !== 'playground-css') return;
     for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel=stylesheet]')) {
       const url = new URL(link.href);
       url.searchParams.set('vsn', String(Date.now()));
@@ -240,9 +256,12 @@ function linkShim(port: number, origins: string | null, ide: string) {
 // and the path bar's localhost:PORT/….
 const SWITCH = /^\/__playground\/port\/(\d+)(\/.*)?$/;
 
-const shims = (port: number, origins: string | null) =>
-  `<script>(${webSocketShim})();(${linkShim})(${port}, ${JSON.stringify(origins)}, ${JSON.stringify(
-    location.origin,
+// On a preview origin (`origins`), document.cookie is its jar too
+// (cookies.ts).
+// `ide`: the IDE's origin, which the preview's first frame tells where it is.
+const shims = (port: number, origins: string | null, ide: string) =>
+  `<script>${origins ? `(${cookieShim})(${setCookie}, ${JSON.stringify(COOKIES)});` : ''}(${webSocketShim})();(${linkShim})(${port}, ${JSON.stringify(origins)}, ${JSON.stringify(
+    ide,
   )})</script>`;
 
 function concat(chunks: Uint8Array[]): Uint8Array<ArrayBuffer> {
@@ -313,6 +332,9 @@ export class Bridge {
   // Told when a preview switched to another port (SWITCH).
   declare onport: ((port: number) => void) | null;
   declare cookies: Map<string, string>;
+  // The IDE's origin (the page's, unless the bridge runs elsewhere for it:
+  // a worker of the frame that runs the project, docs/frames.md).
+  declare ide: string;
   flights = new Map<number, Flight>();
   nextFlight = 1;
 
@@ -340,13 +362,17 @@ export class Bridge {
     node: { connect(port: number): Connection },
     port = 4000,
     origins: string | null = null,
+    ide: string = location.origin,
   ) {
     this.node = node;
     this.port = port;
     this.origins = origins;
+    this.ide = ide;
     this.onport = null;
     this.cookies = new Map();
-    navigator.serviceWorker.addEventListener('message', async (event) => {
+    // A worker has no service worker of its own to answer: its relays'
+    // requests come through request() and websocket().
+    navigator.serviceWorker?.addEventListener('message', async (event) => {
       if (event.data?.kind === 'websocket') {
         this.websocket(event.data, event.ports[0]);
         return;
@@ -686,7 +712,7 @@ export class Bridge {
         headers.push([
           name,
           value.replace(/frame-ancestors([^;]*)/i, (directive, sources: string) =>
-            /'none'/.test(sources) ? directive : `${directive} ${location.origin}`,
+            /'none'/.test(sources) ? directive : `${directive} ${this.ide}`,
           ),
         ]);
         continue;
@@ -707,7 +733,7 @@ export class Bridge {
     if (page && type.startsWith('text/html')) {
       const html = new TextDecoder().decode(body);
       const at = html.search(/<head[^>]*>/i);
-      const scripts = shims(port, this.origins);
+      const scripts = shims(port, this.origins, this.ide);
       const injected = at < 0 ? scripts + html : html.replace(/<head[^>]*>/i, (m) => m + scripts);
       body = new TextEncoder().encode(injected);
     }

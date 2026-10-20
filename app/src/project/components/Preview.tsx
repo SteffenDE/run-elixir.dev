@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react';
 import { built } from '@/project/lib/programs/tailwind';
-import { openPopup, previewKey, send } from '@/project/lib/previewChannel';
+import { openPopup, previewKey, previewOriginOf, send } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { previewReady, previewShows } from '@/project/lib/playground';
-import { previewOrigin } from '@/shared/lib/site';
 import { PreviewFrame } from './PreviewFrame';
 
 // The preview docked in the IDE.
@@ -36,7 +35,7 @@ export function Preview() {
       css={css}
       onNavigate={navigate}
       onReload={reloadPreview}
-      originOf={previewOrigin}
+      originOf={previewOriginOf}
       prepare={previewReady}
       onPort={previewShows}
       onPopOut={() => {

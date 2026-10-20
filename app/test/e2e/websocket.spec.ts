@@ -1,11 +1,22 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, serverRunning, syncLV } from './helpers';
+import {
+  NO_FRAME_IN_FIREFOX,
+  newProject,
+  preview,
+  previewFrame,
+  reachesPreview,
+  seesInPreview,
+  serverRunning,
+  syncLV,
+  syncPreviewLV,
+} from './helpers';
 
-test('the preview reaches Phoenix over a WebSocket', async ({ page }) => {
+test('the preview reaches Phoenix over a WebSocket', async ({ page, browserName }) => {
+  test.skip(browserName === 'firefox', NO_FRAME_IN_FIREFOX);
   await newProject(page, 'phoenix');
   await serverRunning(page);
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 60_000 });
-  const frame = page.frames().find((f) => f.parentFrame() === page.mainFrame())!;
+  await seesInPreview(page, 'Peace of mind', 60_000);
+  const frame = await previewFrame(page);
   // Phoenix's channel protocol (V2 JSON): a heartbeat gets its reply.
   const reply = await frame.evaluate(
     () =>
@@ -31,20 +42,21 @@ test('the preview reaches Phoenix over a WebSocket', async ({ page }) => {
 
 test('LiveDashboard connects over the WebSocket', async ({ page }) => {
   await newProject(page, 'phoenix');
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  await seesInPreview(page, 'Peace of mind', 180_000);
   await page.locator('.preview-bar input').fill('/dev/dashboard');
   await page.locator('.preview-bar input').press('Enter');
-  await syncLV(preview(page));
+  await syncPreviewLV(page);
   // Its home page: the system information and limits.
   // The banner names the runtime: erts.
-  await expect(preview(page).getByText(/\[erts-[\d.]+\]/)).toBeVisible();
-  await expect(preview(page).getByText('System limits')).toBeVisible();
+  await seesInPreview(page, /\[erts-[\d.]+\]/);
+  await seesInPreview(page, 'System limits');
   await expect
     .poll(() => page.evaluate(() => /Transport: :websocket/.test(window.playground.output)))
     .toBe(true);
+  if (!reachesPreview(page)) return;
   // A process's details (process_info with its monitors) open over the socket.
   await preview(page).getByRole('link', { name: 'Processes' }).click();
   await syncLV(preview(page));
   await preview(page).locator('tr[phx-click="show_info"]').first().click();
-  await expect(preview(page).getByText('Monitored by')).toBeVisible({ timeout: 30_000 });
+  await seesInPreview(page, 'Monitored by', 30_000);
 });

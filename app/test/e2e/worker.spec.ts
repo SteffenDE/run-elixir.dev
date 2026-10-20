@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, serverRunning } from './helpers';
+import { newProject, seesInPreview, serverRunning } from './helpers';
 
 // A node's worker loads the modules a new path needs with a synchronous
 // request for a bundle, which the service worker sees. Firefox answers the
@@ -14,7 +14,7 @@ test('a new path is answered after the service worker idled @slow', async ({
   test.skip(browserName !== 'firefox', 'only Firefox answers clients.get() on the client thread');
   await newProject(page, 'phoenix');
   await serverRunning(page);
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 120_000 });
+  await seesInPreview(page, 'Peace of mind', 120_000);
   await page.waitForTimeout(45_000);
   const status = await page.evaluate(() =>
     Promise.race([

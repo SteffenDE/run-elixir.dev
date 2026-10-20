@@ -1,15 +1,15 @@
 import { expect, test } from './fixtures';
 import {
   APP,
-  HOME_HEEX,
   exists,
+  HOME_HEEX,
   markHome,
   newProject,
   output,
-  preview,
   prompted,
   readText,
   run,
+  seesInPreview,
   serverRunning,
   writeText,
 } from './helpers';
@@ -24,7 +24,7 @@ test('an empty project keeps its files across reloads', async ({ page }) => {
   );
   await run(page, 'rm doomed.txt');
   await page.evaluate(() => window.playground.files.flush());
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await prompted(page, 1);
   expect(await exists(page, '/work/doomed.txt')).toBe(false);
   expect(await run(page, 'elixir hello.exs')).toContain('kept: by elixir');
@@ -41,7 +41,7 @@ test("an empty project keeps its home's files across reloads, out of its tree", 
     /kept\s+\/work/,
   );
   await page.evaluate(() => window.playground.files.flush());
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await prompted(page, 1);
   expect(await readText(page, '/home/user/note.txt')).toBe('kept\n');
   await expect(page.locator('.file-tree')).not.toContainText('note.txt');
@@ -57,7 +57,7 @@ test('a Phoenix project keeps edits, removals and moves over its template', asyn
     [`${APP}/priv/static/images`, `${APP}/priv/static/pictures`],
   );
   await page.evaluate(() => window.playground.files.flush());
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await serverRunning(page);
   // The dependencies come from the template's build, not recompiled.
   expect(await output(page)).not.toMatch(/==> (phoenix|ecto|bandit)\nCompiling/);
@@ -65,7 +65,5 @@ test('a Phoenix project keeps edits, removals and moves over its template', asyn
   expect(await exists(page, `${APP}/README.md`)).toBe(false);
   expect(await exists(page, `${APP}/priv/static/images/logo.svg`)).toBe(false);
   expect(await exists(page, `${APP}/priv/static/pictures/logo.svg`)).toBe(true);
-  await expect(preview(page).locator('#marker')).toHaveText('Kept across reloads', {
-    timeout: 60_000,
-  });
+  await seesInPreview(page, 'Kept across reloads', 60_000);
 });

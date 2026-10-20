@@ -1,16 +1,12 @@
-// Calls between the apex and a project's origin (site.ts), through a
-// hidden frame of the other origin: registry.html on the apex keeps the
-// projects' list for a project's page, storage.html on a project's origin
-// deletes its stores for the apex. Both are the same site, so neither's
-// storage is partitioned in the other's frame. A frame answers only the
-// origins it lets in, each call on a port of its own.
+// Calls from a page to a hidden frame of another origin (`call`), and a
+// frame's answers (`serve`). A frame answers only the origins it lets in,
+// each call on a port of its own.
 type Handler = (caller: string, ...args: never[]) => unknown;
 
 const READY = 'playground-frame-ready';
 const CALL = 'playground-frame-call';
 
-// The page's frames, by URL: loaded once, and kept (a registry frame holds
-// its project's lock for as long as the page lives).
+// The page's frames, by URL: loaded once, and kept.
 const frames = new Map<string, Promise<Window>>();
 
 function frame(url: string): Promise<Window> {

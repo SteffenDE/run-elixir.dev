@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject, preview, prompted, writeText } from './helpers';
+import { newProject, prompted, seesInPreview, writeText } from './helpers';
 
 test.use({ viewport: { width: 390, height: 844 }, hasTouch: true });
 
@@ -144,7 +144,7 @@ test('the installed app does not zoom; a tab does', async ({ page }) => {
         ? ({ ...matchMedia('all'), matches: true, media: query } as MediaQueryList)
         : matchMedia(query);
   });
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   expect(await viewport()).toContain('maximum-scale=1, user-scalable=no');
 });
 
@@ -155,7 +155,7 @@ test('a Phoenix project on a phone opens on its preview', async ({ page }) => {
     'aria-pressed',
     'true',
   );
-  await expect(preview(page).getByText('Peace of mind')).toBeVisible({ timeout: 180_000 });
+  await seesInPreview(page, 'Peace of mind', 180_000);
   expect(await overflows(page)).toBe(false);
   await page.screenshot({ path: '/repo/target/tests/phone-preview.png' });
 });

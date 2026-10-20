@@ -795,13 +795,6 @@ button {
   margin: 12px 0 24px;
 }
 
-.not-found-leftovers {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px 16px;
-}
-
 /* Home */
 
 .home {
@@ -1602,4 +1595,17 @@ button {
 
 .link-button[aria-pressed='true'] {
   font-weight: 600;
+}
+
+/* The frame that runs the project (docs/frames.md): on the screen, a pixel,
+   unseen. WebKit slows a hidden frame's timers, its workers' too. */
+.exec-frame {
+  position: fixed;
+  right: 0;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
 }

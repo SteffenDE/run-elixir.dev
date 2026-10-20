@@ -4,11 +4,11 @@
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PreviewFrame } from '@/project/components/PreviewFrame';
-import { Bridge } from '@/runtime/bridge';
-import { loadSite, previewOrigin } from '@/shared/lib/site';
+import { dropFramesOnLeave } from '@/shared/lib/leave';
+import { loadSite } from '@/shared/lib/site';
 import {
   previewChannel,
-  previewKey,
+  previewOriginOf,
   send,
   type PreviewMessage,
 } from '@/project/lib/previewChannel';
@@ -40,7 +40,8 @@ function PreviewWindow() {
   return (
     <div className="app preview-window">
       <PreviewFrame
-        running
+        // The preview is a port's origin: none until the IDE says which.
+        running={port !== null}
         port={port}
         path={path}
         navigation={navigation}
@@ -51,20 +52,21 @@ function PreviewWindow() {
           setNavigation((n) => n + 1);
         }}
         onReload={() => setReload((n) => n + 1)}
-        originOf={previewOrigin}
+        originOf={previewOriginOf}
       />
     </div>
   );
 }
 
-// The service worker routes this window's preview to the project's page
-// (on a project domain, a port's origin's to its relay there).
-void loadSite()
-  .then(() => Bridge.announce({ kind: 'preview', key: previewKey }))
-  .then(() =>
-    createRoot(document.getElementById('root')!).render(
-      <StrictMode>
-        <PreviewWindow />
-      </StrictMode>,
-    ),
-  );
+// The window's preview is a port's origin on the usercontent domain, in
+// this page as in the IDE's: the same site's frames, so that origin's
+// service worker passes its requests to the relay in the IDE's page
+// (previewOrigins.ts).
+dropFramesOnLeave();
+void loadSite().then(() =>
+  createRoot(document.getElementById('root')!).render(
+    <StrictMode>
+      <PreviewWindow />
+    </StrictMode>,
+  ),
+);

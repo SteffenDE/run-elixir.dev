@@ -80,7 +80,8 @@ export class Files implements FileSystem {
 
   // base: where files.js is; runtime: the site's files (build.ts
   // RUNTIME), by default base. boots, template, store: what files.js
-  // starts with (its 'start').
+  // starts with (its 'start'); storePort, in place of store: a port to
+  // the apex's store (overlay.ts remote, docs/frames.md).
   // onwarning(message): a change that was not kept.
   constructor({
     base = './',
@@ -88,6 +89,7 @@ export class Files implements FileSystem {
     boots = ['boot'],
     template = [] as string[],
     store = null as string | null,
+    storePort = null as MessagePort | null,
     onchange = (_paths: string[]) => {},
     onwarning = (_message: string) => {},
   } = {}) {
@@ -110,14 +112,18 @@ export class Files implements FileSystem {
         }
       };
     });
-    this.worker.postMessage({
-      kind: 'start',
-      runtime: new URL(runtime ?? base, location.href).href,
-      doorbell: this.doorbell,
-      boots,
-      template,
-      store,
-    });
+    this.worker.postMessage(
+      {
+        kind: 'start',
+        runtime: new URL(runtime ?? base, location.href).href,
+        doorbell: this.doorbell,
+        boots,
+        template,
+        store,
+        storePort,
+      },
+      storePort ? [storePort] : [],
+    );
   }
 
   // A node's channel (wasi/shared.ts sharedClient).

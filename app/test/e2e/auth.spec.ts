@@ -2,6 +2,7 @@ import { expect, test } from './fixtures';
 import {
   newProject,
   newShell,
+  NO_FRAME_IN_FIREFOX,
   preview,
   reloadPreview,
   run,
@@ -12,7 +13,11 @@ import {
 // phx.gen.auth end to end: the generator (which loads the app's Mailer,
 // whose Swoosh on_load used to stop it), pbkdf2 from Hex (bcrypt is a NIF),
 // the migration, and a registration in the preview.
-test('phx.gen.auth generates, migrates and registers a user @slow', async ({ page }) => {
+test('phx.gen.auth generates, migrates and registers a user @slow', async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName === 'firefox', NO_FRAME_IN_FIREFOX);
   test.setTimeout(1_800_000);
   await newProject(page, 'phoenix');
   await serverRunning(page);

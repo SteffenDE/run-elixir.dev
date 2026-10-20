@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { Project } from '@/shared/lib/projects';
-import { renameProject } from '@/shared/lib/registry';
+import { renameProject } from '@/shared/lib/projects';
 import { KindChip } from '@/shared/components/KindChip';
 
 // The project's name, renamed in place, and what kind it is. A temporary

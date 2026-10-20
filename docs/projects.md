@@ -38,61 +38,33 @@ A project's kind (`src/project/lib/kinds.ts`) decides how it starts:
 PGlite starts for any kind on the first connection to 5432. A new project
 gets a random name (`brave-otter`), renamed by clicking it in the top bar.
 
-## A project domain
+## The apex and the usercontent domain
 
-A site may have a project domain (`playground.json`'s `domain`;
-`PLAYGROUND_DOMAIN` when building, [deploy.md](deploy.md)). Then each
-project runs on an origin of its own, and the apex (the domain itself)
-has everything else (`src/shared/lib/site.ts`):
+Every page is the apex's (`playground.json`'s `domain`;
+`PLAYGROUND_DOMAIN` when building, [deploy.md](deploy.md)), and what a
+project's code runs is another site's, the usercontent domain's
+(`usercontent`, `PLAYGROUND_USERCONTENT`): [frames.md](frames.md),
+`src/shared/lib/site.ts`.
 
 | Where | What |
 | --- | --- |
 | `DOMAIN/` | The home page, as above. |
-| `DOMAIN/phoenix`, `/empty`, `/import#DATA` | Make a project, then go to its origin. |
-| `DOMAIN/iex` | A temporary IEx, on the apex (it keeps nothing). |
-| `DOMAIN/ID/` | An older link: goes to `p-ID.DOMAIN/`. |
-| `p-ID.DOMAIN/` | The project: its IDE and nodes. |
-| `v-ID-PORT.DOMAIN/` | The project's preview of its app's PORT, in the IDE ([runtime.md](runtime.md)); opened by itself, not found. |
-| Any other `NAME.DOMAIN/` | Reserved (`www`, `phoenix`, …): not found, with a button to `DOMAIN/`. |
+| `DOMAIN/phoenix`, `/empty`, `/import#DATA` | Make a project, then go to its page. |
+| `DOMAIN/ID/` | The project: its IDE and nodes. |
+| `DOMAIN/iex` | A temporary IEx (it keeps nothing). |
+| `v-ID-PORT.USERCONTENT/` | The project's preview of its app's PORT, in the IDE ([runtime.md](runtime.md)); opened by itself, not found. |
+| `p-ID.DOMAIN/`, `l-SESSION.DOMAIN/live/SESSION` | The former layout's (a project's own origin, a live guest's): go to the apex's `/ID/` and `/live/SESSION`. |
+| Any other name under either domain | Not found, with a button to `DOMAIN/`. |
 
-A project's subdomain is `p-` and its id (`p-` and a chosen name could
-follow); every other name stays free for the site. A `p-ID` this browser
-has no project for is not found either; if the project's files or
-database are still kept on that origin (its entry gone from the list),
-the page says so and offers to delete them, which only that origin can.
+The projects' list, their files and databases are the apex's. A
+preview's origin keeps what the app in it keeps (its service worker,
+cookies, local storage), partitioned by the apex's site.
 
-A project's files, database, service worker, Hex cache, and the cookies
-and local storage of the app in its preview are its origin's own, and
-the preview's service worker has only that project to send a request to
-(with one origin it tells projects apart by their tabs: a navigation by
-the document that started it, else the only, focused or last tab).
-
-The projects' list stays the apex's. The two sides call each other
-through a hidden frame of the other origin (`src/shared/lib/frames.ts`),
-which answers only the origins it lets in. The apex and its projects are
-one site, so in Chromium and Firefox, which key a frame's storage by site,
-neither frame's storage is partitioned:
-
-- `DOMAIN/registry.html`, in a project's page: the project's entry
-  (read, renamed, opened, its template, a link's seed), and only its
-  own. It holds the project's lock on the apex for as long as the page
-  lives, so the home page marks it open.
-- `p-ID.DOMAIN/storage.html`, in the home page: deletes what the project
-  keeps on its origin (`registry.ts`), refused while a tab runs it.
-
-Safari (and every browser on iOS) keys a frame's storage by the page's
-origin, so there each side's frame sees an empty store of its own. That is
-found out rather than guessed from the browser's name (`site.ts`): the
-apex's page keeps a key in its local storage and in a cookie, and a
-registry frame that sees the cookie but not the key is partitioned. The
-project's page then goes to the apex's `/ID/?one-origin`, and from then on
-the apex runs its projects itself at `/ID/`, as a site without a project
-domain does. On `*.playground.localhost` WebKit takes each name for a site
-of its own and shows the frame no cookie, so the browser tests cannot
-reach this; it was checked by hand in Safari on the deployed site.
-
-Projects made before a site had a domain stay where they were, on the
-origin that made them.
+Before, each project ran on an origin of its own under the apex
+(`p-ID.DOMAIN`), and a project's stores are still there for a browser
+that used one; Safari, whose frames' storage is partitioned by origin,
+ran projects on the apex itself. Moving those stores to the apex is next
+([frames.md](frames.md#next)).
 
 ## What is kept
 

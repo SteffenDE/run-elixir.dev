@@ -10,15 +10,15 @@ say).
 
     python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
 
-With --domain (for example playground.localhost:8082: browsers resolve
-*.localhost to this machine, and with two labels the apex and its
-projects are one site), /playground.json names it the project domain:
-projects run at p-ID.DOMAIN (app/src/shared/lib/site.ts), whatever the
-build says. With --usercontent (usercontent.localhost:8082, another
-site), it names the domain whose subdomains run what a project's code
-does (docs/frames.md); its hosts may be framed by the apex's pages from
-another site (Cross-Origin-Resource-Policy: cross-origin) and open no
-window of their own isolated.
+With --domain and --usercontent (for example playground.localhost:8082
+and usercontent.localhost:8082: browsers resolve *.localhost to this
+machine, and each is a site of its own), /playground.json names the apex,
+which has every page, and the domain whose subdomains run what a
+project's code does (app/src/shared/lib/site.ts, docs/frames.md),
+whatever the build says. The usercontent domain's hosts are framed by the
+apex's pages from another site (Cross-Origin-Resource-Policy:
+cross-origin) and open no window of their own isolated; the apex's former
+project addresses (p-ID.DOMAIN) send their visitors to the apex.
 """
 import functools
 import http.server

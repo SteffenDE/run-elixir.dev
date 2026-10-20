@@ -1,7 +1,11 @@
 import { expect, test } from './fixtures';
-import { newProject, newShell, preview, run, serverRunning } from './helpers';
+import { newProject, newShell, NO_FRAME_IN_FIREFOX, preview, run, serverRunning } from './helpers';
 
-test('a second shell generates a LiveView while the server runs @slow', async ({ page }) => {
+test('a second shell generates a LiveView while the server runs @slow', async ({
+  page,
+  browserName,
+}) => {
+  test.skip(browserName === 'firefox', NO_FRAME_IN_FIREFOX);
   test.setTimeout(1_800_000);
   await newProject(page, 'phoenix');
   await serverRunning(page);

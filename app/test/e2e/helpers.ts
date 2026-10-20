@@ -1,8 +1,17 @@
 // What the tests do to a playground page, mostly through
 // window.playground (src/project/lib/playground.ts).
-import { expect, type FrameLocator, type Page } from '@playwright/test';
+import { expect, type Frame, type FrameLocator, type Page } from '@playwright/test';
 
 export const APP = '/work/playground';
+
+// The site's two domains (serve.py --domain and --usercontent, the
+// config's webServer): the apex has every page, the usercontent domain
+// what a project's code runs (docs/frames.md).
+export const PORT = Number(process.env.PORT || 8081);
+export const APEX = `http://playground.localhost:${PORT}`;
+export const USERCONTENT = `usercontent.localhost:${PORT}`;
+// Where project `id`'s preview shows `port`.
+export const previewAt = (id: string, port: number) => `http://v-${id}-${port}.${USERCONTENT}`;
 export const HOME_HEEX = `${APP}/lib/playground_web/controllers/page_html/home.html.heex`;
 
 // oxlint-disable-next-line no-control-regex -- terminal colours.
@@ -110,6 +119,59 @@ export async function markHome(page: Page, marker: string): Promise<void> {
 }
 
 export const preview = (page: Page) => page.frameLocator('.preview iframe');
+
+// The preview's frame (not the hidden relay frames beside it).
+export async function previewFrame(page: Page): Promise<Frame> {
+  const frame = await (await page.locator('.preview iframe').elementHandle())?.contentFrame();
+  if (!frame) throw new Error('no preview frame');
+  return frame;
+}
+
+// Playwright reaches no frame of another site in Firefox (the preview is
+// the usercontent domain's): there, what the preview shows comes from its
+// page's own report to the IDE (window.playground.previewSnapshot).
+export const reachesPreview = (page: Page) =>
+  page.context().browser()?.browserType().name() !== 'firefox';
+export const NO_FRAME_IN_FIREFOX = 'Playwright reaches no frame of another site in Firefox';
+
+export const previewText = (page: Page) =>
+  page
+    .evaluate(() =>
+      window.playground?.previewSnapshot?.().then((s: { text: string } | null) => s?.text ?? ''),
+    )
+    .catch(() => '');
+
+// The preview shows `text` (visible, where Playwright reaches the frame).
+export async function seesInPreview(
+  page: Page,
+  text: string | RegExp,
+  timeout = 30_000,
+): Promise<void> {
+  if (reachesPreview(page)) {
+    await expect(preview(page).getByText(text).first()).toBeVisible({ timeout });
+    return;
+  }
+  const pattern =
+    typeof text === 'string' ? new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) : text;
+  await expect.poll(() => previewText(page), { timeout }).toMatch(pattern);
+}
+
+// The preview's LiveView connected (not seen in Firefox: reachesPreview).
+export async function syncPreviewLV(page: Page): Promise<void> {
+  if (reachesPreview(page)) await syncLV(preview(page));
+}
+
+// The path the preview's frame shows (another origin's: read through
+// Playwright, not the page).
+export async function previewPath(page: Page): Promise<string> {
+  if (!reachesPreview(page)) {
+    // The path bar follows the frame (its page tells the IDE where it is).
+    const shown = await page.locator('.preview-bar input').inputValue();
+    return shown.replace(/^localhost:\d+/, '') || '/';
+  }
+  const frame = await (await page.locator('.preview iframe').elementHandle())?.contentFrame();
+  return frame ? new URL(frame.url()).pathname : '';
+}
 
 export const reloadPreview = (page: Page) =>
   page.locator('.preview-bar button[title=Reload]').click();

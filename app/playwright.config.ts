@@ -4,6 +4,8 @@ import { defineConfig, devices } from '@playwright/test';
 // that runtime/serve.py serves. Run them in Docker with
 // tests/run.sh, which mounts the repository at /repo.
 const port = Number(process.env.PORT || 8081);
+const domains = (on: number) =>
+  `--domain playground.localhost:${on} --usercontent usercontent.localhost:${on}`;
 const DEVICES: Record<string, string> = {
   chromium: 'Desktop Chrome',
   firefox: 'Desktop Firefox',
@@ -19,16 +21,19 @@ export default defineConfig({
   expect: { timeout: 30_000 },
   reporter: [['list']],
   use: {
-    baseURL: `http://localhost:${port}`,
+    baseURL: `http://playground.localhost:${port}`,
     viewport: { width: 1400, height: 850 },
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
   },
   // Slow tests (minutes of compiling in WebAssembly) run with SLOW=1.
   grepInvert: process.env.SLOW ? undefined : /@slow/,
+  // The site's two domains (docs/frames.md): the apex, and the usercontent
+  // domain, another site, on the same port (browsers resolve *.localhost
+  // to this machine).
   webServer: [
     {
-      command: `python3 -I ../runtime/serve.py ${port}`,
+      command: `python3 -I ../runtime/serve.py ${port} ${domains(port)}`,
       url: `http://localhost:${port}/`,
       reuseExistingServer: true,
       stderr: 'ignore',
@@ -36,37 +41,14 @@ export default defineConfig({
     // The same site with the backend at localhost:4000 (live sessions'
     // relay; `mix phx.server` in backend/).
     {
-      command: `python3 -I ../runtime/serve.py ${port + 2} --api http://localhost:4000`,
+      command: `python3 -I ../runtime/serve.py ${port + 2} ${domains(port + 2)} --api http://localhost:4000`,
       url: `http://localhost:${port + 2}/`,
       reuseExistingServer: true,
       stderr: 'ignore',
     },
-    // A project domain and the local backend (live-domain.spec).
-    {
-      command: `python3 -I ../runtime/serve.py ${port + 3} --domain playground.localhost:${port + 3} --api http://localhost:4000`,
-      url: `http://localhost:${port + 3}/`,
-      reuseExistingServer: true,
-      stderr: 'ignore',
-    },
-    // The same site with a project domain: projects at
-    // ID.playground.localhost:PORT (one site, as ID.run-elixir.dev is).
-    {
-      command: `python3 -I ../runtime/serve.py ${port + 1} --domain playground.localhost:${port + 1}`,
-      url: `http://localhost:${port + 1}/`,
-      reuseExistingServer: true,
-      stderr: 'ignore',
-    },
   ],
-  projects: [
-    ...['chromium', 'firefox', 'webkit'].map((name) => ({
-      name,
-      testIgnore: /domain\.spec/,
-      use: { ...devices[DEVICES[name]], viewport: { width: 1400, height: 850 } },
-    })),
-    {
-      name: 'domain',
-      testMatch: /domain\.spec/,
-      use: { ...devices['Desktop Chrome'], viewport: { width: 1400, height: 850 } },
-    },
-  ],
+  projects: ['chromium', 'firefox', 'webkit'].map((name) => ({
+    name,
+    use: { ...devices[DEVICES[name]], viewport: { width: 1400, height: 850 } },
+  })),
 });

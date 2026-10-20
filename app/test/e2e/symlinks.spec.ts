@@ -27,7 +27,7 @@ test('symbolic links name files and directories, and are kept', async ({ page })
   // The link sorts before what it names, as a build's priv link does, and a
   // file written through it is kept where it is.
   await page.evaluate(() => window.playground.files.flush());
-  await page.reload();
+  await page.reload({ waitUntil: 'domcontentloaded' });
   await prompted(page, 1);
   expect(
     await run(

@@ -30,7 +30,7 @@ interface Props {
   onNavigate(path: string): void;
   onReload(): void;
   onPopOut?: () => void;
-  // On a project domain: where the preview shows a port (site.ts
+  // Where the preview shows a port, on the usercontent domain (site.ts
   // previewOrigin); without, the preview is this page's origin.
   originOf?: (port: number) => string | null;
   // Before a port's origin loads: its relay (previewOrigins.ts).
@@ -65,7 +65,7 @@ export function PreviewFrame({
   // Where a reload goes when the preview has not loaded anything yet.
   const fallback = useRef(path);
   fallback.current = path;
-  // On a project domain: the port the frame shows, the one it was sent to
+  // With preview origins: the port the frame shows, the one it was sent to
   // and has not said it is at yet, and where it is.
   const shown = useRef<number | null>(null);
   const pending = useRef<number | null>(null);

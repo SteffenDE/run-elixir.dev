@@ -25,8 +25,9 @@ rebar3) and the Phoenix template, a phx.new app, at /work/playground.
   its build) and label; a project notes the template it was made from;
 - fs/version: a digest of the above; a project's kept changes note the
   version they were made over.
-- playground.json: the project domain, PLAYGROUND_DOMAIN in the build's
-  environment (none: projects are paths, /ID/).
+- playground.json: the apex and the usercontent domain,
+  PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
+  (app/src/shared/lib/site.ts, docs/frames.md).
 
 Built flat, the site is then versioned: what keeps its name across builds
 but the pages, the service worker, playground.json and app/public's files
@@ -430,8 +431,8 @@ def page(out, wasm):
         shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
     for name, built in wasm.items():
         shutil.copy(built, os.path.join(out, f"{name}.wasm"))
-    # The project domain, if the site has one (PLAYGROUND_DOMAIN, such as
-    # run-elixir.dev: projects at ID.run-elixir.dev; app/src/shared/lib/site.ts).
+    # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
+    # app/src/shared/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
     # And the domain whose subdomains run what a project's code does
     # (PLAYGROUND_USERCONTENT, another site; docs/frames.md).
@@ -454,7 +455,7 @@ def page(out, wasm):
 # (its scope is /), the site's configuration, the content-hashed Vite
 # assets, the builds and the runtimes; and what Vite copies from
 # app/public (the icons, the manifest, og.png), which the pages name there.
-ROOT_NAMES = {"index.html", "preview.html", "registry.html", "storage.html", "relay.html", "sw.js",
+ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "sw.js",
               "playground.json", "_playground", "b", "r",
               *os.listdir(os.path.join(ROOT, "app", "public"))}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
