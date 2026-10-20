@@ -196,6 +196,10 @@ export class Files implements FileSystem {
   rename(path: string, to: string): Promise<void> {
     return this.ask({ op: 'rename', path, to }).then(() => {});
   }
+  // A symbolic link at `path` to `target` (relative to its directory).
+  symlink(target: string, path: string): Promise<void> {
+    return this.ask({ op: 'symlink', path, target }).then(() => {});
+  }
   // What the project changed below /work over its template, but in
   // directories named in `skip`: { changed: [{ path, data }], removed }.
   changes(

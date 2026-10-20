@@ -51,7 +51,9 @@ sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
   - **HTTPS** (`ssl:connect` to a host name, patch 0020's gateway): a TCP
     connection to the host, over which the node does TLS itself, with the
     options it was given (its CA certificates, `verify_none`, a client
-    certificate, ALPN and HTTP/2); else by `fetch()` as before.
+    certificate, ALPN and HTTP/2); else by `fetch()` as before, which
+    for `api.anthropic.com` adds `anthropic-dangerous-direct-browser-access:
+    true` (its CORS lets a browser in then; `https.ts` BROWSER_HEADERS).
   - **Its sockets:** `gen_tcp` to another host (a database in the tailnet,
     plain HTTP, SMTP, Erlang distribution to a node of the user's),
     `gen_udp` (`inet_res` to a nameserver of its own, statsd, …), and
@@ -60,6 +62,9 @@ sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
     address is the device's tailnet address.
   - Without Tailscale, another host is `enetunreach` and a name `nxdomain`,
     at once.
+  - On the `worktree-node` branch, a Node.js process's `net`, `dns`,
+    `dgram` and HTTPS go the same ways, its TLS its own (rustls in
+    WebAssembly, [nodejs.md](nodejs.md#tls-tls-tlsts)).
 - **Its servers in the tailnet:** the Tailscale menu shares a port a
   project's server listens on, at the device's own port
   (`http://elixir-playground.TAILNET.ts.net:4000/`), for the tailnet's

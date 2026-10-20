@@ -98,6 +98,8 @@ let db: Promise<PGlite> | null = null;
 let serveDatabase = postgres(database);
 let nextSession = 1;
 export const FIRST_SESSION = 1;
+// The ports Node.js processes serve on (exec/host.ts's 'serving').
+let scriptPorts = new Set<number>();
 
 const decoder = new TextDecoder();
 const encoder = new TextEncoder();
@@ -245,8 +247,11 @@ export async function save(path: string, text: string): Promise<void> {
   useStore.getState().saved(path, text);
   live.saved?.(path, text);
   void exec.call('saved', [path]);
-  // Phoenix's code reloader compiles on the next request.
-  if (useStore.getState().previewPort !== null) {
+  // Phoenix's code reloader compiles on the next request. A Node.js
+  // process's server (Vite's) watches the files and updates its page
+  // itself.
+  const shown = useStore.getState().previewPort;
+  if (shown !== null && !scriptPorts.has(shown)) {
     if (reloading) clearTimeout(reloading);
     reloading = setTimeout(() => useStore.getState().reloadPreview(), 200);
   }
@@ -273,11 +278,15 @@ export function restartServer(): void {
   setTimeout(() => node.input(serverCommand(setup.cwd)), 300);
 }
 
-// A connection to a server a node runs on `port` (not its other
-// listeners: Mix's locks, PGlite), for a live session's guest's preview;
-// null when none serves there.
+// A connection to a server a node or a Node.js process runs on `port`
+// (not their other listeners: Mix's locks, PGlite), for a live session's
+// guest's preview; null when none serves there.
 export function connectServer(port: number): Connection | null {
-  if (![...sessions.values()].some((session) => session.node.serving.has(port))) return null;
+  if (
+    !scriptPorts.has(port) &&
+    ![...sessions.values()].some((session) => session.node.serving.has(port))
+  )
+    return null;
   const channel = new MessageChannel();
   void exec?.call('connectServer', [port, channel.port2], [channel.port2]);
   return new PortConnection(channel.port1, {}, 0) as unknown as Connection;
@@ -392,8 +401,9 @@ function listen(rpc: Rpc): void {
       store.failedToStart(text.replace(/^failed: /, ''));
     } else store.setStatus(text);
   });
-  on('terminal', ({ id, raw }) => sessions.get(id)?.discipline.raw(raw));
-  on('serving', ({ ports, port, byShell }) => {
+  on('terminal', ({ id, raw, signals }) => sessions.get(id)?.discipline.raw(raw, signals));
+  on('serving', ({ ports, port, byShell, scripts }) => {
+    scriptPorts = new Set(scripts);
     for (const [id, served] of Object.entries(byShell)) {
       const session = sessions.get(Number(id));
       if (session) session.node.serving = new Set(served);
@@ -460,6 +470,7 @@ export async function shutdown(): Promise<void> {
   for (const session of sessions.values()) session.screen.dispose();
   sessions.clear();
   nextSession = 1;
+  scriptPorts = new Set();
   const pglite = await db?.catch(() => null);
   await pglite?.close().catch(() => {});
   db = null;

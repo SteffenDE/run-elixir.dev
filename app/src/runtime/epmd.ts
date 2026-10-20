@@ -8,7 +8,7 @@
 // A request is a 2-byte length and the request; ALIVE2 keeps its
 // connection open for as long as the node is alive (its end unregisters
 // the name), the others are answered and closed.
-import type { Connection } from './host/node';
+import type { Served } from './host/node';
 
 export const EPMD_PORT = 4369;
 
@@ -134,7 +134,7 @@ export function epmdSession(
 
 // The handler for host/node.ts serve: { [EPMD_PORT]: serveEpmd(registry) },
 // one registry for the project's nodes.
-export function serveEpmd(registry: EpmdRegistry): (connection: Connection) => void {
+export function serveEpmd(registry: EpmdRegistry): (connection: Served) => void {
   return (connection) => {
     const session = epmdSession(
       registry,

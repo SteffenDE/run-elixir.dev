@@ -1,9 +1,10 @@
 import { defineConfig, type UserConfig } from 'vite';
 
 // The runtime's scripts that load by URL, bundled: the node's worker, the
-// shared files' worker and the apex's Tailscale worker (src/tailscale),
-// which go into the build (b/ID/, runtime/build.py) under their names, and
-// the service worker, which stays at the site's root (its scope is /). The page's own parts of the
+// shared files' worker, Node.js's (`node`, nodejs/) and the apex's
+// Tailscale worker (src/tailscale), which go into the build (b/ID/,
+// runtime/build.py) under their names, and the service worker, which
+// stays at the site's root (its scope is /). The page's own parts of the
 // runtime (host.ts, bridge.ts, …) are in the app's build.
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
@@ -36,6 +37,11 @@ export default defineConfig(({ mode }): UserConfig =>
       }
     : {
         publicDir: false,
+        // The `process` package (readable-stream's nextTick) as the
+        // runtime's own: a Node.js process's nextTick (process-shim.ts).
+        resolve: {
+          alias: [{ find: /^process\/?$/, replacement: runtime('nodejs/process-shim.ts') }],
+        },
         build: {
           // After the app's build, into the same dist/.
           outDir: 'dist',
@@ -46,6 +52,7 @@ export default defineConfig(({ mode }): UserConfig =>
             input: {
               worker: runtime('worker/index.ts'),
               files: runtime('files.ts'),
+              nodejs: runtime('nodejs/index.ts'),
               sw: runtime('sw.ts'),
               tailscale: new URL('./src/tailscale/worker.ts', import.meta.url).pathname,
             },

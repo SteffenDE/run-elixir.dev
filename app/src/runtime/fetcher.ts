@@ -10,7 +10,7 @@
 // closed after its answer. Successful answers for which keep(url) holds
 // (what never changes, such as a package's tarball) are kept in the
 // Cache Storage `cache`, by URL.
-import type { Connection } from './host/node';
+import type { Served } from './host/node';
 
 const HEAD_END = [13, 10, 13, 10];
 
@@ -23,7 +23,7 @@ function indexOf(bytes: Uint8Array, pattern: number[]): number {
 }
 
 function respond(
-  connection: Connection,
+  connection: Served,
   status: number,
   reason: string,
   headers: [string, string][],
@@ -51,7 +51,7 @@ export function fetcher({
   keep?: (url: string) => boolean;
   cache?: string | null;
   onrequest?: (method: string, path: string, url: string | null) => void;
-}): (connection: Connection) => void {
+}): (connection: Served) => void {
   async function get(url: string, method: string): Promise<Response> {
     const store = cache && keep(url) && (await caches.open(cache).catch(() => null));
     const kept = store && (await store.match(url));

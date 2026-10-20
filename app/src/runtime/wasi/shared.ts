@@ -18,7 +18,104 @@ export interface Shared {
   call: SharedCall;
 }
 
-export function sharedClient(doorbell: SharedArrayBuffer, channel: SharedArrayBuffer): SharedCall {
+// A process's lock (runtime/nodejs), which its worker threads share, one
+// call at a time: its word (0 when free, else its holder's token), and for
+// each thread its parent's token (0 while the token is free), whether it is
+// being stopped, and whether it is taking or holds the lock (its entry).
+// The process's own thread is 1. A thread being stopped (or under one)
+// takes the lock no more: it waits for good, for its parent to stop it once
+// none under it is in its entry (threads.ts), so that none is stopped
+// holding it. A thread is in its entry before it looks at its stop word,
+// and its parent sets that word before it looks at the entries: either the
+// thread sees its stop, or its parent sees it in its entry and waits it
+// out. Once stopped, its token and those under it are given again.
+const THREADS = 1024;
+const PARENT = 1;
+const STOP = 1 + THREADS;
+const ENTRY = 1 + 2 * THREADS;
+export const processLock = () => new SharedArrayBuffer(4 * (1 + 3 * THREADS));
+
+// A new thread's token, under `parent`'s: the first free one.
+export function lockThread(lock: SharedArrayBuffer, parent: number): number {
+  const words = new Int32Array(lock);
+  for (let token = 2; token < THREADS; token++)
+    if (Atomics.compareExchange(words, PARENT + token, 0, parent) === 0) return token;
+  throw new Error(`a process has at most ${THREADS - 2} worker threads`);
+}
+
+// Whether `token` is `under`, or a thread under it.
+function lockUnder(words: Int32Array, token: number, under: number): boolean {
+  for (let at = token; at > 1; at = Atomics.load(words, PARENT + at)) if (at === under) return true;
+  return under === 1;
+}
+
+// Thread `token` and those under it are being stopped.
+export function lockStop(lock: SharedArrayBuffer, token: number): void {
+  Atomics.store(new Int32Array(lock), STOP + token, 1);
+}
+
+// Thread `token` and those under it are stopped: their tokens are free.
+export function lockFree(lock: SharedArrayBuffer, token: number): void {
+  const words = new Int32Array(lock);
+  const under: number[] = [];
+  for (let at = 2; at < THREADS; at++)
+    if (Atomics.load(words, PARENT + at) && lockUnder(words, at, token)) under.push(at);
+  for (const at of under) {
+    Atomics.store(words, STOP + at, 0);
+    Atomics.store(words, ENTRY + at, 0);
+    Atomics.store(words, PARENT + at, 0);
+  }
+}
+
+// Whether thread `token`, or one under it, holds the lock or is taking it.
+export function lockBusyUnder(lock: SharedArrayBuffer, token: number): boolean {
+  const words = new Int32Array(lock);
+  for (let at = 1; at < THREADS; at++)
+    if (Atomics.load(words, ENTRY + at) && lockUnder(words, at, token)) return true;
+  const holder = Atomics.load(words, 0);
+  return holder !== 0 && lockUnder(words, holder, token);
+}
+
+// token: the thread's (1, the process's own).
+export function sharedClient(
+  doorbell: SharedArrayBuffer,
+  channel: SharedArrayBuffer,
+  lock?: SharedArrayBuffer,
+  token = 1,
+): SharedCall {
+  const call = unlocked(doorbell, channel);
+  if (!lock) return call;
+  const words = new Int32Array(lock);
+  // The stop word of this thread, or of one it is under, that is set; -1.
+  const stopped = () => {
+    for (let at = token; at > 1; at = Atomics.load(words, PARENT + at))
+      if (Atomics.load(words, STOP + at)) return STOP + at;
+    return -1;
+  };
+  const entry = (on: number) => Atomics.store(words, ENTRY + token, on);
+  return (request, bytes) => {
+    entry(1);
+    for (let holder; ;) {
+      // Being stopped: waits for good (the word stays set).
+      const stop = stopped();
+      if (stop >= 0) {
+        entry(0);
+        for (;;) Atomics.wait(words, stop, 1);
+      }
+      if ((holder = Atomics.compareExchange(words, 0, 0, token)) === 0) break;
+      Atomics.wait(words, 0, holder, 10);
+    }
+    try {
+      return call(request, bytes);
+    } finally {
+      Atomics.store(words, 0, 0);
+      Atomics.notify(words, 0, 1);
+      entry(0);
+    }
+  };
+}
+
+function unlocked(doorbell: SharedArrayBuffer, channel: SharedArrayBuffer): SharedCall {
   const bell = new Int32Array(doorbell);
   const control = new Int32Array(channel, 0, 2);
   const data = new Uint8Array(channel, 8);

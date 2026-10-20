@@ -33,6 +33,12 @@ export interface Process {
   onkill: (() => void) | null;
   // The node that started it stopped.
   onowner?: (() => void) | null;
+  // What it reads (null: the end), the terminal's size changing, raw input
+  // on or off (host/programs.ts PageProcess).
+  oninput?: ((bytes: Uint8Array | null) => void) | null;
+  onresize?: ((columns: number, rows: number) => void) | null;
+  raw?(on: boolean, signals?: boolean): void;
+  size?(): number[];
 }
 
 export interface Context {
@@ -40,6 +46,8 @@ export interface Context {
   cwd: string;
   env: Record<string, string>;
   fs: Files;
+  // Whether its stdin and stdout are the terminal.
+  tty?: { stdin: boolean; stdout: boolean };
 }
 
 // Called after each build in watch mode (the preview refreshes its CSS).

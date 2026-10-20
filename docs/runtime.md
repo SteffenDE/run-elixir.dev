@@ -30,13 +30,14 @@ JavaScript.
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation (`/etc/hosts`; `/etc/resolv.conf` when the page serves DNS), programs. |
-| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`), and a node's `sh -c` around them. |
+| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. The site's other WASI programs run the same way, each of its own module (`PROGRAMS`: ripgrep's `rg`, `rg.wasm`). |
+| `nodejs/` (`nodejs.js`) | worker | A Node.js process or worker thread: Node's modules over the shared files ([nodejs.md](nodejs.md)). |
 | `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
-| `sh.ts` | worker, page | Command lines split into words and `&&`-joined commands. |
+| `sh.ts` | worker, page | Command lines split into words; `&&`-joined commands for the Node harness's `sh -c` (with a page, `sh -c` is brush). |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
-| `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT). |
+| `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT); raw without signals while a page program asks (Node's setRawMode): Ctrl+C is a key too. Ctrl+D on an empty line is the end of input, for a page program reading the terminal. |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's, over which the node does TLS: [tailscale.md](tailscale.md)). |
 | `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: Tailscale's, else no such name). |
@@ -251,13 +252,11 @@ that waits for more (`tail -f`, an interactive `sort`).
   built-in (`ls`, `cp`, `sort`, …; `echo`, `pwd`, `test` are brush's).
 - **A node** finds the tools on `PATH` (`/usr/bin`) and spawns them by
   name: `System.cmd("rm", ["-rf", "c"])`.
-- **`sh -c LINE`** with a tool in it runs here: the tools, `cd`, and each
-  node command (`mix`, …) through the page's `sh` on its own, in order while
-  they succeed. A line without a tool is the page's `sh`'s alone.
+- **`sh -c LINE`** from a node is the page's `sh`: brush in a worker of its
+  own, which runs the tools as the terminal's does
+  ([nodejs.md](nodejs.md#a-nodes-sh--c-is-brush)).
 
-Not yet: pipes, redirections, `;` and `||`, globs and `$VAR` in a node's
-`sh -c` (the terminal's shell is brush, above); `os:cmd`'s `sh -s` (its
-line on standard input); `grep`, `sed`,
+Not yet: `os:cmd`'s `sh -s` (its line on standard input); `grep`, `sed`,
 `find` and `awk`, which are not coreutils; file modes and owners, which
 WASI does not have (`chmod`, `ls -l`'s columns).
 
@@ -319,7 +318,9 @@ it reads requests with a body (Content-Length or chunked) and answers each
 with `fetch()`: the browser does TLS, checks the certificate, follows
 redirects, decompresses, and leaves out request headers it sets itself
 (Host, User-Agent, Cookie, Accept-Encoding) and response headers the site
-does not expose; the answer comes back chunked, as it arrives, and the
+does not expose; the answer comes back chunked, as it arrives (one to
+HEAD, a 204 and a 304 with the site's Content-Length and no body; a
+status without its text, as HTTP/2 answers, with its standard reason), and the
 connection closes after it. A site without CORS headers fails the fetch,
 answered 502 with why. Without `https`, the node has no HTTPS (its `ssl`
 does TLS itself, over sockets that reach no other host).

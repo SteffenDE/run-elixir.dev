@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures';
 import type { BrowserContext, Locator, Page } from '@playwright/test';
-import { newShell, output, prompted, run } from './helpers';
+import { newShell, output, prompted, run, writeText } from './helpers';
 
 // Tailscale (docs/tailscale.md): the setup hint a project shows once, and
 // (with a Headscale, below) a node's HTTPS through the tailnet and an exit
@@ -190,6 +190,100 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
   // The node's own TLS: a TLS 1.x session, ALPN as it asked.
   expect(sockets).toMatch(/tls: \{:ok, \[protocol: :"tlsv1\.\d"\]\}/);
   expect(sockets).toMatch(/alpn: \{:ok, "(h2|http\/1\.1)"\}/);
+
+  // A Node.js process's the same ways (nodejs.md): its names, TCP by hand,
+  // http.get by name and a DNS query over UDP, out of the exit node.
+  await writeText(
+    project,
+    '/work/away.cjs',
+    [
+      "const [dns, net, http, dgram] = ['dns', 'net', 'http', 'dgram'].map(require);",
+      '(async () => {',
+      "  console.log('lookup', (await dns.promises.lookup('www.example.com')).family);",
+      "  console.log('short', (await dns.promises.lookup('exit-box')).address);",
+      "  const s = net.connect(80, 'www.example.com', () => {",
+      "    console.log('local', s.localAddress);",
+      "    s.write('GET / HTTP/1.0\\r\\nHost: www.example.com\\r\\n\\r\\n');",
+      '  });',
+      // Ended once answered: a half-close first, some edges answer none.
+      "  s.once('data', (d) => {",
+      "    console.log('tcp', d.toString().slice(0, 12));",
+      '    s.end();',
+      '  });',
+      "  await new Promise((done) => s.on('close', done));",
+      "  await new Promise((done) => http.get('http://www.example.com/', (r) => {",
+      "    console.log('http', r.statusCode);",
+      "    r.resume().on('end', done);",
+      '  }));',
+      "  const u = dgram.createSocket('udp4');",
+      '  const q = Buffer.from([0xab, 0xcd, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 7, ...Buffer.from("example"), 3, ...Buffer.from("com"), 0, 0, 1, 0, 1]);',
+      "  u.on('message', (m) => { console.log('udp', m.readUInt16BE(6) > 0); u.close(); });",
+      "  u.send(q, 53, '1.1.1.1');",
+      '})();',
+    ].join('\n'),
+  );
+  const node = await run(project, 'node away.cjs');
+  expect(node).toContain('lookup 4');
+  expect(node).toMatch(/short 100\.\d+\.\d+\.\d+/);
+  expect(node).toMatch(/local 100\.\d+\.\d+\.\d+/);
+  expect(node).toMatch(/tcp HTTP\/1\.[01] 200/);
+  expect(node).toContain('http 200');
+  expect(node).toContain('udp true');
+
+  // Its TLS, its own (rustls, tls.wasm) over the tailnet's TCP: https.get of
+  // a site without CORS headers, tls.connect with ALPN, and a certificate
+  // the roots refuse, refused or (rejectUnauthorized: false) let through.
+  await writeText(
+    project,
+    '/work/tls.cjs',
+    [
+      "const [https, tls] = ['https', 'tls'].map(require);",
+      '(async () => {',
+      "  await new Promise((done) => https.get('https://www.example.com/', (r) => {",
+      "    let body = '';",
+      "    r.on('data', (c) => (body += c)).on('end', () => {",
+      "      console.log('https', r.statusCode, /Example Domain/.test(body));",
+      '      done();',
+      '    });',
+      '  }));',
+      '  await new Promise((done) => {',
+      "    const s = tls.connect(443, 'www.example.com', { ALPNProtocols: ['h2', 'http/1.1'] }, () => {",
+      "      console.log('tls', s.authorized, s.getProtocol(), s.alpnProtocol, s.getPeerCertificate().raw.length > 0);",
+      '      s.end();',
+      "      s.on('close', done);",
+      '    });',
+      '  });',
+      '  await new Promise((done) =>',
+      "    tls.connect(443, 'expired.badssl.com').on('error', (e) => {",
+      "      console.log('expired', e.code);",
+      '      done();',
+      '    }),',
+      '  );',
+      '  await new Promise((done) => {',
+      "    const s = tls.connect(443, 'expired.badssl.com', { rejectUnauthorized: false }, () => {",
+      "      console.log('allowed', s.authorized, s.authorizationError);",
+      '      s.destroy();',
+      '      done();',
+      '    });',
+      '  });',
+      '})();',
+    ].join('\n'),
+  );
+  const secure = await run(project, 'node tls.cjs');
+  expect(secure).toContain('https 200 true');
+  expect(secure).toMatch(/tls true TLSv1\.[23] (h2|http\/1\.1) true/);
+  expect(secure).toContain('expired CERT_HAS_EXPIRED');
+  expect(secure).toContain('allowed false CERT_HAS_EXPIRED');
+
+  // A coding agent on Node.js (Pi): its requests are Node's fetch (by the
+  // process's https, fetch.ts), so through the tailnet with its own TLS; a
+  // key that is none, which Anthropic's API refuses (its answer is what the
+  // test needs, not a model's).
+  const pi = await run(
+    project,
+    'npx -y @earendil-works/pi-coding-agent@1.3.0 -p --provider anthropic --model sonnet --api-key sk-ant-none "Say hi"',
+  );
+  expect(pi).toContain('authentication_error');
 
   // Erlang distribution to a node in the tailnet, on exit-box's machine:
   // its name through MagicDNS, its epmd and its distribution port (which

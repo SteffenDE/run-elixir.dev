@@ -34,3 +34,59 @@ test('coreutils run in the shell, from System.cmd and in sh -c', async ({ page }
   );
   expect(shell).toContain('{"from_node\\nf\\n", 0}');
 });
+
+// A node's sh -c is brush in a worker of its own: pipes, ||, variables,
+// redirections, and the playground's programs in its line.
+test('System.shell runs its line as the terminal shell does', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/shell.exs',
+    String.raw`started = System.monotonic_time(:millisecond)
+IO.inspect(System.shell("true"))
+IO.puts("sh -c true: #{System.monotonic_time(:millisecond) - started} ms")
+IO.inspect(System.shell(~S[printf 'b\na\n' | sort | head -n 1]))
+IO.inspect(System.shell(~S[false || echo fallback; N=5; echo $((N * 2)) > n.txt; cat n.txt]))
+IO.inspect(System.shell(~S[node -p 6*7 | tr 4 x; nope 2>/dev/null; echo $?]))
+`,
+  );
+  const out = await run(page, 'elixir shell.exs');
+  console.log(out.match(/sh -c true: \d+ ms/)?.[0]);
+  expect(out).toContain('{"", 0}');
+  expect(out).toContain('{"a\\n", 0}');
+  expect(out).toContain('{"fallback\\n10\\n", 0}');
+  expect(out).toContain('{"x2\\n127\\n", 0}');
+});
+
+// ripgrep (ripgrep/build.py, its own module): at the shell in the
+// project's directory, honouring an ignore file (.ignore: .gitignore needs
+// a git repository, as ripgrep has it), in a pipe; from a Node.js process
+// (execSync) and from a node (System.cmd, by PATH).
+test('rg searches the project, from the shell, Node.js and a node', async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mkdir -p lib ignored');
+  await writeText(page, '/work/.ignore', 'ignored/\n');
+  await writeText(page, '/work/lib/a.ex', 'defmodule A do\n  # needle one\nend\n');
+  await writeText(page, '/work/lib/b.ex', 'defmodule B do\nend\n');
+  await writeText(page, '/work/ignored/c.ex', '# needle hidden\n');
+  const found = await run(page, 'rg -n --no-heading needle');
+  expect(found).toContain('lib/a.ex:2:  # needle one');
+  expect(found).not.toContain('hidden');
+  expect(await run(page, 'rg --files | sort')).toMatch(/lib\/a\.ex\s+lib\/b\.ex/);
+  expect(await run(page, 'echo "a needle in a pipe" | rg -o needle')).toContain('needle');
+  expect(
+    await run(
+      page,
+      `node -p "require('child_process').execSync('rg -l defmodule').toString().trim()"`,
+    ),
+  ).toMatch(/lib\/[ab]\.ex\s+lib\/[ab]\.ex/);
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("rg", ["-c", "defmodule", "lib"]); IO.puts(out)'`,
+    ),
+  ).toMatch(/lib\/a\.ex:1/);
+});

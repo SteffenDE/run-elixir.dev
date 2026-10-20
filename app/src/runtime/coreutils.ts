@@ -2,7 +2,9 @@
 // … for the shell and the nodes, as an OS has them. One module holds them
 // all; its first argument names the tool. Each run is an instance of its
 // own over the node's files (wasi/), run to its end on the caller's thread:
-// a node's port or the shell waits for it, as for a quick command.
+// a node's port or the shell waits for it, as for a quick command. Other
+// programs built for WASI run the same way, each its own module
+// (PROGRAMS: ripgrep's rg, ripgrep/build.py).
 import { WASI } from './wasi';
 import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';
@@ -21,38 +23,56 @@ export const TOOLS = new Set(
   ).split(' '),
 );
 
+// Programs of their own module (the site's NAME.wasm), by name.
+export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm' };
+
+// A tool of coreutils' or a program of PROGRAMS'.
+export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;
+
 export interface CoreutilsOptions {
   // coreutils.wasm, compiled; null when the site has none.
   module: () => WebAssembly.Module | null;
+  // Another of the site's modules (PROGRAMS), compiled; null without.
+  load?: (file: string) => WebAssembly.Module | null;
   fetch: Fetch;
   shared: Shared | null;
   // The standard streams are a terminal's (the shell's), this wide.
   terminal?: () => number[] | null;
   // Where its errors go, if not with its output.
   stderr?: (bytes: Uint8Array) => void;
+  // Its input when no pipe's is (the node's): up to `max` bytes, as they
+  // come; none at its end.
+  read?: (max: number) => Uint8Array;
 }
 
 const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
 
 // The program for tool `name`, or undefined (not one, or no coreutils.wasm).
 export function coreutils(options: CoreutilsOptions, name: string): Program | undefined {
-  if (!TOOLS.has(name)) return undefined;
+  if (!isTool(name)) return undefined;
+  const file = PROGRAMS[name] ?? 'coreutils.wasm';
   return (process, { args, cwd, env, root }) => {
-    const module = options.module();
+    const module = name in PROGRAMS ? (options.load?.(file) ?? null) : options.module();
     if (!module) {
-      process.write(`${name}: not in this site (coreutils.wasm)\n`);
+      process.write(`${name}: not in this site (${file})\n`);
       return process.exit(127);
     }
     const size = options.terminal?.() ?? null;
-    // What the node sent the program before it ran, then its end.
+    // What the node sent the program before it ran (a pipe's), then its
+    // end; else the node's input (`read`).
     const input = process.input.splice(0);
+    let ended = !options.read;
     const wasi = new WASI({
       args: [name, ...args],
       env: { ...env, PWD: cwd, ...(size ? { COLUMNS: String(size[0]) } : {}) },
       root,
       stdin: (max) => {
         const chunk = input[0];
-        if (!chunk) return new Uint8Array(0);
+        if (!chunk) {
+          const bytes = ended ? new Uint8Array(0) : options.read!(max);
+          ended ||= !bytes.length;
+          return bytes;
+        }
         if (chunk.length <= max) return input.shift()!;
         input[0] = chunk.subarray(max);
         return chunk.subarray(0, max);
@@ -69,16 +89,16 @@ export function coreutils(options: CoreutilsOptions, name: string): Program | un
   };
 }
 
-// sh -c LINE as far as coreutils runs it: its tools here, one after
-// another while they succeed (&&), and cd; a node command (mix, …) goes to
-// `page`, the page's sh (programs/node.ts), on its own. A line without any
-// of the tools is the page's sh's alone.
+// sh -c LINE: the page's sh (programs/node.ts, brush in a worker of its
+// own) when there is one. Without (the Node harness), as far as coreutils
+// runs it: its tools here, one after another while they succeed (&&),
+// and cd.
 export function shWith(options: CoreutilsOptions, page: Program | undefined): Program {
   return (process, context) => {
+    if (page) return page(process, context);
     const [flag, line = ''] = context.args;
     const queue = flag === '-c' ? commands(line) : [];
     if (!queue.some((command) => TOOLS.has(command[0]))) {
-      if (page) return page(process, context);
       process.write('sh: only sh -c runs here\n');
       return process.exit(127);
     }
@@ -99,22 +119,8 @@ export function shWith(options: CoreutilsOptions, page: Program | undefined): Pr
         for (const bytes of inner.output) process.write(bytes);
         return next(inner.status ?? 1);
       }
-      if (!page) {
-        process.write(`sh: ${name}: not found in the playground\n`);
-        return process.exit(127);
-      }
-      // A node command, on the page; its output and end are this one's.
-      const inner = new Process();
-      let ended = false;
-      inner.notify = () => {
-        for (const bytes of inner.output.splice(0)) process.write(bytes);
-        if (inner.ended && !ended) {
-          ended = true;
-          next(inner.status ?? 1);
-        }
-      };
-      process.onclose = () => inner.onclose?.();
-      page(inner, { ...context, args: ['-c', command.map(quote).join(' ')], cwd });
+      process.write(`sh: ${name}: not found in the playground\n`);
+      return process.exit(127);
     };
     next(0);
   };
@@ -124,12 +130,9 @@ export function shWith(options: CoreutilsOptions, page: Program | undefined): Pr
 export function withCoreutils(programs: Programs, options: CoreutilsOptions): Programs {
   const out = { ...programs } as Programs;
   out.sh = shWith(options, programs.sh);
-  for (const name of TOOLS) out[name] ??= coreutils(options, name)!;
+  for (const name of [...TOOLS, ...Object.keys(PROGRAMS)]) out[name] ??= coreutils(options, name)!;
   return out;
 }
-
-const quote = (word: string) =>
-  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 
 function join(cwd: string, path: string): string {
   const out: string[] = [];

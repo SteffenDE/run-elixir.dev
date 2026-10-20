@@ -14,7 +14,15 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type Datagram, type NifBuild } from '@/runtime/host/node';
+import {
+  Node,
+  type Connection,
+  type Datagram,
+  type Https,
+  type Link,
+  type NifBuild,
+  type Served,
+} from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
@@ -24,6 +32,13 @@ import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
+import {
+  nodeProgram,
+  type Deliver,
+  type Listener,
+  type Ports,
+} from '@/project/lib/programs/nodejs';
+import { npmProgram, npxProgram, type Program } from '@/project/lib/programs/npm';
 import {
   commandProgram,
   rebar3Program,
@@ -62,8 +77,14 @@ export interface ShellStart {
 export type ExecEvents = {
   output: { id: number; bytes: Uint8Array };
   status: { id: number; text: string };
-  terminal: { id: number; raw: boolean };
-  serving: { ports: number[]; port: number | null; byShell: Record<number, number[]> };
+  terminal: { id: number; raw: boolean; signals: boolean };
+  // scripts: the ports Node.js processes serve on (programs/nodejs.ts).
+  serving: {
+    ports: number[];
+    port: number | null;
+    byShell: Record<number, number[]>;
+    scripts: number[];
+  };
   changed: string[];
   warning: string;
   nif: NifBuild;
@@ -111,10 +132,10 @@ const nodeId = (node: object) => {
   return id;
 };
 
-// A service the apex answers (Postgres, Hex's cache): the connection
-// carried there.
+// A service the apex answers (Postgres, Hex's cache): the connection (a
+// node's, or a Node.js process's) carried there.
 function apex(service: 'postgres' | 'hex') {
-  return (connection: Connection) => {
+  return (connection: Served) => {
     const channel = new MessageChannel();
     carry(connection, channel.port1);
     void rpc
@@ -127,28 +148,191 @@ function apex(service: 'postgres' | 'hex') {
   };
 }
 
+// The ports Node.js processes listen on (programs/nodejs.ts): what
+// listens, and whether a server named the port (not 0, a free one).
+const scripts = new Map<number, { listener: Listener; serving: boolean }>();
+let ephemeralPort = 49152 + Math.floor(Math.random() * 16384);
+const scriptPorts: Ports = {
+  listen(port, listener) {
+    const taken = (p: number) => scripts.has(p) || [...nodes].some((node) => node.listening.has(p));
+    const serving = port !== 0;
+    if (!serving)
+      do {
+        port = ephemeralPort;
+        ephemeralPort = ephemeralPort >= 65535 ? 49152 : ephemeralPort + 1;
+      } while (taken(port));
+    else if (taken(port)) return null;
+    scripts.set(port, { listener, serving });
+    updatePeers();
+    updateListening();
+    return port;
+  },
+  unlisten(port, listener) {
+    if (scripts.get(port)?.listener !== listener) return;
+    scripts.delete(port);
+    updatePeers();
+    updateListening();
+  },
+  // A process's connection: to the services, as a node's goes, or to what
+  // listens on the port; with a host, HTTPS by the gateway.
+  route(port, host) {
+    if (host !== undefined) return (connection) => httpsGateway(connection, { host, port });
+    const service = services()[port];
+    if (service) return service;
+    const target =
+      scripts.get(port)?.listener ?? [...nodes].find((node) => node.listening.has(port));
+    return target ? (connection) => join(connection, target.connect(port)) : null;
+  },
+  // A process's connection to another host's address: through the
+  // tailnet, as a node's goes (tailnet.ts outbound); else unreachable, and
+  // the setup hint.
+  async dial(connection, address, port) {
+    const ways = tailnetWays();
+    let closed = false;
+    connection.onclose = () => (closed = true);
+    const opened = await ways.tunnel(address, port).catch((error: Error & { code?: string }) => {
+      throw Object.assign(error, { code: (error.code ?? 'ehostunreach').toUpperCase() });
+    });
+    if (!opened) {
+      ways.blocked(address.includes(':') ? `[${address}]:${port}` : `${address}:${port}`);
+      throw Object.assign(new Error('network is unreachable'), { code: 'ENETUNREACH' });
+    }
+    if (closed) {
+      opened.close();
+      return undefined;
+    }
+    connection.ondata = (bytes) => opened.write(bytes);
+    connection.onend = () => opened.end();
+    connection.onclose = () => opened.close();
+    opened.ondata = (bytes) => connection.write(bytes);
+    // Ended with an error (a reset, the tunnel broken): the process sees
+    // ECONNRESET, not the other end's FIN.
+    opened.onend = (error) => {
+      if (!error) return connection.end();
+      connection.reset();
+      opened.close();
+    };
+    return opened.local;
+  },
+  // A process's DNS message, answered as a node's (runtime/dns.ts).
+  resolve: (query) => tailnetWays().resolve(query),
+  // A process's UDP ports: datagrams to the machine's own address go to a
+  // process's port, a node's, or the node's DNS on 53, from 127.0.0.1;
+  // to another host, through the tailnet (one route per process, whose
+  // answers come back to the port they were sent from).
+  udp() {
+    const mine = new Set<number>();
+    const route = tailnetWays().udp();
+    const unbind = (port: number) => {
+      if (!mine.delete(port)) return;
+      scriptUdp.delete(port);
+      route.unbound?.(port);
+    };
+    return {
+      bind(port, deliver) {
+        const taken = (p: number) =>
+          p === 53 || scriptUdp.has(p) || [...nodes].some((node) => node.udpPorts.has(p));
+        if (port === 0)
+          do {
+            port = ephemeralPort;
+            ephemeralPort = ephemeralPort >= 65535 ? 49152 : ephemeralPort + 1;
+          } while (taken(port));
+        else if (taken(port)) return null;
+        mine.add(port);
+        scriptUdp.set(port, deliver);
+        return port;
+      },
+      unbind,
+      send(datagram) {
+        const { from, address, port, bytes } = datagram;
+        if (!mine.has(from)) return;
+        const reply: Deliver = (source, sourcePort, answer) =>
+          scriptUdp.get(from)?.(source, sourcePort, answer);
+        if (!loopback(address)) return route.send(datagram, reply);
+        const process = scriptUdp.get(port);
+        if (port === 53) dnsUdp(tailnetWays().resolve)(datagram, reply);
+        else if (process) process('127.0.0.1', from, bytes);
+        else
+          [...nodes]
+            .find((node) => node.udpPorts.has(port))
+            ?.datagram(port, '127.0.0.1', from, bytes);
+      },
+      close() {
+        for (const port of [...mine]) unbind(port);
+      },
+    };
+  },
+};
+
+// The UDP ports Node.js processes have bound: where their datagrams go.
+const scriptUdp = new Map<number, Deliver>();
+
+const loopback = (address: string) =>
+  /^127\./.test(address) || address === '::1' || address === 'localhost';
+
+// Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
+// page lets them (docs/tailscale.md); else unreachable, no such name,
+// fetch().
+let ways: ReturnType<typeof tailnet> | null = null;
+const tailnetWays = () => (ways ??= tailnet(rpc));
+
+// HTTPS to a host, for the nodes and the Node.js processes, by the
+// gateway (https.ts): through the tailnet where it takes it, with their
+// own TLS over its TCP (a process's: tls.ts); else fetch().
+let gateway: Https | null = null;
+const httpsGateway: Https = (connection, target) =>
+  (gateway ??= httpsByFetch({
+    tunnel: tailnetWays().tunnel,
+    onblocked: tailnetWays().blocked,
+  }))(connection, target);
+
+// What answers on the project's ports for every node and process, made
+// once (each keeps what a connection needs with the connection).
+let answering: Record<number, (connection: Served) => void> | null = null;
+const services = () =>
+  (answering ??= {
+    5432: apex('postgres'),
+    [HEX_PORT]: apex('hex'),
+    [EPMD_PORT]: serveNames,
+    // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
+    53: dnsTcp(tailnetWays().resolve),
+  });
+
 function updatePeers(): void {
   for (const node of nodes)
-    node.peers(
-      [...nodes].filter((other) => other !== node).flatMap((other) => [...other.listening]),
-    );
+    node.peers([
+      ...[...nodes].filter((other) => other !== node).flatMap((other) => [...other.listening]),
+      ...scripts.keys(),
+    ]);
 }
 
-// A datagram a node sent to a UDP port of its own address's that another
-// node of the project has: there, from 127.0.0.1 as between processes on
-// one machine.
+// A datagram a node sent to a UDP port of its own address's that a
+// Node.js process or another node of the project has: there, from
+// 127.0.0.1 as between processes on one machine.
 function routeUdpPeer({ from, port, bytes }: Datagram, sender: Node): boolean {
+  const process = scriptUdp.get(port);
+  if (process) {
+    process('127.0.0.1', from, bytes);
+    return true;
+  }
   const target = [...nodes].find((node) => node !== sender && node.udpPorts.has(port));
   target?.datagram(port, '127.0.0.1', from, bytes);
   return !!target;
 }
 
-// A connection a node opened to another node's port: joined to one opened
-// there.
+// A connection a node opened to another node's port, or a Node.js
+// process's: joined to one opened there.
 function routePeer(connection: Connection, port: number): boolean {
-  const target = [...nodes].find((node) => node !== connection.node && node.listening.has(port));
+  const target =
+    [...nodes].find((node) => node !== connection.node && node.listening.has(port)) ??
+    scripts.get(port)?.listener;
   if (!target) return false;
-  const other = target.connect(port);
+  join(connection, target.connect(port));
+  return true;
+}
+
+// Two connections' ends, each writing what the other hears.
+function join(connection: Link, other: Link): void {
   let closed = false;
   const close = () => {
     if (closed) return;
@@ -162,33 +346,30 @@ function routePeer(connection: Connection, port: number): boolean {
   other.onend = () => connection.end();
   connection.onclose = close;
   other.onclose = close;
-  return true;
 }
 
+// The page programs, for those that run others (npm: node, sh).
+const pagePrograms = (): Record<string, Program> =>
+  nodeServices().programs as Record<string, Program>;
+
 function nodeServices() {
-  // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
-  // page lets them (docs/tailscale.md); else unreachable, no such name,
-  // fetch().
-  const net = tailnet(rpc);
+  const net = tailnetWays();
   return {
     peer: routePeer,
     udpPeer: routeUdpPeer,
-    serve: {
-      5432: apex('postgres'),
-      [HEX_PORT]: apex('hex'),
-      [EPMD_PORT]: serveNames,
-      // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
-      53: dnsTcp(net.resolve),
-    },
+    serve: services(),
     udpServe: { 53: dnsUdp(net.resolve) },
     outbound: net.outbound,
     udp: net.udp(),
     onnif: (build: NifBuild) => rpc.emit('nif', build),
-    https: httpsByFetch({ tunnel: net.tunnel, onblocked: net.blocked }),
+    https: httpsGateway,
     programs: {
       tailwind,
       esbuild,
       git: gitProgram,
+      node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
+      npm: npmProgram(pagePrograms),
+      npx: npxProgram(pagePrograms),
       sh: shProgram(startNode),
       rebar3: rebar3Program(startNode),
       ...Object.fromEntries(
@@ -202,7 +383,7 @@ function nodeServices() {
 }
 
 // A node for one command a node ran (sh, rebar3), in its own worker.
-const startNode: StartNode = (command, { cwd, env }, output, exit) => {
+const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal) => {
   if (!files || !start) {
     exit(1);
     return { stop() {} };
@@ -231,11 +412,18 @@ const startNode: StartNode = (command, { cwd, env }, output, exit) => {
       exit(1);
     },
     onlistening: updatePeers,
+    onterminal: (raw, signals) => terminal?.(raw, signals),
   });
   nodes.add(node);
   commands.set(node, command.join(' '));
   updatePeers();
-  node.start({ command, cwd, env: { ...env, PWD: cwd }, boots: setup.boots });
+  node.start({
+    command,
+    cwd,
+    env: { ...env, PWD: cwd },
+    boots: setup.boots,
+    tty: [tty?.stdin ?? false, tty?.stdout ?? false],
+  });
   return node;
 };
 
@@ -245,8 +433,18 @@ function nodeOn(port: number): Node | null {
   return shells.values().next().value ?? null;
 }
 
-// The ports the shells' nodes serve on, and the one the preview shows.
-// Ephemeral listeners (Mix's compile lock) are no server.
+// What answers a port: a Node.js process listening there, or a node.
+function listenerOn(port: number): Listener {
+  return scripts.get(port)?.listener ?? nodeOn(port)!;
+}
+
+// The ports servers listen on, in the order they started.
+let served: number[] = [];
+
+// The ports the shells' nodes and the Node.js processes serve on, and the
+// one the preview shows: Phoenix's, else the server that started last
+// (Vite's, started after the backend it proxies to). Ephemeral listeners
+// (Mix's compile lock) are no server.
 function updateListening(): void {
   const ports = new Set<number>();
   const byShell: Record<number, number[]> = {};
@@ -254,12 +452,16 @@ function updateListening(): void {
     byShell[id] = [...node.serving];
     for (const port of node.serving) ports.add(port);
   }
+  const fromScripts = [...scripts].filter(([, { serving }]) => serving).map(([port]) => port);
+  for (const port of fromScripts) ports.add(port);
+  served = served.filter((port) => ports.has(port));
+  for (const port of ports) if (!served.includes(port)) served.push(port);
   const sorted = [...ports].sort((a, b) => a - b);
   const port = !ports.size
     ? null
-    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : sorted[0]));
+    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : served.at(-1)!));
   if (bridge && port !== null) bridge.port = port;
-  rpc.emit('serving', { ports: sorted, port, byShell });
+  rpc.emit('serving', { ports: sorted, port, byShell, scripts: fromScripts });
 }
 
 // Where the preview shows a port, for the app (PLAYGROUND_PREVIEW_ORIGIN),
@@ -325,12 +527,13 @@ const handlers = {
     });
     await files.ready;
     bridge = new Bridge(
-      { connect: (port: number) => nodeOn(port)!.connect(port) },
+      { connect: (port: number) => listenerOn(port).connect(port) },
       PREVIEW_PORT,
       previewOrigins(options.key),
       options.ide,
     );
     chosenPort = null;
+    served = [];
     bridge.onport = (port) => {
       chosenPort = port;
       updateListening();
@@ -382,7 +585,7 @@ const handlers = {
         updateListening();
         updatePeers();
       },
-      onterminal: (raw) => rpc.emit('terminal', { id, raw }),
+      onterminal: (raw, signals) => rpc.emit('terminal', { id, raw, signals }),
     });
     shells.set(id, node);
     nodes.add(node);
@@ -408,9 +611,14 @@ const handlers = {
     updateListening();
   },
 
-  // A connection to a server a node runs on `port` (a live session's
-  // guest's preview), carried on the port the IDE gave.
+  // A connection to a server a node or a Node.js process runs on `port` (a
+  // live session's guest's preview), carried on the port the IDE gave.
   connectServer(port: number, through: MessagePort) {
+    const script = scripts.get(port);
+    if (script?.serving) {
+      carry(script.listener.connect(port), through);
+      return true;
+    }
     for (const node of shells.values())
       if (node.serving.has(port)) {
         carry(node.connect(port), through);
@@ -450,6 +658,8 @@ const handlers = {
     await files?.flush().catch(() => {});
     for (const node of nodes) node.stop();
     nodes.clear();
+    scripts.clear();
+    scriptUdp.clear();
     shells.clear();
     files?.worker.terminate();
     files = null;

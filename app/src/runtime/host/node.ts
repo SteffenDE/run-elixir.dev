@@ -32,6 +32,9 @@ export const FRAME = {
   // A datagram for the node's UDP port (the id): the source's port (u16,
   // big-endian), family (4 or 6) and address (4 or 16 bytes), the bytes.
   DATAGRAM: 13,
+  // A page program set the terminal's input mode: raw (u8), signals (u8:
+  // whether Ctrl+C still interrupts).
+  MODE: 14,
 } as const;
 export const RING = 1 << 20;
 export const CHUNK = 1 << 16;
@@ -112,6 +115,14 @@ export class Connection {
   }
 }
 
+// A connection to what listens on a port: a node's (Connection), or a
+// Node.js process's (programs/nodejs.ts).
+export type Link = Pick<Connection, 'ondata' | 'onend' | 'onclose' | 'write' | 'end' | 'close'>;
+
+// A connection a page service answers (postgres.ts, epmd.ts, fetcher.ts,
+// https.ts): a node's, or a Node.js process's; `node` is whose.
+export type Served = Link & { node: object; id: number };
+
 // make waiting for the backend to build a package's NIF library (onnif).
 export interface NifBuild {
   name: string;
@@ -127,7 +138,7 @@ export interface NifBuild {
   error: string | null;
 }
 
-export type Https = (connection: Connection, target: { host: string; port: number }) => void;
+export type Https = (connection: Served, target: { host: string; port: number }) => void;
 // A connection the node opens to another host: the page dials it, and
 // says so (connection.dialed(), or refuse(errno)).
 export type Outbound = (connection: Connection, target: { address: string; port: number }) => void;
@@ -191,12 +202,15 @@ export type SpawnMessage = {
   args: string[];
   cwd: string;
   env: Record<string, string>;
+  // Whether its stdin and stdout are the terminal.
+  tty?: boolean[];
 };
 type NodeMessage =
   | { kind: 'out'; payload: Uint8Array }
   | { kind: 'status'; payload: string }
   | { kind: 'exit'; payload: number }
-  | { kind: 'tty'; raw: boolean }
+  | { kind: 'tty'; raw: boolean; signals?: boolean }
+  | { kind: 'stdin'; id: number; bytes?: Uint8Array; end?: boolean }
   | ({ kind: 'nif' } & NifBuild)
   | NetMessage
   | ({ kind: 'udp' } & UdpMessage)
@@ -240,13 +254,15 @@ export class Node {
   serving: Set<number>;
   programs: Record<string, PageProgram>;
   running: Map<number, PageProcess>;
+  // The terminal's size, as last resized.
+  size: number[] = [80, 24];
   shared: SharedArrayBuffer;
   control: Int32Array;
   ring: Uint8Array;
   pending: Uint8Array[];
   connections: Map<number, Connection>;
   next: number;
-  serve: Record<number, (connection: Connection) => void>;
+  serve: Record<number, (connection: Served) => void>;
   // A connection the node opened to a port another node listens on: taken
   // there (project/lib/playground.ts), or false.
   peer: (connection: Connection, port: number) => boolean;
@@ -278,8 +294,9 @@ export class Node {
   // programs: { name: (process, { args, cwd, env, fs }) => ... }, programs
   // the node may spawn that run on the page (they may be async):
   // process.write(text | bytes), process.exit(code), process.onkill.
-  // onterminal(raw): the node set its terminal to raw input (keys go to
-  // it as typed) or back to lines. onnif({ name, version, status, error }):
+  // onterminal(raw, signals): the node set its terminal to raw input (keys
+  // go to it as typed) or back to lines; signals: Ctrl+C still interrupts
+  // (not after a page program's setRawMode). onnif({ name, version, status, error }):
   // make waits for the backend to build a package's NIF library (status
   // queued, running or setting_up), or stopped waiting (succeeded, failed,
   // unsupported, interrupted).
@@ -289,7 +306,7 @@ export class Node {
     onoutput = (_bytes: Uint8Array) => {},
     onstatus = (_text: string) => {},
     onexit = (_code: number) => {},
-    serve = {} as Record<number, (connection: Connection) => void>,
+    serve = {} as Record<number, (connection: Served) => void>,
     https = null as Https | null,
     outbound = null as Outbound | null,
     udpServe = {} as Record<number, UdpService>,
@@ -298,7 +315,7 @@ export class Node {
     programs = {} as Record<string, PageProgram>,
     files = null as Files | null,
     onlistening = (_port: number, _on: boolean) => {},
-    onterminal = (_raw: boolean) => {},
+    onterminal = (_raw: boolean, _signals: boolean) => {},
     onnif = (_build: NifBuild) => {},
     peer = (_connection: Connection, _port: number) => false,
   }) {
@@ -329,7 +346,9 @@ export class Node {
       if (data.kind === 'out') onoutput(data.payload);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
-      else if (data.kind === 'tty') onterminal(data.raw);
+      else if (data.kind === 'tty') onterminal(data.raw, data.signals ?? true);
+      else if (data.kind === 'stdin')
+        this.running.get(data.id)?.oninput?.(data.end ? null : data.bytes!);
       else if (data.kind === 'nif') onnif(data);
       else if (data.kind === 'net') this.network(data);
       else if (data.kind === 'udp') this.datagramFrom(data);
@@ -364,6 +383,7 @@ export class Node {
     initial = [],
     cwd,
     boots,
+    tty,
   }: {
     shell?: boolean;
     args?: string[];
@@ -372,6 +392,8 @@ export class Node {
     initial?: string[];
     cwd?: string;
     boots?: string[];
+    // Whether its input and output are a terminal (default: both).
+    tty?: boolean[];
   } = {}): void {
     this.channel = this.files?.connect() ?? null;
     // What the worker starts from, gunzipped and compiled once on the page
@@ -381,7 +403,7 @@ export class Node {
     // fetching and gunzipping them. Without, the worker fetches them itself.
     const names = boots ?? ['boot'];
     const files = this.files;
-    const brush = shell ? siteModule(this.runtime, 'brush.wasm') : null;
+    const brush = shell || command?.[0] === 'sh' ? siteModule(this.runtime, 'brush.wasm') : null;
     void Promise.all([
       files
         ? files.ready.then(
@@ -415,6 +437,7 @@ export class Node {
         outbound: Boolean(this.outbound),
         https: Boolean(this.https),
         pagePrograms: Object.keys(this.programs),
+        tty,
       });
     });
   }
@@ -452,6 +475,8 @@ export class Node {
   }
   // The terminal's size, which the node reads from /.tty/size.
   resize(columns: number, rows: number): void {
+    this.size = [columns, rows];
+    for (const process of this.running.values()) process.onresize?.(columns, rows);
     const payload = new Uint8Array(4);
     const view = new DataView(payload.buffer);
     view.setUint16(0, columns, true);

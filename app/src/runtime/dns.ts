@@ -3,7 +3,7 @@
 // answered by `resolve(query)`, the DNS message as it came (the
 // playground's: Tailscale's resolver, docs/tailscale.md). One that throws
 // is answered SERVFAIL.
-import type { Connection, UdpService } from './host/node';
+import type { Served, UdpService } from './host/node';
 
 export type Resolve = (query: Uint8Array) => Promise<Uint8Array>;
 
@@ -51,7 +51,7 @@ export function dnsUdp(resolve: Resolve): UdpService {
   };
 }
 
-export function dnsTcp(resolve: Resolve): (connection: Connection) => void {
+export function dnsTcp(resolve: Resolve): (connection: Served) => void {
   return (connection) => {
     let buffer = new Uint8Array(0);
     // Answers still to come, and whether the node has ended (then the

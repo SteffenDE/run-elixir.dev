@@ -269,6 +269,9 @@ export function* entries(tar: Uint8Array): Generator<TarEntry> {
     while (end < from + length && tar[end] !== 0) end++;
     return new TextDecoder().decode(tar.subarray(from, end));
   };
+  // A GNU long name ('L') or a pax header's path ('x', as npm's tarballs
+  // have them): the next entry's name. A global pax header ('g') says
+  // nothing a file needs.
   let longName: string | null = null;
   for (let at = 0; at + 512 <= tar.length;) {
     if (tar[at] === 0) break;
@@ -284,9 +287,26 @@ export function* entries(tar: Uint8Array): Generator<TarEntry> {
     const type = String.fromCharCode(tar[at + 156] || 48);
     const body = at + 512;
     if (type === 'L') longName = text(body, size);
-    else yield { name, type, body: tar.slice(body, body + size), mtime };
+    else if (type === 'x') longName = paxPath(tar.subarray(body, body + size));
+    else if (type !== 'g') yield { name, type, body: tar.slice(body, body + size), mtime };
     at = body + Math.ceil(size / 512) * 512;
   }
+}
+
+// A pax header's path ("LENGTH path=VALUE\n" records, LENGTH in bytes), or
+// null.
+function paxPath(records: Uint8Array): string | null {
+  const decoder = new TextDecoder();
+  for (let at = 0; at < records.length;) {
+    const space = records.indexOf(32, at);
+    if (space < 0) break;
+    const length = parseInt(decoder.decode(records.subarray(at, space)), 10);
+    if (!(length > 0)) break;
+    const record = decoder.decode(records.subarray(space + 1, at + length - 1));
+    if (record.startsWith('path=')) return record.slice(5);
+    at += length;
+  }
+  return null;
 }
 
 // A gzipped tar into `root`: the number of files.

@@ -9,7 +9,7 @@
 // connection's startup: Ecto's migrator holds its lock in a transaction on
 // one connection and migrates on another.
 // database(): the PGlite, a promise; asked for on the first message.
-import type { Connection } from './host/node';
+import type { Served } from './host/node';
 
 // What the handler needs of PGlite.
 export interface Database {
@@ -47,7 +47,7 @@ function readyStatus(reply: Uint8Array): string | null {
 
 // A connection's messages, or (connection null) the session's own.
 interface Batch {
-  connection: Connection | null;
+  connection: Served | null;
   bytes: Uint8Array;
   startup: boolean;
   terminate: boolean;
@@ -57,18 +57,18 @@ interface Batch {
 
 // The handler for the nodes' connections, and what it is waiting on (for
 // window.playground.debug()).
-export type Postgres = ((connection: Connection) => void) & { debug(): unknown };
+export type Postgres = ((connection: Served) => void) & { debug(): unknown };
 
 export function postgres(database: () => Promise<Database>): Postgres {
   // The connections the session is with (none: anyone's turn), and since
   // when it has been idle in their transaction (null while a reply is
   // awaited, or between Parse and Sync). One batch runs at a time.
-  const holders = new Set<Connection>();
+  const holders = new Set<Served>();
   // The one connection between a Parse and its Sync: no other's messages
   // may come between, also not a holder's that joined the transaction (its
   // Parse would replace this one's unnamed statement: "unnamed prepared
   // statement does not exist" at the Bind).
-  let midway: Connection | null = null;
+  let midway: Served | null = null;
   let idleSince: number | null = null;
   let running = false;
   let timer: ReturnType<typeof setTimeout> | null = null;
@@ -152,7 +152,7 @@ export function postgres(database: () => Promise<Database>): Postgres {
 
   // A connection gone: its waiting messages are dropped, and the
   // transaction it held alone is rolled back (nothing else would end it).
-  const gone = (connection: Connection) => {
+  const gone = (connection: Served) => {
     if (midway === connection) midway = null;
     for (let i = waiting.length - 1; i >= 0; i--)
       if (waiting[i].connection === connection) waiting.splice(i, 1);
@@ -166,7 +166,7 @@ export function postgres(database: () => Promise<Database>): Postgres {
   // Connections by node and id, for debug().
   const nodeNames = new WeakMap<object, number>();
   let named = 0;
-  const name = (connection: Connection | null) => {
+  const name = (connection: Served | null) => {
     if (!connection) return 'session';
     if (!nodeNames.has(connection.node)) nodeNames.set(connection.node, ++named);
     return `node ${nodeNames.get(connection.node)}:${connection.id}`;
@@ -186,7 +186,7 @@ export function postgres(database: () => Promise<Database>): Postgres {
     })),
   });
 
-  const handle = (connection: Connection) => {
+  const handle = (connection: Served) => {
     let buffer = new Uint8Array(0);
     let started = false;
     let closed = false;
