@@ -40,13 +40,16 @@ in `node_modules/.bin`) with it.
 | `tls.ts` | `tls.connect` and `TLSSocket`: rustls built to WebAssembly (`tls/`, below), over a socket it opens or one it is given. |
 | `dns.ts`, `dgram.ts` | `dns` (`lookup`, `resolve4`/`6`, CNAME, MX, NS, SRV, TXT) by the node's DNS; `dgram` on the project's UDP ports (below). |
 | `hashes.ts` | `crypto.createHash`, `createHmac` and `hash` (md5, sha1, sha2, ripemd160), synchronous, by `@noble/hashes`. |
-| `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `Buffer` with `base64url`. |
+| `child.ts` | `child_process` (below). |
+| `zlib.ts` | `zlib` by fflate: gzip, deflate and raw deflate, and unzip, synchronous, with callbacks and as streams; `crc32`; brotli named, and missing when called. |
+| `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, `parseArgs`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `Buffer` with `base64url`. |
 
 Stacks print as Node's (`at f (file:line:col)`) whatever the engine wrote,
 without the runtime's own frames.
 
 **What is missing** says so when called: an HTTPS server and
-`tls.createServer`, `child_process`, `zlib`, ciphers and keys in `crypto`. `fetch` is the
+`tls.createServer`, `child_process`'s synchronous forms, brotli in
+`zlib`, ciphers and keys in `crypto`. `fetch` is the
 browser's, and reaches the internet, not the project's ports. There is no
 REPL, and a process reads no standard input: `process.stdin` stays open
 with nothing in it, as a terminal's with nothing typed, and does not hold
@@ -58,7 +61,9 @@ as Vite's does).
 The playground's own npm, not npm's CLI (which would need `http`, `zlib`, `crypto`
 and `child_process`, and load a thousand modules per run): `npm install`
 (and `ci`, `add`, `-D`, `-E`, `--no-save`), `npm run` (and `test`,
-`start`), `npm exec`, `npm init`, and `npx`.
+`start`), `npm exec`, `npm init`, `npm create` (`npm init NAME`: the
+initializer's package, `create-NAME`, `@scope/create`, by npx), and
+`npx`.
 
 - **The registry** is fetched from the exec frame's worker (its origin,
   so no cookie of the apex's goes along): registry.npmjs.org sends CORS
@@ -76,10 +81,33 @@ and `child_process`, and load a thousand modules per run): `npm install`
 - **Platforms:** packages for another os or cpu are left out, matched as
   `os: linux`, `cpu: wasm32`. napi-rs packages list only their native
   builds; npm adds their `PREFIX-wasm32-wasi` build beside them (Rolldown's
-  binding). Install scripts do not run (npm says which packages had one).
+  binding). Packages whose WebAssembly build has another name are in a
+  table (`STAND_INS`), never guessed: `lightningcss` (Vite's CSS
+  minifier) gets `lightningcss-wasm` at its version and a stand-in
+  `lightningcss-linux-x64-gnu` beside it that is it (what lightningcss
+  requires here; the process says linux on x64). Install scripts do not
+  run (npm says which packages had one).
 - **`npm run`** runs a script with the page program `sh` (brush, below), with
   `node_modules/.bin` on `PATH` and npm's `npm_*` variables; `npx` runs a
   project's bin, or installs the package into `~/.npm/_npx` first.
+
+## child_process (`child.ts`)
+
+A child is a command line the page program `sh` runs in the exec frame
+(brush in a worker of its own, below), as the terminal would: node, npm,
+npx, git, mix, coreutils, `node_modules/.bin`'s scripts. `spawn` quotes
+the command and its arguments unless `shell`; `exec` and `execFile`
+collect the output (and `promisify` answers `{ stdout, stderr }`); `fork`
+is `node` without the IPC channel. The process asks `{ kind: 'child', op:
+'spawn', id, line, cwd, env }` and `{ op: 'kill', id }`, and hears `out`
+and `exit`; a child holds the loop while it runs, and goes with the
+process. A command `sh` did not find (127) is spawn's `ENOENT`.
+
+- A page program has one output: a child's stderr comes on its stdout.
+- Its stdin ends at once (no standard input, as the process's own).
+- `spawnSync`, `execSync` and `execFileSync` say they are missing: the
+  process would wait in `Atomics.wait` for the exec frame to run the
+  child, not done yet.
 
 ## A node's sh -c is brush
 
@@ -235,6 +263,11 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   (`CERT_HAS_EXPIRED`) and, with `rejectUnauthorized: false`, let through
   unauthorized. Its Caddy holds port 8091, so the worktree runs it with
   `PORT=8095`.
+- `create.spec.ts`: `npm create vue@latest my-vue -- --default`,
+  installed (157 packages) and built (`run-p`'s `vue-tsc --build` and
+  `vite build`, its CSS minified by lightningcss-wasm); `npx sv create`
+  (a minimal SvelteKit project in TypeScript), installed and built
+  (TypeScript's compiler by `import()`, zlib). Each about 30 s.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`.
 
@@ -243,12 +276,16 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 1. A pool of kept connections for `http.Agent({ keepAlive })`; Node's
    `fetch` (undici's) to the project's ports, which the browser's cannot
    reach.
-2. `child_process` through the page programs (as `npm run` runs `sh`),
-   `zlib` (DecompressionStream is asynchronous; synchronous inflate needs
-   a library: pako is in the tree already).
+2. `child_process`'s rest: the synchronous forms, a child's own stderr
+   and stdin (page programs with three streams), fork's IPC; brotli in
+   `zlib`; more entries in npm's `STAND_INS` as projects need them
+   (`@swc/core` → `@swc/wasm`, `rollup` → `@rollup/wasm-node`,
+   `sass-embedded` → `sass`), each checked by hand.
 3. A Phoenix project whose assets are a Vite app.
 4. Standard input for a process (the terminal's typing, Vite's
-   shortcuts; a pipeline's input), and a REPL.
+   shortcuts; a pipeline's input), and a REPL: create-vue and sv ask
+   their questions there, so without it they need their flags
+   (`--default`; `--template`, `--types`, `--no-add-ons`).
 5. `fs.watch` in a worker thread (only a process hears the changes).
 6. TLS's rest: `getPeerCertificate()`'s fields (an X.509 parser), session
    resumption, `tls.createServer`; tls.wasm compiled once by the exec
