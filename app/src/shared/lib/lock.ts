@@ -49,6 +49,13 @@ function listen(id: string) {
   };
 }
 
+// Resolves when the page that runs project `id` lets it go: it leaves,
+// closes or crashes (the browser lets its locks go). A shared request
+// waits for the holder, and lets go at once; rejects once `signal` aborts.
+export async function whenReleased(id: string, signal: AbortSignal): Promise<void> {
+  await navigator.locks.request(projectLock(id), { mode: 'shared', signal }, () => undefined);
+}
+
 // Take the project's lock if no other page holds it.
 export function claimProject(id: string): Promise<boolean> {
   return hold(id, { ifAvailable: true });

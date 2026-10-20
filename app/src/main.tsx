@@ -106,16 +106,26 @@ async function projectPage(id: string, path: string): Promise<ReactNode> {
     return <ProjectPage project={project} />;
   };
   if (await claimProject(project.id)) return run();
-  return (
+  // Open in another tab: here once asked to (that tab lets go), or once
+  // that tab lets it go by itself; another tab may take it first.
+  let attempt = 0;
+  const elsewhere = (): ReactNode => (
     <OpenElsewhere
+      key={attempt++}
       project={project}
       onOpenHere={() =>
         takeOverProject(project.id).then(() => {
           if (shown === here) render(run());
         })
       }
+      onReleased={() =>
+        claimProject(project.id).then((claimed) => {
+          if (shown === here) render(claimed ? run() : elsewhere());
+        })
+      }
     />
   );
+  return elsewhere();
 }
 
 // The installed app (Add to Home Screen) does not zoom, as an app would not.

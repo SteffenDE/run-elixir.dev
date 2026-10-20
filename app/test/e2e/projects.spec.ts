@@ -126,3 +126,31 @@ test('the preview opens for a server, not for Mix or an ephemeral port', async (
   await page.evaluate(() => window.playground.node.input(':gen_tcp.listen(4001, [])\n'));
   await expect(page.locator('.preview')).toBeVisible();
 });
+
+test('a project another tab lets go is no longer marked open, and opens where it was asked for', async ({
+  page,
+  context,
+}) => {
+  const id = await newProject(page, 'empty');
+  await prompted(page, 1);
+  const name = (await page.locator('.project-name').textContent())!;
+
+  // The projects' list marks it open, until the tab leaves it.
+  const home = await context.newPage();
+  await home.goto('/');
+  const row = home.locator('.project-row', { hasText: name });
+  await expect(row.getByText('open in a tab')).toBeVisible();
+  await page.getByTitle('All projects').click();
+  await expect(row.getByText('open in a tab')).toHaveCount(0);
+
+  // Open again there; a third tab asks for it, and has it once that tab
+  // closes.
+  await page.goBack();
+  await prompted(page, 1);
+  const other = await context.newPage();
+  await other.goto(`/${id}/`);
+  await expect(other.getByText('This project is open in another tab.')).toBeVisible();
+  await page.close();
+  await prompted(other, 1);
+  await expect(other.locator('.project-name')).toHaveText(name);
+});
