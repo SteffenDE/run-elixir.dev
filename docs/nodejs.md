@@ -35,7 +35,7 @@ in `node_modules/.bin`) with it.
 | `fs.ts` | `fs` over the channel: the synchronous calls as they are, the callback and promise forms on top; Node's error codes from WASI's. `watch`, `watchFile` and `promises.watch` hear what changed (below). |
 | `loader.ts` | `require` with Node's resolution (paths, `node_modules` and `NODE_PATH`, `package.json`'s `main`, `exports` and `imports` with Node's conditions: `node`, `require` or `import`, `module-sync`, `default`; a require that finds no entry of its own takes the import one). CommonJS in Node's wrapper; ES modules and TypeScript turned into CommonJS by sucrase, so a module loads synchronously however it is required or imported. `import()` answers namespaces as Node's does and holds the loop. |
 | `source.ts` | A scan of code, strings, templates, comments and regular expressions: the loader's rewrites (`import.meta`, `require(`, `import(`, `exports."…"`) touch code alone. |
-| `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. Dry for eight turns in a row, not one: what the browser does for a script holds nothing (its streams pass bytes on over a few tasks), where Node's native work would hold its loop. |
+| `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. Dry for eight turns in a row, not one, and a read of a web stream or a body (a stream's `read`, `pipeTo`, `text()`, …) holds it until it settles, a second at most: what the browser does for a script holds nothing else (its streams pass bytes on over tasks), where Node's native work would hold its loop. |
 | `fetch.ts` | The global `fetch`, Node's: by the process's own `http` and `https` (below). |
 | `threads.ts` | `worker_threads`: a `Worker` is a nested worker running `nodejs.js` as a thread of the same process, sharing its files channel (one call at a time, by a lock in shared memory); messages as structured clones (shared memories, WebAssembly modules); a thread's output and uncaught error go to its parent. Node's `MessageChannel`: ports with `ref`/`unref` and `on('message')`. |
 | `wasi.ts` | `node:wasi` over the runtime's WASI (`wasi/index.ts`), on the shared files. |
@@ -232,6 +232,12 @@ worker: what crosses to the apex's Tailscale worker is TLS.
   (replacing Mozilla's roots), `cert` and `key` (a client certificate);
   `rejectUnauthorized` (default true, `NODE_TLS_REJECT_UNAUTHORIZED=0`
   too). `secureConnect` once the handshake is done.
+- To port 443 it asks the gateway (as `https.request` does): through the
+  tailnet, its own TLS over the tunnel's TCP; without, plain HTTP to the
+  gateway's `fetch()`, the browser doing the TLS (`authorized`, ALPN
+  `http/1.1`). Other ports (a database's TLS) go by the tailnet alone.
+- A connection the other side closed is read to its end before it is
+  destroyed (`closeAfterEnd`, `net.ts`'s sockets too).
 - `authorized` and `authorizationError` (OpenSSL's codes from rustls's
   reasons: `CERT_HAS_EXPIRED`, `UNABLE_TO_GET_ISSUER_CERT_LOCALLY`,
   `ERR_TLS_CERT_ALTNAME_INVALID`, …; with `rejectUnauthorized: false` the
@@ -293,14 +299,17 @@ terminal: its TUI draws and reads raw keys, and with a provider's key it
 works on the project with its tools (read, edit, write, bash: `sh -c` by
 `child_process`). Its requests are undici's (on `net` and `tls`) and
 `fetch`'s, so a model's API is reached through the tailnet; without
-Tailscale, only an API whose CORS lets a browser in, through the
-gateway's `fetch()`. It looks for `fd` and tries to download it, which
-fails without the tailnet; it goes on without.
+Tailscale, by the gateway's `fetch()` (undici's `tls.connect` to port 443
+is plain HTTP to it), an API whose CORS lets a browser in: Anthropic's
+does when asked (`anthropic-dangerous-direct-browser-access: true`, which
+the gateway adds for `api.anthropic.com`). It looks for `fd` and tries to
+download it, which fails without the tailnet; it goes on without.
 
 What it needed: `http2`'s constants, `worker_threads.markAsUncloneable`,
 `process.getBuiltinModule` and `performance.markResourceTiming` (undici's,
 as it loads and as its fetch ends), Node's `fetch`, and the loop's
-patience above. Claude Code's npm package is a native binary (Bun's),
+patience above, a closed connection read to its end, and `tls.connect`
+by the gateway. Claude Code's npm package is a native binary (Bun's),
 Codex's too (Rust); opencode needs Bun.
 
 ## Tests
@@ -345,7 +354,9 @@ Codex's too (Rust); opencode needs Bun.
   (a minimal SvelteKit project in TypeScript), installed and built
   (TypeScript's compiler by `import()`, zlib). Each about 30 s.
 - `nodenet.spec.ts`'s fetch: another process's server on localhost (a
-  POST, a redirect followed, a gzip answer), and hex.pm's API by HTTPS.
+  POST, a redirect followed, a gzip answer), and hex.pm's API by HTTPS;
+  without Tailscale, Anthropic's API by Node's `fetch` and by Pi, a key
+  that is none refused (`authentication_error`).
 - `child.spec.ts`: `execSync`'s output, `input` into a Node.js child,
   `spawnSync`'s status, `execSync` throwing, `ENOENT`, an asynchronous
   child's stdin, and `kill()`.

@@ -51,7 +51,9 @@ sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
   - **HTTPS** (`ssl:connect` to a host name, patch 0020's gateway): a TCP
     connection to the host, over which the node does TLS itself, with the
     options it was given (its CA certificates, `verify_none`, a client
-    certificate, ALPN and HTTP/2); else by `fetch()` as before.
+    certificate, ALPN and HTTP/2); else by `fetch()` as before, which
+    for `api.anthropic.com` adds `anthropic-dangerous-direct-browser-access:
+    true` (its CORS lets a browser in then; `https.ts` BROWSER_HEADERS).
   - **Its sockets:** `gen_tcp` to another host (a database in the tailnet,
     plain HTTP, SMTP, Erlang distribution to a node of the user's),
     `gen_udp` (`inet_res` to a nameserver of its own, statsd, …), and
