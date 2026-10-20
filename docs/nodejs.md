@@ -196,6 +196,11 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   (`ENOTFOUND`), at once; `dgram` between processes, a node and a process
   both ways, a DNS query to 127.0.0.53 (NXDOMAIN), and a datagram to
   another host dropped.
+- `tailscale.spec.ts` (with `tests/headscale.sh`'s tailnet): a process's
+  `dns.lookup` (a MagicDNS short name too), `net.connect` by name (its
+  local address the device's), `http.get` by name, and a DNS query to
+  1.1.1.1 over `dgram`, out of the exit node. Its Caddy holds port 8091,
+  so the worktree runs it with `PORT=8095`.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`.
 
@@ -211,7 +216,6 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 4. Standard input for a process (the terminal's typing, Vite's
    shortcuts; a pipeline's input), and a REPL.
 5. `fs.watch` in a worker thread (only a process hears the changes).
-6. Through a tailnet, tried: `tailscale.spec.ts`'s Headscale setup for a
-   process's `http.get`, `net.connect`, `dns` and `dgram`. A TLS of the
-   process's own (`tls.connect`, HTTPS through the tailnet) would need a
-   TLS library in JavaScript.
+6. A TLS of the process's own (`tls.connect`, HTTPS through the
+   tailnet to sites without CORS headers) would need a TLS library in
+   JavaScript.
