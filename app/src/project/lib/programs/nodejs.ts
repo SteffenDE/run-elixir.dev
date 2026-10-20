@@ -1,13 +1,14 @@
-// node: Node.js scripts on the page's own JavaScript engine, each process
-// in a worker of its own (runtime/nodejs, nodejs.js) with a channel to the
-// shared files, as a node has. Its output is the process's, and its exit
-// status; closing the port (Ctrl+C) stops the worker.
+// node: Node.js scripts on the browser's own JavaScript engine, each
+// process in a worker of its own (runtime/nodejs, nodejs.js) with a
+// channel to the shared files, as a node has. Its output is the process's,
+// and its exit status; closing the port (Ctrl+C) stops the worker.
 //
-// A port the process listens on is the page's to route (`ports`), as a
-// node's is: the preview and the project's nodes connect to it here, and
-// the connection's bytes go to the process as messages (nodejs/net.ts).
-// A connection the process makes goes where a node's would: to the page's
-// services (Postgres), another process's port, or a node's.
+// A port the process listens on is the exec frame's to route (`ports`),
+// as a node's is: the preview and the project's nodes connect to it here,
+// and the connection's bytes go to the process as messages
+// (nodejs/net.ts). A connection the process makes goes where a node's
+// would: to the services (Postgres), another process's port, a node's, or
+// another host through the tailnet; its DNS messages to the node's DNS.
 // What changes in the files goes to it too, for fs.watch.
 import type { Files } from '@/runtime/host/files';
 import type { CloseReason, Link, Served } from '@/runtime/host/node';
@@ -20,14 +21,19 @@ export interface Listener {
   connect(port: number): Link;
 }
 
-// The project's ports (playground.ts): listen takes `port`, or (0) a free
+// The project's ports (exec/host.ts): listen takes `port`, or (0) a free
 // one, and answers it, or null when it is taken; route answers what takes
-// a connection to `port` (with `host`: HTTPS the page carries there), or
-// null when nothing listens there.
+// a connection to `port` (with `host`: HTTPS carried there by fetch), or
+// null when nothing listens there; dial connects `connection` to another
+// host's `address` (through the tailnet), answering this end's address
+// there, or failing with the error's `code` (ENETUNREACH, …); resolve
+// answers a DNS message.
 export interface Ports {
   listen(port: number, listener: Listener): number | null;
   unlisten(port: number, listener: Listener): void;
   route(port: number, host?: string): ((connection: Served) => void) | null;
+  dial(connection: Served, address: string, port: number): Promise<string | undefined>;
+  resolve(query: Uint8Array): Promise<Uint8Array>;
 }
 
 // The page's end of a connection with a process: to its listener, or one
@@ -68,7 +74,8 @@ class ScriptConnection implements Served {
 type NetMessage =
   | { kind: 'net'; op: 'listen'; ref: number; port: number }
   | { kind: 'net'; op: 'unlisten'; port: number }
-  | { kind: 'net'; op: 'connect'; id: number; port: number; host?: string }
+  | { kind: 'net'; op: 'connect'; id: number; port: number; host?: string; via?: 'tcp' | 'https' }
+  | { kind: 'net'; op: 'dns'; ref: number; query: Uint8Array }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'end' | 'close'; id: number };
 
@@ -102,6 +109,23 @@ export const nodeProgram =
       } else if (message.op === 'unlisten') {
         listening.delete(message.port);
         ports?.unlisten(message.port, listener);
+      } else if (message.op === 'dns') {
+        const answer = (bytes: Uint8Array) =>
+          thread.postMessage({ kind: 'net', op: 'dns', ref: message.ref, answer: bytes });
+        if (!ports) return answer(new Uint8Array(0));
+        void ports.resolve(message.query).then(answer, () => answer(new Uint8Array(0)));
+      } else if (message.op === 'connect' && message.via === 'tcp' && message.host) {
+        const connection = new ScriptConnection(thread, message.id, forget, listener);
+        connections.set(message.id, connection);
+        const refused = (code: string) => {
+          forget(message.id);
+          thread.postMessage({ kind: 'net', op: 'refused', id: message.id, code });
+        };
+        if (!ports) return refused('ENETUNREACH');
+        ports.dial(connection, message.host, message.port).then(
+          (local) => thread.postMessage({ kind: 'net', op: 'connected', id: message.id, local }),
+          (error: Error & { code?: string }) => refused(error.code ?? 'EHOSTUNREACH'),
+        );
       } else if (message.op === 'connect') {
         const take = ports?.route(message.port, message.host) ?? null;
         thread.postMessage({ kind: 'net', op: take ? 'connected' : 'refused', id: message.id });

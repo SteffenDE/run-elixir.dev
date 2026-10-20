@@ -178,6 +178,33 @@ const scriptPorts: Ports = {
       scripts.get(port)?.listener ?? [...nodes].find((node) => node.listening.has(port));
     return target ? (connection) => join(connection, target.connect(port)) : null;
   },
+  // A process's connection to another host's address: through the
+  // tailnet, as a node's goes (tailnet.ts outbound); else unreachable, and
+  // the setup hint.
+  async dial(connection, address, port) {
+    const ways = tailnetWays();
+    let closed = false;
+    connection.onclose = () => (closed = true);
+    const opened = await ways.tunnel(address, port).catch((error: Error & { code?: string }) => {
+      throw Object.assign(error, { code: (error.code ?? 'ehostunreach').toUpperCase() });
+    });
+    if (!opened) {
+      ways.blocked(address.includes(':') ? `[${address}]:${port}` : `${address}:${port}`);
+      throw Object.assign(new Error('network is unreachable'), { code: 'ENETUNREACH' });
+    }
+    if (closed) {
+      opened.close();
+      return undefined;
+    }
+    connection.ondata = (bytes) => opened.write(bytes);
+    connection.onend = () => opened.end();
+    connection.onclose = () => opened.close();
+    opened.ondata = (bytes) => connection.write(bytes);
+    opened.onend = () => connection.end();
+    return opened.local;
+  },
+  // A process's DNS message, answered as a node's (runtime/dns.ts).
+  resolve: (query) => tailnetWays().resolve(query),
 };
 
 // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's

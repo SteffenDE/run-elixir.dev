@@ -1,18 +1,23 @@
-// node:net on the page's TCP: a process's listeners and connections are
-// the page's to route (programs/nodejs.ts), as a node's are, so the
-// preview and the project's other processes reach a port a script listens
-// on, and a script reaches theirs and the page's services (Postgres).
+// node:net on the project's TCP: a process's listeners and connections
+// are the exec frame's to route (programs/nodejs.ts), as a node's are, so
+// the preview and the project's other processes reach a port a script
+// listens on, and a script reaches theirs and the services (Postgres);
+// other hosts through the user's tailnet (docs/tailscale.md).
 //
-// The process tells the page { kind: 'net', op: 'listen', ref, port } and
+// The process tells the host { kind: 'net', op: 'listen', ref, port } and
 // hears { op: 'listening', ref, port } (null when the port is taken);
 // a connection comes as { op: 'open', id, port } (odd ids). The process
-// connects with { op: 'connect', id, port } (even ids), or { op:
-// 'connect', id, port, host } for HTTPS the page carries to a host by its
-// fetch (http.ts's https: plain HTTP on the connection, as a node's goes),
-// and hears { op: 'connected', id } or { op: 'refused', id }. Then { op: 'data', id,
-// bytes }, { op: 'end', id } and { op: 'close', id } go both ways, and
-// { op: 'unlisten', port } stops a listener.
+// connects with { op: 'connect', id, port } (even ids); { op: 'connect',
+// id, port, host, via: 'tcp' } to another host's address, through the
+// tailnet; or { ..., via: 'https' } for HTTPS carried to a host by fetch
+// (http.ts's https: the gateway's line, then plain HTTP on the
+// connection, as a node's goes). It hears { op: 'connected', id, local? }
+// or { op: 'refused', id, code? }. Then { op: 'data', id, bytes },
+// { op: 'end', id } and { op: 'close', id } go both ways, and { op:
+// 'unlisten', port } stops a listener. A DNS message goes as { op: 'dns',
+// ref, query } and its answer comes as { op: 'dns', ref, answer }.
 import { Buffer } from './buffer';
+import { createDns } from './dns';
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
 
@@ -22,7 +27,10 @@ export type NetMessage =
   | { kind: 'net'; op: 'listening'; ref: number; port: number | null }
   | { kind: 'net'; op: 'open'; id: number; port: number }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
-  | { kind: 'net'; op: 'end' | 'close' | 'connected' | 'refused'; id: number };
+  | { kind: 'net'; op: 'connected'; id: number; local?: string }
+  | { kind: 'net'; op: 'refused'; id: number; code?: string }
+  | { kind: 'net'; op: 'dns'; ref: number; answer: Uint8Array }
+  | { kind: 'net'; op: 'end' | 'close'; id: number };
 
 type Hold = () => () => void;
 
@@ -38,12 +46,32 @@ const LOCAL = new Set(['', 'localhost', '127.0.0.1', '::1', '0.0.0.0', '::']);
 const isLocal = (host: string) => LOCAL.has(host) || host.endsWith('.localhost');
 const isIPv6 = (s: string) => s.includes(':');
 
-const netError = (code: string, syscall: string, port: number, message: string) =>
+const ERRNOS: Record<string, number> = {
+  EADDRINUSE: -98,
+  ECONNREFUSED: -111,
+  ENETUNREACH: -101,
+  EHOSTUNREACH: -113,
+  ETIMEDOUT: -110,
+};
+const MESSAGES: Record<string, string> = {
+  ECONNREFUSED: 'connection refused',
+  ENETUNREACH: 'network is unreachable',
+  EHOSTUNREACH: 'no route to host',
+  ETIMEDOUT: 'connection timed out',
+};
+
+const netError = (
+  code: string,
+  syscall: string,
+  port: number,
+  message: string,
+  address = '127.0.0.1',
+) =>
   Object.assign(new Error(`${syscall} ${code}: ${message}`), {
     code,
-    errno: code === 'EADDRINUSE' ? -98 : -111,
+    errno: ERRNOS[code] ?? -111,
     syscall,
-    address: '127.0.0.1',
+    address,
     port,
   });
 
@@ -51,7 +79,21 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
   const sockets = new Map<number, Socket>();
   const servers = new Map<number, Server>();
   const asked = new Map<number, (port: number | null) => void>();
+  const queries = new Map<number, (answer: Uint8Array) => void>();
   let ref = 0;
+  // The node's DNS (runtime/dns.ts), a message at a time; the wait holds
+  // the loop, as a lookup under way does.
+  const query = (message: Uint8Array) =>
+    new Promise<Uint8Array>((resolve) => {
+      const id = ++ref;
+      const release = hold();
+      queries.set(id, (answer) => {
+        release();
+        resolve(answer);
+      });
+      post({ kind: 'net', op: 'dns', ref: id, query: message });
+    });
+  const dns = createDns(query);
   // The ids of connections the process makes.
   let nextId = 0;
 
@@ -70,6 +112,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     declare release: (() => void) | null;
     declare timer: ReturnType<typeof setTimeout> | null;
     declare timeout: number;
+    // HTTPS by the gateway: its first line still to come (what of it came).
+    declare gateway: string | null;
 
     constructor(options: { id?: number; port?: number; allowHalfOpen?: boolean } = {}) {
       super({ allowHalfOpen: options.allowHalfOpen ?? false, decodeStrings: true });
@@ -86,6 +130,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       this.release = this.id ? hold() : null;
       this.timer = null;
       this.timeout = 0;
+      this.gateway = null;
       if (this.id) sockets.set(this.id, this);
       this.on('close', () => {
         sockets.delete(this.id);
@@ -107,23 +152,16 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       const port = Number(options.port);
       const host = options.host ?? 'localhost';
       this.connecting = true;
-      // https: HTTPS to any host, which the page carries (not a socket's
-      // own bytes to the host: http.ts's https alone asks for it).
+      // https: HTTPS to any host, which the exec frame carries (not a
+      // socket's own bytes to the host: http.ts's https alone asks for it).
       const https = Boolean(options.https);
-      if (options.path !== undefined || (!https && !isLocal(host)) || !(port > 0 && port < 65536)) {
+      if (options.path !== undefined || !(port > 0 && port < 65536)) {
         const error =
           options.path !== undefined
             ? netError('ENOENT', 'connect', 0, 'no Unix sockets in the playground')
-            : !https && !isLocal(host)
-              ? Object.assign(new Error(`getaddrinfo ENOTFOUND ${host}`), {
-                  code: 'ENOTFOUND',
-                  errno: -3008,
-                  syscall: 'getaddrinfo',
-                  hostname: host,
-                })
-              : Object.assign(new RangeError(`Port should be > 0 and < 65536. Received ${port}.`), {
-                  code: 'ERR_SOCKET_BAD_PORT',
-                });
+            : Object.assign(new RangeError(`Port should be > 0 and < 65536. Received ${port}.`), {
+                code: 'ERR_SOCKET_BAD_PORT',
+              });
         queueMicrotask(() => this.destroy(error));
         return this;
       }
@@ -132,22 +170,84 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       this.localPort = 49152 + Math.floor(Math.random() * 16384);
       this.release ??= hold();
       sockets.set(this.id, this);
-      post({ kind: 'net', op: 'connect', id: this.id, port, ...(https ? { host } : {}) });
+      if (https) {
+        this.gateway = '';
+        post({ kind: 'net', op: 'connect', id: this.id, port, host, via: 'https' });
+      } else if (isLocal(host)) post({ kind: 'net', op: 'connect', id: this.id, port });
+      else {
+        // Another host: its address first (as Node looks a name up), then
+        // a connection there through the tailnet.
+        const id = this.id;
+        (dns.promises.lookup(host) as Promise<{ address: string; family: number }>).then(
+          ({ address, family }) => {
+            if (this.destroyed) return;
+            this.remoteAddress = address;
+            this.remoteFamily = family === 6 ? 'IPv6' : 'IPv4';
+            this.emit('lookup', null, address, family, host);
+            if (isLocal(address)) post({ kind: 'net', op: 'connect', id, port });
+            else post({ kind: 'net', op: 'connect', id, port, host: address, via: 'tcp' });
+          },
+          (error: Error) => {
+            sockets.delete(id);
+            this.emit('lookup', error);
+            this.destroy(error);
+          },
+        );
+      }
       return this;
     }
-    // The page's answer to connect.
-    connected(ok: boolean) {
+    // The answer to connect: this end's address there (`local`), or why
+    // not (`code`).
+    connected(ok: boolean, local?: string, code = 'ECONNREFUSED') {
       this.connecting = false;
       if (!ok) {
         sockets.delete(this.id);
-        this.destroy(netError('ECONNREFUSED', 'connect', this.remotePort, 'connection refused'));
+        this.destroy(
+          netError(
+            code,
+            'connect',
+            this.remotePort,
+            MESSAGES[code] ?? code.toLowerCase(),
+            this.remoteAddress,
+          ),
+        );
         return;
       }
-      this.emit('connect');
-      this.emit('ready');
+      if (local) {
+        const at = local.lastIndexOf(':');
+        this.localAddress = local.slice(0, at).replace(/^\[|\]$/g, '');
+        this.localPort = Number(local.slice(at + 1));
+      }
+      if (this.gateway === null) {
+        this.emit('connect');
+        this.emit('ready');
+      }
     }
-    // From the page.
+    // From the other end; for HTTPS by the gateway, its first line
+    // ("fetch", or "error REASON") before.
     receive(bytes: Uint8Array) {
+      if (this.gateway !== null) {
+        const text = this.gateway + new TextDecoder().decode(bytes);
+        const end = text.indexOf('\n');
+        if (end < 0) {
+          this.gateway = text;
+          return;
+        }
+        this.gateway = null;
+        const line = text.slice(0, end);
+        if (line !== 'fetch') {
+          const code = (line.match(/^error (\w+)/)?.[1] ?? 'ehostunreach').toUpperCase();
+          this.destroy(
+            netError(code, 'connect', this.remotePort, MESSAGES[code] ?? code.toLowerCase()),
+          );
+          return;
+        }
+        this.emit('connect');
+        this.emit('ready');
+        const rest = new TextEncoder().encode(text.slice(end + 1));
+        if (!rest.length) return;
+        bytes = rest;
+      }
       this.bytesRead += bytes.length;
       this.touch();
       this.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
@@ -155,11 +255,11 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     _read() {}
     // Written, or ended, before the page answered: once it has.
     _write(chunk: Buffer, _encoding: string, callback: (error?: Error | null) => void) {
-      if (this.connecting) this.once('connect', () => this.send(chunk, callback));
+      if (this.pending) this.once('connect', () => this.send(chunk, callback));
       else this.send(chunk, callback);
     }
     _final(callback: (error?: Error | null) => void) {
-      if (this.connecting) this.once('connect', () => this.finish(callback));
+      if (this.pending) this.once('connect', () => this.finish(callback));
       else this.finish(callback);
     }
     send(chunk: Buffer, callback: (error?: Error | null) => void) {
@@ -181,13 +281,14 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       return this.destroyed ? 'closed' : 'open';
     }
     get pending() {
-      return this.connecting || !this.id;
+      return this.connecting || this.gateway !== null || !this.id;
     }
     get bufferSize() {
       return this.writableLength;
     }
     address(): Address {
-      return { address: this.localAddress, family: 'IPv4', port: this.localPort };
+      const family = this.localAddress.includes(':') ? 'IPv6' : 'IPv4';
+      return { address: this.localAddress, family, port: this.localPort };
     }
     setNoDelay() {
       return this;
@@ -339,9 +440,13 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     }
   }
 
-  // What the page says.
+  // What the exec frame says.
   const receive = (message: NetMessage) => {
-    if (message.op === 'listening') {
+    if (message.op === 'dns') {
+      const answer = queries.get(message.ref);
+      queries.delete(message.ref);
+      answer?.(message.answer);
+    } else if (message.op === 'listening') {
       const answer = asked.get(message.ref);
       asked.delete(message.ref);
       answer?.(message.port);
@@ -352,8 +457,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
     } else {
       const socket = sockets.get(message.id);
       if (!socket) return;
-      if (message.op === 'connected' || message.op === 'refused')
-        socket.connected(message.op === 'connected');
+      if (message.op === 'connected') socket.connected(true, message.local);
+      else if (message.op === 'refused') socket.connected(false, undefined, message.code);
       else if (message.op === 'data') socket.receive(message.bytes);
       else if (message.op === 'end') socket.push(null);
       else {
@@ -390,7 +495,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       addSubnet() {}
     },
   };
-  return { module, receive, Server, Socket };
+  return { module, receive, Server, Socket, dns };
 }
 
 export type Net = ReturnType<typeof createNet>;

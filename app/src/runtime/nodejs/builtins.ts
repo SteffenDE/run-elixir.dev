@@ -8,6 +8,7 @@ import { StringDecoder } from 'string_decoder';
 import { hashes } from './hashes';
 import { createHttp, METHODS, STATUS_CODES } from './http';
 import type { Net } from './net';
+import { createDns } from './dns';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
 
 type Factories = Record<string, () => unknown>;
@@ -257,8 +258,8 @@ export function createBuiltins(deps: {
         }),
       };
     },
-    dns: () => createDns(),
-    'dns/promises': () => createDns().promises,
+    dns: () => deps.net?.dns ?? createDns(null),
+    'dns/promises': () => (deps.net?.dns ?? createDns(null)).promises,
     events: () => {
       const events = EventEmitter as unknown as Record<string, unknown>;
       events.EventEmitter ??= EventEmitter;
@@ -426,73 +427,6 @@ export function createBuiltins(deps: {
       made.set(name, factory());
     }
     return made.get(name);
-  };
-}
-
-// dns: the machine's own names (localhost, an address as it is); no
-// other name resolves, as nothing outside is reached by name yet.
-function createDns() {
-  type Found = { address: string; family: number };
-  type Options = { family?: number | string; all?: boolean } | number;
-  const find = (name: string, options: Options = {}): Found[] => {
-    const family =
-      typeof options === 'number'
-        ? options
-        : Number(String(options.family ?? 0).replace('IPv', ''));
-    if (/^\d+\.\d+\.\d+\.\d+$/.test(name)) return [{ address: name, family: 4 }];
-    if (name.includes(':')) return [{ address: name, family: 6 }];
-    if (name === 'localhost' || name.endsWith('.localhost') || !name)
-      return family === 6 ? [{ address: '::1', family: 6 }] : [{ address: '127.0.0.1', family: 4 }];
-    throw Object.assign(new Error(`getaddrinfo ENOTFOUND ${name}`), {
-      code: 'ENOTFOUND',
-      errno: -3008,
-      syscall: 'getaddrinfo',
-      hostname: name,
-    });
-  };
-  const answer = (name: string, options?: Options) => {
-    const found = find(name, options);
-    return typeof options === 'object' && options.all ? found : found[0];
-  };
-  const promises = {
-    lookup: async (name: string, options?: Options) => answer(name, options),
-    resolve: async (name: string) => find(name).map(({ address }) => address),
-    resolve4: async (name: string) => find(name, 4).map(({ address }) => address),
-    resolve6: async (name: string) => find(name, 6).map(({ address }) => address),
-    setDefaultResultOrder() {},
-    getDefaultResultOrder: () => 'verbatim',
-    setServers() {},
-    getServers: () => [],
-  };
-  const callback =
-    (fn: (name: string, options?: Options) => Promise<unknown>) =>
-    (
-      name: string,
-      options?: Options | ((...a: unknown[]) => void),
-      done?: (...a: unknown[]) => void,
-    ) => {
-      if (typeof options === 'function') [done, options] = [options, undefined];
-      fn(name, options).then(
-        (found) =>
-          Array.isArray(found) || typeof found !== 'object' || found === null
-            ? done?.(null, found)
-            : done?.(null, (found as Found).address, (found as Found).family),
-        (error) => done?.(error),
-      );
-    };
-  return {
-    lookup: callback(promises.lookup),
-    resolve: callback(promises.resolve),
-    resolve4: callback(promises.resolve4),
-    resolve6: callback(promises.resolve6),
-    setDefaultResultOrder() {},
-    getDefaultResultOrder: () => 'verbatim',
-    setServers() {},
-    getServers: () => [],
-    ADDRCONFIG: 1024,
-    V4MAPPED: 2048,
-    ALL: 256,
-    promises,
   };
 }
 
