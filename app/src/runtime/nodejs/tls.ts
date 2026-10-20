@@ -83,11 +83,14 @@ function wasi(memory: () => WebAssembly.Memory) {
 }
 
 let loading: Promise<Exports> | null = null;
+// The browser's fetch, as the module loads: the process's global one is
+// Node's (fetch.ts), which reaches the project's ports, not the site.
+const siteFetch = globalThis.fetch.bind(globalThis);
 
 // tls.wasm from the site's runtime files, once per process.
 export function loadTls(runtime: string): Promise<Exports> {
   loading ??= (async () => {
-    const response = await fetch(new URL('tls.wasm', runtime));
+    const response = await siteFetch(new URL('tls.wasm', runtime));
     if (!response.ok) throw new Error(`tls.wasm: ${response.status}`);
     const module = await WebAssembly.compile(await response.arrayBuffer());
     let exports: Exports;

@@ -14,6 +14,7 @@
 // then waits to be stopped.
 import { Buffer } from './buffer';
 import { createBuiltins, BUILTINS } from './builtins';
+import { createFetch } from './fetch';
 import { createFs } from './fs';
 import { createLoader } from './loader';
 import { createNet, type Net, type NetMessage } from './net';
@@ -266,6 +267,15 @@ async function run(start: Start) {
     hold,
   });
   loader.setProcess(() => ({ cwd: process.cwd as () => string }));
+  // fetch as Node's: by the process's http and https (fetch.ts), where a
+  // thread, which has no network of its own, keeps the browser's.
+  if (!thread)
+    globalThis.fetch = createFetch(
+      builtin('http') as never,
+      builtin('https') as never,
+      globalThis.fetch.bind(globalThis),
+      hold,
+    );
   // process.getBuiltinModule('fs' or 'node:fs'): the module, or undefined.
   process.getBuiltinModule = (id: string) => {
     const name = String(id).replace(/^node:/, '');
