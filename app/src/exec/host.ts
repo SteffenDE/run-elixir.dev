@@ -10,7 +10,8 @@
 //
 // A worker, not the frame's page: a hidden frame of another site has its
 // page's timers slowed to a second (WebKit, Firefox), a worker's not.
-import { Bridge, type PreviewResponse } from '@/runtime/bridge';
+import { Bridge } from '@/runtime/bridge';
+import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
 import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
@@ -246,34 +247,6 @@ function previewEnv(): Record<string, string> {
     : {};
 }
 
-// A relay's requests and WebSockets (frames/relay.ts), on a port the IDE
-// handed over from it.
-function serveRelay(port: MessagePort): void {
-  port.onmessage = ({ data, ports }) => {
-    if (data?.kind === 'http') {
-      if (!bridge) {
-        const body = encoder.encode('The project is not running.');
-        ports[0].postMessage(
-          {
-            status: 503,
-            reason: 'Service Unavailable',
-            headers: [['content-type', 'text/plain']],
-            body,
-          } satisfies PreviewResponse,
-          [body.buffer],
-        );
-        return;
-      }
-      void bridge
-        .request(data)
-        .then((response) => ports[0].postMessage(response, [response.body.buffer]));
-    } else if (data?.kind === 'websocket') {
-      if (bridge) bridge.websocket(data, ports[0]);
-      else ports[0].postMessage({ close: { code: 1006, reason: '', clean: false } });
-    }
-  };
-}
-
 // What this project changed over its template, to share (the IDE adds its
 // name and template).
 async function changes(hidden: string[]): Promise<Omit<Shared, 'name' | 'template'>> {
@@ -293,6 +266,12 @@ async function changes(hidden: string[]): Promise<Omit<Shared, 'name' | 'templat
     files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
     removed: removed.map(relative),
   };
+}
+
+// A change, then everything changed so far kept (files.js's flush).
+async function kept(change: Promise<void>): Promise<void> {
+  await change;
+  await files?.flush();
 }
 
 const handlers = {
@@ -350,10 +329,12 @@ const handlers = {
     const bytes = await running().read(path);
     return transfer(bytes, [bytes.buffer]);
   },
-  write: (path: string, data: string | Uint8Array) => running().write(path, data),
-  mkdir: (path: string) => running().mkdir(path),
-  remove: (path: string) => running().remove(path),
-  rename: (from: string, to: string) => running().rename(from, to),
+  // What the IDE changes (a save, the tree's operations) is kept before it
+  // hears back: its page may go at once (a reload), and the frame with it.
+  write: (path: string, data: string | Uint8Array) => kept(running().write(path, data)),
+  mkdir: (path: string) => kept(running().mkdir(path)),
+  remove: (path: string) => kept(running().remove(path)),
+  rename: (from: string, to: string) => kept(running().rename(from, to)),
   search: (path: string, query: SearchQuery, skip: string[]) => running().search(path, query, skip),
   flush: () => files?.flush(),
   changes,
@@ -413,7 +394,7 @@ const handlers = {
   },
 
   // A relay of the preview's (previewOrigins.ts), and which port it shows.
-  relay: (port: MessagePort) => serveRelay(port),
+  relay: (port: MessagePort) => serveRelayRequests(port, () => bridge),
   previewShows(port: number) {
     chosenPort = port;
     updateListening();

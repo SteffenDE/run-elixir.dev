@@ -7,6 +7,11 @@ import { built } from '@/project/lib/programs/tailwind';
 import { previewKey } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { Bridge, type Connection } from '@/runtime/bridge';
+import { serveRelayRequests } from '@/runtime/relayRequests';
+import { previewRelay } from '@/project/lib/previewOrigins';
+import { setPreviewHost } from '@/project/lib/previewHost';
+import { previewSnapshot } from '@/project/lib/previewSnapshot';
+import { previewOrigins } from '@/shared/lib/site';
 import type { SearchResult } from '@/runtime/host/files';
 import { disposeTerminal } from '@/project/lib/terminal-handle';
 import { setWorkspace, type Workspace } from '@/project/lib/workspace';
@@ -47,9 +52,11 @@ const terminals = new Map<number, Terminal>();
 let cwd: string[] = ['/work'];
 let onProject: ((project: GuestProject) => void) | null = null;
 let welcomed = false;
-// The preview: the app's requests go to this page's bridge (as in a
-// project's page), whose connections go through the relay to the host's
-// node. Its cookies, and its LiveView, are this guest's own.
+// The preview: on origins of the usercontent domain of this page's own
+// (site.ts previewOrigins, by its previewKey), whose relays pass the
+// app's requests to this page's bridge, whose connections go through the
+// live relay to the host's node. Its cookies, and its LiveView, are this
+// guest's own.
 let bridge: Bridge | null = null;
 const tunnels = new Map<number, Connection>();
 let nextConn = 1;
@@ -98,6 +105,8 @@ interface TunnelStats {
 const tunnelStats = new Map<number, TunnelStats>();
 
 const debug = {
+  // What its preview shows, as a project's page tells (the tests').
+  playground: { previewSnapshot },
   playgroundLive: {
     debug: () => ({
       role: 'guest',
@@ -136,15 +145,21 @@ function closeTunnels() {
 let hostPort: number | null = null;
 let chosenPort: number | null = null;
 
+const shows = (switched: number) => {
+  chosenPort = switched;
+  void preview(hostPort);
+};
+
 async function preview(port: number | null) {
   hostPort = port;
   if (!bridge) {
-    await Bridge.register('/sw.js', '/', previewKey);
-    bridge ??= new Bridge({ connect });
-    bridge.onport = (switched) => {
-      chosenPort = switched;
-      void preview(hostPort);
-    };
+    bridge = new Bridge({ connect }, port ?? 4000, previewOrigins(previewKey));
+    bridge.onport = shows;
+    setPreviewHost({
+      ready: (at) =>
+        previewRelay(previewKey, at, (requests) => serveRelayRequests(requests, () => bridge)),
+      shows,
+    });
   }
   const shown = port === null ? null : (chosenPort ?? port);
   if (shown !== null) bridge.port = shown;

@@ -40,6 +40,8 @@ import type { Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { setWorkspace, type Workspace } from './workspace';
 import { forgetRelays, previewRelay } from './previewOrigins';
+import { previewSnapshot } from './previewSnapshot';
+import { setPreviewHost, type PreviewHost } from './previewHost';
 import { hex } from './hex';
 import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
@@ -274,10 +276,10 @@ export function connectServer(port: number): Connection | null {
 // prepare), and the port it went to by itself (onPort).
 const serveRelay = (requests: MessagePort) =>
   void exec?.call('relay', [requests], [requests]).catch(() => requests.close());
-export const previewReady = (port: number) => previewRelay(previewKey, port, serveRelay);
-export function previewShows(port: number): void {
-  void exec?.call('previewShows', [port]);
-}
+const preview: PreviewHost = {
+  ready: (port) => previewRelay(previewKey, port, serveRelay),
+  shows: (port) => void exec?.call('previewShows', [port]),
+};
 
 function database(): Promise<PGlite> {
   // The extensions Phoenix apps ask for (phx.gen.auth: citext), a few KB
@@ -463,29 +465,6 @@ export const local: Workspace = {
   restartServer,
 };
 
-// What the docked preview's page shows (bridge.ts's linkShim answers):
-// for the tests, which reach no frame of another site in Firefox.
-function previewSnapshot(): Promise<{ title: string; text: string } | null> {
-  const target = document.querySelector<HTMLIFrameElement>('.preview iframe')?.contentWindow;
-  if (!target) return Promise.resolve(null);
-  const id = crypto.randomUUID();
-  return new Promise((resolve) => {
-    const got = (event: MessageEvent) => {
-      if (event.source !== target || event.data?.kind !== 'playground-snapshot') return;
-      if (event.data.id !== id) return;
-      clearTimeout(timer);
-      removeEventListener('message', got);
-      resolve({ title: String(event.data.title), text: String(event.data.text) });
-    };
-    const timer = setTimeout(() => {
-      removeEventListener('message', got);
-      resolve(null);
-    }, 2000);
-    addEventListener('message', got);
-    target.postMessage({ kind: 'playground-snapshot', id }, '*');
-  });
-}
-
 // The frame that runs the project (e-KEY on the usercontent domain), its
 // worker's port once it started. After the page's load: a frame of
 // another site would hold its load event up (Firefox) until it started.
@@ -530,6 +509,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   kind = workspaceKind;
   projectId = id;
   setWorkspace(local);
+  setPreviewHost(preview);
   setup = setupOf(kind);
   const store = useStore.getState();
   if (!crossOriginIsolated) {
@@ -579,7 +559,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     await exec.call('applyShared', [seed]);
     await seedTaken(id);
   }
-  void refreshTree();
+  // The tree before start returns: a live session resumed next welcomes
+  // its guests with it.
+  await refreshTree();
   openTerminal(setup.first);
   const rpc = exec;
   // For tests and the curious.

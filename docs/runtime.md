@@ -418,8 +418,9 @@ from the others':
   and `LIVEBOOK_IFRAME_URL` (Livebook 0.19's iframe page on 8081's
   origin; another version of it sets its own).
 
-A live session's guest's preview (for now) stays the page's origin and
-shows one port at a time.
+A live session's guest's preview has preview origins of its own the same
+way, its relays' requests answered by the guest page's bridge
+([collaboration.md](collaboration.md#the-preview)).
 
 **WebSockets.** A service worker sees no WebSocket connection. The
 injected `WebSocket` (the browser's API: `onopen`/`onmessage`/`onclose`,

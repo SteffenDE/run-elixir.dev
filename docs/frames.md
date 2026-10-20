@@ -84,6 +84,13 @@ apex's stays the apex's:
   which answers them as before.
 - **The terminals.** Their screens and line disciplines are the IDE's:
   keys are echoed and edited there, and lines go to the node.
+- **What the IDE changes** (a save, the tree's operations) is kept before
+  the frame answers: the page may go at once (a reload), and the frame
+  with it. What the nodes change is kept a second later, as before.
+
+A live session's guest has no exec frame: its page's bridge answers the
+relays of its own preview origins, its connections tunnelled to the
+host ([collaboration.md](collaboration.md#the-preview)).
 
 ## Measurements (2026-10-19)
 
@@ -119,10 +126,8 @@ forever.
 
 ## Next
 
-1. **Live sessions.** The guest's preview on a usercontent origin, as the
-   host's.
-2. **Moving the former layout's stores.** On `p-ID.DOMAIN`, a frame
+1. **Moving the former layout's stores.** On `p-ID.DOMAIN`, a frame
    (same site as the apex, so not partitioned) hands its files and
    database to the apex, then deletes them.
-3. **Deploy.** A second site in Caddy with a wildcard certificate of its
+2. **Deploy.** A second site in Caddy with a wildcard certificate of its
    own; the old `*.DOMAIN` names for the move only.
