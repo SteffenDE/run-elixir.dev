@@ -61,10 +61,11 @@ preview's origin keeps what the app in it keeps (its service worker,
 cookies, local storage), partitioned by the apex's site.
 
 Before, each project ran on an origin of its own under the apex
-(`p-ID.DOMAIN`), and a project's stores are still there for a browser
-that used one; Safari, whose frames' storage is partitioned by origin,
-ran projects on the apex itself. Moving those stores to the apex is next
-([frames.md](frames.md#next)).
+(`p-ID.DOMAIN`); a browser that used one has its stores moved to the
+apex as it opens the project, or the home page
+([frames.md](frames.md#moving-the-former-layouts-stores)). Safari, whose
+frames' storage is partitioned by origin, ran projects on the apex
+itself.
 
 ## What is kept
 

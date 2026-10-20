@@ -455,7 +455,7 @@ def page(out, wasm):
 # (its scope is /), the site's configuration, the content-hashed Vite
 # assets, the builds and the runtimes; and what Vite copies from
 # app/public (the icons, the manifest, og.png), which the pages name there.
-ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "sw.js",
+ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "storage.html", "sw.js",
               "playground.json", "_playground", "b", "r",
               *os.listdir(os.path.join(ROOT, "app", "public"))}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript

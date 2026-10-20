@@ -1,6 +1,7 @@
 import { RiDeleteBinLine, RiFireLine, RiFolderAddLine, RiTerminalLine } from '@remixicon/react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { KindChip } from '@/shared/components/KindChip';
+import { moveAllFormerStores } from '@/shared/lib/migrate';
 import { listProjects, type Project } from '@/shared/lib/projects';
 import { projectUrl } from '@/shared/lib/site';
 import { deleteProject, openProjects } from '@/shared/lib/storage';
@@ -86,6 +87,8 @@ export function HomePage() {
 
   const load = useCallback(() => {
     void Promise.all([listProjects(), openProjects()]).then(([list, held]) => {
+      // What the former layout kept on the projects' own origins comes here.
+      void moveAllFormerStores(list.filter((project) => !held.has(project.id)).map((p) => p.id));
       setProjects(list);
       setOpen(held);
     });

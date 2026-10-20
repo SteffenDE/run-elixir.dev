@@ -17,13 +17,15 @@ export default defineConfig({
     target: 'es2022',
     // The IDE, the preview popped out into its own window, and the
     // usercontent domain's frames: a preview origin's relay, and the frame
-    // that runs a project (docs/frames.md).
+    // that runs a project (docs/frames.md); and a project's former
+    // origin's storage frame, which moves its stores to the apex.
     rollupOptions: {
       input: {
         main: 'index.html',
         preview: 'preview.html',
         relay: 'relay.html',
         exec: 'exec.html',
+        storage: 'storage.html',
       },
     },
   },
