@@ -309,3 +309,53 @@ test('a Node.js process’s UDP: processes, nodes and the DNS', async ({ page })
   expect(dns).not.toContain('away answered');
   expect(await run(page, 'node ask.cjs 41300 last')).toContain('answer re:last');
 });
+
+// Node's fetch, by the process's own http and https (fetch.ts): another
+// process's server on localhost (which the browser's fetch cannot reach), a
+// POST, a redirect followed, a gzip answer decompressed; HTTPS by the
+// exec frame's fetch() without Tailscale.
+test('a Node.js process’s fetch: the project’s ports, redirects, gzip, HTTPS', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/server.cjs',
+    [
+      "const zlib = require('zlib');",
+      "require('http').createServer((req, res) => {",
+      "  let body = '';",
+      "  req.on('data', (c) => (body += c));",
+      "  req.on('end', () => {",
+      "    if (req.url === '/old') { res.writeHead(302, { location: '/new' }); return res.end(); }",
+      "    if (req.url === '/zipped') {",
+      "      res.writeHead(200, { 'content-encoding': 'gzip', 'content-type': 'text/plain' });",
+      "      return res.end(zlib.gzipSync('unzipped text'));",
+      '    }',
+      "    res.setHeader('content-type', 'application/json');",
+      '    res.end(JSON.stringify({ method: req.method, url: req.url, body }));',
+      '  });',
+      "}).listen(3000, () => console.log('up'));",
+    ].join('\n'),
+  );
+  await writeText(
+    page,
+    '/work/client.mjs',
+    [
+      "const base = 'http://localhost:3000';",
+      "const post = await fetch(`${base}/api`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ a: 1 }) });",
+      "console.log('post', post.status, JSON.stringify(await post.json()));",
+      'const moved = await fetch(`${base}/old`);',
+      "console.log('moved', moved.redirected, new URL(moved.url).pathname, (await moved.json()).url);",
+      "console.log('zipped', await (await fetch(`${base}/zipped`)).text());",
+      "const hex = await fetch('https://hex.pm/api/packages/jason', { headers: { accept: 'application/json' } });",
+      "console.log('hex', hex.status, (await hex.json()).name);",
+    ].join('\n'),
+  );
+  await background(page, 'node server.cjs', /^up$/m);
+  const out = await run(page, 'node client.mjs');
+  expect(out).toContain('post 200 {"method":"POST","url":"/api","body":"{\\"a\\":1}"}');
+  expect(out).toContain('moved true /new /new');
+  expect(out).toContain('zipped unzipped text');
+  expect(out).toContain('hex 200 jason');
+});
