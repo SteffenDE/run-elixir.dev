@@ -359,3 +359,27 @@ test('a Node.js process’s fetch: the project’s ports, redirects, gzip, HTTPS
   expect(out).toContain('zipped unzipped text');
   expect(out).toContain('hex 200 jason');
 });
+
+// Anthropic's API without Tailscale: by the gateway's fetch(), which says
+// anthropic-dangerous-direct-browser-access for it (its CORS lets a
+// browser in then); Node's fetch, and Pi, whose undici's tls.connect to
+// port 443 goes to the gateway as plain HTTP. A key that is none: the
+// API's refusal is the answer the test needs.
+test('a Node.js process reaches Anthropic’s API by the browser’s fetch: fetch, and Pi', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const fetched = await run(
+    page,
+    `node -e "fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': 'none', 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: '{}' }).then((r) => r.text().then((t) => console.log(r.status, t)))"`,
+  );
+  expect(fetched).toContain('401');
+  expect(fetched).toContain('authentication_error');
+  const pi = await run(
+    page,
+    'npx -y @earendil-works/pi-coding-agent@1.3.0 -p --provider anthropic --model sonnet --api-key sk-ant-none "Say hi"',
+  );
+  expect(pi).toContain('authentication_error');
+});
