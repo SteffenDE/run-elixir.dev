@@ -67,7 +67,9 @@ export function createChildProcess(
     declare spawnfile: string;
     declare spawnargs: string[];
     declare release: (() => void) | null;
-    declare inherit: boolean;
+    // Where its output goes when it is not piped: the process's own (an
+    // fd, 'inherit', process.stdout given as itself) or a stream's.
+    declare sink: ((bytes: Uint8Array) => void) | null;
     declare connected: boolean;
 
     constructor(file: string, args: string[], options: SpawnOptions) {
@@ -83,7 +85,15 @@ export function createChildProcess(
       const stdio = Array.isArray(options.stdio)
         ? options.stdio
         : [options.stdio, options.stdio, options.stdio];
-      this.inherit = stdio[1] === 'inherit' || stdio[1] === 1;
+      const out = stdio[1] as Stdio & { fd?: number; write?: (chunk: Uint8Array) => unknown };
+      this.sink =
+        out === 'inherit' || out === 1 || out === 2
+          ? (bytes) => own.write(out === 2 ? 2 : 1, bytes)
+          : out && typeof out === 'object' && typeof out.write === 'function'
+            ? out.fd === 1 || out.fd === 2
+              ? (bytes) => own.write(out.fd!, bytes)
+              : (bytes) => out.write!(bytes)
+            : null;
       const piped = (s: Stdio) =>
         s === undefined || s === null || s === 'pipe' || s === 'overlapped';
       this.stdout = piped(stdio[1]) ? new Readable({ read() {} }) : null;
@@ -113,7 +123,7 @@ export function createChildProcess(
 
     // The child's output.
     output(bytes: Uint8Array) {
-      if (this.inherit) own.write(1, bytes);
+      if (this.sink) this.sink(bytes);
       else this.stdout?.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
     }
 
