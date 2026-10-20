@@ -10,6 +10,7 @@ import { createHttp, METHODS, STATUS_CODES } from './http';
 import type { Net } from './net';
 import { createDns } from './dns';
 import { createTls } from './tls';
+import { createZlib } from './zlib';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
 
 type Factories = Record<string, () => unknown>;
@@ -409,21 +410,7 @@ export function createBuiltins(deps: {
     vm: () => createVm(),
     wasi: () => deps.wasi(),
     worker_threads: () => deps.threads(),
-    zlib: () =>
-      missing(
-        'zlib',
-        [
-          'gzipSync',
-          'gunzipSync',
-          'deflateSync',
-          'inflateSync',
-          'createGzip',
-          'createGunzip',
-          'brotliCompressSync',
-          'brotliDecompressSync',
-        ],
-        { constants: {} },
-      ),
+    zlib: () => createZlib(),
   };
 
   const made = new Map<string, unknown>();

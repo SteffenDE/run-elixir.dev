@@ -23,6 +23,7 @@
     "dexie": "4.4.6",
     "esbuild-wasm": "0.25.4",
     "events": "3.3.0",
+    "fflate": "0.8.2",
     "isomorphic-git": "1.42.3",
     "phoenix": "1.8.15",
     "react": "19.3.0",
