@@ -14,7 +14,7 @@
 # asks exit-box to connect into the tailnet (POST /nc?host=ADDRESS&port=P:
 # what `tailscale nc` got for the request's body; exit-box resolves no
 # MagicDNS names). Beyond the setup's policy,
-# the test's: exit-box may reach the playground's port 4000, and the
+# the test's: exit-box may reach the playground's ports 4000-4001, and the
 # playground exit-box's epmd and distribution. Headscale's state goes to
 # target/headscale (a fresh tailnet on each start). Needs Docker (DOCKER,
 # default `sudo -n docker`), Python 3 and the internet (DERP).
@@ -84,7 +84,7 @@ cat >"$dir/config/policy.json" <<'EOF'
   },
   "grants": [
     { "src": ["tag:elixir-playground"], "dst": ["autogroup:internet"], "ip": ["*"] },
-    { "src": ["tag:exit"], "dst": ["tag:elixir-playground"], "ip": ["tcp:4000"] },
+    { "src": ["tag:exit"], "dst": ["tag:elixir-playground"], "ip": ["tcp:4000-4001"] },
     { "src": ["tag:elixir-playground"], "dst": ["tag:exit"], "ip": ["tcp:4369", "tcp:9100"] }
   ],
   "autoApprovers": { "exitNode": ["tag:exit"] }

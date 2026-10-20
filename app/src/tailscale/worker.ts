@@ -11,7 +11,7 @@
 // WebAssembly (about 30 MB) is not loaded. Two builds' pages make two
 // workers (a worker is its script's URL); a lock lets one run the node.
 import '../../../tailscale/wasm_exec.js';
-import { CONTROL_URL, HOSTNAME, TAG } from './protocol';
+import { CONTROL_URL, HOSTNAME, SHARE_LOCK, TAG } from './protocol';
 import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
 
 interface Go {
@@ -240,63 +240,110 @@ async function dial(conn: MessagePort, host: string, port: number, proto: Proto)
 
 // The device's ports shared in the tailnet, each by one page (its
 // exposure's port): inbound connections there go to that page, which
-// takes them to the node listening on the port.
-const exposed = new Map<number, MessagePort>();
-// How long a page has to take an inbound connection; one that does not
-// has gone, and its port is no longer shared.
+// takes them to the node listening on the port. A page holds a Web Lock
+// for each (`lock`): once it lets go (unshares, leaves the project,
+// closes, crashes), the port is free.
+interface Share {
+  owner: MessagePort;
+  // taken: another project has the port now (it stays listened on).
+  stop(taken?: boolean): void;
+}
+const exposed = new Map<number, Share>();
+// The ports the node listens on (one listener a port, whoever shares it).
+const listening = new Set<number>();
+// How long a page has to take an inbound connection.
 const TAKE = 5000;
 
-async function expose(owner: MessagePort, port: number) {
+// A device port near `port` that no project shares.
+function freePort(port: number): number | undefined {
+  for (let next = port + 1; next <= 65535; next++) if (!exposed.has(next)) return next;
+  return undefined;
+}
+
+async function expose(owner: MessagePort, port: number, lock: string, take: boolean) {
   const say = (message: Exposure) => owner.postMessage(message);
   if (!starting || status.state !== 'Running') {
     say({ kind: 'error', message: 'Tailscale is not connected' });
     return owner.close();
   }
-  if (exposed.has(port)) {
-    say({ kind: 'error', message: `port ${port} is shared already, by another project` });
+  if (!Number.isInteger(port) || port < 1 || port > 65535 || !lock.startsWith(SHARE_LOCK)) {
+    say({ kind: 'error', message: 'not a port to share' });
+    return owner.close();
+  }
+  if (exposed.has(port) && !take) {
+    say({
+      kind: 'error',
+      message: `port ${port} is shared already, by another project`,
+      free: freePort(port),
+    });
     return owner.close();
   }
   const api = await node();
-  exposed.set(port, owner);
-  const stop = () => {
-    if (exposed.get(port) !== owner) return;
-    exposed.delete(port);
-    api.unlisten(port);
-    owner.close();
+  const watching = new AbortController();
+  const share: Share = {
+    owner,
+    stop(taken = false) {
+      if (exposed.get(port) !== share) return;
+      exposed.delete(port);
+      watching.abort();
+      if (taken) owner.postMessage({ kind: 'taken' } satisfies Exposure);
+      else {
+        api.unlisten(port);
+        listening.delete(port);
+      }
+      owner.close();
+    },
   };
+  exposed.get(port)?.stop(true);
+  exposed.set(port, share);
   owner.onmessage = ({ data }: MessageEvent<Exposure>) => {
-    if (data.kind === 'unexpose') stop();
+    if (data.kind === 'unexpose') share.stop();
   };
-  api.listen(port, (remote) => {
-    console.log(`tailscale: ${remote} → port ${port}, to its page`);
-    const channel = new MessageChannel();
-    const conn = channel.port1;
-    owner.postMessage({ kind: 'inbound', remote } satisfies Exposure, [channel.port2]);
-    let through: Conn | null = null;
-    const timer = setTimeout(() => {
-      through?.close();
-      conn.close();
-      stop();
-    }, TAKE);
-    return {
-      ondata: (bytes) => conn.postMessage({ kind: 'data', bytes } satisfies Piece, [bytes.buffer]),
-      onend: (error) => conn.postMessage({ kind: 'end', error } satisfies Piece),
-      ready: (handle) => {
-        through = handle;
-        conn.onmessage = ({ data }: MessageEvent<Piece>) => {
-          if (data.kind === 'open') clearTimeout(timer);
-          else if (data.kind === 'data') handle.write(data.bytes);
-          else if (data.kind === 'end') handle.end();
-          else if (data.kind === 'close') {
-            clearTimeout(timer);
-            handle.close();
-            conn.close();
-          }
-        };
-      },
-    };
-  });
+  // Granted once the page lets its lock go.
+  navigator.locks
+    .request(lock, { signal: watching.signal }, () => share.stop())
+    .catch(() => {
+      // Stopped first.
+    });
+  if (!listening.has(port)) {
+    listening.add(port);
+    api.listen(port, (remote) => inbound(port, remote));
+  }
   say({ kind: 'exposed' });
+}
+
+// An inbound connection to the device's `port`: to the page that shares
+// it, or closed.
+function inbound(port: number, remote: string): Sink {
+  const share = exposed.get(port);
+  console.log(`tailscale: ${remote} → port ${port}${share ? ', to its page' : ', shared by none'}`);
+  if (!share) return { ondata() {}, onend() {}, ready: (handle) => handle.close() };
+  const channel = new MessageChannel();
+  const conn = channel.port1;
+  share.owner.postMessage({ kind: 'inbound', remote } satisfies Exposure, [channel.port2]);
+  let through: Conn | null = null;
+  // A page that does not take it: the connection goes.
+  const timer = setTimeout(() => {
+    through?.close();
+    conn.close();
+  }, TAKE);
+  return {
+    ondata: (bytes) => conn.postMessage({ kind: 'data', bytes } satisfies Piece, [bytes.buffer]),
+    onend: (error) => conn.postMessage({ kind: 'end', error } satisfies Piece),
+    ready: (handle) => {
+      through = handle;
+      conn.onmessage = ({ data }: MessageEvent<Piece>) => {
+        if (data.kind === 'open') clearTimeout(timer);
+        else if (data.kind === 'data') handle.write(data.bytes);
+        else if (data.kind === 'end') handle.end();
+        else if (data.kind === 'close') {
+          clearTimeout(timer);
+          handle.close();
+          conn.close();
+        }
+      };
+    },
+  };
 }
 
 self.addEventListener('connect', (event) => {
@@ -321,7 +368,7 @@ self.addEventListener('connect', (event) => {
       const proto = (['tcp', 'udp'] as const).find((name) => name === data.proto);
       if (proto) void dial(ports[0], String(data.host), Number(data.port), proto);
     } else if (data.kind === 'expose' && ports[0]) {
-      void expose(ports[0], Number(data.port));
+      void expose(ports[0], Number(data.port), String(data.lock), data.take === true);
     } else if (data.kind === 'dns') {
       const answer = (reply: Reply) => page.postMessage(reply);
       if (!starting || status.state !== 'Running')

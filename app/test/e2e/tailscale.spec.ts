@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import type { BrowserContext, Page } from '@playwright/test';
+import type { BrowserContext, Locator, Page } from '@playwright/test';
 import { newShell, output, prompted, run } from './helpers';
 
 // Tailscale (docs/tailscale.md): the setup hint a project shows once, and
@@ -110,6 +110,25 @@ async function signIn(page: Page, context: BrowserContext, apex: string): Promis
   return name;
 }
 
+// A server on port 4000 in a second shell of `project`, answering `text`.
+async function serve(project: Page, text: string): Promise<void> {
+  const shell = await newShell(project);
+  void run(
+    project,
+    `elixir -e '{:ok, l} = :gen_tcp.listen(4000, [:binary, active: false, reuseaddr: true]); serve = fn serve -> {:ok, c} = :gen_tcp.accept(l); {:ok, _} = :gen_tcp.recv(c, 0); :ok = :gen_tcp.send(c, "HTTP/1.0 200 OK\\r\\n\\r\\n${text}"); :gen_tcp.close(c); serve.(serve) end; serve.(serve)'`,
+    shell,
+  );
+}
+
+// What exit-box gets from the device's `port` (the probe's tailscale nc).
+async function probe(address: string, port: number): Promise<string> {
+  const answer = await fetch(`http://localhost:8093/nc?host=${address}&port=${port}`, {
+    method: 'POST',
+    body: 'GET / HTTP/1.0\r\n\r\n',
+  });
+  return answer.text();
+}
+
 // With a Headscale (HEADSCALE_URL, HEADSCALE_API_KEY, HEADSCALE_USER) whose
 // policy is the setup's and which has an exit node: docs/tailscale.md,
 // Testing.
@@ -198,11 +217,7 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
   const url = menu.getByRole('link', { name: /:4000\/$/ });
   await expect(url).toBeVisible();
   const address = /100\.\d+\.\d+\.\d+/.exec(await page.locator('.tailscale-facts').innerText())![0];
-  const probe = await fetch(`http://localhost:8093/nc?host=${address}&port=4000`, {
-    method: 'POST',
-    body: 'GET / HTTP/1.0\r\n\r\n',
-  });
-  expect(await probe.text()).toContain('from the playground');
+  expect(await probe(address, 4000)).toContain('from the playground');
   await project.keyboard.press('Escape');
 
   // The tag may use exit nodes, not reach the tailnet's devices: the exit
@@ -230,6 +245,61 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
 
   await page.locator('.tailscale-device').getByRole('button', { name: 'Sign out' }).click();
   await expect(state).toContainText('signed out', { timeout: 30_000 });
+});
+
+test('two projects share their port 4000: at another port, or one takes it; a closed tab frees it', async ({
+  page,
+  context,
+}) => {
+  test.skip(!HEADSCALE, 'needs HEADSCALE_URL and HEADSCALE_API_KEY');
+  test.setTimeout(300_000);
+  await signIn(page, context, APEX);
+  const address = /100\.\d+\.\d+\.\d+/.exec(await page.locator('.tailscale-facts').innerText())![0];
+  const menuOf = async (project: Page) => {
+    await project.getByRole('button', { name: /^Tailscale:/ }).click();
+    return project.locator('.tailscale-menu');
+  };
+  const portRow = (menu: Locator) => menu.locator('li', { hasText: /Port 4000|:4000\/|:4001\// });
+
+  // A shares its 4000.
+  const a = await context.newPage();
+  await emptyProject(a);
+  await serve(a, 'from A');
+  const menuA = await menuOf(a);
+  await portRow(menuA).getByRole('button', { name: 'Share' }).click();
+  await expect(menuA.getByRole('link', { name: /:4000\/$/ })).toBeVisible();
+  await expect.poll(() => probe(address, 4000)).toContain('from A');
+
+  // B's 4000: the device's is A's; B's at 4001 instead.
+  const b = await context.newPage();
+  await emptyProject(b);
+  await serve(b, 'from B');
+  const menuB = await menuOf(b);
+  await portRow(menuB).getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(menuB).toContainText('port 4000 is shared already, by another project');
+  await portRow(menuB).getByRole('button', { name: 'Share as port 4001' }).click();
+  await expect(menuB.getByRole('link', { name: /:4001\/ \(port 4000\)$/ })).toBeVisible();
+  expect(await probe(address, 4001)).toContain('from B');
+  expect(await probe(address, 4000)).toContain('from A');
+
+  // B takes 4000 from A, which says so.
+  await portRow(menuB).getByRole('button', { name: 'Stop' }).click();
+  await portRow(menuB).getByRole('button', { name: 'Share', exact: true }).click();
+  await portRow(menuB).getByRole('button', { name: 'Share here instead' }).click();
+  await expect(menuB.getByRole('link', { name: /:4000\/$/ })).toBeVisible();
+  await expect.poll(() => probe(address, 4000)).toContain('from B');
+  await expect(menuA).toContainText('another project shares port 4000 now');
+
+  // B's tab closes: the port is free at once, a third project shares it
+  // with a plain Share.
+  await b.close();
+  const c = await context.newPage();
+  await emptyProject(c);
+  await serve(c, 'from C');
+  const menuC = await menuOf(c);
+  await portRow(menuC).getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(menuC.getByRole('link', { name: /:4000\/$/ })).toBeVisible();
+  await expect.poll(() => probe(address, 4000)).toContain('from C');
 });
 
 // The same site with the backend's relay (live sessions), as live.spec.

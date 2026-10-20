@@ -55,12 +55,15 @@ export type Proto = 'tcp' | 'udp';
 // (the page's build's runtime); the status follows, and again on each
 // change. `dial` brings the connection's port; `dns` is a DNS message for
 // Tailscale's resolver; `expose` brings the port that inbound connections
-// to the device's `port` come in on (Exposure).
+// to the device's `port` come in on (Exposure), `lock` the name of a Web
+// Lock the page holds for as long as it shares the port (the worker hears
+// of a page gone, a closed tab too, by it), `take` to take the port from
+// the project that shares it.
 export type Request =
   | { kind: 'hello'; wasm: string }
   | { kind: 'act'; id: number; action: Action }
   | { kind: 'dial'; host: string; port: number; proto: Proto }
-  | { kind: 'expose'; port: number }
+  | { kind: 'expose'; port: number; lock: string; take?: boolean }
   | { kind: 'dns'; id: number; query: Uint8Array }
   | { kind: 'logs'; id: number };
 
@@ -84,11 +87,17 @@ export type Piece =
   | { kind: 'close' };
 
 // On an exposure's port (the page's that shares a port in the tailnet):
-// from the worker { kind: 'exposed' } or { kind: 'error', message }, then
-// an { kind: 'inbound', remote } with each connection's port (Piece);
+// from the worker { kind: 'exposed' } or { kind: 'error', message } (with
+// `free`, a device port no project shares, when another project shares
+// this one), then an { kind: 'inbound', remote } with each connection's
+// port (Piece), and { kind: 'taken' } when another project took the port;
 // from the page { kind: 'unexpose' }.
 export type Exposure =
   | { kind: 'exposed' }
-  | { kind: 'error'; message: string }
+  | { kind: 'error'; message: string; free?: number }
   | { kind: 'inbound'; remote: string }
+  | { kind: 'taken' }
   | { kind: 'unexpose' };
+
+// The Web Locks a page holds for its shared ports: this, and an id.
+export const SHARE_LOCK = 'playground-tailscale-share:';

@@ -257,11 +257,22 @@ tailnet takes every HTTPS request that it can route.
 ### Shared ports
 
 The menu's *Share* opens an exposure (`share(port)`): the IDE's page
-hands a port to the worker, which listens on the device (`listen`) and
-sends each inbound connection's port to that page, which connects it to
-the server on the port (`connectServer`, carried to the exec frame) and
-answers `open` (or closes it when none listens). A page that does not answer in 5 s has gone: the port is no
-longer shared. One project per port.
+takes a Web Lock of its own for it (`playground-tailscale-share:ID`) and
+hands a port to the worker, which listens on the device (`listen`, one
+listener a port) and sends each inbound connection's port to that page,
+which connects it to the server on the port (`connectServer`, carried to
+the exec frame) and answers `open` (or closes it when none listens).
+
+The browser is one device, so a device port is one project's:
+
+- **Another project shares it:** the worker says so, with the next
+  device port no project shares; the menu offers *Share as port 4001*
+  (the project's 4000 at the device's 4001, `http://DEVICE:4001/`) and
+  *Share here instead*, which takes the port: the other project's menu
+  says another project shares it now.
+- **The page goes** (it stops sharing, leaves the project, its tab
+  closes or crashes): the browser lets its lock go, the worker's own
+  request for it is granted, and the port is free at once.
 
 ## Testing
 
@@ -285,6 +296,9 @@ longer shared. One project per port.
     exit node's machine (`erpc` returns its OTP release);
   - a server on port 4000 in a second shell, shared from the menu,
     answers exit-box through the tailnet;
+  - two projects' servers on port 4000 (`two projects share…`): the
+    second shares at the device's 4001, then takes 4000 (the first's menu
+    says so); its tab closed, a third project shares 4000 at once;
   - the exit node's own HTTPS port does not answer (the policy keeps the
     tag off the tailnet's devices but those it grants; `etimedout`);
   - a second project, refused, gets `enetunreach`; `/tailscale` lists
@@ -302,7 +316,7 @@ The tailnet for it, in Docker on the host's network
 (`tests/headscale.sh`): Headscale 0.29.5 on `localhost:8090` with
 Tailscale's DERP map and the setup's policy (`tagOwners` `alice@` for both
 tags, the grant, `autoApprovers` for `tag:exit`'s exit routes; and the
-test's: exit-box to the tag's port 4000, the tag to exit-box's 4369 and
+test's: exit-box to the tag's ports 4000-4001, the tag to exit-box's 4369 and
 9100), Caddy on `:8091` adding the CORS header to `/key`,
 `tailscale/tailscale` 1.104.1 as `exit-box` (`TS_USERSPACE=true`, a
 pre-auth key with `--tags tag:exit`, `--advertise-exit-node`), an Erlang
@@ -330,8 +344,6 @@ refused dial).
 - **The gates apply when a connection opens:** connections already open
   stay open when the project's answer turns to no, or a guest who may
   type comes in while the host keeps the tailnet off.
-- **A shared port outlives its page** until the next inbound connection
-  finds no page (5 s).
 - **Per-project ephemeral devices** would need a reusable, ephemeral,
   tagged auth key the user pastes once (a bearer secret kept in the
   browser): interactive sign-in approves one device, and minting keys

@@ -1909,6 +1909,12 @@ button {
   flex: none;
 }
 
+/* A port another project shares: where else, or taking it. */
+.tailscale-port-choices {
+  justify-content: flex-end;
+  margin: 2px 0 6px;
+}
+
 .tailscale-ports,
 .tailscale-projects {
   margin: 0 0 6px;

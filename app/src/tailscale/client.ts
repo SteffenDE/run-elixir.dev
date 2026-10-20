@@ -14,6 +14,7 @@ import { failure, NXDOMAIN, questionName } from '@/runtime/dns';
 import type { Connection } from '@/runtime/host/node';
 import { trace } from '@/runtime/trace';
 import { BUILD, RUNTIME } from '@/shared/lib/build';
+import { SHARE_LOCK } from './protocol';
 import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
 
 // The setup hint (TailscaleDialog) was dismissed: in the apex's storage,
@@ -44,7 +45,13 @@ export function setConsent(key: string, allowed: boolean | null): void {
 // or why not.
 export interface Shared {
   state: 'sharing' | 'shared' | 'failed';
+  // The device's port it is (to be) shared at.
+  as: number;
   error?: string;
+  // Another project shares that port: a free one to share at instead, or
+  // (busy) that it was taken.
+  free?: number;
+  busy?: boolean;
 }
 
 interface TailscaleState {
@@ -305,9 +312,9 @@ export async function tailnetResolve(query: unknown): Promise<Uint8Array> {
   return failure(query, NXDOMAIN);
 }
 
-// This project's ports shared in the tailnet, by port: where its inbound
-// connections come.
-const exposures = new Map<number, MessagePort>();
+// This project's ports shared in the tailnet, by the server's port: where
+// its inbound connections come, and the lock that keeps it shared.
+const exposures = new Map<number, { owner: MessagePort; release(): void }>();
 
 const setShared = (port: number, shared: Shared | null) =>
   useTailscale.setState((state) => {
@@ -317,32 +324,65 @@ const setShared = (port: number, shared: Shared | null) =>
     return { shared: next };
   });
 
-// Share the node's `port` in the tailnet, at the device's own port:
-// connections there go to the server the project runs on it
-// (connect(port), playground.ts's connectServer).
-export function share(port: number, connect: (port: number) => Connection | null): void {
+// A Web Lock held until release(): the worker frees the port once it goes,
+// with the page if nothing else.
+function holdLock(name: string): Promise<() => void> {
+  return new Promise((granted) => {
+    void navigator.locks.request(name, () => new Promise<void>((release) => granted(release)));
+  });
+}
+
+// Share the server on the node's `port` in the tailnet, at the device's
+// port `as` (the same, unless another project shares that one): connections
+// there go to the server the project runs (connect(port), playground.ts's
+// connectServer). `take`: from the project that shares it.
+export async function share(
+  port: number,
+  connect: (port: number) => Connection | null,
+  { as = port, take = false }: { as?: number; take?: boolean } = {},
+): Promise<void> {
   if (exposures.has(port) || project === null) return;
-  setShared(port, { state: 'sharing' });
+  setShared(port, { state: 'sharing', as });
+  const lock = `${SHARE_LOCK}${crypto.randomUUID()}`;
+  const release = await holdLock(lock);
   const channel = new MessageChannel();
   const owner = channel.port1;
-  exposures.set(port, owner);
+  const exposure = { owner, release };
+  exposures.set(port, exposure);
+  const gone = () => {
+    if (exposures.get(port) !== exposure) return false;
+    exposures.delete(port);
+    release();
+    owner.close();
+    return true;
+  };
   owner.onmessage = ({ data, ports }: MessageEvent<Exposure>) => {
-    if (data.kind === 'exposed') setShared(port, { state: 'shared' });
+    if (data.kind === 'exposed') setShared(port, { state: 'shared', as });
     else if (data.kind === 'error') {
-      exposures.delete(port);
-      setShared(port, { state: 'failed', error: data.message });
+      if (gone()) setShared(port, { state: 'failed', as, error: data.message, free: data.free });
+    } else if (data.kind === 'taken') {
+      if (gone())
+        setShared(port, {
+          state: 'failed',
+          as,
+          error: `another project shares port ${as} now`,
+          busy: true,
+        });
     } else if (data.kind === 'inbound' && ports[0]) inbound(ports[0], connect(port));
   };
-  connectTailscale().postMessage({ kind: 'expose', port } satisfies Request, [channel.port2]);
+  connectTailscale().postMessage({ kind: 'expose', port: as, lock, take } satisfies Request, [
+    channel.port2,
+  ]);
 }
 
 export function unshare(port: number): void {
-  const owner = exposures.get(port);
+  const exposure = exposures.get(port);
   exposures.delete(port);
   setShared(port, null);
-  if (!owner) return;
-  owner.postMessage({ kind: 'unexpose' } satisfies Exposure);
-  owner.close();
+  if (!exposure) return;
+  exposure.owner.postMessage({ kind: 'unexpose' } satisfies Exposure);
+  exposure.owner.close();
+  exposure.release();
 }
 
 // An inbound connection (its port) to the node's server, or closed if none
