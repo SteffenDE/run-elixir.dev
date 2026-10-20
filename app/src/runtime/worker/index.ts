@@ -56,6 +56,9 @@ interface Start {
   command?: string[];
   env: Record<string, string>;
   ports: number[];
+  // The page's UDP ports (53: DNS), and whether it dials other hosts.
+  udpPorts?: number[];
+  outbound?: boolean;
   https?: boolean;
   initial?: string[];
   pagePrograms?: string[];
@@ -241,6 +244,8 @@ onmessage = async ({
     command: named,
     env,
     ports,
+    udpPorts = [],
+    outbound = false,
     https = false,
     initial = [],
     pagePrograms = [],
@@ -278,7 +283,7 @@ onmessage = async ({
       if (tars) untarInto(new Uint8Array(image), root, local);
       else await untar(new Uint8Array(image), root, local);
     }
-    prepare(root);
+    prepare(root, { dns: udpPorts.includes(53) });
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
       : null;
@@ -316,8 +321,16 @@ onmessage = async ({
       const vars = { ...env, ...extra };
       const network = new Network({
         ports,
+        udpPorts,
         https,
         open: (id, port, host) => postMessage({ kind: 'net', op: 'open', id, port, host }),
+        dial: outbound
+          ? (id, address, port) => postMessage({ kind: 'net', op: 'dial', id, port, host: address })
+          : undefined,
+        datagram: (from, address, port, payload) =>
+          postMessage({ kind: 'udp', from, address, port, payload }),
+        bound: (port) => postMessage({ kind: 'udp', from: port, bound: true }),
+        unbound: (port) => postMessage({ kind: 'udp', from: port, closed: true }),
         send: (id, payload) => postMessage({ kind: 'net', op: 'data', id, payload }),
         end: (id) => postMessage({ kind: 'net', op: 'end', id }),
         close: (id) => postMessage({ kind: 'net', op: 'close', id }),

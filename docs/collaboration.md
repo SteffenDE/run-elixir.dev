@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-19
 ---
 
 # Sharing and live sessions
@@ -145,6 +145,13 @@ The host decides, at any time, for everyone and for each guest:
 *Ask me before letting each person in* (off by default) is the host's:
 the relay keeps a new guest waiting, and the panel shows its name with
 *Let in* and *Turn away*.
+
+*No tailnet for this project while a guest may type or edit* (off by
+default; shown once Tailscale is set up) is the host's too: a guest with
+*Edit* or *Terminals* runs code in the host's project, which otherwise
+reaches the host's tailnet as it does without guests
+([tailscale.md](tailscale.md)). Only the host's page knows it; it is
+kept with the session across a reload.
 
 Everyone with the link holds the key, so a watching guest could encrypt
 an edit and send it. So guests apply **only what the host signed**: an

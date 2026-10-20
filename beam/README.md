@@ -36,7 +36,7 @@ modules out of kernel) is gone ([distribution.md](../docs/distribution.md)).
 | 0017 wasm-tty-mode-eof | the terminal's raw mode told to JS, the end of standard input |
 | 0018 wasm-spawn-driver | `spawn_driver_entry` is `host/wasm_spawn.c`'s; `erl_init` starts its pump |
 | 0019 wasm-system-architecture | `system_architecture` from `ROTP_SYSTEM_ARCHITECTURE` |
-| 0020 playground-https | `ssl:connect` through the page's fetch (`PLAYGROUND_HTTPS_GATEWAY`) |
+| 0020 playground-https | `ssl:connect` through the page's gateway (`PLAYGROUND_HTTPS_GATEWAY`): its fetch, or a TCP connection the node does TLS over |
 | 0021 wasm-nif-libraries | `load_nif` of a library built to WebAssembly (`host/wasm_nifs.c`) |
 | 0022 memory-without-alloc-util | `erlang:memory/0,1` with erts' allocators off (`+Mea min`) |
 | 0023 wasm-gethostname | the host is `localhost` without `prim_net`'s NIF (`global`, `-sname`) |
@@ -110,11 +110,16 @@ the emulator's.
   Emscripten's `/dev` and `/proc`, and `/work` and `/tmp` from files.js
   (`beam/sharedfs.ts`). Hard links go through the trees (`host/host.js`;
   Emscripten's always fail). Files are executable (`os:find_executable`).
-- **Network.** `gen_tcp` is `gen_tcp_socket` over our `prim_socket` NIF
-  (`socket/`, below) over the playground's `Network`. A project's nodes
-  reach each other's ports through the page (Mix's compile notices go
-  so). HTTPS: `ssl:connect` connects to a gateway port whose first line
-  names the host; the page answers its plain HTTP with fetch (patch 0020).
+- **Network.** `gen_tcp` and `gen_udp` are `gen_tcp_socket` and
+  `gen_udp_socket` over our `prim_socket` NIF (`socket/`, below) over the
+  playground's `Network`. A project's nodes reach each other's ports
+  through the page (Mix's compile notices go so); other hosts' through
+  the page too, which dials them (through the user's tailnet,
+  `docs/tailscale.md`). HTTPS: `ssl:connect` connects to a gateway port,
+  names the host in its first line, and the page's says how it goes on:
+  `fetch` (the page answers its plain HTTP with fetch), `tcp` (a TCP
+  connection through the tailnet, which `ssl` upgrades with the options it
+  was given) or `error REASON` (patch 0020).
 - **Ports.** `host/wasm_spawn.c` runs the playground's programs
   (`spawn.js`, the host's `Module.beamSpawn` over the playground's
   `Process` and programs, `wasi/process.ts`); `{spawn, Command}` is `/bin/sh -c`. Output and exit come
@@ -176,14 +181,25 @@ stopping in the middle of `mix test` (beamos's docs/log/2026-10-17.md).
 Patch 0016 builds `socket/prim_socket_nif.c` (copied into the tree by
 `build.sh`) as `prim_socket`'s NIF in place of esock's, and gives
 `prim_socket.erl` the tables esock would report (`nif_supports`,
-`nif_info/0`). With `-kernel inet_backend socket`, `gen_tcp` runs as
-`gen_tcp_socket` over `socket` over it, all OTP's own code. The NIF has
-stream sockets over the playground's `Network` (`wasi/net.ts`): each
-operation calls `socket/socket.js` on the module's main thread
-(`__proxy: 'sync'`); data and connections arriving wake the NIF's event
+`nif_info/0`). With `-kernel inet_backend socket`, `gen_tcp` and
+`gen_udp` run as `gen_tcp_socket` and `gen_udp_socket` over `socket` over
+it, all OTP's own code. The NIF has stream and datagram sockets over the
+playground's `Network` (`wasi/net.ts`): each operation calls
+`socket/socket.js` on the module's main thread (`__proxy: 'sync'`); data,
+datagrams, connections and dialing's end arriving wake the NIF's event
 thread through a ring in its memory, which sends the `select` messages.
 As esock does, one connection wakes one acceptor: `gen_tcp_socket`
 answers a `select` to its retry with `{error, timeout}`.
+
+A stream connects to the node's own addresses (127.0.0.0/8, ::1, the
+unspecified one) at once; to another host's, `connect/3` answers `select`
+while the page dials (`wasm_socket_dial`), and `connect/1`, or
+`connect/3` again (as `gen_tcp_socket` retries), says how it went. A
+datagram socket binds a port of the `Network` on `bind` or its first
+send (`-1`, as `inet_res` asks, is any free one), takes `sendto`,
+`recvfrom`, and on a connected socket `send` and `recv` (a connected
+socket keeps its peer's datagrams only). Addresses come back as they
+came: `inet_res` checks that its nameserver answered.
 
 ## Smoke test
 

@@ -14,9 +14,11 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
-import { Node, type Connection, type NifBuild } from '@/runtime/host/node';
+import { Node, type Connection, type Datagram, type NifBuild } from '@/runtime/host/node';
 import { httpsByFetch } from '@/runtime/https';
+import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
+import { tailnet } from '@/tailscale/tailnet';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { tailwind } from '@/project/lib/programs/tailwind';
@@ -65,6 +67,8 @@ export type ExecEvents = {
   changed: string[];
   warning: string;
   nif: NifBuild;
+  // Something a node could not reach without Tailscale (the setup hint).
+  blocked: string;
   css: string;
   bundled: null;
 };
@@ -130,6 +134,15 @@ function updatePeers(): void {
     );
 }
 
+// A datagram a node sent to a UDP port of its own address's that another
+// node of the project has: there, from 127.0.0.1 as between processes on
+// one machine.
+function routeUdpPeer({ from, port, bytes }: Datagram, sender: Node): boolean {
+  const target = [...nodes].find((node) => node !== sender && node.udpPorts.has(port));
+  target?.datagram(port, '127.0.0.1', from, bytes);
+  return !!target;
+}
+
 // A connection a node opened to another node's port: joined to one opened
 // there.
 function routePeer(connection: Connection, port: number): boolean {
@@ -153,11 +166,25 @@ function routePeer(connection: Connection, port: number): boolean {
 }
 
 function nodeServices() {
+  // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
+  // page lets them (docs/tailscale.md); else unreachable, no such name,
+  // fetch().
+  const net = tailnet(rpc);
   return {
     peer: routePeer,
-    serve: { 5432: apex('postgres'), [HEX_PORT]: apex('hex'), [EPMD_PORT]: serveNames },
+    udpPeer: routeUdpPeer,
+    serve: {
+      5432: apex('postgres'),
+      [HEX_PORT]: apex('hex'),
+      [EPMD_PORT]: serveNames,
+      // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
+      53: dnsTcp(net.resolve),
+    },
+    udpServe: { 53: dnsUdp(net.resolve) },
+    outbound: net.outbound,
+    udp: net.udp(),
     onnif: (build: NifBuild) => rpc.emit('nif', build),
-    https: httpsByFetch(),
+    https: httpsByFetch({ tunnel: net.tunnel, onblocked: net.blocked }),
     programs: {
       tailwind,
       esbuild,

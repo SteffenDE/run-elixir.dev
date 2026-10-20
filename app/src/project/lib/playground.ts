@@ -24,15 +24,26 @@ import { postgres } from '@/runtime/postgres';
 import { REPORT, lineDiscipline } from '@/runtime/terminal';
 import { BUILD, RUNTIME } from '@/shared/lib/build';
 import { Rpc } from '@/shared/lib/rpc';
+import {
+  connectTailscale,
+  IEX,
+  setTailnetProject,
+  tailnetDial,
+  tailnetResolve,
+  tailscaleBlocked,
+} from '@/tailscale/client';
 import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled } from '@/project/lib/programs/esbuild';
 import {
-  previewChannel,
+  closePopup,
+  onPreviewMessage,
   previewKey,
   send,
+  setPreviewKey,
   type PreviewMessage,
 } from '@/project/lib/previewChannel';
+import { disposeTerminals } from '@/project/lib/terminal-handle';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
 import { seedTaken, takeSeed } from '@/shared/lib/projects';
@@ -363,7 +374,7 @@ export function closeTerminal(id: number): void {
 
 // What the frame tells: output, the first shell's status, raw mode, the
 // ports served, the files the nodes changed, NIF builds, new CSS and
-// bundles.
+// bundles, and what a node could not reach without Tailscale.
 function listen(rpc: Rpc): void {
   const on = <K extends keyof ExecEvents>(event: K, listener: (data: ExecEvents[K]) => void) =>
     rpc.on(event, listener);
@@ -388,7 +399,9 @@ function listen(rpc: Rpc): void {
       if (session) session.node.serving = new Set(served);
     }
     for (const each of ports) void previewRelay(previewKey, each, serveRelay).catch(() => {});
-    if (port !== useStore.getState().previewPort) useStore.getState().setPreviewPort(port);
+    const store = useStore.getState();
+    if (ports.join() !== store.serving.join()) store.setServing(ports);
+    if (port !== store.previewPort) store.setPreviewPort(port);
   });
   on('changed', (paths) => void changed(paths));
   on('warning', (message) => useStore.getState().setStatus(message));
@@ -399,7 +412,10 @@ function listen(rpc: Rpc): void {
   on('bundled', () => {
     for (const listener of bundled) listener();
   });
-  rpc.handle({ connect });
+  on('blocked', tailscaleBlocked);
+  // The apex's services, and the tailnet as this page lets the project
+  // use it (docs/tailscale.md).
+  rpc.handle({ connect, tailnetDial, tailnetResolve });
 }
 
 // A popped-out preview hears what the docked one would: reloads and new
@@ -415,7 +431,7 @@ bundled.add(() => {
   if (reloading) clearTimeout(reloading);
   reloading = setTimeout(() => useStore.getState().reloadPreview(), 100);
 });
-previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessage>) => {
+onPreviewMessage(({ data }: MessageEvent<PreviewMessage>) => {
   if (data.type === 'closed') useStore.getState().popOut(false);
   else if (data.type === 'opened') {
     useStore.getState().popOut(true);
@@ -423,19 +439,42 @@ previewChannel.addEventListener('message', ({ data }: MessageEvent<PreviewMessag
   }
 });
 
+// The page starts its project once (React may run its effect twice), and
+// again only after shutdown().
+let begun = false;
+export function beginStart(): boolean {
+  if (begun) return false;
+  begun = true;
+  return true;
+}
+
 // Keep what changed and stop every node: the project runs elsewhere now.
 export async function shutdown(): Promise<void> {
   await exec?.call('shutdown').catch(() => {});
   exec?.close();
   exec = null;
+  setTailnetProject(null);
   frame?.remove();
   frame = null;
   forgetRelays();
+  for (const session of sessions.values()) session.screen.dispose();
   sessions.clear();
+  nextSession = 1;
   const pglite = await db?.catch(() => null);
   await pglite?.close().catch(() => {});
   db = null;
   serveDatabase = postgres(database);
+}
+
+// The page goes to another of the apex's pages in place (navigate.ts):
+// what leaving it by a load would end ends, and the next project starts
+// afresh.
+export async function leave(): Promise<void> {
+  await shutdown();
+  closePopup();
+  disposeTerminals();
+  begun = false;
+  useStore.setState(useStore.getInitialState(), true);
 }
 
 // What this project changed over its template, to share: its sources, not
@@ -508,6 +547,8 @@ async function startFrame(origin: string): Promise<Rpc> {
 export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<void> {
   kind = workspaceKind;
   projectId = id;
+  // This page's project (it may have run another before).
+  setPreviewKey();
   setWorkspace(local);
   setPreviewHost(preview);
   setup = setupOf(kind);
@@ -523,6 +564,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     );
     return;
   }
+  // The tailnet, for this project as the user lets it (docs/tailscale.md).
+  setTailnetProject(id ?? IEX);
+  connectTailscale();
   store.setStatus('Starting the files…');
   try {
     exec = await startFrame(origin);

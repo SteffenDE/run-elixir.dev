@@ -1,13 +1,14 @@
 /*
- * prim_socket's NIF for the Emscripten BEAM: TCP over the playground's
- * network (app/src/runtime/wasi/net.ts) instead of esock's system sockets.
+ * prim_socket's NIF for the Emscripten BEAM: TCP and UDP over the
+ * playground's network (app/src/runtime/wasi/net.ts) instead of esock's
+ * system sockets.
  *
- * kernel's socket and gen_tcp_socket (-kernel inet_backend socket) run
- * unchanged above prim_socket; this implements the nif_* functions they
- * reach for stream sockets: open, bind, listen, accept, connect, send,
- * recv, close, shutdown, the options gen_tcp_socket sets and reads, and
- * the select protocol: an operation that would block answers `select`
- * and its caller gets {'$socket', Socket, select, Handle} when to retry.
+ * kernel's socket, gen_tcp_socket and gen_udp_socket (-kernel inet_backend
+ * socket) run unchanged above prim_socket; this implements the nif_*
+ * functions they reach: open, bind, listen, accept, connect, send, sendto,
+ * recv, recvfrom, close, shutdown, the options they set and read, and the
+ * select protocol: an operation that would block answers `select` and its
+ * caller gets {'$socket', Socket, select, Handle} when to retry.
  *
  * The connections are JavaScript's. Each operation calls into the
  * module's main thread synchronously (socket.js, __proxy: 'sync'), where
@@ -16,7 +17,14 @@
  * library's event thread, which sends the select messages: no C code runs
  * on the main thread, which also serves every thread's file calls.
  *
- * Addresses are the node's own: every socket is 127.0.0.1 and a port.
+ * A socket's own address is the node's, 127.0.0.1 (or ::1) and a port. A
+ * stream connects to the node's own addresses (127.0.0.0/8, ::1, the
+ * unspecified address) at once, as before; to any other it connects
+ * through the page (socket.js wasm_socket_dial), which answers `select`
+ * until the page has dialed (the playground: through the user's tailnet,
+ * docs/tailscale.md), and connect/1 then says how it went. A datagram
+ * socket binds a port of the node's network on bind or its first send;
+ * its datagrams go to the node's own ports, or through the page.
  */
 
 #define STATIC_ERLANG_NIF 1
@@ -34,6 +42,14 @@ extern void wasm_socket_init(int32_t *ring, int capacity, int32_t *control);
 extern int wasm_socket_listen(int port, int32_t *bound);
 extern int wasm_socket_accept(int id, int32_t *peer);
 extern int wasm_socket_connect(int port);
+extern int wasm_socket_dial(int family, const unsigned char *address, int port);
+extern int wasm_socket_connected(int id);
+extern int wasm_socket_local(int id, unsigned char *address, int32_t *port);
+extern int wasm_udp_bind(int port, int32_t *bound);
+extern int wasm_udp_send(int id, int family, const unsigned char *address, int port,
+                         const void *data, int length);
+extern int wasm_udp_recv(int id, void *buffer, int max, int32_t *family,
+                         unsigned char *address, int32_t *port);
 extern int wasm_socket_send(int id, const void *data, int length);
 extern int wasm_socket_recv(int id, void *buffer, int max);
 extern void wasm_socket_shutdown(int id);
@@ -42,6 +58,7 @@ extern int wasm_socket_pending(int id);
 
 #define WOULD_BLOCK (-6)        /* EAGAIN, as socket.js answers it */
 #define ADDRESS_IN_USE (-3)
+#define DATAGRAM_MAX 65507      /* an IPv4 UDP datagram's payload */
 
 /* Option numbers this library gives the socket and tcp levels
  * (nif_supports(options)); otp's are prim_socket.erl's. */
@@ -67,6 +84,7 @@ extern int wasm_socket_pending(int id);
 #define OPT_IPV6_V6ONLY 26
 #define LEVEL_IP 0
 #define LEVEL_TCP 6
+#define LEVEL_UDP 17
 #define LEVEL_IPV6 41
 
 #define OPT_OTP_DEBUG 1001
@@ -82,7 +100,7 @@ extern int wasm_socket_pending(int id);
 #define RECV_CHUNK 65536
 #define RING 4096
 
-typedef enum { FRESH, BOUND, LISTENING, CONNECTED, CLOSED } State;
+typedef enum { FRESH, BOUND, LISTENING, CONNECTING, CONNECTED, CLOSED } State;
 
 /* A process waiting on an operation: the Handle it gets in its message.
  * An acceptor is `notified` once told a connection waits for it. */
@@ -100,10 +118,20 @@ typedef struct {
     State state;
     int port, peer_port;
     int inet6;
+    int dgram;                  /* a UDP socket: CONNECTED once it has a peer */
+    /* The peer's address (4 or 6, in the first 4 or all 16 bytes); a
+     * stream's is 0 when it is the node's own. A datagram socket's peer
+     * is kept as given, the node's own (peer_local) too. */
+    int peer_family, peer_local;
+    unsigned char peer_address[16];
+    /* Its own end at another host's (the page's tailnet address), when
+     * the page says: 4 or 6, else 0 (127.0.0.1 or ::1). */
+    int local_family;
+    unsigned char local_address[16];
     ErlNifPid owner;
     ErlNifMonitor owner_monitor;
     int monitoring;
-    Waiter *readers, *acceptors;
+    Waiter *readers, *acceptors, *connectors;
     ErlNifEnv *meta_env;        /* {otp, meta}, or NULL */
     ERL_NIF_TERM meta;
     int iow;
@@ -139,19 +167,28 @@ static ERL_NIF_TERM atom_ok, atom_error, atom_select, atom_closed,
     atom_write_pkg, atom_read_fails, atom_write_fails, atom_read_tries,
     atom_write_tries, atom_write_waits, atom_acc_success, atom_acc_tries,
     atom_acc_fails, atom_acc_waits, atom_read_waits, atom_read_pkg_max,
-    atom_write_pkg_max, atom_socket;
+    atom_write_pkg_max, atom_socket, atom_dgram, atom_any, atom_loopback, atom_broadcast,
+    atom_ehostunreach, atom_enetunreach, atom_etimedout, atom_econnreset,
+    atom_econnaborted, atom_eacces, atom_emsgsize, atom_ealready, atom_edestaddrreq;
 
 static ERL_NIF_TERM error_tuple(ErlNifEnv *env, ERL_NIF_TERM reason)
 {
     return enif_make_tuple2(env, atom_error, reason);
 }
 
+/* socket.js's negative errnos, as WASI numbers them. */
 static ERL_NIF_TERM errno_term(int error)
 {
     switch (-error) {
+    case 2: return atom_eacces;
     case 3: return atom_eaddrinuse;
+    case 13: return atom_econnaborted;
     case 14: return atom_econnrefused;
+    case 15: return atom_econnreset;
+    case 23: return atom_ehostunreach;
+    case 40: return atom_enetunreach;
     case 53: return atom_enotconn;
+    case 73: return atom_etimedout;
     default: return atom_closed;
     }
 }
@@ -303,6 +340,7 @@ static void close_locked(ErlNifEnv *caller, Sock *sock)
     sock->state = CLOSED;
     notify_waiters(caller, sock, &sock->readers, atom_abort, atom_closed);
     notify_waiters(caller, sock, &sock->acceptors, atom_abort, atom_closed);
+    notify_waiters(caller, sock, &sock->connectors, atom_abort, atom_closed);
     if (sock->id) {
         wasm_socket_close(sock->id);
         table_remove(sock->id);
@@ -336,8 +374,11 @@ static ERL_NIF_TERM opened(ErlNifEnv *env, Sock *sock)
 static void wake(Sock *sock)
 {
     enif_mutex_lock(sock->lock);
-    if (sock->state != CLOSED && (sock->readers || sock->acceptors)
-        && wasm_socket_pending(sock->id) > 0) {
+    if (sock->state == CONNECTING) {
+        if (sock->connectors && wasm_socket_connected(sock->id) != 0)
+            notify_waiters(NULL, sock, &sock->connectors, atom_select, 0);
+    } else if (sock->state != CLOSED && (sock->readers || sock->acceptors)
+               && wasm_socket_pending(sock->id) > 0) {
         notify_waiters(NULL, sock, &sock->readers, atom_select, 0);
         notify_head(NULL, sock);
     }
@@ -402,10 +443,12 @@ static ERL_NIF_TERM nif_open4(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[
     int inet6 = enif_is_identical(argv[0], atom_inet6);
     if (!inet6 && !enif_is_identical(argv[0], atom_inet))
         return error_tuple(env, atom_eafnosupport);
-    if (!enif_is_identical(argv[1], atom_stream))
+    int dgram = enif_is_identical(argv[1], atom_dgram);
+    if (!dgram && !enif_is_identical(argv[1], atom_stream))
         return error_tuple(env, atom_eprotonosupport);
     Sock *sock = new_socket(env, FRESH);
     sock->inet6 = inet6;
+    sock->dgram = dgram;
     return opened(env, sock);
 }
 
@@ -425,6 +468,109 @@ static int get_port(ErlNifEnv *env, ERL_NIF_TERM address, int *port)
     return enif_get_int(env, value, port);
 }
 
+/* A sockaddr map's address (family 4 or 6; 4 bytes or 16) and port: a
+ * tuple, or any, loopback or broadcast. */
+static int get_address(ErlNifEnv *env, ERL_NIF_TERM map, int *family, unsigned char *address,
+                       int *port)
+{
+    ERL_NIF_TERM value;
+    if (!get_port(env, map, port))
+        return 0;
+    *family = enif_get_map_value(env, map, atom_family, &value)
+        && enif_is_identical(value, atom_inet6) ? 6 : 4;
+    memset(address, 0, 16);
+    if (!enif_get_map_value(env, map, atom_addr, &value) || enif_is_identical(value, atom_any))
+        return 1;
+    if (enif_is_identical(value, atom_loopback)) {
+        if (*family == 4)
+            address[0] = 127, address[3] = 1;
+        else
+            address[15] = 1;
+        return 1;
+    }
+    if (enif_is_identical(value, atom_broadcast)) {
+        memset(address, 255, 4);
+        return *family == 4;
+    }
+    const ERL_NIF_TERM *parts;
+    int arity, part;
+    if (!enif_get_tuple(env, value, &arity, &parts) || (arity != 4 && arity != 8))
+        return 0;
+    *family = arity == 4 ? 4 : 6;
+    for (int i = 0; i < arity; i++) {
+        if (!enif_get_int(env, parts[i], &part) || part < 0 || part > (arity == 4 ? 255 : 65535))
+            return 0;
+        if (arity == 4)
+            address[i] = part;
+        else
+            address[2 * i] = part >> 8, address[2 * i + 1] = part & 255;
+    }
+    return 1;
+}
+
+/* The node's own: 127.0.0.0/8, ::1, ::ffff:127.0.0.0/104, and the
+ * unspecified address (connecting to it reaches this host). */
+static int is_local(int family, const unsigned char *a)
+{
+    static const unsigned char zero[16];
+    static const unsigned char mapped[12] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 255, 255};
+    if (family == 4)
+        return a[0] == 127 || memcmp(a, zero, 4) == 0;
+    if (memcmp(a, zero, 15) == 0)
+        return a[15] <= 1;
+    return memcmp(a, mapped, 12) == 0 && a[12] == 127;
+}
+
+/* {family, addr, port}'s map: `address` (4 or 16 bytes) of `family`. */
+static ERL_NIF_TERM sockaddr(ErlNifEnv *env, int family, const unsigned char *a, int port)
+{
+    ERL_NIF_TERM keys[] = {atom_family, atom_addr, atom_port};
+    ERL_NIF_TERM values[3];
+    values[0] = family == 6 ? atom_inet6 : atom_inet;
+    if (family == 6) {
+        ERL_NIF_TERM words[8];
+        for (int i = 0; i < 8; i++)
+            words[i] = enif_make_int(env, (a[2 * i] << 8) | a[2 * i + 1]);
+        values[1] = enif_make_tuple_from_array(env, words, 8);
+    } else {
+        values[1] = enif_make_tuple4(env, enif_make_int(env, a[0]), enif_make_int(env, a[1]),
+                                     enif_make_int(env, a[2]), enif_make_int(env, a[3]));
+    }
+    values[2] = enif_make_int(env, port);
+    ERL_NIF_TERM map;
+    enif_make_map_from_arrays(env, keys, values, 3, &map);
+    return map;
+}
+
+/* The node's own address, as `sock` has it (127.0.0.1 or ::1). */
+static ERL_NIF_TERM own_sockaddr(ErlNifEnv *env, Sock *sock, int port)
+{
+    unsigned char a[16] = {0};
+    if (sock->inet6)
+        a[15] = 1;
+    else
+        a[0] = 127, a[3] = 1;
+    return sockaddr(env, sock->inet6 ? 6 : 4, a, port);
+}
+
+/* A datagram socket's port, bound now if it is not yet (an ephemeral one,
+ * as a system binds a socket that sends first): 0, or a negative errno. */
+static int bind_datagram(Sock *sock, int port)
+{
+    if (sock->id)
+        return 0;
+    int32_t bound = 0;
+    int id = wasm_udp_bind(port < 0 ? 0 : port, &bound);
+    if (id <= 0)
+        return id ? id : ADDRESS_IN_USE;
+    sock->id = id;
+    sock->port = bound;
+    if (sock->state == FRESH)
+        sock->state = BOUND;
+    table_put(id, sock);
+    return 0;
+}
+
 /* nif_bind(SockRef, SockAddr) */
 static ERL_NIF_TERM nif_bind(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
@@ -435,7 +581,11 @@ static ERL_NIF_TERM nif_bind(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]
         return enif_make_badarg(env);
     enif_mutex_lock(sock->lock);
     ERL_NIF_TERM result = atom_ok;
-    if (sock->state == FRESH) {
+    if (sock->state == FRESH && sock->dgram) {
+        int error = bind_datagram(sock, port);
+        if (error)
+            result = error_tuple(env, errno_term(error));
+    } else if (sock->state == FRESH) {
         sock->port = port;
         sock->state = BOUND;
     } else
@@ -453,7 +603,9 @@ static ERL_NIF_TERM nif_listen(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv
         return enif_make_badarg(env);
     enif_mutex_lock(sock->lock);
     ERL_NIF_TERM result = atom_ok;
-    if (sock->state == FRESH || sock->state == BOUND) {
+    if (sock->dgram) {
+        result = error_tuple(env, atom_enotsup);
+    } else if (sock->state == FRESH || sock->state == BOUND) {
         int32_t bound = 0;
         int id = wasm_socket_listen(sock->port, &bound);
         if (id > 0) {
@@ -514,17 +666,85 @@ static ERL_NIF_TERM nif_accept(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv
     return result;
 }
 
-/* nif_connect(SockRef, ConnectRef, SockAddr): immediate here. */
+/* A dialed connection's end (state CONNECTING, its lock held): ok, or why
+ * not; a socket that did not connect can connect again. */
+static ERL_NIF_TERM finish_connect(ErlNifEnv *env, Sock *sock)
+{
+    int status = wasm_socket_connected(sock->id);
+    if (status > 0) {
+        int32_t port = 0;
+        sock->local_family = wasm_socket_local(sock->id, sock->local_address, &port);
+        if (sock->local_family)
+            sock->port = port;
+        sock->state = CONNECTED;
+        return atom_ok;
+    }
+    if (status == 0)
+        return error_tuple(env, atom_ealready);
+    wasm_socket_close(sock->id);
+    table_remove(sock->id);
+    sock->id = 0;
+    sock->peer_family = 0;
+    sock->state = FRESH;
+    return error_tuple(env, errno_term(status));
+}
+
+/* nif_connect(SockRef, ConnectRef, SockAddr): at once to the node's own
+ * addresses; select while the page dials another host's, and again
+ * (gen_tcp_socket's retry after the select) how it went. A datagram
+ * socket only takes the peer it sends to and receives from. */
 static ERL_NIF_TERM nif_connect3(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     (void) argc;
     Sock *sock = get_socket(env, argv[0]);
-    int port;
-    if (!sock || !get_port(env, argv[2], &port))
+    int port, family;
+    unsigned char address[16];
+    if (!sock || !get_address(env, argv[2], &family, address, &port))
         return enif_make_badarg(env);
+    int local = is_local(family, address);
     enif_mutex_lock(sock->lock);
     ERL_NIF_TERM result = atom_ok;
-    if (sock->state == FRESH || sock->state == BOUND) {
+    if (sock->dgram) {
+        int error = sock->state == CLOSED ? -8 : bind_datagram(sock, 0);
+        if (error) {
+            result = error_tuple(env, sock->state == CLOSED ? atom_closed : errno_term(error));
+        } else {
+            sock->peer_port = port;
+            sock->peer_family = family;
+            sock->peer_local = local;
+            memcpy(sock->peer_address, address, 16);
+            sock->state = CONNECTED;
+        }
+    } else if ((sock->state == FRESH || sock->state == BOUND) && !local) {
+        int id = wasm_socket_dial(family, address, port);
+        if (id > 0) {
+            sock->id = id;
+            sock->peer_port = port;
+            sock->peer_family = family;
+            memcpy(sock->peer_address, address, 16);
+            if (!sock->port)
+                sock->port = 49152 + id % 16384;
+            sock->state = CONNECTING;
+            table_put(id, sock);
+            add_waiter(&sock->connectors, env, argv[1]);
+            result = atom_select;
+            /* Already settled (no way there, or the page was quick): the
+             * select now, as the event thread may not have seen it. */
+            if (wasm_socket_connected(id) != 0)
+                notify_waiters(env, sock, &sock->connectors, atom_select, 0);
+        } else
+            result = error_tuple(env, errno_term(id));
+    } else if (sock->state == CONNECTING) {
+        /* Again after its select (gen_tcp_socket does so): how it went,
+         * or select again while the page still dials. */
+        if (wasm_socket_connected(sock->id) == 0) {
+            add_waiter(&sock->connectors, env, argv[1]);
+            result = atom_select;
+            if (wasm_socket_connected(sock->id) != 0)
+                notify_waiters(env, sock, &sock->connectors, atom_select, 0);
+        } else
+            result = finish_connect(env, sock);
+    } else if (sock->state == FRESH || sock->state == BOUND) {
         int id = wasm_socket_connect(port);
         if (id > 0) {
             sock->id = id;
@@ -541,14 +761,138 @@ static ERL_NIF_TERM nif_connect3(ErlNifEnv *env, int argc, const ERL_NIF_TERM ar
     return result;
 }
 
-/* nif_connect(SockRef): after a select, which never comes here. */
+/* nif_connect(SockRef): after a connect's select, how it went. */
 static ERL_NIF_TERM nif_connect1(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
 {
     (void) argc;
     Sock *sock = get_socket(env, argv[0]);
     if (!sock)
         return enif_make_badarg(env);
-    return sock->state == CONNECTED ? atom_ok : error_tuple(env, atom_enotconn);
+    enif_mutex_lock(sock->lock);
+    ERL_NIF_TERM result;
+    if (sock->state == CONNECTING)
+        result = finish_connect(env, sock);
+    else
+        result = sock->state == CONNECTED ? atom_ok : error_tuple(env, atom_enotconn);
+    enif_mutex_unlock(sock->lock);
+    return result;
+}
+
+/* A datagram to (family, address, port), bound first if need be. */
+static ERL_NIF_TERM send_datagram(ErlNifEnv *env, Sock *sock, int family,
+                                  const unsigned char *address, int port,
+                                  const unsigned char *data, size_t size)
+{
+    if (size > DATAGRAM_MAX)
+        return error_tuple(env, atom_emsgsize);
+    int error = bind_datagram(sock, 0);
+    if (error)
+        return error_tuple(env, errno_term(error));
+    int sent = wasm_udp_send(sock->id, family, address, port, data, (int) size);
+    if (sent < 0)
+        return error_tuple(env, errno_term(sent));
+    sock->write_bytes += size;
+    sock->write_packets++;
+    return atom_ok;
+}
+
+/* The next datagram for `sock` into `bin` (resized to what was kept, at
+ * most `want` bytes), its source in `family`, `address` and `port`: 1, or
+ * 0 when none has come. A connected socket drops what is not its peer's. */
+static int take_datagram(Sock *sock, ErlNifBinary *bin, int want, int *family,
+                         unsigned char *address, int *port)
+{
+    for (;;) {
+        int32_t from_family = 0, from_port = 0;
+        enif_realloc_binary(bin, RECV_CHUNK);
+        int n = wasm_udp_recv(sock->id, bin->data, RECV_CHUNK, &from_family, address,
+                              &from_port);
+        if (n < 0)
+            return 0;
+        if (sock->state == CONNECTED && from_port != sock->peer_port)
+            continue;
+        /* The node's own ports answer from 127.0.0.1, the page's from the
+         * address it was sent to: a local peer is told by its port. */
+        if (sock->state == CONNECTED && !sock->peer_local
+            && (from_family != sock->peer_family
+                || memcmp(address, sock->peer_address, from_family == 4 ? 4 : 16) != 0))
+            continue;
+        enif_realloc_binary(bin, n < want ? n : want);
+        sock->read_bytes += bin->size;
+        sock->read_packets++;
+        *family = from_family;
+        *port = from_port;
+        return 1;
+    }
+}
+
+/* nif_sendto(SockRef, Bin, Dest, Flags, SendRef) */
+static ERL_NIF_TERM nif_sendto(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    (void) argc;
+    Sock *sock = get_socket(env, argv[0]);
+    ErlNifBinary bin;
+    int family, port;
+    unsigned char address[16];
+    if (!sock || !enif_inspect_iolist_as_binary(env, argv[1], &bin))
+        return enif_make_badarg(env);
+    if (!get_address(env, argv[2], &family, address, &port))
+        return enif_make_tuple2(env, enif_make_atom(env, "invalid"),
+                                enif_make_atom(env, "sockaddr"));
+    enif_mutex_lock(sock->lock);
+    ERL_NIF_TERM result;
+    if (sock->state == CLOSED)
+        result = error_tuple(env, atom_closed);
+    else if (!sock->dgram)
+        result = error_tuple(env, atom_enotsup);
+    else
+        result = send_datagram(env, sock, family, address, port, bin.data, bin.size);
+    enif_mutex_unlock(sock->lock);
+    return result;
+}
+
+/* nif_recvfrom(SockRef, Length, Flags, Handle): {ok, {Source, Bin}}, the
+ * next datagram (cut to Length, if not 0); select when none has come, or
+ * timeout for Handle `zero`. */
+static ERL_NIF_TERM nif_recvfrom(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
+{
+    (void) argc;
+    Sock *sock = get_socket(env, argv[0]);
+    int length;
+    if (!sock || !enif_get_int(env, argv[1], &length) || length < 0)
+        return enif_make_badarg(env);
+    enif_mutex_lock(sock->lock);
+    ERL_NIF_TERM result;
+    if (sock->state == CLOSED) {
+        result = error_tuple(env, atom_closed);
+    } else if (!sock->dgram) {
+        result = error_tuple(env, atom_enotsup);
+    } else if (!sock->id && bind_datagram(sock, 0)) {
+        result = error_tuple(env, atom_eaddrinuse);
+    } else {
+        ErlNifBinary bin;
+        enif_alloc_binary(RECV_CHUNK, &bin);
+        int family, port;
+        unsigned char address[16];
+        if (take_datagram(sock, &bin, length ? length : RECV_CHUNK, &family, address, &port)) {
+            /* As it came (inet_res checks that its nameserver answered),
+             * the node's own as the socket's family has it. */
+            ERL_NIF_TERM source = is_local(family, address) && (family == 6) != sock->inet6
+                ? own_sockaddr(env, sock, port) : sockaddr(env, family, address, port);
+            result = enif_make_tuple2(
+                env, atom_ok, enif_make_tuple2(env, source, enif_make_binary(env, &bin)));
+        } else {
+            enif_release_binary(&bin);
+            if (enif_is_identical(argv[3], atom_zero)) {
+                result = atom_timeout;
+            } else {
+                add_waiter(&sock->readers, env, argv[3]);
+                result = atom_select;
+            }
+        }
+    }
+    enif_mutex_unlock(sock->lock);
+    return result;
 }
 
 static ERL_NIF_TERM send_bytes(ErlNifEnv *env, Sock *sock, const unsigned char *data,
@@ -557,7 +901,11 @@ static ERL_NIF_TERM send_bytes(ErlNifEnv *env, Sock *sock, const unsigned char *
     enif_mutex_lock(sock->lock);
     ERL_NIF_TERM result = atom_ok;
     if (sock->state != CONNECTED)
-        result = error_tuple(env, sock->state == CLOSED ? atom_closed : atom_enotconn);
+        result = error_tuple(env, sock->state == CLOSED ? atom_closed
+                             : sock->dgram ? atom_edestaddrreq : atom_enotconn);
+    else if (sock->dgram)
+        result = send_datagram(env, sock, sock->peer_family, sock->peer_address, sock->peer_port,
+                               data, size);
     else if (size > 0) {
         int sent = wasm_socket_send(sock->id, data, (int) size);
         if (sent < 0)
@@ -606,6 +954,29 @@ static ERL_NIF_TERM nif_recv(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[]
     int poll = enif_is_identical(argv[3], atom_zero);
     enif_mutex_lock(sock->lock);
     ERL_NIF_TERM result;
+    if (sock->dgram && sock->state != CLOSED) {
+        /* A datagram, a connected socket's peer's or any. */
+        ErlNifBinary bin;
+        int family, port;
+        unsigned char address[16];
+        enif_alloc_binary(RECV_CHUNK, &bin);
+        if (!sock->id && bind_datagram(sock, 0)) {
+            enif_release_binary(&bin);
+            result = error_tuple(env, atom_eaddrinuse);
+        } else if (take_datagram(sock, &bin, length ? length : RECV_CHUNK, &family, address,
+                                 &port)) {
+            result = enif_make_tuple2(env, atom_ok, enif_make_binary(env, &bin));
+        } else {
+            enif_release_binary(&bin);
+            if (poll) {
+                result = atom_timeout;
+            } else {
+                add_waiter(&sock->readers, env, argv[3]);
+                result = atom_select;
+            }
+        }
+        goto done;
+    }
     if (sock->state != CONNECTED) {
         result = error_tuple(env, sock->state == CLOSED ? atom_closed : atom_enotconn);
         goto done;
@@ -701,29 +1072,12 @@ static ERL_NIF_TERM nif_shutdown(ErlNifEnv *env, int argc, const ERL_NIF_TERM ar
     ERL_NIF_TERM result = atom_ok;
     if (sock->state != CONNECTED)
         result = error_tuple(env, sock->state == CLOSED ? atom_closed : atom_enotconn);
-    else if (!enif_is_identical(argv[1], enif_make_atom(env, "read")))
+    else if (!sock->dgram && !enif_is_identical(argv[1], enif_make_atom(env, "read")))
         wasm_socket_shutdown(sock->id);
     enif_mutex_unlock(sock->lock);
     return result;
 }
 
-static ERL_NIF_TERM address(ErlNifEnv *env, Sock *sock, int port)
-{
-    ERL_NIF_TERM keys[] = {atom_family, atom_addr, atom_port};
-    ERL_NIF_TERM values[3];
-    values[0] = sock->inet6 ? atom_inet6 : atom_inet;
-    values[1] = sock->inet6
-        ? enif_make_tuple8(env, enif_make_int(env, 0), enif_make_int(env, 0),
-                           enif_make_int(env, 0), enif_make_int(env, 0),
-                           enif_make_int(env, 0), enif_make_int(env, 0),
-                           enif_make_int(env, 0), enif_make_int(env, 1))
-        : enif_make_tuple4(env, enif_make_int(env, 127), enif_make_int(env, 0),
-                           enif_make_int(env, 0), enif_make_int(env, 1));
-    values[2] = enif_make_int(env, port);
-    ERL_NIF_TERM map;
-    enif_make_map_from_arrays(env, keys, values, 3, &map);
-    return enif_make_tuple2(env, atom_ok, map);
-}
 
 /* nif_sockname(SockRef) */
 static ERL_NIF_TERM nif_sockname(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[])
@@ -734,7 +1088,9 @@ static ERL_NIF_TERM nif_sockname(ErlNifEnv *env, int argc, const ERL_NIF_TERM ar
         return enif_make_badarg(env);
     if (sock->state == CLOSED)
         return error_tuple(env, atom_closed);
-    return address(env, sock, sock->port);
+    return enif_make_tuple2(env, atom_ok, sock->local_family
+                            ? sockaddr(env, sock->local_family, sock->local_address, sock->port)
+                            : own_sockaddr(env, sock, sock->port));
 }
 
 /* nif_peername(SockRef) */
@@ -744,9 +1100,14 @@ static ERL_NIF_TERM nif_peername(ErlNifEnv *env, int argc, const ERL_NIF_TERM ar
     Sock *sock = get_socket(env, argv[0]);
     if (!sock)
         return enif_make_badarg(env);
-    if (sock->state != CONNECTED)
-        return error_tuple(env, sock->state == CLOSED ? atom_closed : atom_enotconn);
-    return address(env, sock, sock->peer_port);
+    enif_mutex_lock(sock->lock);
+    ERL_NIF_TERM result = sock->state != CONNECTED
+        ? error_tuple(env, sock->state == CLOSED ? atom_closed : atom_enotconn)
+        : enif_make_tuple2(env, atom_ok, sock->peer_family && (sock->dgram || !sock->peer_local)
+                           ? sockaddr(env, sock->peer_family, sock->peer_address, sock->peer_port)
+                           : own_sockaddr(env, sock, sock->peer_port));
+    enif_mutex_unlock(sock->lock);
+    return result;
 }
 
 /* nif_cancel(SockRef, Op, Handle) */
@@ -758,7 +1119,8 @@ static ERL_NIF_TERM nif_cancel(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv
         return enif_make_badarg(env);
     enif_mutex_lock(sock->lock);
     int found = remove_waiter(&sock->readers, env, argv[2])
-        || remove_waiter(&sock->acceptors, env, argv[2]);
+        || remove_waiter(&sock->acceptors, env, argv[2])
+        || remove_waiter(&sock->connectors, env, argv[2]);
     /* The next acceptor, if the one told went. */
     if (found && sock->state == LISTENING && sock->acceptors
         && wasm_socket_pending(sock->id) > 0)
@@ -821,10 +1183,10 @@ static ERL_NIF_TERM nif_getopt3(ErlNifEnv *env, int argc, const ERL_NIF_TERM arg
     } else if (socket_level) {
         switch (opt) {
         case OPT_SOCKET_TYPE:
-            result = enif_make_tuple2(env, atom_ok, atom_stream);
+            result = enif_make_tuple2(env, atom_ok, sock->dgram ? atom_dgram : atom_stream);
             break;
         case OPT_SOCKET_PROTOCOL:
-            result = ok_int(env, LEVEL_TCP);
+            result = ok_int(env, sock->dgram ? LEVEL_UDP : LEVEL_TCP);
             break;
         case OPT_SOCKET_ACCEPTCONN:
             result = enif_make_tuple2(env, atom_ok,
@@ -1046,6 +1408,7 @@ static ERL_NIF_TERM nif_info1(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[
     enif_mutex_lock(sock->lock);
     ERL_NIF_TERM state = sock->state == LISTENING ? atom_listening
         : sock->state == CONNECTED ? atom_connected
+        : sock->state == CONNECTING ? enif_make_atom(env, "connecting")
         : sock->state == CLOSED ? atom_closed : atom_open;
     ERL_NIF_TERM keys[] = {atom_domain, atom_type, atom_protocol, atom_ctype,
                            atom_counters, atom_num_readers, atom_num_writers,
@@ -1053,11 +1416,12 @@ static ERL_NIF_TERM nif_info1(ErlNifEnv *env, int argc, const ERL_NIF_TERM argv[
                            atom_rstates, atom_wstates, atom_owner,
                            atom_use_registry};
     ERL_NIF_TERM values[] = {
-        sock->inet6 ? atom_inet6 : atom_inet, atom_stream, enif_make_int(env, LEVEL_TCP),
+        sock->inet6 ? atom_inet6 : atom_inet, sock->dgram ? atom_dgram : atom_stream,
+        enif_make_int(env, sock->dgram ? LEVEL_UDP : LEVEL_TCP),
         atom_normal, counter_map(env, sock), enif_make_int(env, sock->readers != NULL),
         enif_make_int(env, 0), enif_make_int(env, sock->acceptors != NULL),
-        sock->state == CONNECTED ? atom_true : atom_false,
-        sock->state == CONNECTED ? atom_true : atom_false,
+        sock->state == CONNECTED || sock->dgram ? atom_true : atom_false,
+        sock->state == CONNECTED || (sock->dgram && sock->id) ? atom_true : atom_false,
         enif_make_list1(env, state), enif_make_list1(env, state),
         enif_make_pid(env, &sock->owner), atom_true};
     ERL_NIF_TERM map;
@@ -1114,6 +1478,9 @@ static int load(ErlNifEnv *env, void **priv, ERL_NIF_TERM info)
     ATOM(write_fails); ATOM(read_tries); ATOM(write_tries); ATOM(write_waits);
     ATOM(acc_success); ATOM(acc_tries); ATOM(acc_fails); ATOM(acc_waits);
     ATOM(read_waits); ATOM(read_pkg_max); ATOM(write_pkg_max); ATOM(socket);
+    ATOM(dgram); ATOM(any); ATOM(loopback); ATOM(broadcast); ATOM(ehostunreach);
+    ATOM(enetunreach); ATOM(etimedout); ATOM(econnreset); ATOM(econnaborted); ATOM(eacces);
+    ATOM(emsgsize); ATOM(ealready); ATOM(edestaddrreq);
 
     ERL_NIF_TERM pid;
     have_registry = enif_is_map(env, info)
@@ -1140,6 +1507,8 @@ static ErlNifFunc nif_funcs[] = {
     {"nif_connect", 1, nif_connect1, 0},
     {"nif_connect", 3, nif_connect3, 0},
     {"nif_send", 4, nif_send, 0},
+    {"nif_sendto", 5, nif_sendto, 0},
+    {"nif_recvfrom", 4, nif_recvfrom, 0},
     {"nif_sendv", 3, nif_sendv, 0},
     {"nif_recv", 4, nif_recv, 0},
     {"nif_close", 1, nif_close, 0},

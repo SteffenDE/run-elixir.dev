@@ -4,7 +4,9 @@ import { KindChip } from '@/shared/components/KindChip';
 import { moveAllFormerStores } from '@/shared/lib/migrate';
 import { listProjects, type Project } from '@/shared/lib/projects';
 import { projectUrl } from '@/shared/lib/site';
+import { whenReleased } from '@/shared/lib/lock';
 import { deleteProject, openProjects } from '@/shared/lib/storage';
+import { TailscaleButton } from '@/tailscale/components/TailscaleButton';
 
 function ago(time: number): string {
   const minutes = Math.round((Date.now() - time) / 60000);
@@ -97,10 +99,28 @@ export function HomePage() {
   useEffect(() => {
     document.title = 'Elixir Playground';
     load();
+    // Back to this tab: a project may have opened in another meanwhile.
+    const shown = () => document.visibilityState === 'visible' && load();
+    document.addEventListener('visibilitychange', shown);
+    return () => document.removeEventListener('visibilitychange', shown);
   }, [load]);
+
+  // A project open in another tab: no longer marked once that tab lets it
+  // go (leaves it, closes, crashes).
+  useEffect(() => {
+    const stop = new AbortController();
+    for (const id of open)
+      whenReleased(id, stop.signal).then(load, () => {
+        // This page went on first.
+      });
+    return () => stop.abort();
+  }, [open, load]);
 
   return (
     <div className="home">
+      <div className="home-corner">
+        <TailscaleButton />
+      </div>
       <main className="home-main">
         <h1 className="home-title">
           Elixir <span>Playground</span>

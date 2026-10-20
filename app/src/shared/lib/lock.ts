@@ -10,6 +10,7 @@ const ANSWER_MS = 5000;
 let release: (() => void) | null = null;
 let onRequested: (() => Promise<void>) | null = null;
 let onLost: (() => void) | null = null;
+let requests: BroadcastChannel | null = null;
 
 const channel = (id: string) => new BroadcastChannel(projectLock(id));
 
@@ -35,15 +36,24 @@ function hold(id: string, options: LockOptions): Promise<boolean> {
 }
 
 function listen(id: string) {
-  const requests = channel(id);
-  requests.onmessage = async ({ data }) => {
+  const asked = channel(id);
+  requests = asked;
+  asked.onmessage = async ({ data }) => {
     if (data !== 'release') return;
-    requests.close();
+    asked.close();
+    if (requests === asked) requests = null;
     await onRequested?.().catch(() => {});
     release?.();
     release = null;
     onLost?.();
   };
+}
+
+// Resolves when the page that runs project `id` lets it go: it leaves,
+// closes or crashes (the browser lets its locks go). A shared request
+// waits for the holder, and lets go at once; rejects once `signal` aborts.
+export async function whenReleased(id: string, signal: AbortSignal): Promise<void> {
+  await navigator.locks.request(projectLock(id), { mode: 'shared', signal }, () => undefined);
 }
 
 // Take the project's lock if no other page holds it.
@@ -61,6 +71,17 @@ export async function takeOverProject(id: string): Promise<void> {
   const taken = await hold(id, { signal: waiting.signal });
   clearTimeout(timer);
   if (!taken) await hold(id, { steal: true });
+}
+
+// Let the project go: the page goes to another of the apex's pages in
+// place (navigate.ts), as a load would let it go.
+export function releaseProject(): void {
+  requests?.close();
+  requests = null;
+  release?.();
+  release = null;
+  onRequested = null;
+  onLost = null;
 }
 
 // requested: what to do before letting go (keep the changes, stop the

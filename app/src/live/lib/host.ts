@@ -53,6 +53,7 @@ interface Stored {
   name: string;
   admit: boolean;
   everyone: Permissions;
+  tailnetOff?: boolean;
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -115,6 +116,7 @@ export async function startSession(
     admit: options.admit,
     everyone: { ...NONE },
     perGuest: {},
+    tailnetOff: false,
     reason: null,
   });
   connect(of, keys, { admit: options.admit });
@@ -141,6 +143,7 @@ export async function resumeSession(of: HostProject): Promise<void> {
     admit: saved.admit,
     everyone: saved.everyone,
     perGuest: {},
+    tailnetOff: saved.tailnetOff ?? false,
     reason: null,
   });
   connect(of, keys, { token: saved.token });
@@ -177,6 +180,7 @@ function save() {
         ...stored,
         everyone: useLive.getState().everyone,
         admit: useLive.getState().admit,
+        tailnetOff: useLive.getState().tailnetOff,
       }),
     );
   } catch {
@@ -635,12 +639,27 @@ export function setAdmission(on: boolean): void {
   void peer?.relay.command('admission', { on });
 }
 
+// No tailnet for the project while a guest who may type or edit is in
+// (tailscale/client.ts), or the tailnet as without guests.
+export function setTailnetOff(on: boolean): void {
+  useLive.getState().set({ tailnetOff: on });
+  save();
+}
+
 export function admit(id: string): Promise<void> {
   return peer?.relay.command('admit', { id }) ?? Promise.resolve();
 }
 
 export function kick(id: string): Promise<void> {
   return peer?.relay.command('kick', { id }) ?? Promise.resolve();
+}
+
+// The page goes to another of the apex's pages in place (navigate.ts): the
+// session stays, as when the page is left by a load, to resume when the
+// project opens again in this tab.
+export function leaveSession(): void {
+  if (peer) finish(null, false);
+  useLive.setState(useLive.getInitialState(), true);
 }
 
 export async function endSession(): Promise<void> {

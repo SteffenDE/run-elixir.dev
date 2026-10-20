@@ -46,6 +46,8 @@ interface State {
   ready: boolean;
   // The port the preview shows (a node listens on it), if any.
   previewPort: number | null;
+  // The ports the project's servers listen on (not ephemeral ones).
+  serving: number[];
   // Paths below WORK, relative ("playground/mix.exs"; directories end in /).
   paths: string[];
   tabs: Tab[];
@@ -82,6 +84,7 @@ interface State {
   failedToStart(error: string): void;
   setReady(ready: boolean): void;
   setPreviewPort(port: number | null): void;
+  setServing(ports: number[]): void;
   setPaths(paths: string[]): void;
   open(path: string, contents: string, line?: number): void;
   close(path: string): void;
@@ -160,6 +163,8 @@ export const useStore = create<State>((set) => ({
   failedToStart: (startError) => set({ startError, status: 'Could not start' }),
   setReady: (ready) => set({ ready }),
   setPreviewPort: (previewPort) => set({ previewPort }),
+  serving: [],
+  setServing: (serving) => set({ serving }),
   setPaths: (paths) => set({ paths }),
   open: (path, contents, line = 1) =>
     set((state) =>

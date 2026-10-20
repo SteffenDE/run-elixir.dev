@@ -24,12 +24,12 @@ JavaScript.
 
 | File | Runs in | Role |
 | --- | --- | --- |
-| `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
+| `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP and UDP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
 | `worker/` (`worker.js`) | worker | A node. `index.ts` builds the node's tree from the boot images (the page's tars, else fetched) and runs one command or the shell, each node through `beam.ts`; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's). |
 | `files.ts` (`files.js`) | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
-| `setup.ts` | worker, Node | What every node gets: environment, files around the installation, programs. |
+| `setup.ts` | worker, Node | What every node gets: environment, files around the installation (`/etc/hosts`; `/etc/resolv.conf` when the page serves DNS), programs. |
 | `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`), and a node's `sh -c` around them. |
 | `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
 | `sh.ts` | worker, page | Command lines split into words and `&&`-joined commands. |
@@ -38,7 +38,8 @@ JavaScript.
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT). |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
-| `https.ts` | page | HTTPS for the node by `fetch()`: answers each HTTP/1.1 request on an HTTPS connection with a fetch of `https://NAME[:PORT]/path`. |
+| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's, over which the node does TLS: [tailscale.md](tailscale.md)). |
+| `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: Tailscale's, else no such name). |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
@@ -91,18 +92,38 @@ nothing.
   Mix sees sources older than its manifests.
 - **`/dev/urandom`** is a `Device` over `crypto.getRandomValues`.
 
-### TCP (`net.ts`)
+### TCP and UDP (`net.ts`)
 
-`gen_tcp` runs over our `prim_socket` NIF (`beam/socket`) over `Network`,
-which keeps listeners and connections. A connect reaches the node's own
-listener, or a port the page serves (`remote.ports`, for example 5432);
-else ECONNREFUSED. Connections from the page have odd ids and the node's
-own even ones. `remote.listening(port, on, ephemeral)` reports listeners
-to the page; a listener is ephemeral when it asked for port 0. HTTPS that
-the page carries (`remote.https`): `ssl:connect` to a host name connects to
-a gateway port whose first line names the host, and the connection is
-then plain HTTP/1.1 to the page (patch 0020); without it the node's `ssl`
-does TLS itself.
+`gen_tcp` and `gen_udp` run over our `prim_socket` NIF (`beam/socket`)
+over `Network`, which keeps listeners, connections and UDP ports. A
+connect to the node's own addresses (127.0.0.0/8, ::1) reaches the node's
+own listener, or a port the page serves (`remote.ports`, for example
+5432); else ECONNREFUSED. A connect to any other address goes to the page
+(`remote.dial`, `Network.dial`), which dials it and answers with a
+`CONNECTED` frame (with the connection's local end, which `sockname`
+then says); the socket answers `select` until then, and connect returns
+`ok` or why not (`econnrefused`, `enetunreach`, `ehostunreach`,
+`etimedout`). Without `remote.dial` (the Node harness) other hosts are
+unreachable. UDP ports (`udpBind`, 0 for an ephemeral one; the page hears
+of each, `remote.bound`): a datagram to the node's own address goes to
+its port there, else to the page (`remote.datagram`), which takes it to
+one of its UDP ports (`remote.udpPorts`, 53 for DNS), to the project's
+other node with that port, or to another host; the page's come back as
+`DATAGRAM` frames. A datagram nobody takes is dropped, as UDP's are.
+
+Connections from the page have odd ids and the node's own even ones.
+`remote.listening(port, on, ephemeral)` reports listeners to the page; a
+listener is ephemeral when it asked for port 0. HTTPS that the page
+carries (`remote.https`): `ssl:connect` to a host name connects to a
+gateway port, names the host in its first line, and waits for the page's:
+`fetch` (then plain HTTP/1.1 to the page) or `tcp` (a TCP connection to the
+host, which `ssl` upgrades with the options it was given), or `error
+REASON` (patch 0020); without it the node's `ssl` does TLS itself.
+
+Names: the hosts file (`localhost`), then, when the page serves DNS
+(UDP port 53), `inet_res` at 127.0.0.53 (`/etc/resolv.conf`, which it
+reads again before each query; `setup.ts`), answered by the page
+(`dns.ts`).
 
 ### Programs (`process.ts`)
 
@@ -274,6 +295,8 @@ What is missing, the worker fetches and compiles itself.
 | 2 `DATA`, 3 `END`, 4 `CLOSE` | A connection's data, end, close. |
 | 5 `INTERRUPT` | Ctrl+C: the running node's SIGINT (erts' break menu: c continues, a aborts); a page program stops. |
 | 11 `TERMINATE` | Stop what runs now at once (the server's restart). |
+| 12 `CONNECTED` | How dialing a connection the node opened to another host (id) went: an int8, 1 or a negative errno; once connected, its local end: family (4 or 6), address, port (u16, big-endian). |
+| 13 `DATAGRAM` | A datagram for the node's UDP port (id): the source's port (u16, big-endian), family (4 or 6) and address (4 or 16 bytes), then its bytes. |
 | 7 `OUTPUT`, 8 `EXIT` | A page program's output and exit code (u8). |
 
 **Node → page: messages.**
@@ -283,25 +306,44 @@ What is missing, the worker fetches and compiles itself.
 | `out` | Terminal output (bytes). |
 | `status` | Loading progress, then `running`. |
 | `exit` | The command's exit status (one-command mode). |
-| `net` | Connection traffic: `open`, `data`, `end`, `close` and `refused`, by id. |
+| `net` | Connection traffic: `open` (a port the page serves, or with `host` the HTTPS gateway), `dial` (another host's address and port), `data`, `end`, `close` and `refused`, by id. |
+| `udp` | A datagram from the node's port `from` to `address`:`port`, or (`bound`, `closed`) that the node bound or closed the port. |
 | `listening` | The node started or stopped listening on a port (`ephemeral`: one it asked for with 0). `Node.listening` holds every port, `Node.serving` the named ones. |
 | `spawn`, `kill` | Start a page program, or tell it its port closed. |
 | `nif` | `make` waits for the backend to build a package's NIF library, or stopped waiting: `{ name, version, status, error }` (`onnif`; [nif.md](nif.md#in-the-node)). |
 
 `https: (connection, { host, port }) => …` answers the node's
-HTTPS connections; the playground's is `https.ts`'s
-`httpsByFetch()`. It reads requests with a body (Content-Length or
-chunked) and answers each with `fetch()`: the browser does TLS, checks the
-certificate, follows redirects, decompresses, and leaves out request
-headers it sets itself (Host, User-Agent, Cookie, Accept-Encoding) and
-response headers the site does not expose; the answer comes back chunked,
-as it arrives, and the connection closes after it. A site without CORS
-headers fails the fetch, answered 502 with why. Without `https`, the node
-has no HTTPS.
+HTTPS connections (patch 0020's gateway, which waits for the page's first
+line); the playground's is `https.ts`'s `httpsByFetch()`. Its `fetch`:
+it reads requests with a body (Content-Length or chunked) and answers each
+with `fetch()`: the browser does TLS, checks the certificate, follows
+redirects, decompresses, and leaves out request headers it sets itself
+(Host, User-Agent, Cookie, Accept-Encoding) and response headers the site
+does not expose; the answer comes back chunked, as it arrives, and the
+connection closes after it. A site without CORS headers fails the fetch,
+answered 502 with why. Without `https`, the node has no HTTPS (its `ssl`
+does TLS itself, over sockets that reach no other host).
+`httpsByFetch({ tunnel, onblocked })`: `tunnel(host, port)` may give a
+TCP connection there instead (`tcp`: the node's `ssl` upgrades the
+gateway's socket, with its own options; the playground's: through the
+user's tailnet, [tailscale.md](tailscale.md)), or fail (`error REASON`);
+`onblocked(url)` hears of a fetch the browser would not make.
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
 `onend` and `onclose`, with `write`, `end` and `close`. `serve: { port:
 handler }` answers the node's connections to those ports (5432: PGlite).
+
+`outbound: (connection, { address, port }) => …` takes the node's
+connections to other hosts: `connection.dialed(local)` once there (from
+`local`, address:port), or `refuse(errno)` (negative, as WASI numbers it).
+`udpServe: { port: (datagram, reply) => … }` answers datagrams to the
+page's UDP ports (53: `dns.ts`); `udpPeer(datagram, node)` takes those to
+another node's port of the project's (`node.udpPorts`); `udp: {
+send(datagram, reply), unbound(port) }` takes those to other hosts,
+`reply(address, port, bytes)` sending one back. Without them, other
+hosts are unreachable and their datagrams dropped. The playground's go
+through the user's tailnet ([tailscale.md](tailscale.md)).
+`node.datagram(to, address, port, bytes)` sends the node one.
 
 **Page programs.** `programs: { name: (process, { args, cwd, env, fs }) => …
 }` run on the page and may be async. `process.write`, `process.exit` and

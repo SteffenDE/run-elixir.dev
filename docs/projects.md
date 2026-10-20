@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-20
 ---
 
 # Projects
@@ -21,8 +21,15 @@ Nothing is stored on the server.
 | `/import#DATA` | A shared project's link: what it holds, and a new project made from it. |
 
 Every path is the same page (`index.html`; the server falls back to it, see
-[deploy.md](deploy.md)). Moving between pages is a whole page load, so a
-project's workers end when its page does.
+[deploy.md](deploy.md)). The tab moves between them in place
+(`shared/lib/navigate.ts`, `main.tsx`): a link to one of these paths,
+back and forward render the next page without loading it, so what lives
+as long as the tab stays (the Tailscale node's connection,
+[tailscale.md](tailscale.md)). Leaving a project ends what it ran as a load
+would (`leave` in `playground.ts`): its changes kept, its exec frame and
+PGlite stopped, its lock let go, its terminals and stores reset, a popped-out
+preview closed, a live session left (not ended: it resumes when the project
+opens again in the tab). A live session's guest's page is left by a load.
 
 A project's kind (`src/project/lib/kinds.ts`) decides how it starts:
 

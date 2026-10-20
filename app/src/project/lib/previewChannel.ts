@@ -14,12 +14,31 @@ export type PreviewMessage =
 // One channel per project, and its preview's origins (site.ts
 // previewOrigins): a stored project's id, a temporary IEx's own (an id as
 // a project's, kept nowhere). The popped-out window gets the key in its
-// URL.
-export const previewKey =
+// URL. The IDE's page takes the key of each project it opens
+// (setPreviewKey: it goes from one to another in place, navigate.ts).
+const keyOf = () =>
   new URLSearchParams(location.search).get('key') ??
   location.pathname.match(/^\/([a-z0-9]{10})\//)?.[1] ??
   newId();
-export const previewChannel = new BroadcastChannel(`playground-preview:${previewKey}`);
+export let previewKey = keyOf();
+export let previewChannel = new BroadcastChannel(`playground-preview:${previewKey}`);
+// What hears the channel, whichever project's it is.
+const listeners = new Set<(event: MessageEvent<PreviewMessage>) => void>();
+previewChannel.onmessage = (event) => listeners.forEach((listener) => listener(event));
+
+export function onPreviewMessage(listener: (event: MessageEvent<PreviewMessage>) => void): void {
+  listeners.add(listener);
+}
+
+// The project now on the page (from its URL): its key and channel.
+export function setPreviewKey(): void {
+  const key = keyOf();
+  if (key === previewKey) return;
+  previewChannel.close();
+  previewKey = key;
+  previewChannel = new BroadcastChannel(`playground-preview:${previewKey}`);
+  previewChannel.onmessage = (event) => listeners.forEach((listener) => listener(event));
+}
 
 // Where the preview shows `port` (site.ts previewOrigin), for PreviewFrame.
 export const previewOriginOf = (port: number) => previewOrigin(previewKey, port);

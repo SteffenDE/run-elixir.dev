@@ -1,5 +1,5 @@
 diff --git a/lib/ssl/src/ssl.erl b/lib/ssl/src/ssl.erl
-index d8d7708..2ac32bf 100644
+index d8d7708..82e6c3a 100644
 --- a/lib/ssl/src/ssl.erl
 +++ b/lib/ssl/src/ssl.erl
 @@ -55,6 +55,8 @@ Special Erlang node configuration for the application can be found in
@@ -105,7 +105,7 @@ index d8d7708..2ac32bf 100644
  sockname(#sslsocket{socket_handle = {Controller, _},
                      listener_config = #config{connection_cb = dtls_gen_connection}}) ->
      dtls_packet_demux:sockname(Controller);
-@@ -3977,3 +4003,39 @@ handle_trace(rle, {call, {?MODULE, connect, Args}}, Stack0) ->
+@@ -3977,3 +4003,74 @@ handle_trace(rle, {call, {?MODULE, connect, Args}}, Stack0) ->
      Role = client,
      {io_lib:format("(*~w) Args = ~W", [Role, Args, 10]), [{role, Role} | Stack0]}.
  
@@ -113,11 +113,14 @@ index d8d7708..2ac32bf 100644
 +%%--------------------------------------------------------------------
 +%% The Elixir Playground (playground/beam, patch 0020): its node cannot
 +%% open connections out of the browser, whose page makes HTTPS requests
-+%% with fetch instead. With PLAYGROUND_HTTPS_GATEWAY, connect/4 returns a
-+%% gen_tcp socket to that port of the playground's network, whose first
-+%% line names the host and port; the rest is plain HTTP, which the page
-+%% answers. The functions clients use on a socket take such a socket and
-+%% leave it to gen_tcp and inet (its messages are tcp's).
++%% with fetch instead, or connects through the user's tailnet. With
++%% PLAYGROUND_HTTPS_GATEWAY, connect/4 connects to that port of the
++%% playground's network, names the host and port in a first line, and
++%% the page's first line says how it goes on: "fetch", plain HTTP, which
++%% the page answers (a gen_tcp socket is returned, which the functions
++%% clients use on a socket take and leave to gen_tcp and inet: its
++%% messages are tcp's); "tcp", the host itself, over which the node does
++%% TLS as connect/4 would; or "error Reason".
 +%%--------------------------------------------------------------------
 +playground_connect(Gateway, Host, Port, Options, Timeout) ->
 +    Name = case Host of
@@ -125,15 +128,47 @@ index d8d7708..2ac32bf 100644
 +               _ when is_atom(Host) -> atom_to_list(Host);
 +               _ -> Host
 +           end,
-+    case gen_tcp:connect({127,0,0,1}, Gateway, [binary, {active, false}], Timeout) of
++    case gen_tcp:connect({127,0,0,1}, Gateway, [binary, {active, false}, {packet, line}],
++                         Timeout) of
 +        {ok, Socket} ->
 +            ok = gen_tcp:send(Socket, [Name, $:, integer_to_list(Port), $\n]),
-+            case inet:setopts(Socket, [list | playground_options(Options)]) of
-+                ok -> {ok, Socket};
-+                Error -> gen_tcp:close(Socket), Error
++            case gen_tcp:recv(Socket, 0, Timeout) of
++                {ok, <<"fetch\n">>} ->
++                    playground_plain(Socket, Options);
++                {ok, <<"tcp\n">>} ->
++                    playground_tls(Socket, Host, Name, Options, Timeout);
++                {ok, <<"error ", Reason/binary>>} ->
++                    gen_tcp:close(Socket),
++                    {error, binary_to_atom(string:trim(Reason))};
++                {ok, _} ->
++                    gen_tcp:close(Socket),
++                    {error, einval};
++                {error, _} = Error ->
++                    gen_tcp:close(Socket),
++                    Error
 +            end;
 +        Error ->
 +            Error
++    end.
++
++playground_plain(Socket, Options) ->
++    case inet:setopts(Socket, [list, {packet, raw} | playground_options(Options)]) of
++        ok -> {ok, Socket};
++        Error -> gen_tcp:close(Socket), Error
++    end.
++
++%% TLS over the connection, as connect/4 does it: the host's name for SNI
++%% and the certificate's check, unless the options name one.
++playground_tls(Socket, Host, Name, Options, Timeout) ->
++    ok = inet:setopts(Socket, [{packet, raw}]),
++    Named = lists:keymember(server_name_indication, 1, Options) orelse is_tuple(Host),
++    Sni = case Named of
++              true -> [];
++              false -> [{server_name_indication, Name}]
++          end,
++    case connect(Socket, Sni ++ Options, Timeout) of
++        {ok, _} = Ok -> Ok;
++        Error -> gen_tcp:close(Socket), Error
 +    end.
 +
 +playground_options(Options) ->

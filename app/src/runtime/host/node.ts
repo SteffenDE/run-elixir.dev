@@ -8,6 +8,7 @@
 import type { Files, FilesChannel } from './files';
 import { spawn, type PageProcess, type PageProgram } from './programs';
 import { trace } from '../trace';
+import { local } from '../wasi/net';
 import { worker } from './worker';
 
 export const FRAME = {
@@ -24,6 +25,13 @@ export const FRAME = {
   PEERS: 10,
   // Stop what runs now, at once (not Ctrl+C: a node's SIGINT).
   TERMINATE: 11,
+  // How dialing a connection the node opened to another host went (an
+  // int8: 1, or a negative errno), and once connected, its local end: the
+  // family (4 or 6), address (4 or 16 bytes) and port (u16, big-endian).
+  CONNECTED: 12,
+  // A datagram for the node's UDP port (the id): the source's port (u16,
+  // big-endian), family (4 or 6) and address (4 or 16 bytes), the bytes.
+  DATAGRAM: 13,
 } as const;
 export const RING = 1 << 20;
 export const CHUNK = 1 << 16;
@@ -70,6 +78,28 @@ export class Connection {
     this.node.frame(FRAME.CLOSE, this.id);
     this.node.forget(this);
   }
+  // A connection the node opened to another host (outbound): dialed (from
+  // `local`, address:port, if it is known), or not (`errno`, negative, as
+  // WASI numbers it: ECONNREFUSED -14, EHOSTUNREACH -23, ENETUNREACH -40,
+  // ETIMEDOUT -73).
+  dialed(from?: string): void {
+    trace('net', `page → node ${this.id}: connected${from ? ` from ${from}` : ''}`);
+    const at = from?.lastIndexOf(':') ?? -1;
+    if (!from || at < 0) return this.node.frame(FRAME.CONNECTED, this.id, new Uint8Array([1]));
+    const address = addressBytes(from.slice(0, at));
+    const port = Number(from.slice(at + 1));
+    this.node.frame(
+      FRAME.CONNECTED,
+      this.id,
+      new Uint8Array([1, ...address, port >> 8, port & 255]),
+    );
+  }
+  refuse(errno: number): void {
+    trace('net', `page → node ${this.id}: not connected (${errno})`);
+    this.ended ??= `not connected (${errno})`;
+    this.node.frame(FRAME.CONNECTED, this.id, new Uint8Array([errno & 255]));
+    this.node.forget(this);
+  }
   describe() {
     return {
       id: this.id,
@@ -98,15 +128,61 @@ export interface NifBuild {
 }
 
 export type Https = (connection: Connection, target: { host: string; port: number }) => void;
+// A connection the node opens to another host: the page dials it, and
+// says so (connection.dialed(), or refuse(errno)).
+export type Outbound = (connection: Connection, target: { address: string; port: number }) => void;
+
+// A datagram from the node's UDP port `from` to `address`:`port`;
+// reply(address, port, bytes) sends one back to that port.
+export interface Datagram {
+  from: number;
+  address: string;
+  port: number;
+  bytes: Uint8Array;
+}
+export type Reply = (address: string, port: number, bytes: Uint8Array) => void;
+export type UdpService = (datagram: Datagram, reply: Reply) => void;
+// Datagrams to other hosts; unbound(port): the node closed that port.
+export interface UdpRoute {
+  send: UdpService;
+  unbound?(port: number): void;
+}
+
+// An address as socket.js writes it (a.b.c.d, or hex groups, '::' too)
+// as bytes: [family, ...4 or 16 bytes].
+export function addressBytes(address: string): Uint8Array {
+  if (!address.includes(':')) return new Uint8Array([4, ...address.split('.').map(Number)]);
+  const [head, tail = null] = address.replace(/^\[|\]$/g, '').split('::');
+  const left = head ? head.split(':') : [];
+  const right = tail === null ? [] : tail ? tail.split(':') : [];
+  const words = [...left, ...Array(8 - left.length - right.length).fill('0'), ...right];
+  const out = new Uint8Array(17);
+  out[0] = 6;
+  words.forEach((word, i) => {
+    const value = parseInt(word, 16) || 0;
+    out[1 + 2 * i] = value >> 8;
+    out[2 + 2 * i] = value & 255;
+  });
+  return out;
+}
 
 // What the node's worker tells the page (worker.js).
 type NetMessage = {
   kind: 'net';
-  op: 'open' | 'data' | 'end' | 'close' | 'refused';
+  op: 'open' | 'dial' | 'data' | 'end' | 'close' | 'refused';
   id: number;
   port?: number;
   host?: string;
   payload?: Uint8Array;
+};
+// A datagram from the node's port `from`, or that it bound or closed it.
+type UdpMessage = {
+  from: number;
+  address?: string;
+  port?: number;
+  payload?: Uint8Array;
+  bound?: boolean;
+  closed?: boolean;
 };
 export type SpawnMessage = {
   kind: 'spawn';
@@ -123,6 +199,7 @@ type NodeMessage =
   | { kind: 'tty'; raw: boolean }
   | ({ kind: 'nif' } & NifBuild)
   | NetMessage
+  | ({ kind: 'udp' } & UdpMessage)
   | { kind: 'listening'; port: number; on: boolean; ephemeral: boolean }
   | SpawnMessage
   | { kind: 'kill'; id: number };
@@ -150,6 +227,14 @@ function siteModule(runtime: string, name: string): Promise<WebAssembly.Module |
 
 export class Node {
   https: Https | null;
+  outbound: Outbound | null;
+  udpServe: Record<number, UdpService>;
+  udp: UdpRoute | null;
+  // The node's UDP ports, and a datagram it sent to one of its own
+  // addresses' that neither it nor the page has: taken by another node
+  // of the project (project/lib/playground.ts), or false.
+  udpPorts = new Set<number>();
+  udpPeer: (datagram: Datagram, node: Node) => boolean;
   files: Files | null;
   listening: Set<number>;
   serving: Set<number>;
@@ -181,7 +266,11 @@ export class Node {
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
   // ports the node may connect to on the page; https: (connection,
   // { host, port }) => ..., HTTPS the page carries for the node
-  // (/.net/https, https.ts), or null; files: a Files the node
+  // (/.net/https, https.ts), or null; outbound: (connection, { address,
+  // port }) => ..., the node's connections to other hosts (unreachable
+  // without); udpServe: { port: (datagram, reply) => ... }, the page's UDP
+  // ports (53: DNS); udp: { send(datagram, reply), unbound(port) },
+  // datagrams to other hosts (dropped without); files: a Files the node
   // shares /work and /tmp with; onlistening(port, on): the node started or
   // stopped listening on a port. `listening` holds every port it listens
   // on; `serving` only those it named (a server's, not an ephemeral port
@@ -202,6 +291,10 @@ export class Node {
     onexit = (_code: number) => {},
     serve = {} as Record<number, (connection: Connection) => void>,
     https = null as Https | null,
+    outbound = null as Outbound | null,
+    udpServe = {} as Record<number, UdpService>,
+    udp = null as UdpRoute | null,
+    udpPeer = (_datagram: Datagram, _node: Node) => false,
     programs = {} as Record<string, PageProgram>,
     files = null as Files | null,
     onlistening = (_port: number, _on: boolean) => {},
@@ -211,6 +304,10 @@ export class Node {
   }) {
     this.peer = peer;
     this.https = https;
+    this.outbound = outbound;
+    this.udpServe = udpServe;
+    this.udp = udp;
+    this.udpPeer = udpPeer;
     this.files = files;
     this.listening = new Set();
     this.serving = new Set();
@@ -235,6 +332,7 @@ export class Node {
       else if (data.kind === 'tty') onterminal(data.raw);
       else if (data.kind === 'nif') onnif(data);
       else if (data.kind === 'net') this.network(data);
+      else if (data.kind === 'udp') this.datagramFrom(data);
       else if (data.kind === 'listening') {
         if (data.on) this.listening.add(data.port);
         else this.listening.delete(data.port);
@@ -313,6 +411,8 @@ export class Node {
         coreutils: coreutils ?? undefined,
         beam: beam ?? undefined,
         ports: Object.keys(this.serve).map(Number),
+        udpPorts: Object.keys(this.udpServe).map(Number),
+        outbound: Boolean(this.outbound),
         https: Boolean(this.https),
         pagePrograms: Object.keys(this.programs),
       });
@@ -414,6 +514,14 @@ export class Node {
   network({ op, id, port, host, payload }: NetMessage): void {
     trace('net', `node → page ${id}: ${op}${payload ? ` ${payload.length} bytes` : ''}`);
     let connection = this.connections.get(id);
+    if (op === 'dial') {
+      connection = new Connection(this, id);
+      connection.port = port ?? 0;
+      this.connections.set(id, connection);
+      if (this.outbound) this.outbound(connection, { address: host!, port: port! });
+      else connection.refuse(-40);
+      return;
+    }
     if (op === 'open') {
       connection = new Connection(this, id);
       connection.port = port ?? 0;
@@ -439,6 +547,36 @@ export class Node {
       this.forget(connection);
       connection.onclose(op);
     }
+  }
+
+  // A datagram the node sent from one of its UDP ports: to the page's
+  // (udpServe), another node's (udpPeer), or another host (udp); or the
+  // node bound or closed that port.
+  datagramFrom({ from, address, port, payload, bound, closed }: UdpMessage): void {
+    if (bound) return void this.udpPorts.add(from);
+    if (closed) {
+      this.udpPorts.delete(from);
+      return this.udp?.unbound?.(from);
+    }
+    trace('net', `node ${from} → ${address}:${port}: datagram, ${payload!.length} bytes`);
+    const datagram = { from, address: address!, port: port!, bytes: payload! };
+    const reply: Reply = (source, sourcePort, bytes) =>
+      this.datagram(from, source, sourcePort, bytes);
+    if (!local(address!)) return this.udp?.send(datagram, reply);
+    const service = this.udpServe[port!];
+    if (service) service(datagram, reply);
+    else this.udpPeer(datagram, this);
+  }
+
+  // A datagram for the node's UDP port `to`, from `address`:`port`.
+  datagram(to: number, address: string, port: number, bytes: Uint8Array): void {
+    trace('net', `${address}:${port} → node ${to}: datagram, ${bytes.length} bytes`);
+    const source = addressBytes(address);
+    const payload = new Uint8Array(2 + source.length + bytes.length);
+    payload.set([port >> 8, port & 255]);
+    payload.set(source, 2);
+    payload.set(bytes, 2 + source.length);
+    this.frame(FRAME.DATAGRAM, to, payload);
   }
 
   frame(kind: number, id: number, payload: Uint8Array = new Uint8Array(0)): void {

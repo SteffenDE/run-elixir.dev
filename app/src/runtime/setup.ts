@@ -34,20 +34,26 @@ export const ENV = {
 };
 
 // The node's own tree around the installation (/work and /tmp may be
-// shared: files.js).
-export function prepare(root: Dir): void {
+// shared: files.js). dns: names other than the hosts file's are asked of
+// the page's DNS at 127.0.0.53 (UDP and TCP port 53; Tailscale's resolver,
+// docs/tailscale.md), else they do not resolve.
+export function prepare(root: Dir, { dns = false } = {}): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
   root.mkdirs('home/user');
   root.put('dev/urandom', urandom());
-  // Names from the hosts file only (the Emscripten BEAM's inet, with
-  // ERL_INETRC; it has no inet_gethost).
+  // Names from the hosts file, then the page's DNS (the Emscripten BEAM's
+  // inet, with ERL_INETRC; it has no inet_gethost).
   const text = (string: string) => new File(new TextEncoder().encode(string));
   root.put('etc/hosts', text('127.0.0.1 localhost\n::1 localhost\n'));
+  // inet_res takes its nameservers from resolv.conf, again before each
+  // query (one in inetrc alone would be dropped).
+  if (dns) root.put('etc/resolv.conf', text('nameserver 127.0.0.53\n'));
   root.put(
     'etc/inetrc',
     text(
-      '{lookup, [file]}.\n{host, {127,0,0,1}, ["localhost"]}.\n{host, {0,0,0,0,0,0,0,1}, ["localhost"]}.\n',
+      `{lookup, [file${dns ? ', dns' : ''}]}.\n` +
+        '{host, {127,0,0,1}, ["localhost"]}.\n{host, {0,0,0,0,0,0,0,1}, ["localhost"]}.\n',
     ),
   );
   root.put('rotp/bin/mix', new File(new TextEncoder().encode('Mix.CLI.main()\n')));

@@ -8,10 +8,12 @@ import {
   setAdmission,
   setEveryone,
   setGuest,
+  setTailnetOff,
   startSession,
   type HostProject,
 } from '@/live/lib/host';
 import { saveName, savedName, useLive, type Permissions } from '@/live/lib/store';
+import { useTailscale } from '@/tailscale/client';
 import { Avatar } from './People';
 
 const SWITCHES: [keyof Permissions, string, string][] = [
@@ -77,6 +79,9 @@ function Running() {
   const everyone = useLive((state) => state.everyone);
   const perGuest = useLive((state) => state.perGuest);
   const asking = useLive((state) => state.admit);
+  const tailnetOff = useLive((state) => state.tailnetOff);
+  // Tailscale is set up in this browser: the session may keep it off.
+  const tailscale = useTailscale((state) => !!state.status && state.status.state !== 'off');
   const me = useLive((state) => state.me);
   const following = useLive((state) => state.following);
   const [copied, setCopied] = useState(false);
@@ -206,6 +211,16 @@ function Running() {
         />
         Ask me before letting each person in
       </label>
+      {tailscale && (
+        <label className="live-check">
+          <input
+            type="checkbox"
+            checked={tailnetOff}
+            onChange={(event) => setTailnetOff(event.target.checked)}
+          />
+          No tailnet for this project while a guest may type or edit
+        </label>
+      )}
       <button type="button" className="button danger" onClick={() => void endSession()}>
         End live session
       </button>

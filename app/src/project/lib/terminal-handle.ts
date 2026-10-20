@@ -121,3 +121,9 @@ export function disposeTerminal(id: number): void {
   handles.get(id)?.dispose();
   handles.delete(id);
 }
+
+// Every terminal: the page leaves its project (the next one's shells take
+// the same ids).
+export function disposeTerminals(): void {
+  for (const id of [...handles.keys()]) disposeTerminal(id);
+}
