@@ -32,7 +32,12 @@ import { bundled, esbuild } from '@/project/lib/programs/esbuild';
 import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
-import { nodeProgram, type Listener, type Ports } from '@/project/lib/programs/nodejs';
+import {
+  nodeProgram,
+  type Deliver,
+  type Listener,
+  type Ports,
+} from '@/project/lib/programs/nodejs';
 import { npmProgram, npxProgram, type Program } from '@/project/lib/programs/npm';
 import {
   commandProgram,
@@ -205,7 +210,59 @@ const scriptPorts: Ports = {
   },
   // A process's DNS message, answered as a node's (runtime/dns.ts).
   resolve: (query) => tailnetWays().resolve(query),
+  // A process's UDP ports: datagrams to the machine's own address go to a
+  // process's port, a node's, or the node's DNS on 53, from 127.0.0.1;
+  // to another host, through the tailnet (one route per process, whose
+  // answers come back to the port they were sent from).
+  udp() {
+    const mine = new Set<number>();
+    const route = tailnetWays().udp();
+    const unbind = (port: number) => {
+      if (!mine.delete(port)) return;
+      scriptUdp.delete(port);
+      route.unbound?.(port);
+    };
+    return {
+      bind(port, deliver) {
+        const taken = (p: number) =>
+          p === 53 || scriptUdp.has(p) || [...nodes].some((node) => node.udpPorts.has(p));
+        if (port === 0)
+          do {
+            port = ephemeralPort;
+            ephemeralPort = ephemeralPort >= 65535 ? 49152 : ephemeralPort + 1;
+          } while (taken(port));
+        else if (taken(port)) return null;
+        mine.add(port);
+        scriptUdp.set(port, deliver);
+        return port;
+      },
+      unbind,
+      send(datagram) {
+        const { from, address, port, bytes } = datagram;
+        if (!mine.has(from)) return;
+        const reply: Deliver = (source, sourcePort, answer) =>
+          scriptUdp.get(from)?.(source, sourcePort, answer);
+        if (!loopback(address)) return route.send(datagram, reply);
+        const process = scriptUdp.get(port);
+        if (port === 53) dnsUdp(tailnetWays().resolve)(datagram, reply);
+        else if (process) process('127.0.0.1', from, bytes);
+        else
+          [...nodes]
+            .find((node) => node.udpPorts.has(port))
+            ?.datagram(port, '127.0.0.1', from, bytes);
+      },
+      close() {
+        for (const port of [...mine]) unbind(port);
+      },
+    };
+  },
 };
+
+// The UDP ports Node.js processes have bound: where their datagrams go.
+const scriptUdp = new Map<number, Deliver>();
+
+const loopback = (address: string) =>
+  /^127\./.test(address) || address === '::1' || address === 'localhost';
 
 // Other hosts, names and HTTPS: through the user's tailnet, as the IDE's
 // page lets them (docs/tailscale.md); else unreachable, no such name,
@@ -236,10 +293,15 @@ function updatePeers(): void {
     ]);
 }
 
-// A datagram a node sent to a UDP port of its own address's that another
-// node of the project has: there, from 127.0.0.1 as between processes on
-// one machine.
+// A datagram a node sent to a UDP port of its own address's that a
+// Node.js process or another node of the project has: there, from
+// 127.0.0.1 as between processes on one machine.
 function routeUdpPeer({ from, port, bytes }: Datagram, sender: Node): boolean {
+  const process = scriptUdp.get(port);
+  if (process) {
+    process('127.0.0.1', from, bytes);
+    return true;
+  }
   const target = [...nodes].find((node) => node !== sender && node.udpPorts.has(port));
   target?.datagram(port, '127.0.0.1', from, bytes);
   return !!target;
@@ -577,6 +639,7 @@ const handlers = {
     for (const node of nodes) node.stop();
     nodes.clear();
     scripts.clear();
+    scriptUdp.clear();
     shells.clear();
     files?.worker.terminate();
     files = null;

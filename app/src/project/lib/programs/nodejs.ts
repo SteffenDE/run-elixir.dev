@@ -9,6 +9,7 @@
 // (nodejs/net.ts). A connection the process makes goes where a node's
 // would: to the services (Postgres), another process's port, a node's, or
 // another host through the tailnet; its DNS messages to the node's DNS.
+// Its UDP ports are the exec frame's too (`ports.udp()`), as a node's are.
 // What changes in the files goes to it too, for fs.watch.
 import type { Files } from '@/runtime/host/files';
 import type { CloseReason, Link, Served } from '@/runtime/host/node';
@@ -27,13 +28,27 @@ export interface Listener {
 // null when nothing listens there; dial connects `connection` to another
 // host's `address` (through the tailnet), answering this end's address
 // there, or failing with the error's `code` (ENETUNREACH, …); resolve
-// answers a DNS message.
+// answers a DNS message; udp gives a process its UDP ports.
 export interface Ports {
   listen(port: number, listener: Listener): number | null;
   unlisten(port: number, listener: Listener): void;
   route(port: number, host?: string): ((connection: Served) => void) | null;
   dial(connection: Served, address: string, port: number): Promise<string | undefined>;
   resolve(query: Uint8Array): Promise<Uint8Array>;
+  udp(): UdpPorts;
+}
+
+// A datagram for a process's UDP port, from `address`:`port`.
+export type Deliver = (address: string, port: number, bytes: Uint8Array) => void;
+
+// A process's UDP ports: bind takes `port`, or (0) a free one, and
+// answers it, or null when it is taken; send goes from a bound port to
+// `address` (an address, not a name); close lets them all go.
+export interface UdpPorts {
+  bind(port: number, deliver: Deliver): number | null;
+  unbind(port: number): void;
+  send(datagram: { from: number; address: string; port: number; bytes: Uint8Array }): void;
+  close(): void;
 }
 
 // The page's end of a connection with a process: to its listener, or one
@@ -77,7 +92,10 @@ type NetMessage =
   | { kind: 'net'; op: 'connect'; id: number; port: number; host?: string; via?: 'tcp' | 'https' }
   | { kind: 'net'; op: 'dns'; ref: number; query: Uint8Array }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
-  | { kind: 'net'; op: 'end' | 'close'; id: number };
+  | { kind: 'net'; op: 'end' | 'close'; id: number }
+  | { kind: 'net'; op: 'udp-bind'; ref: number; port: number }
+  | { kind: 'net'; op: 'udp-send'; from: number; address: string; port: number; bytes: Uint8Array }
+  | { kind: 'net'; op: 'udp-close'; port: number };
 
 export const nodeProgram =
   (base: string, files: () => Files | null, ports?: Ports) =>
@@ -101,8 +119,20 @@ export const nodeProgram =
       },
     };
     const listening = new Set<number>();
+    let udp: UdpPorts | null = null;
     const network = (message: NetMessage) => {
-      if (message.op === 'listen') {
+      if (message.op === 'udp-bind') {
+        udp ??= ports?.udp() ?? null;
+        const port =
+          udp?.bind(message.port, (address, from, bytes) =>
+            thread.postMessage({ kind: 'net', op: 'udp', to: port, address, port: from, bytes }),
+          ) ?? null;
+        thread.postMessage({ kind: 'net', op: 'udp-bound', ref: message.ref, port });
+      } else if (message.op === 'udp-send') {
+        udp?.send(message);
+      } else if (message.op === 'udp-close') {
+        udp?.unbind(message.port);
+      } else if (message.op === 'listen') {
         const port = ports?.listen(message.port, listener) ?? null;
         if (port !== null) listening.add(port);
         thread.postMessage({ kind: 'net', op: 'listening', ref: message.ref, port });
@@ -151,6 +181,7 @@ export const nodeProgram =
       thread.terminate();
       shared.disconnect(channel);
       for (const port of listening) ports?.unlisten(port, listener);
+      udp?.close();
       for (const connection of [...connections.values()]) connection.closedBy('close');
       process.exit(code);
     };

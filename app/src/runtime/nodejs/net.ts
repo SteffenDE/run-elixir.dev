@@ -17,6 +17,7 @@
 // 'unlisten', port } stops a listener. A DNS message goes as { op: 'dns',
 // ref, query } and its answer comes as { op: 'dns', ref, answer }.
 import { Buffer } from './buffer';
+import { createDgram, type DgramMessage } from './dgram';
 import { createDns } from './dns';
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
@@ -30,7 +31,8 @@ export type NetMessage =
   | { kind: 'net'; op: 'connected'; id: number; local?: string }
   | { kind: 'net'; op: 'refused'; id: number; code?: string }
   | { kind: 'net'; op: 'dns'; ref: number; answer: Uint8Array }
-  | { kind: 'net'; op: 'end' | 'close'; id: number };
+  | { kind: 'net'; op: 'end' | 'close'; id: number }
+  | DgramMessage;
 
 type Hold = () => () => void;
 
@@ -94,6 +96,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       post({ kind: 'net', op: 'dns', ref: id, query: message });
     });
   const dns = createDns(query);
+  const dgram = createDgram(post, hold, dns);
   // The ids of connections the process makes.
   let nextId = 0;
 
@@ -442,7 +445,8 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
 
   // What the exec frame says.
   const receive = (message: NetMessage) => {
-    if (message.op === 'dns') {
+    if (message.op === 'udp' || message.op === 'udp-bound') dgram.receive(message);
+    else if (message.op === 'dns') {
       const answer = queries.get(message.ref);
       queries.delete(message.ref);
       answer?.(message.answer);
@@ -495,7 +499,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold) {
       addSubnet() {}
     },
   };
-  return { module, receive, Server, Socket, dns };
+  return { module, receive, Server, Socket, dns, dgram: dgram.module };
 }
 
 export type Net = ReturnType<typeof createNet>;

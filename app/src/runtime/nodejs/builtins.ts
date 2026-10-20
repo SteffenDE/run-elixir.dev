@@ -205,7 +205,7 @@ export function createBuiltins(deps: {
     console: () => deps.console,
     constants: () => ({ ...osConstants.signals, ...(deps.fs.constants as object) }),
     crypto: () => createCrypto(),
-    dgram: () => missing('dgram', ['createSocket']),
+    dgram: () => deps.net?.dgram ?? missing('dgram', ['createSocket']),
     diagnostics_channel: () => {
       const channel = (name: string) => ({
         name,
