@@ -68,12 +68,10 @@ The fragment never reaches a server. Anyone with the link can read the
 session, so it is the secret: the panel says so, and the host sees who is
 in.
 
-On a project domain a guest's page runs on an origin of its own,
-`l-ID.DOMAIN` (lowercased; `shared/lib/site.ts`): the host's app runs in
-the guest's preview and must not share an origin with the guest's
-projects or the apex. `DOMAIN/live/ID` goes there, the page adding the
-fragment itself. Without a project domain the guest's page is the site's
-`/live/ID`, as projects share the one origin there.
+A guest's page is the apex's `/live/ID`, as every page is
+([frames.md](frames.md)); the host's app runs in the guest's preview, on
+an origin of the usercontent domain of that page's own, another site. A
+former `l-ID.DOMAIN/live/ID` link goes to the apex's.
 
 A guest's page asks for a name (kept in local storage, as the host's is),
 then joins.
@@ -238,8 +236,11 @@ open and close terminals (not the first) and restart the server.
 ### The preview
 
 A guest's preview runs the host's app as itself: its own cookies, its own
-LiveView. The guest's page runs a bridge (`runtime/bridge.ts`) and a
-service worker as a project's page does; the bridge's connections are
+LiveView. The guest's page runs a bridge (`runtime/bridge.ts`), and
+relays on preview origins of its own (`v-KEY-PORT.USERCONTENT`, a key of
+the page's: `previewChannel.ts`) pass the app's requests to it, as the
+exec frame's bridge takes a project's (`runtime/relayRequests.ts`); the
+bridge's connections are
 tunnelled through the relay (`tcp-open`, `tcp-data`, `tcp-end`,
 `tcp-close`) to the host, which connects them to the node that serves the
 port (only servers' ports: not PGlite's, not Mix's locks). HTTP, cookies
@@ -295,10 +296,8 @@ their file does not. Following again opens theirs.
 
 A guest with *Fork* asks the host for the project as `shareable()` makes
 it for a link, with the documents' unsaved text, in parts (no URL limit).
-It becomes a project of the guest's browser in a new tab: made directly
-where the guest's page shares the projects' origin, else (a guest's own
-origin on a project domain) through the apex's `/import#DATA` page, where
-a link's limits apply.
+It becomes a project of the guest's browser in a new tab, made directly
+in the apex's list (the guest's page is the apex's).
 
 ## Not built yet
 

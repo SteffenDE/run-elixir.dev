@@ -10,10 +10,12 @@ import {
   output,
   preview,
   prompted,
+  reachesPreview,
   readText,
   seesInPreview,
   serverRunning,
   syncLV,
+  syncPreviewLV,
   writeText,
 } from './helpers';
 
@@ -234,11 +236,13 @@ test('a guest sees the app in its own preview, LiveView and all', async ({ page,
   // LiveDashboard: the guest's own LiveView, over a WebSocket through the relay.
   await guest.locator('.preview-bar input').fill('/dev/dashboard');
   await guest.locator('.preview-bar input').press('Enter');
-  await syncLV(preview(guest));
+  await syncPreviewLV(guest);
   await seesInPreview(guest, 'System limits');
-  await preview(guest).getByRole('link', { name: 'Processes' }).click();
-  await syncLV(preview(guest));
-  await expect(preview(guest).locator('tr[phx-click="show_info"]').first()).toBeVisible();
+  if (reachesPreview(guest)) {
+    await preview(guest).getByRole('link', { name: 'Processes' }).click();
+    await syncLV(preview(guest));
+    await expect(preview(guest).locator('tr[phx-click="show_info"]').first()).toBeVisible();
+  }
 
   // A save in the host's editor reloads the host's preview, and the
   // guest's with it: no click here.
