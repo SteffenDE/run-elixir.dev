@@ -79,6 +79,12 @@ export const previewSite = () => site.preview;
 // This page is an address of the former layout: where it is now, on the
 // apex.
 export const movedTo = () => (site.moved ? apexUrl(site.moved) : null);
+// This page is a project's former origin (p-ID.DOMAIN): its id.
+export const formerProject = () => site.moved?.match(/^\/([a-z0-9]{10})\/$/)?.[1] ?? null;
+// Where project `id`'s former origin keeps its stores' frame (storage.html):
+// its stores move to the apex through it (migrate.ts).
+export const formerStorage = (id: string) =>
+  site.domain && isId(id) ? `${location.protocol}//p-${id}.${site.domain}/storage.html` : null;
 
 // Where project `id`'s preview shows a port of its app, with {port} for
 // it (v-ID-{port}.USERCONTENT); null without a usercontent domain.

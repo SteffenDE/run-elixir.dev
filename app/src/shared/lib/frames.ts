@@ -6,8 +6,9 @@ type Handler = (caller: string, ...args: never[]) => unknown;
 const READY = 'playground-frame-ready';
 const CALL = 'playground-frame-call';
 
-// The page's frames, by URL: loaded once, and kept.
+// The page's frames, by URL: loaded once, and kept until closed.
 const frames = new Map<string, Promise<Window>>();
+const elements = new Map<string, HTMLIFrameElement>();
 
 function frame(url: string): Promise<Window> {
   let loading = frames.get(url);
@@ -27,12 +28,20 @@ function frame(url: string): Promise<Window> {
         resolve(element.contentWindow!);
       };
       window.addEventListener('message', ready);
+      elements.set(url, element);
       document.body.append(element);
     });
     frames.set(url, loading);
-    loading.catch(() => frames.delete(url));
+    loading.catch(() => close(url));
   }
   return loading;
+}
+
+// The frame at `url` is done with: gone.
+export function close(url: string): void {
+  frames.delete(url);
+  elements.get(url)?.remove();
+  elements.delete(url);
 }
 
 // Call `method` in the frame at `url`; its answer, or its error thrown.

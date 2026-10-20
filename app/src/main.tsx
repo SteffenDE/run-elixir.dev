@@ -10,6 +10,7 @@ import { endSession } from '@/live/lib/host';
 import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { dropFramesOnLeave } from '@/shared/lib/leave';
+import { moveFormerStores } from '@/shared/lib/migrate';
 import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
 import { createProject, getProject, isId, openedProject, type Kind } from '@/shared/lib/projects';
 import { loadSite, movedTo, previewSite, projectUrl, strayOrigin } from '@/shared/lib/site';
@@ -64,6 +65,8 @@ async function page(path: string): Promise<ReactNode> {
 async function projectPage(id: string, path: string): Promise<ReactNode> {
   const project = await getProject(id);
   if (!project) return <NotFound project />;
+  // Its stores from the former layout (p-ID), if this browser has any.
+  await moveFormerStores(project.id);
   const home = `/${project.id}/`;
   if (path !== home) history.replaceState(null, '', home);
   document.title = `${project.name} · Elixir Playground`;

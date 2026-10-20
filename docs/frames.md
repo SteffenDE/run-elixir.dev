@@ -26,8 +26,7 @@ too, and code of the project's ran on the IDE's origin: a Tailwind
 plugin (`programs/modules.ts`), a page the service worker served to any
 frame, and in Safari (whose frames' storage is partitioned by origin)
 the whole preview, on the apex itself. Those addresses now send their
-visitors to the apex's; a project's stores there move to the apex (not
-yet).
+visitors to the apex's; a project's stores there move to the apex (below).
 
 ## Previews on another site
 
@@ -113,6 +112,21 @@ A Phoenix project makes 4,814 such calls while it starts (4.2 s) and
 So the nodes and `files.js` stay together, and what is the page's work
 now goes to a worker, never to a hidden frame's page.
 
+## Moving the former layout's stores
+
+A browser that ran a project on `p-ID.DOMAIN` keeps its files' changes and
+its Postgres there. The apex moves them (`shared/lib/migrate.ts`) through
+that origin's `storage.html` (`frames/storage.ts`), the apex's site, so a
+frame of it sees its own storage (Chromium, Firefox; Safari ran projects
+on the apex itself): it copies each database (stores, indexes, records:
+`idbCopy.ts`) where the apex has none of its own, then has the frame
+delete them, and the former layout's service worker and caches. A project
+does so as it opens (waiting at most five seconds for the frame), the
+home page for every listed project in the background; each once
+(`playground-moved` in local storage). The frame keeps the former
+storage frame's name: that layout's service worker, if the browser still
+has it there, lets only its own frames' names through to the network.
+
 ## Tests in Firefox
 
 Playwright's Firefox reaches no frame of another site (its frames show no
@@ -126,8 +140,5 @@ forever.
 
 ## Next
 
-1. **Moving the former layout's stores.** On `p-ID.DOMAIN`, a frame
-   (same site as the apex, so not partitioned) hands its files and
-   database to the apex, then deletes them.
-2. **Deploy.** A second site in Caddy with a wildcard certificate of its
+1. **Deploy.** A second site in Caddy with a wildcard certificate of its
    own; the old `*.DOMAIN` names for the move only.

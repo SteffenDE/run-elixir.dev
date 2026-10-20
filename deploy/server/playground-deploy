@@ -32,7 +32,7 @@ KEEP_BUILDS=${KEEP_BUILDS:-3}
 RELEASES=$SITE/releases
 # The pages and what keeps its name; everything else is under b/ID (the
 # runtime's JavaScript) and r/RID (the BEAM, fs/, nif/).
-PAGES=(index.html preview.html relay.html exec.html sw.js playground.json)
+PAGES=(index.html preview.html relay.html exec.html storage.html sw.js playground.json)
 
 die() {
   echo "playground-deploy: $*" >&2
