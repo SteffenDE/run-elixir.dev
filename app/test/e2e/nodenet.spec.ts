@@ -180,3 +180,45 @@ test('a Node.js process’s https.get goes by the page’s fetch', async ({ page
   expect(plain).toContain('502 text/plain');
   expect(plain).toContain('failed in the browser');
 });
+
+// Other hosts go through the user's tailnet, as a node's do
+// (docs/tailscale.md): without Tailscale, an address is out of reach and a
+// name not found, each at once; an http.get by name fails as its lookup.
+test('a Node.js process’s other hosts and names, without Tailscale', async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/away.cjs',
+    [
+      "const net = require('net');",
+      "const dns = require('dns');",
+      "const http = require('http');",
+      'const t = Date.now();',
+      'const said = (what, e) => console.log(what, e.code, e.syscall);',
+      "net.connect(80, '93.184.215.14').on('error', (e) => {",
+      "  said('connect', e);",
+      "  dns.lookup('www.example.com', (e) => {",
+      "    said('lookup', e);",
+      "    dns.promises.resolve4('www.example.com').catch((e) => {",
+      "      said('resolve4', e);",
+      "      dns.lookup('localhost', (_, address) => {",
+      "        console.log('localhost', address);",
+      "        http.get('http://www.example.com/').on('error', (e) => {",
+      "          said('http', e);",
+      '          console.log(`took ${Date.now() - t} ms`);',
+      '        });',
+      '      });',
+      '    });',
+      '  });',
+      '});',
+    ].join('\n'),
+  );
+  const away = await run(page, 'node away.cjs');
+  expect(away).toContain('connect ENETUNREACH connect');
+  expect(away).toContain('lookup ENOTFOUND getaddrinfo');
+  expect(away).toContain('resolve4 ENOTFOUND queryA');
+  expect(away).toContain('localhost 127.0.0.1');
+  expect(away).toContain('http ENOTFOUND getaddrinfo');
+  expect(Number(/took (\d+) ms/.exec(away)?.[1])).toBeLessThan(1500);
+});
