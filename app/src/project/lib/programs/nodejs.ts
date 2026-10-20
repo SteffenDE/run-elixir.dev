@@ -10,7 +10,8 @@
 // would: to the services (Postgres), another process's port, a node's, or
 // another host through the tailnet; its DNS messages to the node's DNS.
 // Its UDP ports are the exec frame's too (`ports.udp()`), as a node's are.
-// What changes in the files goes to it too, for fs.watch.
+// What changes in the files goes to it too, for fs.watch. Its children
+// (child_process) are command lines the page program sh runs.
 import type { Files } from '@/runtime/host/files';
 import type { CloseReason, Link, Served } from '@/runtime/host/node';
 import { worker } from '@/runtime/host/worker';
@@ -97,8 +98,17 @@ type NetMessage =
   | { kind: 'net'; op: 'udp-send'; from: number; address: string; port: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'udp-close'; port: number };
 
+// A page program, as programs() answers them (npm.ts's Program).
+type PageProgram = (process: Process, context: Context) => void | Promise<void>;
+
 export const nodeProgram =
-  (base: string, files: () => Files | null, ports?: Ports, runtime = base) =>
+  (
+    base: string,
+    files: () => Files | null,
+    ports?: Ports,
+    runtime = base,
+    programs: () => Record<string, PageProgram> = () => ({}),
+  ) =>
   (process: Process, context: Context): void => {
     const shared = files();
     if (!shared) {
@@ -174,9 +184,51 @@ export const nodeProgram =
     const changed: Watcher = (paths) => thread.postMessage({ kind: 'changed', paths });
     watchers.add(changed);
     let done = false;
+    // The process's children: each a sh -c line, its output and status
+    // back to the process.
+    const children = new Map<number, Process>();
+    const spawned = (message: {
+      id: number;
+      line: string;
+      cwd: string;
+      env: Record<string, string>;
+    }) => {
+      const { id } = message;
+      let ended = false;
+      const child: Process = {
+        write: (data) =>
+          thread.postMessage({
+            kind: 'child',
+            op: 'out',
+            id,
+            bytes: typeof data === 'string' ? new TextEncoder().encode(data) : data,
+          }),
+        exit: (code = 0) => {
+          if (ended) return;
+          ended = true;
+          children.delete(id);
+          thread.postMessage({ kind: 'child', op: 'exit', id, code });
+        },
+        onkill: null,
+        onowner: null,
+      };
+      children.set(id, child);
+      const sh = programs().sh;
+      if (!sh) {
+        child.write('sh: not in this playground\n');
+        return child.exit(127);
+      }
+      Promise.resolve(
+        sh(child, { args: ['-c', message.line], cwd: message.cwd, env: message.env, fs: shared }),
+      ).catch((error: Error) => {
+        child.write(`${error.message}\n`);
+        child.exit(1);
+      });
+    };
     const stop = (code: number) => {
       if (done) return;
       done = true;
+      for (const child of [...children.values()]) child.onowner?.();
       watchers.delete(changed);
       thread.terminate();
       shared.disconnect(channel);
@@ -188,6 +240,8 @@ export const nodeProgram =
     thread.onmessage = ({ data }) => {
       if (data.kind === 'out') process.write(data.bytes);
       else if (data.kind === 'net') network(data);
+      else if (data.kind === 'child' && data.op === 'spawn') spawned(data);
+      else if (data.kind === 'child' && data.op === 'kill') children.get(data.id)?.onkill?.();
       else if (data.kind === 'exit') stop(data.code);
     };
     thread.onerror = (event) => {

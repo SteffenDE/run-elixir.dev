@@ -7,6 +7,7 @@ import * as stream from 'readable-stream';
 import { StringDecoder } from 'string_decoder';
 import { hashes } from './hashes';
 import { createHttp, METHODS, STATUS_CODES } from './http';
+import type { ChildProcesses } from './child';
 import type { Net } from './net';
 import { createDns } from './dns';
 import { createTls } from './tls';
@@ -97,6 +98,8 @@ export function createBuiltins(deps: {
   net: Net | null;
   // The site's runtime files (tls.wasm, tls.ts).
   runtime: string;
+  // node:child_process (child.ts); a worker thread has none.
+  child: ChildProcesses | null;
 }) {
   const { process, timers } = deps;
   const warn = (text: string) => (process.stderr as { write(t: string): void }).write(text);
@@ -190,6 +193,7 @@ export function createBuiltins(deps: {
       isAscii: (bytes: Uint8Array) => bytes.every((b) => b < 128),
     }),
     child_process: () =>
+      deps.child?.module ??
       missing('child_process', [
         'spawn',
         'exec',

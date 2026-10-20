@@ -358,7 +358,7 @@ function nodeServices() {
       tailwind,
       esbuild,
       git: gitProgram,
-      node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime),
+      node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
       sh: shProgram(startNode),

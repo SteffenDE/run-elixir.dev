@@ -17,6 +17,7 @@ import { createBuiltins, BUILTINS } from './builtins';
 import { createFs } from './fs';
 import { createLoader } from './loader';
 import { createNet, type Net, type NetMessage } from './net';
+import { createChildProcess, type ChildMessage, type ChildProcesses } from './child';
 import { createPath } from './path';
 import { createProcess, VERSION } from './process';
 import { createThreads, nodeMessageChannel, type ThreadStart } from './threads';
@@ -132,6 +133,7 @@ function parse(args: string[]) {
 // net and its files' watchers, for the page's.
 let threads: ReturnType<typeof createThreads> | null = null;
 let net: Net | null = null;
+let child: ChildProcesses | null = null;
 let watched: ((paths: string[]) => void) | null = null;
 
 async function run(start: Start) {
@@ -208,6 +210,13 @@ async function run(start: Start) {
   const ownThreads = threads;
   const wasi = createWasi(call, (fd, bytes) => io.write(fd, bytes), proc.end);
   net = thread ? null : createNet(post, hold, start.runtime ?? '');
+  child = thread
+    ? null
+    : createChildProcess(post, hold, {
+        cwd: () => (process.cwd as () => string)(),
+        env,
+        write: (fd, bytes) => io.write(fd, bytes),
+      });
 
   let loader: ReturnType<typeof createLoader>;
   const builtin = createBuiltins({
@@ -224,6 +233,7 @@ async function run(start: Start) {
     threads: () => ownThreads,
     net,
     runtime: start.runtime ?? '',
+    child,
   });
   loader = createLoader({
     fs: files.module as never,
@@ -296,13 +306,18 @@ addEventListener(
   'message',
   (
     event: MessageEvent<
-      Start | { kind: 'message'; data: unknown } | NetMessage | { kind: 'changed'; paths: string[] }
+      | Start
+      | { kind: 'message'; data: unknown }
+      | NetMessage
+      | ChildMessage
+      | { kind: 'changed'; paths: string[] }
     >,
   ) => {
     const data = event.data;
     if (data?.kind === 'start') void run(data);
     else if (data?.kind === 'message') threads?.deliver(data.data);
     else if (data?.kind === 'net') net?.receive(data);
+    else if (data?.kind === 'child') child?.receive(data);
     else if (data?.kind === 'changed') watched?.(data.paths);
   },
 );
