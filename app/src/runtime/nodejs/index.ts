@@ -266,6 +266,11 @@ async function run(start: Start) {
     hold,
   });
   loader.setProcess(() => ({ cwd: process.cwd as () => string }));
+  // process.getBuiltinModule('fs' or 'node:fs'): the module, or undefined.
+  process.getBuiltinModule = (id: string) => {
+    const name = String(id).replace(/^node:/, '');
+    return BUILTINS.includes(name) ? builtin(name) : undefined;
+  };
 
   // Node's MessageChannel, whose ports hold the process as Node's do.
   globalThis.MessageChannel = nodeMessageChannel(hold);

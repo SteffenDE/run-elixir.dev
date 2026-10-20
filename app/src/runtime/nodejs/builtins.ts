@@ -292,7 +292,14 @@ export function createBuiltins(deps: {
         Agent,
         globalAgent: {},
       }),
-    http2: () => missing('http2', ['createServer', 'connect']),
+    // No HTTP/2 yet, but its constants, which clients read as they load
+    // (undici's).
+    http2: () =>
+      missing('http2', ['createServer', 'createSecureServer', 'connect'], {
+        constants: http2Constants(),
+        sensitiveHeaders: Symbol('nodejs.http2.sensitiveHeaders'),
+        getDefaultSettings: () => ({}),
+      }),
     https: () =>
       web()?.https ??
       missing('https', ['createServer', 'request', 'get'], { Agent, globalAgent: new Agent() }),
@@ -319,7 +326,12 @@ export function createBuiltins(deps: {
     path: () => deps.path,
     'path/posix': () => deps.path,
     perf_hooks: () => ({
-      performance,
+      // The browser's, with Node's markResourceTiming (undici's fetch reports
+      // its timing there): nothing to mark.
+      performance: Object.assign(performance, {
+        markResourceTiming:
+          (performance as { markResourceTiming?: unknown }).markResourceTiming ?? (() => undefined),
+      }),
       PerformanceObserver: class {
         observe() {}
         disconnect() {}
@@ -427,6 +439,68 @@ export function createBuiltins(deps: {
     }
     return made.get(name);
   };
+}
+
+// http2.constants as Node has them: HTTP2_HEADER_NAME (its pseudo-headers
+// with a colon), HTTP2_METHOD_NAME, HTTP_STATUS_NAME, and nghttp2's error
+// codes and settings.
+function http2Constants(): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    NGHTTP2_NO_ERROR: 0,
+    NGHTTP2_PROTOCOL_ERROR: 1,
+    NGHTTP2_INTERNAL_ERROR: 2,
+    NGHTTP2_FLOW_CONTROL_ERROR: 3,
+    NGHTTP2_SETTINGS_TIMEOUT: 4,
+    NGHTTP2_STREAM_CLOSED: 5,
+    NGHTTP2_FRAME_SIZE_ERROR: 6,
+    NGHTTP2_REFUSED_STREAM: 7,
+    NGHTTP2_CANCEL: 8,
+    NGHTTP2_COMPRESSION_ERROR: 9,
+    NGHTTP2_CONNECT_ERROR: 10,
+    NGHTTP2_ENHANCE_YOUR_CALM: 11,
+    NGHTTP2_INADEQUATE_SECURITY: 12,
+    NGHTTP2_HTTP_1_1_REQUIRED: 13,
+    NGHTTP2_SESSION_CLIENT: 0,
+    NGHTTP2_SESSION_SERVER: 1,
+    NGHTTP2_DEFAULT_WEIGHT: 16,
+    NGHTTP2_SETTINGS_HEADER_TABLE_SIZE: 1,
+    NGHTTP2_SETTINGS_ENABLE_PUSH: 2,
+    NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS: 3,
+    NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE: 4,
+    NGHTTP2_SETTINGS_MAX_FRAME_SIZE: 5,
+    NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE: 6,
+    NGHTTP2_SETTINGS_ENABLE_CONNECT_PROTOCOL: 8,
+    DEFAULT_SETTINGS_HEADER_TABLE_SIZE: 4096,
+    DEFAULT_SETTINGS_ENABLE_PUSH: 1,
+    DEFAULT_SETTINGS_INITIAL_WINDOW_SIZE: 65535,
+    DEFAULT_SETTINGS_MAX_FRAME_SIZE: 16384,
+    MAX_MAX_FRAME_SIZE: 16777215,
+    MIN_MAX_FRAME_SIZE: 16384,
+    MAX_INITIAL_WINDOW_SIZE: 2147483647,
+    PADDING_STRATEGY_NONE: 0,
+    PADDING_STRATEGY_ALIGNED: 1,
+    PADDING_STRATEGY_MAX: 2,
+    PADDING_STRATEGY_CALLBACK: 1,
+  };
+  for (const [code, text] of Object.entries(STATUS_CODES))
+    out[
+      `HTTP_STATUS_${String(text)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]+/g, '_')
+        .replace(/^_|_$/g, '')}`
+    ] = Number(code);
+  const pseudo = new Set(['AUTHORITY', 'METHOD', 'PATH', 'SCHEME', 'STATUS', 'PROTOCOL']);
+  return new Proxy(out, {
+    get(target, key) {
+      if (typeof key !== 'string' || key in target) return target[key as string];
+      if (key.startsWith('HTTP2_HEADER_')) {
+        const name = key.slice(13);
+        return pseudo.has(name) ? `:${name.toLowerCase()}` : name.toLowerCase().replace(/_/g, '-');
+      }
+      if (key.startsWith('HTTP2_METHOD_')) return key.slice(13).replace(/_/g, '-');
+      return undefined;
+    },
+  });
 }
 
 // events.on: an async iterator of an event's arguments.

@@ -255,6 +255,8 @@ export function createThreads(host: ThreadHost) {
     MessagePort,
     BroadcastChannel,
     markAsUntransferable() {},
+    // Marks only: a structured clone here is the browser's.
+    markAsUncloneable() {},
     isMarkedAsUntransferable: () => false,
     moveMessagePortToContext: (port: MessagePort) => port,
     receiveMessageOnPort: () => undefined,
