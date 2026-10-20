@@ -39,7 +39,7 @@ again; `status` names the live one. Both also work over the deploy key
 Deploying by hand from a machine with the key is the same:
 
 ```sh
-PLAYGROUND_DOMAIN=run-elixir.dev PLAYGROUND_USERCONTENT=USERCONTENT deploy/build-site.sh
+PLAYGROUND_DOMAIN=run-elixir.dev PLAYGROUND_USERCONTENT=run-elixir-usercontent.org deploy/build-site.sh
 deploy/upload.sh target/site deploy@server
 ```
 
@@ -178,7 +178,8 @@ building, written to `playground.json`; [frames.md](frames.md)):
   visitors to the apex, and whose `storage.html` moves a project's
   stores to it ([frames.md](frames.md#moving-the-former-layouts-stores));
   they can go once those have moved.
-- **The usercontent domain**, another registrable domain (so another
+- **The usercontent domain** (run-elixir-usercontent.org), another
+  registrable domain (so another
   site: none of the apex's cookies, its own processes): `e-ID` (a
   project's exec frame) and `v-ID-PORT` (its preview), every response with
   COEP `require-corp` and `Cross-Origin-Resource-Policy: cross-origin`,
@@ -282,9 +283,10 @@ run-elixir.dev, *.run-elixir.dev {
 	import playground
 }
 
-# The usercontent domain (PLAYGROUND_USERCONTENT): projects' exec frames
+# The usercontent domain (PLAYGROUND_USERCONTENT=run-elixir-usercontent.org):
+# projects' exec frames
 # and previews, the same files, framed by the apex from another site.
-*.USERCONTENT {
+*.run-elixir-usercontent.org {
 	tls {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}

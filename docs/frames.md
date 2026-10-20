@@ -154,4 +154,5 @@ former layout's addresses until their stores have moved.
 - **Firefox leaving a page** with a frame of another site in it hung in
   Playwright's Firefox, which the pages now avoid (`leave.ts`); a stock
   Firefox is not checked.
-- **The usercontent domain's name**, and its DNS and certificate.
+- **The usercontent domain's DNS and certificate**
+  (run-elixir-usercontent.org: [deploy.md](deploy.md#the-two-domains)).

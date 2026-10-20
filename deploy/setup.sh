@@ -78,7 +78,7 @@ fi
 
 # --- The deploy side ------------------------------------------------------
 setting DOMAIN run-elixir.dev "$DEPLOY_ENV" "The apex: every page (docs/frames.md)"
-setting USERCONTENT "" "$DEPLOY_ENV" "The usercontent domain, another registrable domain: what projects' code runs"
+setting USERCONTENT run-elixir-usercontent.org "$DEPLOY_ENV" "The usercontent domain, another registrable domain: what projects' code runs"
 setting SITE "/srv/playground/${DOMAIN%%.*}" "$DEPLOY_ENV" "The site's directory (Caddy's root is its current/)"
 if [ ! -f "$DEPLOY_ENV" ]; then
   cat > "$DEPLOY_ENV" <<EOF
