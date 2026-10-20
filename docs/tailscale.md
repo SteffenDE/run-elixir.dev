@@ -353,3 +353,57 @@ refused dial).
   `python3 -I tailscale/build.py` first, as brush and coreutils.
 - **Not tried against Tailscale's own control server** (only Headscale):
   signing in, the tag's error text, and exit nodes there.
+
+## Idea: a TCP relay on the backend, for a few hosts
+
+Not planned yet; noted from an investigation (2026-10-20). Without
+Tailscale, `ssl:connect` could still get a `tcp` line for a short list of
+hosts that send no CORS headers: a TCP connection by the backend, over
+which the node does TLS itself, as through the tailnet. The backend sees
+the host, the port and how many bytes pass, never what they say (unlike
+the `/git/` and `/hex/` proxies, where Caddy ends TLS).
+
+**The hosts** (checked 2026-10-20 with `Origin: https://run-elixir.dev`):
+
+- No CORS headers, so the relay: `github.com` (pages, git,
+  `/releases/download/`'s redirects), `release-assets.githubusercontent.com`,
+  `codeload.github.com` (only `render.githubusercontent.com` is allowed),
+  `gitlab.com` (outside its API).
+- `repo.hex.pm` and `builds.hex.pm` send none either, but the node's Hex
+  already goes through `fetcher.ts` and `/hex/`: only for code that calls
+  them itself.
+- `api.anthropic.com`: CORS only with the request header
+  `anthropic-dangerous-direct-browser-access: true`, which `https.ts`
+  could add to its `fetch()` without the backend; the relay would carry the
+  node's own request (its headers, HTTP/2).
+- CORS already, so `fetch()`, from the user's own address (per-address
+  limits such as `api.github.com`'s 60 an hour without a token):
+  `api.github.com`, `raw.githubusercontent.com`, `gitlab.com/api`,
+  `hex.pm/api`, OpenAI, Mistral, OpenRouter, Groq, xAI, DeepSeek, Gemini,
+  Codeberg's API.
+
+**Its shape:**
+
+- **The backend:** a WebSocket of its own at `/relay` (`WebSockAdapter`,
+  not a channel), many connections over one: binary frames of a kind, a
+  connection id and a payload (`open host port`, `opened`, `error`,
+  `data`, `end`, `close`, `ack`). A process per upstream connection, and
+  credit (about 256 KiB unacknowledged) before it reads more. It checks
+  port 443, the host against the list (`Sandbox.Destination.allowed?/2`),
+  public addresses only and connects to those it resolved
+  (`Destination.resolve/2`), and that the first bytes are a ClientHello
+  whose server name is the host (as `sandbox/netd` checks): no plain text,
+  no other name behind an allowed address. Limits: connections a socket
+  and in all, connect and idle timeouts, bytes per client address. Counts
+  only, no log of who reached which host. Origins: the usercontent
+  domain's (the list is the gate, not the frame).
+- **The list:** one JSON file the backend reads when it compiles and the
+  app imports, so the page picks a way without opening the socket.
+- **The page:** `runtime/relay.ts` in the exec frame's worker, a `Tunnel`
+  as `tailnet.ts`'s. The WebSocket opens with the first connection, as the
+  live relay's, and closes 30 s after its last. `https.ts`'s `tunnel`:
+  the tailnet where it routes, else the relay for a listed host on 443,
+  else `fetch()`; no setup hint for a relayed host, no consent asked
+  (nothing a `fetch()` could not reach but for CORS).
+- **Not** `gen_tcp` to an address, nor names: those stay the tailnet's.
+  The page's git (isomorphic-git, no TLS of its own) keeps `/git/`.
