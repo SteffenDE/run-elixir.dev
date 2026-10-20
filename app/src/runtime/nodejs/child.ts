@@ -3,11 +3,13 @@
 // shell would: node, npm, npx, git, mix, coreutils and node_modules/.bin's
 // scripts. Without `shell`, the command and its arguments are quoted.
 //
-// The process asks { kind: 'child', op: 'spawn', id, line, cwd, env } and
-// { op: 'kill', id }; it hears { op: 'out', id, bytes } and { op: 'exit',
-// id, code }. A page program has one output, so a child's stderr comes on
-// its stdout; its stdin ends at once. The synchronous forms (spawnSync,
-// execSync) are not there yet.
+// The process asks { kind: 'child', op: 'spawn', id, line, cwd, env },
+// { op: 'stdin', id, bytes } (or end) and { op: 'kill', id }; it hears
+// { op: 'out', id, bytes } and { op: 'exit', id, code }. A page program has
+// one output, so a child's stderr comes on its stdout. The synchronous
+// forms (spawnSync, execSync, execFileSync) give a SharedArrayBuffer of
+// maxBuffer's size with the spawn, which the exec frame fills, and wait
+// on it (Atomics.wait): the process stands still meanwhile, as Node's.
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
 import { Buffer } from './buffer';
@@ -35,10 +37,19 @@ interface SpawnOptions {
 const quote = (word: string) =>
   /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 
-const notAvailable = (name: string) => () => {
-  throw Object.assign(new Error(`child_process.${name} is not available in the playground yet`), {
-    code: 'ERR_NOT_AVAILABLE',
-  });
+// A command line for sh: as it is (shell), or the words quoted.
+const lineOf = (file: string, args: string[], shell?: boolean | string) =>
+  shell ? [file, ...args].join(' ') : [file, ...args].map((word) => quote(String(word))).join(' ');
+
+const toBytes = (data: string | Uint8Array | ArrayBufferView) =>
+  typeof data === 'string'
+    ? new TextEncoder().encode(data)
+    : new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+
+// What a synchronous child's output is: a Buffer, or text in `encoding`.
+const encoded = (bytes: Uint8Array, encoding?: string) => {
+  const buffer = Buffer.from(bytes);
+  return encoding && encoding !== 'buffer' ? buffer.toString(encoding as BufferEncoding) : buffer;
 };
 
 export function createChildProcess(
@@ -99,15 +110,23 @@ export function createChildProcess(
       this.stdout = piped(stdio[1]) ? new Readable({ read() {} }) : null;
       // Its stderr comes on its stdout: an empty stream that ends with it.
       this.stderr = piped(stdio[2]) ? new Readable({ read() {} }) : null;
+      // What the program writes to it, and its end.
       this.stdin = piped(stdio[0])
-        ? new Writable({ write: (_chunk, _encoding, done) => done() })
+        ? new Writable({
+            write: (chunk: Uint8Array, _encoding, done) => {
+              post({ kind: 'child', op: 'stdin', id: this.id, bytes: new Uint8Array(chunk) });
+              done();
+            },
+            final: (done) => {
+              post({ kind: 'child', op: 'stdin', id: this.id, end: true });
+              done();
+            },
+          })
         : null;
       this.stdio = [this.stdin, this.stdout, this.stderr];
       this.release = hold();
       children.set(this.id, this);
-      const line = options.shell
-        ? [file, ...args].join(' ')
-        : [file, ...args].map((word) => quote(String(word))).join(' ');
+      const line = lineOf(file, args, options.shell);
       const cwd = options.cwd instanceof URL ? options.cwd.pathname : (options.cwd ?? own.cwd());
       const env = Object.fromEntries(
         Object.entries(options.env ?? own.env).filter(([, v]) => v !== undefined),
@@ -129,8 +148,11 @@ export function createChildProcess(
 
     exited(code: number) {
       children.delete(this.id);
-      this.release?.();
-      this.release = null;
+      // The loop is held until 'close', which may wait for its stdout's end.
+      const release = () => {
+        this.release?.();
+        this.release = null;
+      };
       // A command sh did not find: spawn's ENOENT, as Node says it.
       if (code === 127 && !this.shell) {
         const error = Object.assign(new Error(`spawn ${this.spawnfile} ENOENT`), {
@@ -144,6 +166,7 @@ export function createChildProcess(
         this.stderr?.push(null);
         this.emit('error', error);
         this.emit('close', -2, null);
+        release();
         return;
       }
       const signal = this.killed && code >= 128 ? 'SIGTERM' : null;
@@ -152,7 +175,10 @@ export function createChildProcess(
       this.stdout?.push(null);
       this.stderr?.push(null);
       this.emit('exit', this.exitCode, signal);
-      const closed = () => this.emit('close', this.exitCode, signal);
+      const closed = () => {
+        this.emit('close', this.exitCode, signal);
+        release();
+      };
       // 'close' once its streams have ended, as Node's.
       if (this.stdout && !this.stdout.readableEnded && this.stdout.listenerCount('data'))
         this.stdout.once('end', closed);
@@ -240,6 +266,125 @@ export function createChildProcess(
     return spawn('node', [module, ...args], { stdio: 'inherit', ...options });
   }
 
+  type SyncOptions = SpawnOptions & { input?: string | Uint8Array | ArrayBufferView };
+  type SyncResult = {
+    pid: number;
+    output: [null, Buffer | string, Buffer | string];
+    stdout: Buffer | string;
+    stderr: Buffer | string;
+    status: number | null;
+    signal: string | null;
+    error?: Error;
+  };
+
+  // spawnSync(command, args?, options?): the child run to its end, the
+  // process waiting.
+  function spawnSync(
+    file: string,
+    args?: string[] | SyncOptions,
+    options?: SyncOptions,
+  ): SyncResult {
+    if (!Array.isArray(args)) [options, args] = [args, []];
+    const opts = options ?? {};
+    // maxBuffer: Node's 1 MiB by default; Infinity, as much as 64 MiB.
+    const room = Math.min(
+      opts.maxBuffer === undefined
+        ? 1 << 20
+        : opts.maxBuffer === Infinity
+          ? 64 << 20
+          : opts.maxBuffer,
+      256 << 20,
+    );
+    const shared = new SharedArrayBuffer(12 + room);
+    const header = new Int32Array(shared, 0, 3);
+    const stdio = Array.isArray(opts.stdio) ? opts.stdio : [opts.stdio, opts.stdio, opts.stdio];
+    const inherit = stdio[1] === 'inherit' || stdio[1] === 1;
+    const cwd = opts.cwd instanceof URL ? opts.cwd.pathname : (opts.cwd ?? own.cwd());
+    const env = Object.fromEntries(
+      Object.entries(opts.env ?? own.env).filter(([, v]) => v !== undefined),
+    ) as Record<string, string>;
+    const id = ++nextId;
+    const pid = nextPid++;
+    post({
+      kind: 'child',
+      op: 'spawn',
+      id,
+      line: lineOf(file, args, opts.shell),
+      cwd: String(cwd),
+      env,
+      input: opts.input === undefined ? new Uint8Array(0) : toBytes(opts.input),
+      shared,
+      inherit,
+    });
+    // Until it ends, or its time is up (then it is stopped, and waited for).
+    const deadline = opts.timeout ? Date.now() + opts.timeout : Infinity;
+    let timedOut = false;
+    while (Atomics.load(header, 0) === 0) {
+      const left = deadline - Date.now();
+      if (left <= 0 && !timedOut) {
+        timedOut = true;
+        post({ kind: 'child', op: 'kill', id, signal: 'SIGTERM' });
+      }
+      Atomics.wait(header, 0, 0, timedOut || left === Infinity ? undefined : left);
+    }
+    const status = Atomics.load(header, 1);
+    const length = Atomics.load(header, 2);
+    const out = encoded(new Uint8Array(shared, 12, Math.max(0, length)).slice(), opts.encoding);
+    const none = encoded(new Uint8Array(0), opts.encoding);
+    const result: SyncResult = {
+      pid,
+      output: [null, out, none],
+      stdout: out,
+      stderr: none,
+      status: timedOut ? null : status,
+      signal: timedOut ? 'SIGTERM' : null,
+    };
+    if (length < 0)
+      result.error = Object.assign(new Error(`spawnSync ${file} ENOBUFS`), {
+        code: 'ENOBUFS',
+        errno: -105,
+        syscall: `spawnSync ${file}`,
+      });
+    else if (timedOut)
+      result.error = Object.assign(new Error(`spawnSync ${file} ETIMEDOUT`), {
+        code: 'ETIMEDOUT',
+        errno: -110,
+        syscall: `spawnSync ${file}`,
+      });
+    else if (status === 127 && !opts.shell) {
+      result.status = null;
+      result.error = Object.assign(new Error(`spawnSync ${file} ENOENT`), {
+        code: 'ENOENT',
+        errno: -2,
+        syscall: `spawnSync ${file}`,
+        path: file,
+        spawnargs: args,
+      });
+    }
+    return result;
+  }
+
+  // execSync's and execFileSync's: the output, or (failed) a throw with
+  // the result on it, as Node's.
+  function checked(result: SyncResult, command: string) {
+    if (result.error) throw Object.assign(result.error, result);
+    if (result.status !== 0)
+      throw Object.assign(
+        new Error(`Command failed: ${command}\n${String(result.stdout)}`),
+        result,
+      );
+    return result.stdout;
+  }
+
+  function execSync(command: string, options?: SyncOptions) {
+    return checked(spawnSync(command, [], { ...options, shell: true }), command);
+  }
+
+  function execFileSync(file: string, args?: string[] | SyncOptions, options?: SyncOptions) {
+    if (!Array.isArray(args)) [options, args] = [args, []];
+    return checked(spawnSync(file, args, options), [file, ...args].join(' '));
+  }
+
   // What the exec frame says.
   const receive = (message: ChildMessage) => {
     const child = children.get(message.id);
@@ -269,9 +414,9 @@ export function createChildProcess(
     exec,
     execFile,
     fork,
-    spawnSync: notAvailable('spawnSync'),
-    execSync: notAvailable('execSync'),
-    execFileSync: notAvailable('execFileSync'),
+    spawnSync,
+    execSync,
+    execFileSync,
   };
   return { module, receive };
 }

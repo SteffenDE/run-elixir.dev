@@ -186,28 +186,49 @@ export const nodeProgram =
     let done = false;
     // The process's children: each a sh -c line, its output and status
     // back to the process.
+    // A synchronous one (spawnSync, execSync) writes into `shared`, whose
+    // first three ints are [done, status, length] (length -1: more than
+    // it holds, ENOBUFS), the bytes after; the process waits on done. With
+    // `inherit`, its output is the process's own, as it comes.
     const children = new Map<number, Process>();
     const spawned = (message: {
       id: number;
       line: string;
       cwd: string;
       env: Record<string, string>;
+      input?: Uint8Array;
+      shared?: SharedArrayBuffer;
+      inherit?: boolean;
     }) => {
-      const { id } = message;
+      const { id, shared: result } = message;
+      const header = result ? new Int32Array(result, 0, 3) : null;
+      const room = result ? new Uint8Array(result, 12) : null;
+      let length = 0;
       let ended = false;
+      const encode = (data: string | Uint8Array) =>
+        typeof data === 'string' ? new TextEncoder().encode(data) : data;
       const child: Process = {
-        write: (data) =>
-          thread.postMessage({
-            kind: 'child',
-            op: 'out',
-            id,
-            bytes: typeof data === 'string' ? new TextEncoder().encode(data) : data,
-          }),
+        write: (data) => {
+          const bytes = encode(data);
+          if (message.inherit) process.write(bytes);
+          else if (room) {
+            if (length < 0 || length + bytes.length > room.length) length = -1;
+            else {
+              room.set(bytes, length);
+              length += bytes.length;
+            }
+          } else thread.postMessage({ kind: 'child', op: 'out', id, bytes });
+        },
         exit: (code = 0) => {
           if (ended) return;
           ended = true;
           children.delete(id);
-          thread.postMessage({ kind: 'child', op: 'exit', id, code });
+          if (header) {
+            Atomics.store(header, 1, code);
+            Atomics.store(header, 2, length);
+            Atomics.store(header, 0, 1);
+            Atomics.notify(header, 0);
+          } else thread.postMessage({ kind: 'child', op: 'exit', id, code });
         },
         onkill: null,
         onowner: null,
@@ -224,6 +245,19 @@ export const nodeProgram =
         child.write(`${error.message}\n`);
         child.exit(1);
       });
+      // What it reads, given whole (spawnSync's input), then its end.
+      if (message.input) {
+        if (message.input.length) child.oninput?.(message.input);
+        child.oninput?.(null);
+      }
+    };
+    // child.kill(): its node stops (sh's outlives a closed port, as a
+    // node's port's program does), its status a SIGTERM's.
+    const killed = (id: number) => {
+      const child = children.get(id);
+      if (!child) return;
+      child.onowner?.();
+      child.exit(143);
     };
     const stop = (code: number) => {
       if (done) return;
@@ -243,7 +277,10 @@ export const nodeProgram =
       // setRawMode: keys as typed, Ctrl+C one of them.
       else if (data.kind === 'tty') process.raw?.(data.raw, !data.raw);
       else if (data.kind === 'child' && data.op === 'spawn') spawned(data);
-      else if (data.kind === 'child' && data.op === 'kill') children.get(data.id)?.onkill?.();
+      else if (data.kind === 'child' && data.op === 'kill') killed(data.id);
+      // What it writes to the child's stdin (null: its end).
+      else if (data.kind === 'child' && data.op === 'stdin')
+        children.get(data.id)?.oninput?.(data.end ? null : data.bytes);
       else if (data.kind === 'exit') stop(data.code);
     };
     thread.onerror = (event) => {

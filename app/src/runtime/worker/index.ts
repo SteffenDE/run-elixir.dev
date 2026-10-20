@@ -404,7 +404,10 @@ onmessage = async ({
         started: (started) => (id = started),
       })(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
       const mode = [channel.raw, channel.signals] as const;
-      if (terminal) channel.reading = id;
+      // Without a pipe, the node's input is the program's (the terminal's
+      // typing, or what a program's child_process writes to its child).
+      const forward = !input;
+      if (forward) channel.reading = id;
       try {
         for (;;) {
           channel.pump();
@@ -417,7 +420,7 @@ onmessage = async ({
             process.onclose?.();
             return 130;
           }
-          if (terminal)
+          if (forward)
             for (const bytes of channel.input.splice(0))
               postMessage(
                 !channel.raw && bytes.length === 1 && bytes[0] === 4
@@ -427,7 +430,7 @@ onmessage = async ({
           channel.sleep(1000);
         }
       } finally {
-        if (terminal) channel.reading = null;
+        if (forward) channel.reading = null;
         channel.mode(...mode);
       }
     };
