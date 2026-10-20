@@ -14,7 +14,9 @@ the usercontent domain ([frames.md](frames.md)). Node's modules are the playgrou
 (`app/src/runtime/nodejs/`), over the project's files. A React project
 installs and builds with Vite, and its dev server shows the app in the
 preview and hot-updates it on an edit, in Chromium, Firefox and WebKit
-(`app/test/e2e/vite.spec.ts`).
+(`app/test/e2e/vite.spec.ts`). `npm create vue@latest` asks its questions
+at the terminal and its project builds; the coding agent Pi runs, and
+through a tailnet talks to its provider's API (below).
 
 ## A process (`nodejs.js`, `programs/nodejs.ts`)
 
@@ -33,7 +35,8 @@ in `node_modules/.bin`) with it.
 | `fs.ts` | `fs` over the channel: the synchronous calls as they are, the callback and promise forms on top; Node's error codes from WASI's. `watch`, `watchFile` and `promises.watch` hear what changed (below). |
 | `loader.ts` | `require` with Node's resolution (paths, `node_modules` and `NODE_PATH`, `package.json`'s `main`, `exports` and `imports` with Node's conditions: `node`, `require` or `import`, `module-sync`, `default`; a require that finds no entry of its own takes the import one). CommonJS in Node's wrapper; ES modules and TypeScript turned into CommonJS by sucrase, so a module loads synchronously however it is required or imported. `import()` answers namespaces as Node's does and holds the loop. |
 | `source.ts` | A scan of code, strings, templates, comments and regular expressions: the loader's rewrites (`import.meta`, `require(`, `import(`, `exports."…"`) touch code alone. |
-| `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. |
+| `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. Dry for eight turns in a row, not one: what the browser does for a script holds nothing (its streams pass bytes on over a few tasks), where Node's native work would hold its loop. |
+| `fetch.ts` | The global `fetch`, Node's: by the process's own `http` and `https` (below). |
 | `threads.ts` | `worker_threads`: a `Worker` is a nested worker running `nodejs.js` as a thread of the same process, sharing its files channel (one call at a time, by a lock in shared memory); messages as structured clones (shared memories, WebAssembly modules); a thread's output and uncaught error go to its parent. Node's `MessageChannel`: ports with `ref`/`unref` and `on('message')`. |
 | `wasi.ts` | `node:wasi` over the runtime's WASI (`wasi/index.ts`), on the shared files. |
 | `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the project's ports, and to other hosts through the tailnet (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too; `https.request` and `get`, the same over HTTPS the exec frame carries (below). |
@@ -49,9 +52,8 @@ without the runtime's own frames.
 
 **What is missing** says so when called: an HTTPS server and
 `tls.createServer`, `child_process`'s synchronous forms, brotli in
-`zlib`, ciphers and keys in `crypto`. `fetch` is the
-browser's, and reaches the internet, not the project's ports. There is no
-REPL (`node` alone).
+`zlib`, ciphers and keys in `crypto`, HTTP/2 (its constants are there,
+which clients read as they load). There is no REPL (`node` alone).
 
 ## Standard input and the terminal
 
@@ -240,6 +242,18 @@ worker: what crosses to the apex's Tailscale worker is TLS.
 - Not yet: `tls.createServer`, sessions and resumption, `rootCertificates`'
   PEMs, a certificate's fields.
 
+### fetch (`fetch.ts`)
+
+The global `fetch` is Node's, as undici's is: a request by the process's
+own `http` and `https`, not the browser's `fetch`. So
+`fetch('http://localhost:3000')` reaches another process's or a node's
+server (which the browser's cannot), and HTTPS goes as `https.request`
+does: through the tailnet with the process's own TLS, else by the exec
+frame's `fetch()` (CORS's rules). Redirects are followed as fetch's, gzip
+and deflate answers decompressed; it holds the loop from its call to its
+body's end. `data:` and `blob:` URLs, and a worker thread's `fetch`, are
+the browser's.
+
 ### Other hosts: the tailnet ([tailscale.md](tailscale.md))
 
 As a node's, a process's network beyond the machine goes through the
@@ -272,6 +286,23 @@ Firefox and WebKit; an edit saved in the editor reaches its watcher
 (chokidar) and the page updates in place over its WebSocket (React Fast
 Refresh), through the bridge's WebSocket as LiveView's goes.
 
+## Coding agents
+
+Pi (`@earendil-works/pi-coding-agent`, a Node.js bundle) runs in the
+terminal: its TUI draws and reads raw keys, and with a provider's key it
+works on the project with its tools (read, edit, write, bash: `sh -c` by
+`child_process`). Its requests are undici's (on `net` and `tls`) and
+`fetch`'s, so a model's API is reached through the tailnet; without
+Tailscale, only an API whose CORS lets a browser in, through the
+gateway's `fetch()`. It looks for `fd` and tries to download it, which
+fails without the tailnet; it goes on without.
+
+What it needed: `http2`'s constants, `worker_threads.markAsUncloneable`,
+`process.getBuiltinModule` and `performance.markResourceTiming` (undici's,
+as it loads and as its fetch ends), Node's `fetch`, and the loop's
+patience above. Claude Code's npm package is a native binary (Bun's),
+Codex's too (Rust); opencode needs Bun.
+
 ## Tests
 
 - `nodejs.spec.ts`: scripts, CommonJS and ES modules, a package by its
@@ -300,8 +331,9 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   www.example.com (no CORS headers: 200 and its page), `tls.connect` with
   ALPN (authorized, TLS 1.3, h2), expired.badssl.com refused
   (`CERT_HAS_EXPIRED`) and, with `rejectUnauthorized: false`, let through
-  unauthorized. Its Caddy holds port 8091, so the worktree runs it with
-  `PORT=8095`.
+  unauthorized; Pi with a key that is none, Anthropic's API answering its
+  request (`authentication_error`). Its Caddy holds port 8091, so the
+  worktree runs it with `PORT=8095`.
 - `stdin.spec.ts`: a process reads typed lines and Ctrl+D's end,
   answers readline's question, reads raw keys (a letter, an arrow,
   Ctrl+C as a key) and leaves the terminal the shell's again, and reads a
@@ -312,6 +344,8 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   `vite build`, its CSS minified by lightningcss-wasm); `npx sv create`
   (a minimal SvelteKit project in TypeScript), installed and built
   (TypeScript's compiler by `import()`, zlib). Each about 30 s.
+- `nodenet.spec.ts`'s fetch: another process's server on localhost (a
+  POST, a redirect followed, a gzip answer), and hex.pm's API by HTTPS.
 - `child.spec.ts`: `execSync`'s output, `input` into a Node.js child,
   `spawnSync`'s status, `execSync` throwing, `ENOENT`, an asynchronous
   child's stdin, and `kill()`.
@@ -321,9 +355,8 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 
 ## Next
 
-1. A pool of kept connections for `http.Agent({ keepAlive })`; Node's
-   `fetch` (undici's) to the project's ports, which the browser's cannot
-   reach.
+1. A pool of kept connections for `http.Agent({ keepAlive })` (and
+   `fetch`'s); `fd` in WebAssembly beside `rg` (its walker's threads).
 2. `child_process`'s rest: a child's own stderr, the terminal for one
    that inherits stdin, fork's IPC; brotli in
    `zlib`; more entries in npm's `STAND_INS` as projects need them
