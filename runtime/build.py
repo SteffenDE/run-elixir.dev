@@ -89,8 +89,8 @@ RECORD = {
 # Mozilla's CA certificates (curl.se's extract), where OTP looks for the
 # system's on Linux (public_key:cacerts_get/0): clients such as httpc and
 # Mint ask for them before connecting, also when the host carries the TLS.
-CACERTS = ("https://curl.se/ca/cacert-2026-09-25.pem",
-           "a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505")
+CACERTS = ("https://curl.se/ca/cacert-2026-10-20.pem",
+           "796f1389bfea13c0ed78f663b765baaff54a508e5483786bd6ece73c5e3e3cbe")
 
 
 def cacerts():
