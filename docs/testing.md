@@ -50,7 +50,7 @@ the prompt; a prompt on the screen is one per command.
 
 | Spec | Checks |
 | --- | --- |
-| `projects` | The home page; a temporary IEx answers and is ephemeral; an empty project gets a shell, is listed and deleted; renaming; an unknown id; a project that cannot start says why in a modal dialog; a project starts after a forced reload. |
+| `projects` | The home page; a temporary IEx answers and is ephemeral; an empty project gets a shell, is listed and deleted; renaming; a folder from this computer (the picker) opens as a project without its `_build`, `deps`, `node_modules`, an editor's cache or what its `.gitignore` files ignore, and compiles; one too large opens once a directory is left out; an unknown id; a project that cannot start says why in a modal dialog; a project starts after a forced reload. |
 | `persist` | An empty project's files, and a Phoenix project's edited, removed and moved template files, are there after a reload; the server comes back without recompiling dependencies. |
 | `database` | A Phoenix project's PGlite rows survive a reload; deleting the project deletes both of its databases. |
 | `tabs` | Two Phoenix projects in two tabs each show their own app, also after the service worker stops (Chromium); a third tab takes one over. |

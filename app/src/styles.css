@@ -861,6 +861,174 @@ button {
   border-color: var(--accent);
 }
 
+/* A folder from this computer (FolderImport). */
+.home-alert {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  color: var(--muted);
+}
+
+.home-alert > svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.home-alert p {
+  margin: 0;
+}
+
+.home-alert.error,
+.folder-review-over {
+  border: 1px solid var(--accent);
+  border-style: solid;
+  background: var(--accent-soft);
+  color: var(--fg);
+}
+
+.home-alert.error > svg,
+.folder-review-over > svg {
+  color: var(--accent);
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.folder-review {
+  display: grid;
+  gap: 10px;
+  border-style: solid;
+  background: var(--panel);
+  color: var(--fg);
+}
+
+.folder-review-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.folder-review-title svg {
+  color: var(--accent);
+}
+
+.folder-review-over {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 8px;
+}
+
+.folder-review-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.folder-review-warning > svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--warn);
+}
+
+.folder-tree {
+  max-height: 320px;
+  overflow: auto;
+  padding: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+}
+
+.folder-tree input {
+  accent-color: var(--accent);
+}
+
+.folder-tree ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.folder-tree ul ul {
+  padding-left: 20px;
+}
+
+.folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 0 10px 0 4px;
+}
+
+.folder-row .icon-button {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+}
+
+.folder-row-space {
+  flex: none;
+  width: 18px;
+}
+
+.folder-row label {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.folder-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+}
+
+.folder-row-size {
+  flex: none;
+  font-size: 12px;
+}
+
+.home-drop {
+  position: fixed;
+  inset: 12px;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent-soft) 85%, transparent);
+  color: var(--fg);
+  font-size: 16px;
+  font-weight: 600;
+  pointer-events: none;
+}
+
 .new-project-icon {
   grid-row: span 2;
   color: var(--accent);
