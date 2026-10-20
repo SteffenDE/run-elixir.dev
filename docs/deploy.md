@@ -27,10 +27,12 @@ Forgejo runner and makes it live on the server as a new release
    keeps the builds and runtimes of the newest `KEEP_BUILDS` releases
    (`b/ID/`, `r/RID/`, for pages loaded before),
    then `current` is pointed at it in one rename. The site is checked as
-   served (the isolation headers, the page naming this build, its
-   runtime's `beam.wasm` as WebAssembly, `sw.js` no-cache); if that fails, the
-   previous release is live again and the deploy fails. Then Cloudflare
-   drops its copies of the pages, and releases beyond `KEEP_RELEASES` go.
+   served (the isolation headers, the page naming this build, the pages
+   and `sw.js` no-cache, its runtime's `beam.wasm` as WebAssembly and
+   immutable, and with a usercontent domain an exec frame's headers there);
+   if that fails, the previous release is live again and the deploy fails.
+   Then Cloudflare drops its copies of the apex's pages (if configured), and
+   releases beyond `KEEP_RELEASES` go.
 
 `playground-deploy rollback` makes the release before the live one live
 again; `status` names the live one. Both also work over the deploy key
@@ -113,11 +115,21 @@ repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 
 ### Cloudflare
 
-The pages are HTML and JSON, which Cloudflare does not cache unless told
-to, and `sw.js` is no-cache; `b/`, `r/` and `_playground/` are new names
-when their contents change and cached for good. So nothing needs purging for a deploy to
-be seen; the purge of the apex's pages is a safety net for a cache rule
-that caches more.
+Only the pages keep their names across deploys: `index.html` (every
+route's page), `preview.html`, `relay.html`, `exec.html`, `storage.html`,
+`sw.js` and `playground.json`, with `app/public`'s files. They are served
+`Cache-Control: no-cache`, which Cloudflare honours whatever its cache
+rules: it may keep them, but asks the server each time (a `304` while
+unchanged), so a deploy is seen at once. `b/`, `r/` and `_playground/` are
+new names when their contents change, `immutable`, and come from
+Cloudflare's edge.
+
+So nothing needs purging. The usercontent domain could not be purged by
+URL anyway: every project has hosts of its own there (`e-ID`,
+`v-ID-PORT`), each with its own copy of `exec.html`, `relay.html` and
+`sw.js`; it relies on `no-cache` alone, and needs no Cloudflare settings.
+The purge of the apex's pages (`CF_ZONE_ID`, `CF_API_TOKEN`) is optional,
+a safety net only.
 
 ## What the server must do
 
@@ -156,8 +168,9 @@ that caches more.
   - The pages (`index.html`, `preview.html`, `relay.html`, `exec.html`,
     `storage.html`), `sw.js`, `playground.json` and `app/public`'s files
     (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
-    names, so they should revalidate (ETag or Last-Modified, which Caddy's
-    file_server sends). A page names its build and runtime, so it never mixes an older
+    names, so they are served `Cache-Control: no-cache`: they revalidate
+    (ETag or Last-Modified, which Caddy's file_server sends) at the
+    browser and at Cloudflare. A page names its build and runtime, so it never mixes an older
     build's files with a newer one's.
   - Keep the previous build's `b/ID/` and `r/RID/` for a while after a deploy: a tab
     opened before it keeps loading from there.
@@ -211,9 +224,14 @@ starts no project: its pages say so.
 }
 
 (playground) {
-	header /_playground/* Cache-Control "public, max-age=31536000, immutable"
-	header /b/* Cache-Control "public, max-age=31536000, immutable"
-	header /sw.js Cache-Control no-cache
+	# New names when their contents change: for good. Everything else (the
+	# pages, sw.js, playground.json, every route's index.html) keeps its
+	# name: revalidated each time, at the browser and at Cloudflare, so a
+	# deploy needs no purge.
+	@versioned path /_playground/* /b/* /r/*
+	header @versioned Cache-Control "public, max-age=31536000, immutable"
+	@named not path /_playground/* /b/* /r/*
+	header @named Cache-Control no-cache
 	# Never application/gzip: PGlite takes a gzip Content-Encoding for its
 	# extension archives' own gzip and does not unpack them ("File is
 	# corrupted"), and a cache keeps such a response until purged.
