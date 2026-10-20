@@ -1,15 +1,16 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-19
+last_updated: 2026-10-20
 ---
 
 # Node.js in the playground
 
 An experiment on the `worktree-node` branch: `node`, `npm` and `npx` in a
-project's terminal and from its nodes, with scripts on the page's own
+project's terminal and from its nodes, with scripts on the browser's own
 JavaScript engine rather than an engine compiled to WebAssembly (which
-could not JIT). Node's modules are the playground's own
+could not JIT). Like the nodes, they run in the project's exec frame, on
+the usercontent domain ([frames.md](frames.md)). Node's modules are the playground's own
 (`app/src/runtime/nodejs/`), over the project's files. A React project
 installs and builds with Vite, and its dev server shows the app in the
 preview and hot-updates it on an edit, in Chromium, Firefox and WebKit
@@ -17,8 +18,9 @@ preview and hot-updates it on an edit, in Chromium, Firefox and WebKit
 
 ## A process (`nodejs.js`, `programs/nodejs.ts`)
 
-`node` is a page program: each process is a worker of its own (the
-runtime's entry `nodejs/index.ts`, built as `nodejs.js`), started with a
+`node` is a page program (in the exec frame's worker, `exec/host.ts`, as
+the others now are): each process is a worker of its own, nested in that
+one (the runtime's entry `nodejs/index.ts`, built as `nodejs.js`), started with a
 channel to the shared files (`Files.connect()`), as a node's worker is. Its
 output and exit come back as messages; closing its port (Ctrl+C) stops the
 worker. `/usr/bin/node` is a stand-in, so `System.cmd("node", …)` finds it,
@@ -34,7 +36,7 @@ in `node_modules/.bin`) with it.
 | `process.ts` | `process`, `console`, timers. The process ends when nothing holds its loop, as Node's: timers, intervals, immediates, pending `import()`, workers and ports that are ref'd; promises are not. |
 | `threads.ts` | `worker_threads`: a `Worker` is a nested worker running `nodejs.js` as a thread of the same process, sharing its files channel (one call at a time, by a lock in shared memory); messages as structured clones (shared memories, WebAssembly modules); a thread's output and uncaught error go to its parent. Node's `MessageChannel`: ports with `ref`/`unref` and `on('message')`. |
 | `wasi.ts` | `node:wasi` over the runtime's WASI (`wasi/index.ts`), on the shared files. |
-| `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the page's ports (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too; `https.request` and `get`, the same over HTTPS the page carries (below). |
+| `net.ts`, `http.ts` | `net.Server`, `net.Socket` and `net.connect` on the project's ports (below); `http.createServer` over them: requests with a body by length or in chunks, kept connections, `upgrade` (a WebSocket), responses with Node's header calls, by length or in chunks; `http.request` and `get`, each on a connection of its own (no pooling), with `upgrade` too; `https.request` and `get`, the same over HTTPS the exec frame carries (below). |
 | `hashes.ts` | `crypto.createHash`, `createHmac` and `hash` (md5, sha1, sha2, ripemd160), synchronous, by `@noble/hashes`. |
 | `builtins.ts`, `util.ts`, `path.ts`, `buffer.ts` | The other core modules: `path`, `util` (`format`, `inspect`, `promisify`, `parseEnv`, …), `events`, `stream` (readable-stream), `os`, `url`, `assert`, `tty`, `readline`, `vm`, `async_hooks`, `perf_hooks`, `timers/promises`, `module`, `crypto` (random values and hashes), `dns` (the machine's own names), `Buffer` with `base64url`. |
 
@@ -53,16 +55,18 @@ as Vite's does).
 
 ## npm and npx (`programs/npm.ts`)
 
-The page's own npm, not npm's CLI (which would need `http`, `zlib`, `crypto`
+The playground's own npm, not npm's CLI (which would need `http`, `zlib`, `crypto`
 and `child_process`, and load a thousand modules per run): `npm install`
 (and `ci`, `add`, `-D`, `-E`, `--no-save`), `npm run` (and `test`,
 `start`), `npm exec`, `npm init`, and `npx`.
 
-- **The registry** is fetched by the page: registry.npmjs.org sends CORS
+- **The registry** is fetched from the exec frame's worker (its origin,
+  so no cookie of the apex's goes along): registry.npmjs.org sends CORS
   headers on metadata and tarballs; it answers no preflight, so requests
   carry only simple headers (the abbreviated metadata's `Accept` is one).
-  Tarballs are checked against their integrity and kept in Cache Storage
-  (`playground-npm`). Private registries and git or `file:` dependencies
+  Tarballs are checked against their integrity and kept in the exec
+  frame's Cache Storage (`playground-npm`; Hex's cache, by contrast, is
+  the apex's). Private registries and git or `file:` dependencies
   do not install.
 - **The tree** is laid out as npm lays it out (each package as high as it
   goes without another version in the way); a `package-lock.json`'s
@@ -73,7 +77,7 @@ and `child_process`, and load a thousand modules per run): `npm install`
   `os: linux`, `cpu: wasm32`. napi-rs packages list only their native
   builds; npm adds their `PREFIX-wasm32-wasi` build beside them (Rolldown's
   binding). Install scripts do not run (npm says which packages had one).
-- **`npm run`** runs a script with the page's `sh` (brush, below), with
+- **`npm run`** runs a script with the page program `sh` (brush, below), with
   `node_modules/.bin` on `PATH` and npm's `npm_*` variables; `npx` runs a
   project's bin, or installs the package into `~/.npm/_npx` first.
 
@@ -85,7 +89,7 @@ commands as the terminal's shell does: pipes, `||`, `;`, variables,
 redirections; node commands in that worker, page programs, coreutils.
 `sh.ts`'s `commands()` remains only for the Node harness (no page).
 `System.shell("true")` takes some 70–220 ms, mostly the worker's start
-(it builds its tree from the page's boot tars).
+(it builds its tree from the boot tars the exec frame's worker has).
 
 ## Vite and Rolldown
 
@@ -101,39 +105,42 @@ memory of 1 GiB (up to 4 GiB), which a phone may not have.
 
 ## Servers and connections: ports, and the files' changes
 
-A process's `listen` asks the page for its port (`{ kind: 'net', op:
-'listen' }`); `playground.ts` takes it unless a node or another process
-holds it (0 takes a free one, which is no server), and answers. The page
-holds a process's ports as it holds a node's: the preview's bridge, a
+A process's `listen` asks the exec frame's worker for its port (`{ kind:
+'net', op: 'listen' }`); `exec/host.ts` takes it unless a node or another
+process holds it (0 takes a free one, which is no server), and answers.
+It holds a process's ports as it holds a node's: the preview's bridge, a
 live session's guest and the project's nodes (`routePeer`) connect to
 them, each connection a series of messages to and from the process's
 worker (`open`, `data`, `end`, `close`), whose `net.Socket` is a stream
 of them. A port a process serves shows in the preview as a node's does;
 a save in the editor does not reload a page a Node.js server shows (it
 updates its page itself, as Vite does). The process's ports go when it
-ends. With no server on Phoenix's 4000, the preview shows the server that
-started last (Vite, after the backend it proxies to); on one origin it
-goes to that server's root when it changes.
+ends; the IDE hears which ports are a process's with the others
+(`serving`'s `scripts`). With no server on Phoenix's 4000, the preview
+shows the server that started last (Vite, after the backend it proxies
+to).
 
 A connection a process makes (`{ op: 'connect', id, port }`, even ids)
-goes where a node's would (`route` in `playground.ts`): to the page's
-services (Postgres on 5432 by PGlite, Hex, epmd), another process's
-port, or a node's; the page answers `connected` or `refused`
+goes where a node's would (`route` in `exec/host.ts`): to the services
+(Postgres on 5432 and Hex, carried to the IDE's page as a node's are,
+`portConnection.ts`; epmd), another process's port, or a node's; the
+worker answers `connected` or `refused`
 (`ECONNREFUSED`), and the bytes go as a listener's do. So `pg` queries the
 project's database, processes talk HTTP to each other, Vite's
 `server.proxy` reaches a backend, and a node's `:httpc` a process's
 server.
 
 `https.request` goes as a node's HTTPS does (`https.ts`): its connection
-asks the page for a host (`{ op: 'connect', id, port, host }`), the
-request goes on it as plain HTTP, and the page answers it with a
-`fetch()` of `https://host/path`. The browser does TLS and checks the
+asks for a host (`{ op: 'connect', id, port, host }`), the request goes
+on it as plain HTTP, and the exec frame's worker answers it with a
+`fetch()` of `https://host/path` (from the usercontent origin). The browser does TLS and checks the
 certificate; it reads only what the site's CORS allows (a site without
 CORS headers answers 502, saying why), sets Host, User-Agent and Cookie
 itself, follows redirects and decompresses. Each connection carries one
 request.
 
-What files.js reports changed (every 200 ms at most) the page passes on
+What files.js reports changed (every 200 ms at most) the exec frame's
+worker passes on
 to each process (`{ kind: 'changed', paths }`), whose watchers emit
 Node's events. Vite's dev server (`npm run dev`) on a React app: its
 page in the preview some 3 s after the command in Chromium, 4–5 s in
@@ -156,7 +163,7 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   a chunked POST between processes; a page Vite serves fetching `/api`
   through Vite's proxy to a backend; a process's `http.get` to a node's
   `:gen_tcp` server, and a node's `:httpc` to a process's server;
-  `https.get` of hex.pm's API by the page's fetch, and a site without
+  `https.get` of hex.pm's API by fetch, and a site without
   CORS answering 502.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`.
@@ -166,7 +173,7 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 1. A pool of kept connections for `http.Agent({ keepAlive })`; Node's
    `fetch` (undici's) to the project's ports, which the browser's cannot
    reach.
-2. `child_process` through the page's programs (as `npm run` runs `sh`),
+2. `child_process` through the page programs (as `npm run` runs `sh`),
    `zlib` (DecompressionStream is asynchronous; synchronous inflate needs
    a library: pako is in the tree already).
 3. A Phoenix project whose assets are a Vite app.

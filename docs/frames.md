@@ -64,7 +64,9 @@ worker runs what the IDE's page ran before:
 - `files.js` and the nodes, a shell per terminal tab and one per command
   they run, and their routing to each other's ports;
 - the page programs: Tailwind (the project's plugins run here, nowhere
-  else), esbuild, git, `sh`, `rebar3`, `mix` and friends;
+  else), esbuild, git, `sh`, `rebar3`, `mix` and friends, and on the
+  `worktree-node` branch `node`, `npm` and `npx`, whose processes are
+  workers of this one ([nodejs.md](nodejs.md));
 - epmd, HTTPS by fetch (from this origin: no cookie of the apex goes
   along), and the bridge to the app for the preview, whose relays send
   their requests straight to it on ports the IDE hands over.
