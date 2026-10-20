@@ -51,10 +51,38 @@ without the runtime's own frames.
 `tls.createServer`, `child_process`'s synchronous forms, brotli in
 `zlib`, ciphers and keys in `crypto`. `fetch` is the
 browser's, and reaches the internet, not the project's ports. There is no
-REPL, and a process reads no standard input: `process.stdin` stays open
-with nothing in it, as a terminal's with nothing typed, and does not hold
-the loop (ending it at once stopped servers that close with their input,
-as Vite's does).
+REPL (`node` alone).
+
+## Standard input and the terminal
+
+A process reads what is typed at the terminal, as a node does, through
+the IDE's line discipline (`runtime/terminal.ts`):
+
+- **Lines:** cooked, the line discipline echoes and edits a line, and the
+  process gets it at Enter; Ctrl+D on an empty line is the end of its
+  input. While the shell runs a page program (`runOnPage` in
+  `worker/index.ts`), the terminal's input goes to it (`stdin` messages to
+  the page's `PageProcess.oninput`), not to the shell.
+- **Raw input:** `process.stdin.setRawMode(true)` asks for it (a `MODE`
+  frame to the shell's worker): keys go as typed, and Ctrl+C is one of
+  them (no signals, as a tty without ISIG), so a TUI handles it itself.
+  The shell's mode comes back once the program ends, however it ends.
+- **A pipe's bytes** (`echo x | node …`) and then their end; with neither
+  a terminal nor a pipe (a child process's, a node's port), stdin stays
+  open with nothing in it, as an open pipe does. `process.stdin` holds
+  the loop only while something reads it, so a process that never reads
+  ends as before.
+- **Its size:** `stdout.columns` and `rows` are the terminal's, with
+  `'resize'` and SIGWINCH as it changes; `isTTY` says whether stdin and
+  stdout are the terminal.
+- `sh` (a node of its own) and `npm run` pass the input, the size and
+  the raw mode through, so `npm run dev`'s Vite or a script's prompt reads
+  the terminal too.
+- **readline** (`readline.ts`): keypress events as Node parses a
+  terminal's keys, and `createInterface` on a terminal with its own line
+  editing (raw input, history, Ctrl+C, Ctrl+D), else lines;
+  `question` and `readline/promises`. create-vue's and sv's prompts
+  (clack's) work at the terminal.
 
 ## npm and npx (`programs/npm.ts`)
 
@@ -104,7 +132,10 @@ and `exit`; a child holds the loop while it runs, and goes with the
 process. A command `sh` did not find (127) is spawn's `ENOENT`.
 
 - A page program has one output: a child's stderr comes on its stdout.
-- Its stdin ends at once (no standard input, as the process's own).
+- Its stdin stays open with nothing in it (what the program writes to
+  `child.stdin` goes nowhere yet).
+- `stdio` may name a stream, such as `process.stdout` itself (npm-run-all2
+  does on a TTY): the child's output goes there.
 - `spawnSync`, `execSync` and `execFileSync` say they are missing: the
   process would wait in `Atomics.wait` for the exec frame to run the
   child, not done yet.
@@ -263,8 +294,13 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
   (`CERT_HAS_EXPIRED`) and, with `rejectUnauthorized: false`, let through
   unauthorized. Its Caddy holds port 8091, so the worktree runs it with
   `PORT=8095`.
-- `create.spec.ts`: `npm create vue@latest my-vue -- --default`,
-  installed (157 packages) and built (`run-p`'s `vue-tsc --build` and
+- `stdin.spec.ts`: a process reads typed lines and Ctrl+D's end,
+  answers readline's question, reads raw keys (a letter, an arrow,
+  Ctrl+C as a key) and leaves the terminal the shell's again, and reads a
+  pipe's bytes and their end (`isTTY` false then).
+- `create.spec.ts`: `npm create vue@latest`, its questions answered at
+  the terminal (the name, TypeScript, the features), installed (157
+  packages) and built (`run-p`'s `vue-tsc --build` and
   `vite build`, its CSS minified by lightningcss-wasm); `npx sv create`
   (a minimal SvelteKit project in TypeScript), installed and built
   (TypeScript's compiler by `import()`, zlib). Each about 30 s.
@@ -277,15 +313,14 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
    `fetch` (undici's) to the project's ports, which the browser's cannot
    reach.
 2. `child_process`'s rest: the synchronous forms, a child's own stderr
-   and stdin (page programs with three streams), fork's IPC; brotli in
+   and its stdin (`child.stdin`, and the terminal for one that inherits
+   it), fork's IPC; brotli in
    `zlib`; more entries in npm's `STAND_INS` as projects need them
    (`@swc/core` → `@swc/wasm`, `rollup` → `@rollup/wasm-node`,
    `sass-embedded` → `sass`), each checked by hand.
 3. A Phoenix project whose assets are a Vite app.
-4. Standard input for a process (the terminal's typing, Vite's
-   shortcuts; a pipeline's input), and a REPL: create-vue and sv ask
-   their questions there, so without it they need their flags
-   (`--default`; `--template`, `--types`, `--no-add-ons`).
+4. A REPL (`node` alone); a page program's own stderr (a third
+   stream); a test of a resize and of a TUI (Ink).
 5. `fs.watch` in a worker thread (only a process hears the changes).
 6. TLS's rest: `getPeerCertificate()`'s fields (an X.509 parser), session
    resumption, `tls.createServer`; tls.wasm compiled once by the exec
