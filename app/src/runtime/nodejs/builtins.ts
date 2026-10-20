@@ -10,6 +10,7 @@ import { createHttp, METHODS, STATUS_CODES } from './http';
 import type { ChildProcesses } from './child';
 import type { Net } from './net';
 import { createDns } from './dns';
+import { createReadline } from './readline';
 import { createTls } from './tls';
 import { createZlib } from './zlib';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
@@ -343,8 +344,8 @@ export function createBuiltins(deps: {
       escape: encodeURIComponent,
       unescape: decodeURIComponent,
     }),
-    readline: () => createReadline(process),
-    'readline/promises': () => createReadline(process),
+    readline: () => createReadline().readline,
+    'readline/promises': () => createReadline().promises,
     // Stream, with readable-stream's classes on it as Node's has them (and
     // its own promises, a getter, if it has them).
     stream: () => {
@@ -636,49 +637,6 @@ function createVm() {
     createContext: (context: object = {}) => context,
     isContext: () => true,
     compileFunction: (code: string, params: string[] = []) => new Function(...params, code),
-  };
-}
-
-function createReadline(process: Record<string, unknown> & EventEmitter) {
-  const createInterface = (options?: { input?: EventEmitter }) => {
-    const rl = new EventEmitter() as EventEmitter & Record<string, unknown>;
-    let closed = false;
-    const close = () => {
-      if (closed) return;
-      closed = true;
-      rl.emit('close');
-    };
-    Object.assign(rl, {
-      close,
-      pause: () => rl,
-      resume: () => rl,
-      setPrompt() {},
-      prompt() {},
-      write() {},
-      getPrompt: () => '',
-      line: '',
-      terminal: false,
-      // No input: every question answers empty.
-      question(query: string, ...rest: unknown[]) {
-        (process.stdout as { write(t: string): void }).write(query);
-        const done = rest.pop();
-        if (typeof done === 'function') queueMicrotask(() => done(''));
-        else return Promise.resolve('');
-      },
-      [Symbol.asyncIterator]: async function* () {},
-    });
-    options?.input?.on?.('end', close);
-    queueMicrotask(close);
-    return rl;
-  };
-  return {
-    createInterface,
-    Interface: class Interface extends EventEmitter {},
-    clearLine: () => true,
-    clearScreenDown: () => true,
-    cursorTo: () => true,
-    moveCursor: () => true,
-    emitKeypressEvents: () => {},
   };
 }
 
