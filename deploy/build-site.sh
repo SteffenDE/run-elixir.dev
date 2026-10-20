@@ -14,4 +14,6 @@ python3 -I nif/build.py
 python3 -I coreutils/build.py
 python3 -I brush/build.py
 python3 -I tailscale/build.py
+python3 -I ripgrep/build.py
+python3 -I tls/build.py
 python3 -I runtime/build.py
