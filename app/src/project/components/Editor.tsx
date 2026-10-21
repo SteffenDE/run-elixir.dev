@@ -149,9 +149,9 @@ function TabEditor({ tab }: { tab: Tab }) {
     () => ({
       name: tab.path.slice(tab.path.lastIndexOf('/') + 1),
       contents: tab.contents,
-      cacheKey: `${tab.path}@${tab.version}`,
+      cacheKey: `${tab.id}@${tab.version}`,
     }),
-    [tab.path, tab.contents, tab.version],
+    [tab.id, tab.path, tab.contents, tab.version],
   );
   return (
     <>
@@ -162,7 +162,7 @@ function TabEditor({ tab }: { tab: Tab }) {
             options={fileOptions}
             edit
             editorOptions={editorOptions}
-            editStateKey={`${tab.path}@${tab.version}`}
+            editStateKey={`${tab.id}@${tab.version}`}
             onEditChange={(event) => {
               binding.current?.local(event.changes);
               edit(tab.path, event.file.contents);

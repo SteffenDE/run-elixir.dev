@@ -3,6 +3,7 @@ import {
   newProject,
   output,
   preview,
+  prompted,
   reachesPreview,
   readText,
   seesInPreview,
@@ -62,4 +63,56 @@ test('a change to the app’s JavaScript is bundled by esbuild on the page', asy
       { timeout: 60_000 },
     )
     .toBe('bundled on the page');
+});
+
+test('a tab opened again, here or in another project, shows the file, and unsaved edits hold the page', async ({
+  page,
+}) => {
+  const NOTES = '/work/notes.txt';
+  const editor = page.locator('.editor-scroll');
+  const openNotes = async () => {
+    await page.getByRole('treeitem', { name: 'notes.txt', exact: true }).click();
+    await expect(editor).toContainText('from the file');
+  };
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(page, NOTES, 'from the file\n');
+  await openNotes();
+  await editor.click({ position: { x: 120, y: 12 } });
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('unsaved draft ');
+  await expect(page.locator('.tab-close.dirty')).toHaveCount(1);
+
+  // The browser asks before the page goes; staying keeps the draft.
+  const asked = page.waitForEvent('dialog');
+  void page.evaluate(() => location.reload());
+  const dialog = await asked;
+  expect(dialog.type()).toBe('beforeunload');
+  await dialog.dismiss();
+  await expect(editor).toContainText('unsaved draft');
+
+  // Closed without saving, then opened again: the file's text.
+  await page.getByRole('button', { name: 'Close notes.txt' }).click();
+  await openNotes();
+  await expect(editor).not.toContainText('unsaved draft');
+
+  // Another project with the same path: its own file, not the edits here.
+  await page.keyboard.press('Control+Home');
+  await page.keyboard.type('first project ');
+  await page.keyboard.press('Control+s');
+  await expect(page.locator('.tab-close.dirty')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Elixir Playground' }).click();
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(page, NOTES, 'from the file\n');
+  await openNotes();
+  await expect(editor).not.toContainText('first project');
+  // Saved: the page goes without asking.
+  let held = false;
+  page.on('dialog', (other) => {
+    held = true;
+    void other.dismiss();
+  });
+  await page.reload();
+  expect(held).toBe(false);
 });

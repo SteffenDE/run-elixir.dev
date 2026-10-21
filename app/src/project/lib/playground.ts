@@ -6,6 +6,7 @@
 // cache, the terminals' screens and line disciplines, the tree and the
 // tabs. Everything the UI does to the project goes through here.
 import { Terminal } from '@xterm/xterm';
+import { EditStateManager } from '@pierre/diffs/edit';
 import { PGlite } from '@electric-sql/pglite';
 import { citext } from '@electric-sql/pglite/contrib/citext';
 import { fuzzystrmatch } from '@electric-sql/pglite/contrib/fuzzystrmatch';
@@ -582,6 +583,8 @@ export async function leave(): Promise<void> {
   disposeTerminals();
   begun = false;
   useStore.setState(useStore.getInitialState(), true);
+  // The editor's sessions of the tabs that closed (Tab.id names them).
+  EditStateManager.clearAll();
 }
 
 // What this project changed over its template, to share: its sources, not

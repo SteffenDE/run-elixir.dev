@@ -1,5 +1,6 @@
 import type { NifBuild } from '@/runtime/host/node';
 import { create } from 'zustand';
+import { newId } from '@/shared/lib/ids';
 
 // The project's files, in the node's filesystem.
 export const WORK = '/work';
@@ -11,6 +12,10 @@ export type Pane = 'files' | 'editor' | 'terminal' | 'preview';
 export type SideTab = 'files' | 'search';
 
 export interface Tab {
+  // This opening of the tab: the editor keeps its session (text, undo) by
+  // it, so a tab opened again, or the same path in another project, starts
+  // from the file.
+  id: string;
   // Absolute path in the node.
   path: string;
   // What the editor was given (a new object reloads the editor), and the
@@ -179,7 +184,16 @@ export const useStore = create<State>((set) => ({
         : {
             tabs: [
               ...state.tabs,
-              { path, contents, version: 0, draft: contents, saved: contents, line, jump: 0 },
+              {
+                id: newId(),
+                path,
+                contents,
+                version: 0,
+                draft: contents,
+                saved: contents,
+                line,
+                jump: 0,
+              },
             ],
             pane: 'editor',
             active: path,
