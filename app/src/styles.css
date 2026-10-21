@@ -2175,3 +2175,41 @@ button {
   align-items: center;
   gap: 12px;
 }
+
+/* The project this tab runs, from another page (BackToProject). */
+.back-to-project,
+.back-to-project:visited {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  color: var(--fg);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.18);
+  text-decoration: none;
+}
+.back-to-project:hover {
+  border-color: var(--accent);
+}
+.back-to-project-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.running-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--ok);
+}
+.running-dot.unsaved {
+  background: var(--warn);
+}

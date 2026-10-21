@@ -190,8 +190,8 @@ def otp_install():
 
 # The playground's settings for a phx.new app's config/dev.exs: one
 # connection to PGlite (one session). configure also sets the watchers
-# (WATCHERS) and takes live reload out of runtime.exs (its socket needs a
-# WebSocket, which the preview cannot open; the page reloads the preview).
+# (WATCHERS). runtime.exs keeps phx.new's live reload: file_system runs the
+# page's inotifywait (programs/inotifywait.ts).
 DEV_EXS = """
 # Playground: PGlite in the browser is one session.
 config :playground, Playground.Repo, database: "postgres", pool_size: 1
@@ -203,7 +203,26 @@ WATCHERS = """  watchers: [
     esbuild: {Esbuild, :install_and_run, [:playground, ~w(--sourcemap=inline --watch)]},
     tailwind: {Tailwind, :install_and_run, [:playground, ~w(--watch)]}
   ]"""
-RUNTIME_EXS = """# Playground: no live reload; the page reloads the preview.
+# A cache from before, whose runtime.exs had live reload taken out: phx.new's
+# block back in its place.
+NO_LIVE_RELOAD = """# Playground: no live reload; the page reloads the preview.
+"""
+LIVE_RELOAD = """if config_env() == :dev do
+  # Reload browser tabs when matching files change.
+  config :playground, PlaygroundWeb.Endpoint,
+    live_reload: [
+      web_console_logger: true,
+      patterns: [
+        # Static assets, except user uploads
+        ~r"priv/static/(?!uploads/).*\\.(js|css|png|jpeg|jpg|gif|svg)$"E,
+        # Gettext translations
+        ~r"priv/gettext/.*\\.po$"E,
+        # Router, Controllers, LiveViews and LiveComponents
+        ~r"lib/playground_web/router\\.ex$"E,
+        ~r"lib/playground_web/(controllers|live|components)/.*\\.(ex|heex)$"E
+      ]
+    ]
+end
 """
 
 
@@ -228,8 +247,7 @@ def configure(app):
         return text
 
     def runtime(text):
-        return re.sub(r"if config_env\(\) == :dev do\n  # Reload browser tabs.*?\nend\n", RUNTIME_EXS,
-                      text, flags=re.S)
+        return text.replace(NO_LIVE_RELOAD, LIVE_RELOAD)
     changed = edit("dev.exs", dev)
     return edit("runtime.exs", runtime) or changed
 

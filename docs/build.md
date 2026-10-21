@@ -149,8 +149,10 @@ The filesystem holds:
      (PGlite is one session). The watchers are phx.new's, esbuild and
      tailwind, which run on the page; the natively built assets are where
      they start.
-   - **`runtime.exs`:** the live reload block goes: without `inotifywait`
-     its watcher sees no change. The IDE reloads the preview itself.
+   - **`runtime.exs`:** phx.new's live reload block stays: `file_system`
+     runs the page's `inotifywait` (`programs/inotifywait.ts`, fed the
+     node's and the editor's changes), and Phoenix reloads the preview and
+     swaps its CSS. A cache from before gets the block back.
 4. **Files.** The installation, then the app:
    - `_build_otp` becomes `_build`;
    - links in the build (each dependency's `priv`, some `src`) are copied in

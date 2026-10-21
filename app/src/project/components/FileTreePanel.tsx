@@ -151,6 +151,19 @@ export function FileTreePanel() {
     return folder ? path.replace(/\/?$/, '/') : parentOf(path);
   };
 
+  // A selected file whose tab closed is no longer selected, so that
+  // selecting it again opens it again.
+  useEffect(
+    () =>
+      useStore.subscribe((state, before) => {
+        const path = selected.current;
+        if (state.tabs === before.tabs || !path || path.endsWith('/')) return;
+        if (state.tabs.some((tab) => tab.path === absolute(path))) return;
+        if (before.tabs.some((tab) => tab.path === absolute(path))) model.getItem(path)?.deselect();
+      }),
+    [model],
+  );
+
   // The tree follows the node: added and removed paths, the rest as it is.
   useEffect(() => {
     if (!paths.length) return;

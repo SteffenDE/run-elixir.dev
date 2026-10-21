@@ -6,6 +6,7 @@
 // cache, the terminals' screens and line disciplines, the tree and the
 // tabs. Everything the UI does to the project goes through here.
 import { Terminal } from '@xterm/xterm';
+import { EditStateManager } from '@pierre/diffs/edit';
 import { PGlite } from '@electric-sql/pglite';
 import { citext } from '@electric-sql/pglite/contrib/citext';
 import { fuzzystrmatch } from '@electric-sql/pglite/contrib/fuzzystrmatch';
@@ -34,8 +35,6 @@ import {
 } from '@/tailscale/client';
 import { claudePort } from '@/project/lib/programs/claude/frame';
 import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
-import { built } from '@/project/lib/programs/tailwind';
-import { bundled } from '@/project/lib/programs/esbuild';
 import {
   closePopup,
   onPreviewMessage,
@@ -179,7 +178,6 @@ export const live: {
 } = {};
 
 let refreshing: ReturnType<typeof setTimeout> | null = null;
-let reloading: ReturnType<typeof setTimeout> | null = null;
 
 // What the nodes changed: the tree, and open tabs without edits.
 async function changed(paths: string[]): Promise<void> {
@@ -268,15 +266,9 @@ export async function save(path: string, text: string): Promise<void> {
   await files.write(path, encoder.encode(text));
   useStore.getState().saved(path, text);
   live.saved?.(path, text);
+  // The nodes' watchers hear of it: Phoenix's live reload (inotifywait),
+  // Tailwind's and esbuild's, a Node.js server's (Vite's).
   void exec.call('saved', [path]);
-  // Phoenix's code reloader compiles on the next request. A Node.js
-  // process's server (Vite's) watches the files and updates its page
-  // itself.
-  const shown = useStore.getState().previewPort;
-  if (shown !== null && !scriptPorts.has(shown)) {
-    if (reloading) clearTimeout(reloading);
-    reloading = setTimeout(() => useStore.getState().reloadPreview(), 200);
-  }
 }
 
 // Keys typed into shell `id`'s terminal, here or by a live session's guest.
@@ -447,30 +439,26 @@ function listen(rpc: Rpc): void {
   on('changed', (paths) => void changed(paths));
   on('warning', (message) => useStore.getState().setStatus(message));
   on('nif', (build: NifBuild) => useStore.getState().setNifBuild(build));
-  on('css', (output) => {
-    for (const listener of built) listener(output);
-  });
-  on('bundled', () => {
-    for (const listener of bundled) listener();
-  });
   on('blocked', tailscaleBlocked);
   // The apex's services, and the tailnet as this page lets the project
   // use it (docs/tailscale.md).
   rpc.handle({ connect, tailnetDial, tailnetResolve, claudePort });
 }
 
-// A popped-out preview hears what the docked one would: reloads and new
-// CSS. Its closing brings the panel back.
+// Unsaved edits: the browser asks before the page goes.
+const unsaved = (event: BeforeUnloadEvent) => event.preventDefault();
 useStore.subscribe((state, before) => {
-  if (state.previewKey !== before.previewKey) send({ type: 'reload' });
-  if (state.previewPort !== before.previewPort) send({ type: 'port', port: state.previewPort });
+  if (state.tabs === before.tabs) return;
+  const was = before.tabs.some((tab) => tab.draft !== tab.saved);
+  const is = state.tabs.some((tab) => tab.draft !== tab.saved);
+  if (is && !was) addEventListener('beforeunload', unsaved);
+  else if (was && !is) removeEventListener('beforeunload', unsaved);
 });
-built.add(() => send({ type: 'css' }));
-// A rebuilt bundle: the preview loads it (a save's reload may come first).
-bundled.add(() => {
-  if (useStore.getState().previewPort === null) return;
-  if (reloading) clearTimeout(reloading);
-  reloading = setTimeout(() => useStore.getState().reloadPreview(), 100);
+
+// A popped-out preview hears which port to show. Its closing brings the
+// panel back.
+useStore.subscribe((state, before) => {
+  if (state.previewPort !== before.previewPort) send({ type: 'port', port: state.previewPort });
 });
 onPreviewMessage(({ data }: MessageEvent<PreviewMessage>) => {
   if (data.type === 'closed') useStore.getState().popOut(false);
@@ -484,6 +472,8 @@ onPreviewMessage(({ data }: MessageEvent<PreviewMessage>) => {
 // again only after shutdown().
 let begun = false;
 let startup: AbortController | null = null;
+// Whether the page has started its project (it shows it again, running).
+export const hasBegun = (): boolean => begun;
 export function beginStart(): boolean {
   if (begun) return false;
   begun = true;
@@ -566,9 +556,7 @@ export async function shutdown(): Promise<void> {
   const rpc = exec;
   exec = null;
   if (refreshing) clearTimeout(refreshing);
-  if (reloading) clearTimeout(reloading);
   refreshing = null;
-  reloading = null;
   sharedHidden = false;
   await rpc?.call('shutdown').catch(() => {});
   sharedPeers?.close();
@@ -597,6 +585,8 @@ export async function leave(): Promise<void> {
   disposeTerminals();
   begun = false;
   useStore.setState(useStore.getInitialState(), true);
+  // The editor's sessions of the tabs that closed (Tab.id names them).
+  EditStateManager.clearAll();
 }
 
 // What this project changed over its template, to share: its sources, not

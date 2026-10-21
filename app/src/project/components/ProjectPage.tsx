@@ -29,7 +29,7 @@ import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
 import { setup } from '@/project/lib/kinds';
-import { beginStart, start } from '@/project/lib/playground';
+import { beginStart, hasBegun, start } from '@/project/lib/playground';
 import { workspace as current } from '@/project/lib/workspace';
 import { closePopup } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
@@ -84,8 +84,9 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
   const narrow = useNarrow();
   // The kind's default, before the first paint; then as asked (a terminal's
   // link to a file shows them). On a phone: Phoenix's preview first, else
-  // the terminal.
+  // the terminal. Back to the project while it runs: as it was left.
   useLayoutEffect(() => {
+    if (hasBegun()) return;
     setFilesShown(showFiles);
     useStore.getState().setPane(kind === 'phoenix' ? 'preview' : 'terminal');
   }, [showFiles, setFilesShown, kind]);

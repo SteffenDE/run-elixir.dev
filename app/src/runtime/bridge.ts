@@ -240,13 +240,6 @@ function linkShim(port: number, origins: string | null, ide: string) {
         },
         ide,
       );
-      return;
-    }
-    if (event.data?.kind !== 'playground-css') return;
-    for (const link of document.querySelectorAll<HTMLLinkElement>('link[rel=stylesheet]')) {
-      const url = new URL(link.href);
-      url.searchParams.set('vsn', String(Date.now()));
-      link.href = url.href;
     }
   });
 }

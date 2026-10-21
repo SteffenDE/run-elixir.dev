@@ -28,8 +28,8 @@ import { httpsByFetch } from '@/runtime/https';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
 import { tailnet } from '@/tailscale/tailnet';
-import { built } from '@/project/lib/programs/tailwind';
-import { bundled, esbuild } from '@/project/lib/programs/esbuild';
+import { esbuild } from '@/project/lib/programs/esbuild';
+import { inotifywait } from '@/project/lib/programs/inotifywait';
 import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
@@ -100,8 +100,6 @@ export type ExecEvents = {
   nif: NifBuild;
   // Something a node could not reach without Tailscale (the setup hint).
   blocked: string;
-  css: string;
-  bundled: null;
 };
 
 const PREVIEW_PORT = 4000;
@@ -376,6 +374,7 @@ function nodeServices() {
     programs: {
       tailwind,
       esbuild,
+      inotifywait,
       git: gitProgram,
       node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
       npm: npmProgram(pagePrograms),
@@ -696,6 +695,3 @@ self.onmessage = ({ data, ports }: MessageEvent) => {
   if (data?.kind !== 'playground-exec' || rpc || !ports[0]) return;
   rpc = new Rpc(ports[0]).handle(handlers);
 };
-
-built.add((output) => rpc?.emit('css', output));
-bundled.add(() => rpc?.emit('bundled', null));

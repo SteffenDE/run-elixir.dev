@@ -1,5 +1,3 @@
-import { useEffect, useState } from 'react';
-import { built } from '@/project/lib/programs/tailwind';
 import { openPopup, previewKey, previewOriginOf, send } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { previewReady, previewShows } from '@/project/lib/previewHost';
@@ -15,16 +13,6 @@ export function Preview() {
   const navigate = useStore((state) => state.navigate);
   const reloadPreview = useStore((state) => state.reloadPreview);
   const popOut = useStore((state) => state.popOut);
-  const [css, setCss] = useState(0);
-
-  useEffect(() => {
-    const refresh = () => setCss((n) => n + 1);
-    built.add(refresh);
-    return () => {
-      built.delete(refresh);
-    };
-  }, []);
-
   return (
     <PreviewFrame
       running={running}
@@ -32,7 +20,6 @@ export function Preview() {
       path={path}
       navigation={navigation}
       reload={reload}
-      css={css}
       onNavigate={navigate}
       onReload={reloadPreview}
       originOf={previewOriginOf}

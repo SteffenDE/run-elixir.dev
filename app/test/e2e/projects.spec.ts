@@ -136,16 +136,28 @@ test('a project another tab lets go is no longer marked open, and opens where it
   await prompted(page, 1);
   const name = (await page.locator('.project-name').textContent())!;
 
-  // The projects' list marks it open, until the tab leaves it.
+  // The projects' list marks it open while the tab runs it: still on its
+  // way home (which marks it running there), no longer once the tab goes on
+  // to another project.
   const home = await context.newPage();
   await home.goto('/');
   const row = home.locator('.project-row', { hasText: name });
   await expect(row.getByText('open in a tab')).toBeVisible();
   await page.getByTitle('All projects').click();
+  await expect(
+    page.locator('.project-row', { hasText: name }).getByText('running here'),
+  ).toBeVisible();
+  await expect(row.getByText('open in a tab')).toBeVisible();
+  await page.getByRole('link', { name: 'Empty project' }).click();
+  await page.waitForURL(
+    (url) => /^\/[a-z0-9]{10}\/$/.test(url.pathname) && !url.pathname.includes(id),
+  );
+  await prompted(page, 1);
   await expect(row.getByText('open in a tab')).toHaveCount(0);
 
   // Open again there; a third tab asks for it, and has it once that tab
   // closes.
+  await page.goBack();
   await page.goBack();
   await prompted(page, 1);
   const other = await context.newPage();

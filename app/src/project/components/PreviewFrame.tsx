@@ -2,31 +2,15 @@ import { RiExternalLinkLine, RiRefreshLine } from '@remixicon/react';
 import { useEffect, useRef, useState } from 'react';
 import { shownAddress, typedPath } from '@/project/lib/address';
 
-// Stylesheets reload in place (as Phoenix's live reload does).
-export function refreshStylesheets(iframe: HTMLIFrameElement | null): void {
-  try {
-    for (const link of iframe?.contentDocument?.querySelectorAll<HTMLLinkElement>(
-      'link[rel=stylesheet]',
-    ) ?? []) {
-      const url = new URL(link.href);
-      url.searchParams.set('vsn', String(Date.now()));
-      link.href = url.href;
-    }
-  } catch {
-    // Not loaded.
-  }
-}
-
 interface Props {
   running: boolean;
   // The app's port the preview shows (null: not known yet).
   port: number | null;
   // Go to `path` whenever `navigation` changes; reload in place whenever
-  // `reload` changes; refresh stylesheets whenever `css` changes.
+  // `reload` changes.
   path: string;
   navigation: number;
   reload: number;
-  css: number;
   onNavigate(path: string): void;
   onReload(): void;
   onPopOut?: () => void;
@@ -49,7 +33,6 @@ export function PreviewFrame({
   path,
   navigation,
   reload,
-  css,
   onNavigate,
   onReload,
   onPopOut,
@@ -166,14 +149,6 @@ export function PreviewFrame({
     }
     iframe.src = fallback.current;
   }, [reload, running, originOf]);
-
-  useEffect(() => {
-    if (!css) return;
-    if (shown.current !== null && originOf?.(shown.current))
-      frame.current?.contentWindow?.postMessage({ kind: 'playground-css' }, '*');
-    else refreshStylesheets(frame.current);
-    // oxlint-disable-next-line react/exhaustive-deps -- `css` is the signal.
-  }, [css]);
 
   return (
     <div className="preview">

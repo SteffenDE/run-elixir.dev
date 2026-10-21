@@ -4,7 +4,6 @@
 // the IDE calls (playground.ts), and what changes is sent to everyone,
 // signed.
 import * as Y from 'yjs';
-import { built } from '@/project/lib/programs/tailwind';
 import {
   FIRST_SESSION,
   connectServer,
@@ -359,18 +358,13 @@ function watch() {
       }
       if (state.previewPort !== before.previewPort)
         void send({ t: 'preview', port: state.previewPort });
-      // A save's reload, and Tailwind's new CSS, in the guests' previews too.
-      if (state.previewKey !== before.previewKey) void send({ t: 'reload' });
     }),
     () => {
       for (const stop of outputs.values()) stop();
       if (flushing) clearTimeout(flushing);
     },
   );
-  const css = () => void send({ t: 'css' });
-  built.add(css);
   stops.push(() => {
-    built.delete(css);
     for (const connection of tunnels.values()) connection.close();
     tunnels.clear();
   });
