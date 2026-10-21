@@ -10,7 +10,8 @@ import { SettingsPage } from '@/settings/components/SettingsPage';
 import { TailscalePage } from '@/tailscale/components/TailscalePage';
 import { endSession } from '@/live/lib/host';
 import { BackToProject } from '@/project/components/BackToProject';
-import { stopActive, useActive } from '@/project/lib/active';
+import { LeaveDialog } from '@/project/components/LeaveDialog';
+import { mayLeave, stopActive, useActive } from '@/project/lib/active';
 import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { dropFramesOnLeave } from '@/shared/lib/leave';
@@ -26,8 +27,9 @@ import '@/styles.css';
 // as the tab (the Tailscale node's connection) stays. A project keeps
 // running while the tab shows the projects, settings or Tailscale
 // (BackToProject goes back to it), and stops when the tab goes to another
-// project (active.ts); a live session's guest's page is left by a load.
-// One page runs a project at a time (lock.ts).
+// project, its unsaved edits saved or discarded first (active.ts); a live
+// session's guest's page is left by a load. One page runs a project at a
+// time (lock.ts).
 //
 //   /           the projects, and new ones
 //   /ID/        a project
@@ -175,6 +177,7 @@ const render = (content: ReactNode) =>
     <StrictMode>
       <Fragment key={shown}>{content}</Fragment>
       <BackToProject />
+      <LeaveDialog />
     </StrictMode>,
   );
 
@@ -183,10 +186,15 @@ let path: string | null = null;
 async function show(url: URL): Promise<void> {
   // The page shown already (a link to it, a change of its #…).
   if (url.pathname === path) return;
-  // Another project than the one this tab runs: that one stops.
+  // Another project than the one this tab runs: that one stops, once its
+  // unsaved edits are saved or discarded. Staying keeps the page shown.
   const active = useActive.getState().active;
   const target = projectOf(url.pathname);
   const switching = active !== null && target !== null && target !== active.key;
+  if (switching && !(await mayLeave())) {
+    history.pushState(null, '', path ?? '/');
+    return;
+  }
   path = url.pathname;
   if (leaving === 'load') return location.assign(url);
   shown++;
