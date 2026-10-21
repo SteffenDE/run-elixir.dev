@@ -47,16 +47,23 @@ export function createProcess(options: {
 
   const process = new EventEmitter() as EventEmitter & Record<string, unknown>;
 
-  // Whether the loop has run dry: then beforeExit, and the end.
+  // Whether the loop has run dry: then beforeExit, and the end. Dry for
+  // two tasks: the browser reports a promise rejected and not handled
+  // (unhandledrejection, which ends the process as Node's does) in a task
+  // of its own, which may come after the first.
   const check = () => {
     if (checking || exiting) return;
     checking = true;
+    const dry = () => active === 0 && !exiting;
     nativeSetTimeout(() => {
-      checking = false;
-      if (active > 0 || exiting) return;
-      process.emit('beforeExit', process.exitCode ?? 0);
-      if (active > 0) return;
-      end(Number(process.exitCode ?? 0));
+      if (!dry()) return void (checking = false);
+      nativeSetTimeout(() => {
+        checking = false;
+        if (!dry()) return;
+        process.emit('beforeExit', process.exitCode ?? 0);
+        if (active > 0) return;
+        end(Number(process.exitCode ?? 0));
+      }, 0);
     }, 0);
   };
   const hold = () => {
