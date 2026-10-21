@@ -140,10 +140,6 @@ chunks; the same memory.
   in the middle of `mix test` ([../beam/README.md](../beam/README.md)).
 - **A node's start** takes about 2 s, twice Rust-OTP's, which every
   shell command and `System.cmd("mix", …)` pays.
-- `file_system` finds no `inotifywait`, so Phoenix's live reload is off, and
-  boot logs the warning. A small `inotifywait` program fed by `files.js`
-  changes would quiet it and could drive live reload, now that its socket
-  has a WebSocket.
 - **NIFs** load only as WebAssembly built for the playground
   ([nif.md](nif.md)): the site has bcrypt_elixir 3.3.2, argon2_elixir
   4.1.3, picosat_elixir 0.2.3 and lazy_html 0.1.13; the backend builds

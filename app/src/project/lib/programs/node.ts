@@ -3,6 +3,7 @@
 // (open_port's {spawn, Command}, System.shell; phx.new runs Mix that way)
 // and rebar3, the escript Mix builds rebar3 dependencies with.
 import { CHUNK, FRAME } from '@/runtime/host/node';
+import { inotifywait } from './inotifywait';
 import type { Context, Process } from './tailwind';
 
 // Start a node for `command` (['mix', 'deps.get']): its output is the
@@ -55,14 +56,24 @@ function run(start: StartNode, process: Process, command: string[], context: Con
   process.onowner = () => node.stop();
 }
 
+// file_system's inotify backend runs inotifywait in the background of a
+// shell that kills it when its port closes: brush on WASI runs a program
+// to its end and has no background jobs, so here inotifywait runs in its
+// place, until the port closes.
+const FILE_SYSTEM = /^\S*\/inotifywait "\$0" "\$@" & PID=\$!; read a; kill -KILL \$PID$/;
+
 // sh -c LINE: a worker of its own whose brush runs the line as the
 // terminal's runs it (worker/index.ts): pipes, redirections, variables,
 // and node commands, page programs and coreutils' tools, a node command
 // in that worker.
 export const shProgram =
   (start: StartNode) =>
-  (process: Process, context: Context): void =>
-    run(start, process, ['sh', ...context.args], context);
+  (process: Process, context: Context): void => {
+    const [flag, line, ...rest] = context.args;
+    if (flag === '-c' && FILE_SYSTEM.test(line ?? ''))
+      void inotifywait(process, { ...context, args: rest });
+    else run(start, process, ['sh', ...context.args], context);
+  };
 
 // A node command run as a program (System.cmd("mix", ...) finds
 // /rotp/bin/mix on PATH; igniter.new runs `mix deps.get` that way).

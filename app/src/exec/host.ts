@@ -30,6 +30,7 @@ import { carry } from '@/runtime/portConnection';
 import { tailnet } from '@/tailscale/tailnet';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled, esbuild } from '@/project/lib/programs/esbuild';
+import { inotifywait } from '@/project/lib/programs/inotifywait';
 import { tailwind } from '@/project/lib/programs/tailwind';
 import { filesChanged } from '@/project/lib/programs/watch';
 import { gitProgram } from '@/project/lib/programs/git';
@@ -376,6 +377,7 @@ function nodeServices() {
     programs: {
       tailwind,
       esbuild,
+      inotifywait,
       git: gitProgram,
       node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
       npm: npmProgram(pagePrograms),

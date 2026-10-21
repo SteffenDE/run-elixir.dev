@@ -292,7 +292,10 @@ onmessage = async ({
       if (tars) untarInto(new Uint8Array(image), root, local);
       else await untar(new Uint8Array(image), root, local);
     }
-    prepare(root, { dns: udpPorts.includes(53) });
+    prepare(root, {
+      dns: udpPorts.includes(53),
+      inotifywait: pagePrograms.includes('inotifywait'),
+    });
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
       : null;

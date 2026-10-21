@@ -36,8 +36,10 @@ export const ENV = {
 // The node's own tree around the installation (/work and /tmp may be
 // shared: files.js). dns: names other than the hosts file's are asked of
 // the page's DNS at 127.0.0.53 (UDP and TCP port 53; Tailscale's resolver,
-// docs/tailscale.md), else they do not resolve.
-export function prepare(root: Dir, { dns = false } = {}): void {
+// docs/tailscale.md), else they do not resolve. inotifywait: the page's
+// (programs/inotifywait.ts) is on PATH, for file_system (Phoenix's live
+// reload); without it file_system only warns, where its port would fail.
+export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
   root.mkdirs('home/user');
@@ -80,6 +82,7 @@ export function prepare(root: Dir, { dns = false } = {}): void {
     // coreutils.wasm's, and the site's other WASI programs (coreutils.ts).
     ...TOOLS,
     ...Object.keys(PROGRAMS),
+    ...(inotifywait ? ['inotifywait'] : []),
   ])
     root.put(`usr/bin/${name}`, new File());
 }
