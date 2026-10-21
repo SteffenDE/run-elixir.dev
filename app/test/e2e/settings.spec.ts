@@ -110,3 +110,63 @@ test('a project from a link takes none of the user’s settings until allowed', 
   expect(await run(page, 'echo "[$GREETING]"')).toContain('[]');
   expect(await exists(page, '/work/setup.log')).toBe(false);
 });
+
+// /shared: the same in every project of the user's, kept on the apex, and
+// what one changes the others open hear at once.
+test('/shared is every project’s, live, and kept', async ({ page, context }) => {
+  await userSettings(page, { env: {}, shared: true, setup: '' });
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(
+    page,
+    'echo one > /shared/notes.txt; mkdir -p /shared/claude; ln -s /shared/claude /home/user/.claude',
+  );
+  await run(page, 'echo token > /home/user/.claude/credentials.txt');
+
+  const other = await context.newPage();
+  await newProject(other, 'empty');
+  await prompted(other, 1);
+  expect(await run(other, 'cat /shared/notes.txt /shared/claude/credentials.txt')).toMatch(
+    /one\s+token/,
+  );
+
+  // While both run: a change in one, the other reads (a Node.js process's too).
+  await run(page, 'echo two > /shared/notes.txt');
+  await expect
+    .poll(() => run(other, 'cat /shared/notes.txt'), { timeout: 30_000 })
+    .toContain('two');
+  await run(other, `node -e "require('fs').writeFileSync('/shared/from-node.txt', 'node wrote')"`);
+  await expect
+    .poll(() => run(page, 'cat /shared/from-node.txt'), { timeout: 30_000 })
+    .toContain('node wrote');
+
+  // Kept: after a reload.
+  await page.evaluate(() => window.playground.files.flush());
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 1);
+  expect(await run(page, 'cat /shared/notes.txt /shared/from-node.txt')).toMatch(
+    /two\s+node wrote/,
+  );
+});
+
+test('/shared is empty, and kept nowhere, where the user turned it off or a link’s project', async ({
+  page,
+}) => {
+  await userSettings(page, { env: {}, shared: true, setup: '' });
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'echo mine > /shared/notes.txt');
+  await page.evaluate(() => window.playground.files.flush());
+
+  await page.goto(await LINK(page));
+  await page.getByRole('button', { name: 'Open as a new project' }).click();
+  await page.waitForURL(/\/[a-z0-9]{10}\/$/);
+  await prompted(page, 1);
+  expect(await run(page, 'ls -A /shared; echo "[end]"')).toMatch(/\$ $|\n\[end\]/);
+  expect(await exists(page, '/shared/notes.txt')).toBe(false);
+
+  await userSettings(page, { env: {}, shared: false, setup: '' });
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(await exists(page, '/shared/notes.txt')).toBe(false);
+});

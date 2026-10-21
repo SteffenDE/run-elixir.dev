@@ -38,6 +38,7 @@ import {
   type Listener,
   type Ports,
 } from '@/project/lib/programs/nodejs';
+import type { KeptRecord } from '@/runtime/overlay';
 import { claudeProgram } from '@/project/lib/programs/claude/claude';
 import { npmProgram, npxProgram, type Program } from '@/project/lib/programs/npm';
 import {
@@ -67,6 +68,8 @@ export interface ExecStart {
   // Where the files keep their changes: a port to the apex's store, or
   // none (a temporary IEx keeps nothing).
   store: MessagePort | null;
+  // /shared's store (the user's, every project's), if the project has it.
+  shared?: MessagePort | null;
 }
 
 // A shell's start (openShell).
@@ -90,6 +93,8 @@ export type ExecEvents = {
     scripts: number[];
   };
   changed: string[];
+  // What the files kept in /shared: the other projects open apply it.
+  kept: KeptRecord[];
   warning: string;
   nif: NifBuild;
   // Something a node could not reach without Tailscale (the setup hint).
@@ -527,6 +532,13 @@ const handlers = {
       boots: setup.boots,
       template: setup.template,
       storePort: options.store,
+      sharedPort: options.shared ?? null,
+      onkept: (records) =>
+        rpc.emit(
+          'kept',
+          records,
+          records.flatMap((record) => (record.kind === 'file' ? [record.data.buffer] : [])),
+        ),
       onchange: (paths: string[]) => {
         filesChanged(paths);
         rpc.emit('changed', paths);
@@ -570,6 +582,8 @@ const handlers = {
   // What the IDE changes (a save, the tree's operations) is kept before it
   // hears back: its page may go at once (a reload), and the frame with it.
   write: (path: string, data: string | Uint8Array) => kept(running().write(path, data)),
+  // What another project kept in /shared.
+  applyKept: (records: KeptRecord[]) => running().apply(records),
   mkdir: (path: string) => kept(running().mkdir(path)),
   remove: (path: string) => kept(running().remove(path)),
   rename: (from: string, to: string) => kept(running().rename(from, to)),

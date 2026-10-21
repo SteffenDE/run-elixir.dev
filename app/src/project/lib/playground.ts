@@ -46,7 +46,8 @@ import {
 } from '@/project/lib/previewChannel';
 import { disposeTerminals } from '@/project/lib/terminal-handle';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
-import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
+import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
+import type { KeptRecord } from '@/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
 import { applied, loadSettings, type Applied } from '@/shared/lib/settings';
 import type { Shared } from '@/shared/lib/share';
@@ -97,6 +98,9 @@ let projectId: string | null = null;
 let settings: Applied = { env: {}, shared: false, setup: null, startup: null };
 // Where the setup script goes for its one run (sourced in the first shell).
 const SETUP_SCRIPT = '/tmp/playground-setup.sh';
+// The other projects open in this browser, which hear what this one kept
+// in /shared and tell it what they kept.
+let sharedPeers: BroadcastChannel | null = null;
 // Started on the first connection to 5432; a stored project's is kept in
 // IndexedDB.
 let db: Promise<PGlite> | null = null;
@@ -465,8 +469,22 @@ export function beginStart(): boolean {
   return true;
 }
 
+// What this project keeps in /shared, to the other projects open, and
+// what they keep, to it (the one that changed a file keeps it).
+function shareWithPeers(rpc: Rpc): void {
+  sharedPeers?.close();
+  const peers = new BroadcastChannel('playground-shared');
+  sharedPeers = peers;
+  rpc.on<KeptRecord[]>('kept', (records) => peers.postMessage(records));
+  peers.onmessage = ({ data }: MessageEvent<KeptRecord[]>) => {
+    if (exec === rpc) void rpc.call('applyKept', [data]).catch(() => {});
+  };
+}
+
 // Keep what changed and stop every node: the project runs elsewhere now.
 export async function shutdown(): Promise<void> {
+  sharedPeers?.close();
+  sharedPeers = null;
   await exec?.call('shutdown').catch(() => {});
   exec?.close();
   exec = null;
@@ -586,6 +604,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   setTailnetProject(id ?? IEX);
   connectTailscale();
   store.setStatus('Starting the files…');
+  // The user's settings, as this project takes them (settings.ts).
+  const project = id ? await getProject(id) : null;
+  settings = applied(await loadSettings(), project);
   try {
     exec = await startFrame(origin);
     listen(exec);
@@ -594,6 +615,13 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       const channel = new MessageChannel();
       serveStore(channel.port1, filesStore(id));
       storePort = channel.port2;
+    }
+    let sharedPort: MessagePort | null = null;
+    if (settings.shared) {
+      const channel = new MessageChannel();
+      serveStore(channel.port1, SHARED_STORE);
+      sharedPort = channel.port2;
+      shareWithPeers(exec);
     }
     await exec.call<void>(
       'start',
@@ -606,9 +634,10 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
           build: BUILD,
           runtime: RUNTIME,
           store: storePort,
+          shared: sharedPort,
         } satisfies ExecStart,
       ],
-      storePort ? [storePort] : [],
+      [storePort, sharedPort].filter((port): port is MessagePort => port !== null),
     );
   } catch (error) {
     store.failedToStart((error as Error).message);
@@ -624,10 +653,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   // The tree before start returns: a live session resumed next welcomes
   // its guests with it.
   await refreshTree();
-  // The user's settings: the project's startup lines (else its kind's),
-  // after the setup script at a new project's first start.
-  const project = id ? await getProject(id) : null;
-  settings = applied(await loadSettings(), project);
+  // The project's startup lines (else its kind's), after the setup script
+  // at a new project's first start.
   let first = settings.startup ?? setup.first;
   if (settings.setup !== null && id) {
     const script = settings.setup.endsWith('\n') ? settings.setup : `${settings.setup}\n`;

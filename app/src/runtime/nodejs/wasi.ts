@@ -1,11 +1,12 @@
 // Node's node:wasi over the runtime's WASI (wasi/index.ts): WebAssembly
 // programs and libraries (napi-rs's wasm32-wasi builds) on the shared
-// files, which hold every path a project has (/work, /tmp, /home).
+// files, which hold every path a project has (/work, /tmp, /home,
+// /shared).
 import { Exit, WASI as RuntimeWasi } from '../wasi';
 import { Dir } from '../wasi/fs';
 import type { SharedCall } from '../wasi/shared';
 
-const PREFIXES = ['/work', '/tmp', '/home'];
+const PREFIXES = ['/work', '/tmp', '/home', '/shared'];
 
 interface NodeWasiOptions {
   version?: string;

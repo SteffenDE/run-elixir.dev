@@ -77,7 +77,8 @@ interface Start {
   beam?: WebAssembly.Module;
 }
 
-const SHARED = ['/work', '/tmp', '/home'];
+// files.ts's SHARED (that module is files.js's worker, not one to import).
+const SHARED = ['/work', '/tmp', '/home', '/shared'];
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
 // sh and bash (a stand-in for it, Claude Code's shell): brush's -c.

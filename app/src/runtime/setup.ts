@@ -41,6 +41,7 @@ export function prepare(root: Dir, { dns = false } = {}): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
   root.mkdirs('home/user');
+  root.mkdirs('shared');
   root.put('dev/urandom', urandom());
   // Names from the hosts file, then the page's DNS (the Emscripten BEAM's
   // inet, with ERL_INETRC; it has no inet_gethost).
