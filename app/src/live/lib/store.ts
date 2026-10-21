@@ -54,6 +54,10 @@ interface LiveState {
   // The host's choice: no tailnet for the project while a guest who may
   // type or edit is in (docs/tailscale.md); off unless chosen.
   tailnetOff: boolean;
+  // The host's choice: none of the user's settings (settings.ts: their
+  // environment in new shells, /shared) while a guest who may type or
+  // edit is in; on unless chosen otherwise.
+  settingsOff: boolean;
   // A guest's own.
   mine: Permissions;
   cursors: Record<string, Cursor>;
@@ -83,6 +87,7 @@ export const useLive = create<LiveState>((set) => ({
   perGuest: {},
   admit: false,
   tailnetOff: false,
+  settingsOff: true,
   mine: { ...NONE },
   cursors: {},
   active: {},
@@ -136,4 +141,16 @@ export function saveName(name: string): void {
   } catch {
     // Not kept: asked again next time.
   }
+}
+
+// This page hosts a live session with a guest in who may type into its
+// terminals or edit its files: who runs code in its project.
+export function guestMayType(): boolean {
+  const { role, people } = useLive.getState();
+  if (role !== 'host') return false;
+  return people.some((person) => {
+    if (person.host || person.waiting) return false;
+    const may = permissionsOf(person.id);
+    return may.terminal || may.edit;
+  });
 }

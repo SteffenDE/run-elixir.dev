@@ -9,7 +9,7 @@
 // the exit node and the control server are the Tailscale page's
 // (TailscalePage).
 import { create } from 'zustand';
-import { permissionsOf, useLive } from '@/live/lib/store';
+import { guestMayType, useLive } from '@/live/lib/store';
 import { failure, NXDOMAIN, questionName } from '@/runtime/dns';
 import type { Connection } from '@/runtime/host/node';
 import { trace } from '@/runtime/trace';
@@ -225,13 +225,7 @@ export function decide(allowed: boolean): void {
 // may type into its terminals or edit its files (who runs code here) is
 // in, and one is.
 export function offForGuests(): boolean {
-  const { role, people, tailnetOff } = useLive.getState();
-  if (role !== 'host' || !tailnetOff) return false;
-  return people.some((person) => {
-    if (person.host || person.waiting) return false;
-    const may = permissionsOf(person.id);
-    return may.terminal || may.edit;
-  });
+  return useLive.getState().tailnetOff && guestMayType();
 }
 
 // Whether the node would take the tailnet to `host` (a name or an

@@ -1,30 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { exists, newProject, prompted, readText, run } from './helpers';
-
-// The user's settings (shared/lib/settings.ts), written into the apex's
-// IndexedDB as the settings page would.
-async function userSettings(page: Page, value: object): Promise<void> {
-  await page.goto('/');
-  await expect(page.locator('.home')).toBeVisible();
-  await page.evaluate(
-    (settings) =>
-      new Promise<void>((resolve, reject) => {
-        const opening = indexedDB.open('playground');
-        opening.onsuccess = () => {
-          const db = opening.result;
-          const put = db
-            .transaction('settings', 'readwrite')
-            .objectStore('settings')
-            .put({ key: 'user', value: settings });
-          put.onsuccess = () => (db.close(), resolve());
-          put.onerror = () => reject(put.error);
-        };
-        opening.onerror = () => reject(opening.error);
-      }),
-    value,
-  );
-}
+import { exists, newProject, prompted, readText, run, userSettings } from './helpers';
 
 // A project's own settings, on its record.
 async function projectSettings(page: Page, id: string, changes: object): Promise<void> {

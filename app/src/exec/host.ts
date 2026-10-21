@@ -584,6 +584,8 @@ const handlers = {
   write: (path: string, data: string | Uint8Array) => kept(running().write(path, data)),
   // What another project kept in /shared.
   applyKept: (records: KeptRecord[]) => running().apply(records),
+  // /shared hidden while a live session's guest may type.
+  hideShared: (hide: boolean) => running().hideShared(hide),
   mkdir: (path: string) => kept(running().mkdir(path)),
   remove: (path: string) => kept(running().remove(path)),
   rename: (from: string, to: string) => kept(running().rename(from, to)),

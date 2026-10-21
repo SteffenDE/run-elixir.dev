@@ -54,6 +54,7 @@ interface Stored {
   admit: boolean;
   everyone: Permissions;
   tailnetOff?: boolean;
+  settingsOff?: boolean;
 }
 
 const decoder = new TextDecoder('utf-8', { fatal: true });
@@ -117,6 +118,7 @@ export async function startSession(
     everyone: { ...NONE },
     perGuest: {},
     tailnetOff: false,
+    settingsOff: true,
     reason: null,
   });
   connect(of, keys, { admit: options.admit });
@@ -144,6 +146,7 @@ export async function resumeSession(of: HostProject): Promise<void> {
     everyone: saved.everyone,
     perGuest: {},
     tailnetOff: saved.tailnetOff ?? false,
+    settingsOff: saved.settingsOff ?? true,
     reason: null,
   });
   connect(of, keys, { token: saved.token });
@@ -181,6 +184,7 @@ function save() {
         everyone: useLive.getState().everyone,
         admit: useLive.getState().admit,
         tailnetOff: useLive.getState().tailnetOff,
+        settingsOff: useLive.getState().settingsOff,
       }),
     );
   } catch {
@@ -643,6 +647,13 @@ export function setAdmission(on: boolean): void {
 // (tailscale/client.ts), or the tailnet as without guests.
 export function setTailnetOff(on: boolean): void {
   useLive.getState().set({ tailnetOff: on });
+  save();
+}
+
+// None of the user's settings while a guest who may type or edit is in
+// (playground.ts), or them as without guests.
+export function setSettingsOff(on: boolean): void {
+  useLive.getState().set({ settingsOff: on });
   save();
 }
 

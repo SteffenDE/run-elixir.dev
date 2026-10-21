@@ -124,6 +124,9 @@ interface Keeper {
   // projects hear its changes soon.
   every: number;
   report: boolean;
+  // Hidden for a while (/shared, while a live session's guest may type):
+  // nothing kept, and what other projects kept held until it is back.
+  paused: KeptRecord[][] | null;
 }
 const keepers: Keeper[] = [];
 const keeperOf = (path: string) =>
@@ -159,7 +162,7 @@ function report(path: string, deep = false): void {
   if (!keepers.length) return;
   path = physical(path);
   const keeper = keeperOf(path);
-  keeper?.dirty.set(path, keeper.dirty.get(path) || deep);
+  if (keeper && !keeper.paused) keeper.dirty.set(path, keeper.dirty.get(path) || deep);
 }
 
 // An absolute path with its directory's symbolic links resolved (its last
@@ -254,9 +257,36 @@ function persist(keeper: Keeper): Promise<void> | null {
 // Everything changed so far, kept.
 async function flush(): Promise<void> {
   for (const keeper of keepers) {
+    if (keeper.paused) continue;
     await keeper.saving;
     await persist(keeper);
   }
+}
+
+// /shared hidden (an empty folder in its place, kept nowhere) while a live
+// session's guest may type, at the host's choice; back after, with what
+// the other projects kept meanwhile.
+let hiddenShared: FsNode | null = null;
+async function hideShared(hide: boolean): Promise<void> {
+  const keeper = keepers.find((each) => each.prefixes === KEPT_SHARED);
+  if (hide && !hiddenShared) {
+    if (keeper) {
+      await keeper.saving;
+      await persist(keeper);
+      keeper.paused = [];
+    }
+    hiddenShared = root.entries.get('shared') ?? new Dir();
+    const empty = new Dir();
+    empty.parent = root;
+    root.entries.set('shared', empty);
+  } else if (!hide && hiddenShared) {
+    root.entries.set('shared', hiddenShared);
+    hiddenShared = null;
+    const held = keeper?.paused ?? [];
+    if (keeper) keeper.paused = null;
+    for (const records of held) apply(records, true);
+  }
+  changed.add('/shared');
 }
 
 // Lay the kept changes over the files. Those another project kept (/shared:
@@ -493,7 +523,8 @@ function answer() {
     reported = performance.now();
   }
   for (const keeper of keepers)
-    if (keeper.dirty.size && performance.now() - keeper.saved > keeper.every) persist(keeper);
+    if (!keeper.paused && keeper.dirty.size && performance.now() - keeper.saved > keeper.every)
+      persist(keeper);
 }
 
 // Every file below `dir` (at `path`), but in directories named in `skip`.
@@ -692,6 +723,7 @@ function keeperFor(
     saved: 0,
     every: reports ? 200 : 1000,
     report: reports,
+    paused: null,
   };
 }
 
@@ -794,8 +826,13 @@ onmessage = async ({ data }) => {
     await flush();
     postMessage({ kind: 'reply', id: data.id });
   } else if (data.kind === 'apply') {
-    // What another project kept in /shared.
-    apply(data.records as KeptRecord[], true);
+    // What another project kept in /shared (held while it is hidden).
+    const keeper = keepers.find((each) => each.prefixes === KEPT_SHARED);
+    if (keeper?.paused) keeper.paused.push(data.records);
+    else apply(data.records as KeptRecord[], true);
+  } else if (data.kind === 'request' && data.op === 'hide-shared') {
+    await hideShared(Boolean(data.hide));
+    postMessage({ kind: 'reply', id: data.id });
   } else if (data.kind === 'request') {
     let reply: PageReply;
     try {

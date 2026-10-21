@@ -8,6 +8,7 @@ import {
   setAdmission,
   setEveryone,
   setGuest,
+  setSettingsOff,
   setTailnetOff,
   startSession,
   type HostProject,
@@ -80,6 +81,7 @@ function Running() {
   const perGuest = useLive((state) => state.perGuest);
   const asking = useLive((state) => state.admit);
   const tailnetOff = useLive((state) => state.tailnetOff);
+  const settingsOff = useLive((state) => state.settingsOff);
   // Tailscale is set up in this browser: the session may keep it off.
   const tailscale = useTailscale((state) => !!state.status && state.status.state !== 'off');
   const me = useLive((state) => state.me);
@@ -210,6 +212,14 @@ function Running() {
           onChange={(event) => setAdmission(event.target.checked)}
         />
         Ask me before letting each person in
+      </label>
+      <label className="live-check">
+        <input
+          type="checkbox"
+          checked={settingsOff}
+          onChange={(event) => setSettingsOff(event.target.checked)}
+        />
+        None of my settings (environment, /shared) while a guest may type or edit
       </label>
       {tailscale && (
         <label className="live-check">

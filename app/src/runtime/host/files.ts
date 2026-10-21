@@ -145,6 +145,11 @@ export class Files implements FileSystem {
     );
   }
 
+  // /shared hidden while a live session's guest may type (files.ts).
+  hideShared(hide: boolean): Promise<void> {
+    return this.ask({ op: 'hide-shared', hide }).then(() => {});
+  }
+
   // What another project kept in /shared, laid over these files.
   apply(records: KeptRecord[]): void {
     const buffers = records.flatMap((record) =>

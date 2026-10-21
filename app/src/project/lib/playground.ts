@@ -50,6 +50,7 @@ import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
 import type { KeptRecord } from '@/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
 import { applied, loadSettings, type Applied } from '@/shared/lib/settings';
+import { guestMayType, useLive } from '@/live/lib/store';
 import { askTrust } from './trust';
 import type { Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
@@ -374,7 +375,10 @@ export function openTerminal(initial: string[] = []): number {
     initial,
   );
   sessions.set(id, session);
-  void rpc.call('openShell', [id, { initial, env: settings.env }]);
+  // None of the user's settings while a live session's guest may type, at
+  // the host's choice.
+  const env = useLive.getState().settingsOff && guestMayType() ? {} : settings.env;
+  void rpc.call('openShell', [id, { initial, env }]);
   useStore.getState().addTerminal(id);
   return id;
 }
@@ -488,6 +492,16 @@ async function sharedHolds(): Promise<boolean> {
   }
 }
 
+// /shared hidden while a live session's guest who may type is in, at the
+// host's choice (live/lib/store.ts settingsOff); back once none is.
+let sharedHidden = false;
+useLive.subscribe(() => {
+  const hide = settings.shared && useLive.getState().settingsOff && guestMayType();
+  if (hide === sharedHidden || !exec) return;
+  sharedHidden = hide;
+  void exec.call('hideShared', [hide]).catch(() => {});
+});
+
 // What this project keeps in /shared, to the other projects open, and
 // what they keep, to it (the one that changed a file keeps it): heard from
 // before its files start (it may have loaded /shared before a peer's
@@ -515,6 +529,7 @@ function shareWithPeers(rpc: Rpc): () => void {
 export async function shutdown(): Promise<void> {
   sharedPeers?.close();
   sharedPeers = null;
+  sharedHidden = false;
   await exec?.call('shutdown').catch(() => {});
   exec?.close();
   exec = null;
