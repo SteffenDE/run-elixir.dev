@@ -244,7 +244,15 @@ async function run(start: Start) {
     : createChildProcess(post, hold, {
         cwd: () => (process.cwd as () => string)(),
         env,
-        write: (fd, bytes) => io.write(fd, bytes),
+        write: (fd, bytes) =>
+          fd <= 2
+            ? io.write(fd, bytes)
+            : (files.module.writeSync as (fd: number, b: Uint8Array) => number)(fd, bytes),
+        files: {
+          dup: files.dup,
+          close: (fd) => (files.module.closeSync as (fd: number) => void)(fd),
+          throughFd: files.throughFd,
+        },
       });
 
   let loader: ReturnType<typeof createLoader>;

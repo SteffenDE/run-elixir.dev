@@ -78,7 +78,15 @@ export function createChildProcess(
   own: {
     cwd: () => string;
     env: Record<string, string>;
+    // To its stdout, its stderr, or a file it opened.
     write: (fd: number, bytes: Uint8Array) => void;
+    // A file it opened as a child's own fd (and its closing), and a path
+    // through one (/proc/self/fd/N): fs.ts.
+    files?: {
+      dup(fd: number): number;
+      close(fd: number): void;
+      throughFd(path: string): string;
+    };
   },
 ) {
   const children = new Map<number, ChildProcess>();
@@ -99,7 +107,8 @@ export function createChildProcess(
     declare spawnargs: string[];
     declare release: (() => void) | null;
     // Where its output goes when it is not piped: the process's own (an
-    // fd, 'inherit', process.stdout given as itself) or a stream's.
+    // fd, 'inherit', process.stdout given as itself), a file the process
+    // opened (its fd: Claude Code's shell writes to one), or a stream's.
     declare sink: ((bytes: Uint8Array) => void) | null;
     declare connected: boolean;
     // The start of its output (notFound).
@@ -111,6 +120,11 @@ export function createChildProcess(
 
     constructor(file: string, args: string[], options: SpawnOptions) {
       super();
+      // An fd it inherits, named by /proc/self/fd/N (Claude Code runs rg by
+      // one): the file's path, as a child sees it.
+      const through = (path: string) => own.files?.throughFd(path) ?? path;
+      file = through(file);
+      args = args.map((arg) => through(String(arg)));
       this.id = ++nextId;
       this.pid = nextPid++;
       this.exitCode = null;
@@ -124,14 +138,21 @@ export function createChildProcess(
         ? options.stdio
         : [options.stdio, options.stdio, options.stdio];
       const out = stdio[1] as Stdio & { fd?: number; write?: (chunk: Uint8Array) => unknown };
+      // A file's fd: its own copy, which outlives the process's closing it.
+      this.copy = typeof out === 'number' && out > 2 && own.files ? own.files.dup(out) : null;
+      const copy = this.copy;
       this.sink =
-        out === 'inherit' || out === 1 || out === 2
-          ? (bytes) => own.write(out === 2 ? 2 : 1, bytes)
-          : out && typeof out === 'object' && typeof out.write === 'function'
-            ? out.fd === 1 || out.fd === 2
-              ? (bytes) => own.write(out.fd!, bytes)
-              : (bytes) => out.write!(bytes)
-            : null;
+        out === 'inherit'
+          ? (bytes) => own.write(1, bytes)
+          : copy !== null
+            ? (bytes) => own.write(copy, bytes)
+            : typeof out === 'number' && out > 0
+              ? (bytes) => own.write(out, bytes)
+              : out && typeof out === 'object' && typeof out.write === 'function'
+                ? out.fd === 1 || out.fd === 2
+                  ? (bytes) => own.write(out.fd!, bytes)
+                  : (bytes) => out.write!(bytes)
+                : null;
       const piped = (s: Stdio) =>
         s === undefined || s === null || s === 'pipe' || s === 'overlapped';
       this.stdout = piped(stdio[1]) ? new Readable({ read() {} }) : null;
@@ -154,7 +175,9 @@ export function createChildProcess(
       this.release = hold();
       children.set(this.id, this);
       const line = lineOf(file, args, options.shell);
-      const cwd = options.cwd instanceof URL ? options.cwd.pathname : (options.cwd ?? own.cwd());
+      const cwd = through(
+        options.cwd instanceof URL ? options.cwd.pathname : String(options.cwd ?? own.cwd()),
+      );
       const env = Object.fromEntries(
         Object.entries(options.env ?? own.env).filter(([, v]) => v !== undefined),
       ) as Record<string, string>;
@@ -172,6 +195,8 @@ export function createChildProcess(
       this.shell = Boolean(options.shell);
     }
     declare shell: boolean;
+    // Its own fd on the file its output goes to, if one.
+    declare copy: number | null;
 
     // The child's output.
     output(bytes: Uint8Array) {
@@ -183,6 +208,8 @@ export function createChildProcess(
     exited(code: number) {
       children.delete(this.id);
       this.unwatch();
+      if (this.copy !== null) own.files?.close(this.copy);
+      this.copy = null;
       // The loop is held until 'close', which may wait for its stdout's end.
       const release = () => {
         this.release?.();
