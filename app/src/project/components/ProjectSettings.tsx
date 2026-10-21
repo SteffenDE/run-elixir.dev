@@ -44,13 +44,13 @@ export function ProjectSettings({ project, first }: { project: Project; first: s
       <button
         ref={button}
         type="button"
-        className="icon-button"
+        className="icon-button settings-button"
         title="Project settings"
         aria-label="Project settings"
         aria-expanded={open}
         onClick={() => void toggle()}
       >
-        <RiSettings3Line size={16} />
+        <RiSettings3Line size={18} />
       </button>
       {open && current && (
         <div

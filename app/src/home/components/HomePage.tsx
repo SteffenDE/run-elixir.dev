@@ -126,10 +126,15 @@ export function HomePage() {
   return (
     <div className="home">
       <div className="home-corner">
-        <a className="icon-button" href="/settings" title="Settings" aria-label="Settings">
-          <RiSettings3Line size={16} />
-        </a>
         <TailscaleButton />
+        <a
+          className="icon-button settings-button"
+          href="/settings"
+          title="Settings"
+          aria-label="Settings"
+        >
+          <RiSettings3Line size={18} />
+        </a>
       </div>
       <main className="home-main">
         <h1 className="home-title">

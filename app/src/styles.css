@@ -1796,6 +1796,19 @@ button {
   position: absolute;
   top: 12px;
   right: 16px;
+  display: flex;
+  gap: 4px;
+}
+
+/* The settings' gear (the projects' corner, a project's top bar): an icon,
+   not a link's colours, as the Tailscale button beside it. */
+.settings-button,
+.settings-button:visited {
+  color: var(--muted);
+}
+.settings-button:hover,
+.settings-button[aria-expanded='true'] {
+  color: var(--fg);
 }
 
 .tailscale-button {
