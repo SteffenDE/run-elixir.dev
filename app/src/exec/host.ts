@@ -38,6 +38,7 @@ import {
   type Listener,
   type Ports,
 } from '@/project/lib/programs/nodejs';
+import { claudeProgram } from '@/project/lib/programs/claude/claude';
 import { npmProgram, npxProgram, type Program } from '@/project/lib/programs/npm';
 import {
   commandProgram,
@@ -370,6 +371,8 @@ function nodeServices() {
       node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
+      // Its files from the claude frame, through the IDE's page.
+      claude: claudeProgram(pagePrograms, () => rpc.call<MessagePort>('claudePort')),
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),

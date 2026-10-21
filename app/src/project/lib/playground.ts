@@ -32,6 +32,7 @@ import {
   tailnetResolve,
   tailscaleBlocked,
 } from '@/tailscale/client';
+import { claudePort } from '@/project/lib/programs/claude/frame';
 import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
 import { built } from '@/project/lib/programs/tailwind';
 import { bundled } from '@/project/lib/programs/esbuild';
@@ -425,7 +426,7 @@ function listen(rpc: Rpc): void {
   on('blocked', tailscaleBlocked);
   // The apex's services, and the tailnet as this page lets the project
   // use it (docs/tailscale.md).
-  rpc.handle({ connect, tailnetDial, tailnetResolve });
+  rpc.handle({ connect, tailnetDial, tailnetResolve, claudePort });
 }
 
 // A popped-out preview hears what the docked one would: reloads and new

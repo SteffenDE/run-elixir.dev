@@ -68,6 +68,8 @@ export function prepare(root: Dir, { dns = false } = {}): void {
     'node',
     'npm',
     'npx',
+    // Claude Code, its JavaScript on that Node (programs/claude/claude.ts).
+    'claude',
     'sh',
     'bash',
     'elixir',
