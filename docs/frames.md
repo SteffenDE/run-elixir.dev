@@ -18,6 +18,7 @@ yet), framed by the apex's pages:
 | `DOMAIN` (the apex) | The IDE (React), the stores, the projects' list. Cross-origin isolated (COOP `same-origin`, COEP `require-corp`). |
 | `v-ID-PORT.USERCONTENT` | The preview of port PORT of project ID's app: its pages, its service worker (`sw.ts`), and the relay frame that passes its requests to the IDE (`frames/relay.ts`). |
 | `e-ID.USERCONTENT` | The exec frame: a worker that runs the project (below). |
+| `claude.USERCONTENT` | The claude frame: a worker that makes Claude Code's files for every project, and keeps them (below). |
 
 The former layout ran each project's IDE on an origin of its own under the
 apex (`p-ID.DOMAIN`, and a live guest's page on `l-ID.DOMAIN`), the same
@@ -93,6 +94,32 @@ apex's stays the apex's:
 - **What the IDE changes** (a save, the tree's operations) is kept before
   the frame answers: the page may go at once (a reload), and the frame
   with it. What the nodes change is kept a second later, as before.
+
+## The claude frame
+
+`claude` ([nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets))
+runs Claude Code's JavaScript, which its npm package carries in a Bun
+executable. Reading it out and compiling it takes some 20 s and 125 MB
+from the registry, once a version: the claude frame does it for every
+project, on an origin of its own, so the apex neither holds Claude Code
+nor touches it.
+
+- **Framed once,** when a project first runs `claude`: the IDE's page
+  frames `claude.USERCONTENT/claude.html` (unseen, as the exec frame;
+  `programs/claude/frame.ts`), which starts its worker
+  (`programs/claude/worker.ts`) and passes it the ports the IDE gives,
+  from the IDE alone (`frames/claude.ts`).
+- **A port each run:** the exec frame's `claude` asks the IDE's page
+  (`claudePort`), which hands it one end of a channel and the claude
+  frame the other. The worker answers `files` with the version's files
+  (their buffers handed over) and `progress` events as it makes them.
+- **Kept once:** its IndexedDB is the claude origin's, which every
+  project's IDE frames under the apex's site (the same partition), so a
+  second project gets the files at once. A lock (Web Locks) has one tab
+  make them while another waits.
+- **Nothing to plant:** a project can only ask for them. The worker
+  fetches the version the site pins, checks its integrity, and is the
+  only one to write what it keeps; it runs none of it.
 
 A live session's guest has no exec frame: its page's bridge answers the
 relays of its own preview origins, its connections tunnelled to the
