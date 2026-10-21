@@ -53,8 +53,9 @@ export class Stats {
   dev = 1;
   mode: number;
   nlink = 1;
-  uid = 0;
-  gid = 0;
+  // The process's own (process.getuid()), as a user's files are.
+  uid = 1000;
+  gid = 1000;
   rdev = 0;
   blksize = 4096;
   ino: number;
@@ -170,7 +171,17 @@ interface Open {
 }
 
 // fs.constants' open flags (Linux's), and flag strings as open takes them.
-const O = { RDONLY: 0, WRONLY: 1, RDWR: 2, CREAT: 64, EXCL: 128, TRUNC: 512, APPEND: 1024 };
+const O = {
+  RDONLY: 0,
+  WRONLY: 1,
+  RDWR: 2,
+  CREAT: 64,
+  EXCL: 128,
+  TRUNC: 512,
+  APPEND: 1024,
+  DIRECTORY: 65536,
+  NOFOLLOW: 131072,
+};
 const FLAGS: Record<string, number> = {
   r: O.RDONLY,
   'r+': O.RDWR,
@@ -202,7 +213,17 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       error.code = 'ERR_INVALID_ARG_TYPE';
       throw error;
     }
-    return resolvePath(p);
+    return throughFd(resolvePath(p));
+  };
+
+  // /proc/self/fd/N (and /dev/fd/N): the file or directory open as fd N,
+  // and what is below it, as on Linux (Claude Code writes its output into
+  // a directory it holds open, by such a path).
+  const FD_PATH = /^\/(?:proc\/self|dev)\/fd\/(\d+)(\/.*)?$/;
+  const throughFd = (path: string): string => {
+    const match = FD_PATH.exec(path);
+    const open = match ? files.get(Number(match[1])) : undefined;
+    return open ? `${open.path}${match![2] ?? ''}` : path;
   };
 
   const ask = (
@@ -236,6 +257,18 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     const path = pathOf(p);
     const f = typeof flags === 'number' ? flags : FLAGS[flags];
     if (f === undefined) throw fsError(E.INVAL, 'open', String(p));
+    // A directory opens read-only, as a handle for fstat and close alone.
+    if (f & (O.DIRECTORY | O.NOFOLLOW) || !(f & (O.WRONLY | O.RDWR | O.CREAT))) {
+      const kind = stat(p, !(f & O.NOFOLLOW), 'open', false);
+      if (f & O.NOFOLLOW && kind?.isSymbolicLink()) throw fsError(E.LOOP, 'open', String(p));
+      if (f & O.DIRECTORY && kind && !kind.isDirectory())
+        throw fsError(E.NOTDIR, 'open', String(p));
+      if (kind?.isDirectory()) {
+        const fd = nextFd++;
+        files.set(fd, { handle: -1, path, position: 0, append: false });
+        return fd;
+      }
+    }
     let oflags = 0;
     if (f & O.CREAT) oflags |= OFLAGS.CREAT;
     if (f & O.EXCL) oflags |= OFLAGS.EXCL;
@@ -294,6 +327,7 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     fstatSync(fd: number): Stats {
       if (fd <= 2) return new Stats('file', 0, fd, '0');
       const file = opened(fd, 'fstat');
+      if (file.handle === -1) return stat(file.path, true, 'fstat')!;
       const { answer } = ask('fstat', undefined, { op: 'fstat', handle: file.handle });
       return new Stats(answer.type, answer.size, answer.ino, answer.mtime);
     },
@@ -305,7 +339,7 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       const file = files.get(fd);
       if (!file) return;
       files.delete(fd);
-      call({ op: 'close', handle: file.handle });
+      if (file.handle !== -1) call({ op: 'close', handle: file.handle });
     },
     readSync(
       fd: number,
@@ -524,6 +558,10 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       ask('link', String(from), { op: 'link', path: pathOf(from), to: pathOf(to) });
     },
     readlinkSync(p: unknown): string {
+      // An fd's link: the path it was opened by.
+      const fd = typeof p === 'string' ? /^\/(?:proc\/self|dev)\/fd\/(\d+)$/.exec(p) : null;
+      const open = fd ? files.get(Number(fd[1])) : undefined;
+      if (open) return open.path;
       return ask('readlink', String(p), { op: 'readlink', path: pathOf(p) }).answer.target;
     },
     realpathSync(p: unknown): string {
@@ -585,6 +623,7 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       if (done) later(() => (base === 'exists' ? done(result) : done(error, result)));
     };
   }
+  (callbacks.realpath as { native?: unknown }).native = callbacks.realpath;
   // read and write answer how much, and the buffer.
   callbacks.read = (fd: number, buffer: ArrayBufferView, ...rest: unknown[]) => {
     const done = rest.pop() as (e: unknown, n?: number, b?: ArrayBufferView) => void;
@@ -649,6 +688,11 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     }),
     stat: async () => sync.fstatSync(fd),
     truncate: async (size?: number) => sync.ftruncateSync(fd, size),
+    sync: async () => undefined,
+    datasync: async () => undefined,
+    chmod: async () => undefined,
+    chown: async () => undefined,
+    utimes: async () => undefined,
     close: async () => sync.closeSync(fd),
     createReadStream: (options?: StreamOptions) =>
       new (ReadStream as unknown as Made)(undefined, { ...options, fd }),
@@ -988,6 +1032,8 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
         O_EXCL: O.EXCL,
         O_TRUNC: O.TRUNC,
         O_APPEND: O.APPEND,
+        O_DIRECTORY: O.DIRECTORY,
+        O_NOFOLLOW: O.NOFOLLOW,
         S_IFMT: 0o170000,
         S_IFREG: 0o100000,
         S_IFDIR: 0o40000,
@@ -1011,6 +1057,18 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     } as Record<string, unknown>,
     promises,
     cwd,
+    // A path as /proc/self/fd/N names it: the open file's (child.ts: a
+    // child's program, arguments and directory, as a child that inherits
+    // the fd sees them).
+    throughFd,
+    // Another fd on `fd`'s file, from its position: a child's output (its
+    // own, as an inherited fd is, which the parent may close at once).
+    dup(fd: number): number {
+      const file = opened(fd, 'dup');
+      const copy = openFd(file.path, file.append ? 'a' : 'r+');
+      files.get(copy)!.position = file.position;
+      return copy;
+    },
     setStdio(write: (fd: number, bytes: Uint8Array) => void) {
       stdio = write;
     },

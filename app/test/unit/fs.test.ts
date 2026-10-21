@@ -113,6 +113,20 @@ describe('as Node', () => {
     );
   });
 
+  test('/proc/self/fd/N is the directory open as fd N, as on Linux', () => {
+    const fs = makeFs();
+    fs.mkdirSync('/work/d' as never);
+    const constants = fs.constants as unknown as Record<string, number>;
+    const fd = fs.openSync(
+      '/work/d' as never,
+      (constants.O_RDONLY | constants.O_DIRECTORY) as never,
+    );
+    fs.writeFileSync(`/proc/self/fd/${fd}/out.txt` as never, 'from the fd' as never);
+    expect(fs.readFileSync('/work/d/out.txt' as never, 'utf8' as never)).toBe('from the fd');
+    expect(fs.readlinkSync(`/proc/self/fd/${fd}` as never)).toBe('/work/d');
+    expect(fs.readFileSync(`/dev/fd/${fd}/out.txt` as never, 'utf8' as never)).toBe('from the fd');
+  });
+
   test('a position of -1 is the current one', () => {
     const fs = makeFs();
     fs.writeFileSync('f' as never, 'hello world' as never);
