@@ -47,10 +47,10 @@ export function createProcess(options: {
 
   const process = new EventEmitter() as EventEmitter & Record<string, unknown>;
 
-  // Whether the loop has run dry: then beforeExit, and the end. Dry for
-  // two tasks: the browser reports a promise rejected and not handled
-  // (unhandledrejection, which ends the process as Node's does) in a task
-  // of its own, which may come after the first.
+  // Wait for two idle tasks before emitting beforeExit and exiting. The
+  // browser may dispatch unhandledrejection after the first task; that
+  // event must be handled before exit so an unhandled rejection terminates
+  // the process as it does in Node.
   const check = () => {
     if (checking || exiting) return;
     checking = true;

@@ -98,28 +98,31 @@ apex's stays the apex's:
 ## The claude frame
 
 `claude` ([nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets))
-runs Claude Code's JavaScript, which its npm package carries in a Bun
-executable. Reading it out and compiling it takes some 20 s and 125 MB
-from the registry, once a version: the claude frame does it for every
-project, on an origin of its own, so the apex neither holds Claude Code
-nor touches it.
+runs the JavaScript embedded in Claude Code's npm package, a Bun
+executable. The claude frame downloads 125 MB from the registry and
+extracts and compiles the JavaScript in about 20 seconds. It caches the
+result once per version for all projects, on a separate origin. The apex
+does not store or execute Claude Code.
 
-- **Framed once,** when a project first runs `claude`: the IDE's page
-  frames `claude.USERCONTENT/claude.html` (unseen, as the exec frame;
-  `programs/claude/frame.ts`), which starts its worker
-  (`programs/claude/worker.ts`) and passes it the ports the IDE gives,
-  from the IDE alone (`frames/claude.ts`).
-- **A port each run:** the exec frame's `claude` asks the IDE's page
-  (`claudePort`), which hands it one end of a channel and the claude
-  frame the other. The worker answers `files` with the version's files
-  (their buffers handed over) and `progress` events as it makes them.
-- **Kept once:** its IndexedDB is the claude origin's, which every
-  project's IDE frames under the apex's site (the same partition), so a
-  second project gets the files at once. A lock (Web Locks) has one tab
-  make them while another waits.
-- **Nothing to plant:** a project can only ask for them. The worker
-  fetches the version the site pins, checks its integrity, and is the
-  only one to write what it keeps; it runs none of it.
+- **Frame creation:** when a project first runs `claude`,
+  `programs/claude/frame.ts` creates an invisible iframe at
+  `claude.USERCONTENT/claude.html`, using the same approach as the exec
+  frame. `frames/claude.ts` starts the worker in
+  `programs/claude/worker.ts` and forwards ports received from the IDE.
+  It accepts ports only from the IDE's origin.
+- **Connections:** each run requests a port from the IDE through
+  `claudePort`. The IDE gives one end of a channel to the exec frame and
+  the other to the claude frame. The worker handles `files` requests by
+  transferring the cached file buffers. During preparation, it sends
+  `progress` events.
+- **Shared cache:** every project's IDE embeds the claude origin under
+  the same apex site, so the frames share an IndexedDB storage partition.
+  Subsequent projects reuse the cached files. A Web Lock serializes
+  preparation across tabs.
+- **Cache access:** projects can request cached files but cannot modify
+  the cache. Only the worker writes to it. The worker fetches the version
+  pinned by the site and verifies its integrity before preparing the
+  files. It does not execute Claude Code.
 
 A live session's guest has no exec frame: its page's bridge answers the
 relays of its own preview origins, its connections tunnelled to the

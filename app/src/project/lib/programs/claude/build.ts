@@ -26,8 +26,8 @@ export const CLAUDE_CODE = {
 };
 
 const DATABASE = 'playground-claude-code';
-// What bungraph.ts makes of an executable: a new one when that changes,
-// so what is kept from before is made again.
+// Cache format version. Increment when the generated output changes to
+// invalidate cached files.
 const LAYOUT = 4;
 const STORE = 'versions';
 // Where a project's files.js holds them, by version (claude.ts).

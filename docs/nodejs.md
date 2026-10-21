@@ -338,69 +338,80 @@ npm package is a native binary (Rust); opencode needs Bun.
 
 ### Claude Code (`claude`, `programs/claude/claude.ts`)
 
-Claude Code's npm package is a Bun executable: Bun's runtime, with
-Claude Code's JavaScript in it as Bun's module graph. `claude` runs that
-JavaScript here, and the site hosts none of it:
+Claude Code's npm package is a Bun executable containing Bun's runtime
+and Claude Code's JavaScript module graph. The `claude` command extracts
+and runs that JavaScript on the playground's Node implementation. The
+site does not host Claude Code's files.
 
-- **Its version** is the one in `CLAUDE_CODE` (`programs/claude/build.ts`:
-  the linux-x64 package's tarball and integrity), one the playground was
-  tried with; a release of the site moves it on.
-- **The first run** (the claude frame's worker) fetches the tarball from
-  the npm registry (125 MB), hashing it as it comes (its sha512 must be
-  the integrity's), gunzips it and reads the executable out of its tar as
-  they stream. `programs/claude/bungraph.ts` reads the graph (Bun's undocumented layout: it checks what it finds and
-  says so when a binary is not one it reads): its modules (Bun's loader
-  byte says which are), with their imports of each other relative and
-  Bun's `import.meta.require` and `import.meta.dir` as Node's; its assets
-  (zstd ones decompressed); native addons left out. esbuild-wasm's
-  `transform` turns each module into CommonJS (the whole graph bundled at
-  once is more than wasm's memory; sucrase, the loader's, mistakes a
-  minified module's labels and private names for its imports). Some 22 s
-  in Chromium, once.
-- **Made and kept by the claude frame**
-  ([frames.md](frames.md#the-claude-frame)), an origin of its own whose
-  IndexedDB (`playground-claude-code`) every project shares, by version
-  and `LAYOUT` (what is made of it), others dropped; a second project
-  starts at once. Each run puts the files in `/opt/claude-code/VERSION`, in files.js's memory (outside
-  `/work`: no project keeps them), and runs `cli.js` with `node` and Bun's
-  globals (`nodejs/claude/bun.ts`, for that process alone: `Bun.stringWidth`,
-  `wrapAnsi`, `sliceAnsi`, `which`, `hash`, `semver`, `YAML`, `TOML`, …;
-  `require` of a text file is its contents; `XMLHttpRequest` is gone, so
-  axios takes Node's `https`). Some 0.4 s to `--version`.
-- **Its terminal UI** draws with `Bun.ant.CellSegmenter`, the Bun
-  Anthropic builds it with (`nodejs/claude/cellsegmenter.ts`, from how its
-  renderer uses it): text with its SGR and OSC 8 sequences into grapheme
-  cells and style runs (`Intl.Segmenter`, string-width), painted into
-  the renderer's screen (a wide character and its spacer, tabs, a wide
-  character's other half cleared when one half is written over).
-- **Its shell** is `bash`, a stand-in that is brush (`bash -c -l LINE` as
-  `sh -c LINE`; `bash --version` answers). Claude Code is Linux's here:
-  it writes a command's output to a file whose fd it passes as the child's
-  stdout and closes at once (the child writes by a copy of its own, as an
-  inherited fd), into a directory it holds open and names
-  `/proc/self/fd/N/…`, and runs `rg` as `/proc/self/fd/N` (fs.ts and
-  child.ts resolve those to the paths the fds were opened by).
-- **Its search** is its Glob and Grep tools (`rg`): `claude` passes
-  `--allowedTools=Glob,Grep`, without which this build drops them for the
-  find and grep its executable embeds (bfs and ugrep, run as `exec -a bfs
-  "$CLAUDE_CODE_EXECPATH"`), which neither brush nor Node can be. `find`
-  and `grep` at its shell are then the playground's (none yet).
-- **Without the tailnet**, Anthropic's API answers by the gateway's
-  `fetch()`, its other endpoints (settings, telemetry) do not (no CORS):
-  `claude` sets `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` unless the
-  environment says otherwise. `claude -p` works so; started
-  interactively, its connectivity check (`/api/hello`, the OAuth
-  host's) fails, and it ends. Through the tailnet (its own TLS) it
-  starts.
+- **Version:** `CLAUDE_CODE` in `programs/claude/build.ts` pins a tested
+  version, including the linux-x64 tarball URL and integrity hash. Site
+  releases update this version.
+- **First run:** the claude frame's worker downloads the 125 MB tarball
+  from the npm registry. It computes the SHA-512 hash while streaming the
+  download and checks it against the pinned integrity hash. It also
+  decompresses the gzip stream and extracts the executable from the tar
+  archive. `programs/claude/bungraph.ts` parses Bun's undocumented module
+  graph format, validates the layout, and reports an error for unsupported
+  binaries. Bun's loader byte identifies JavaScript modules. The parser
+  rewrites imports between modules as relative paths and maps Bun's
+  `import.meta.require` and `import.meta.dir` to their Node equivalents.
+  It decompresses zstd assets and omits native addons. esbuild-wasm's
+  `transform` compiles each module to CommonJS separately because bundling
+  the whole graph exceeds wasm's memory limit. The loader's usual
+  compiler, sucrase, misinterprets labels and private names in a minified
+  module as imports. Preparation takes about 22 seconds in Chromium.
+- **Cache and execution:** the
+  [claude frame](frames.md#the-claude-frame) prepares and caches files on
+  a separate origin. All projects share its `playground-claude-code`
+  IndexedDB database. The cache key includes the package version and
+  `LAYOUT`, which identifies the generated file format; obsolete entries
+  are removed. Subsequent projects reuse the cached files. Each run
+  loads the files into `files.js` memory at `/opt/claude-code/VERSION`,
+  outside the persisted `/work` directory, and runs `cli.js` with `node`.
+  `nodejs/claude/bun.ts` installs Bun globals for that process, including
+  `Bun.stringWidth`, `wrapAnsi`, `sliceAnsi`, `which`, `hash`, `semver`,
+  `YAML`, and `TOML`. Requiring a text file returns its contents.
+  `XMLHttpRequest` is removed so axios uses Node's `https` implementation.
+  A cached run of `claude --version` takes about 0.4 seconds.
+- **Terminal UI:** Claude Code's terminal renderer uses
+  `Bun.ant.CellSegmenter`, an API in Anthropic's Bun build.
+  `nodejs/claude/cellsegmenter.ts` implements the behavior the renderer
+  requires. It uses `Intl.Segmenter` and string-width to split text,
+  including SGR and OSC 8 sequences, into grapheme cells and style runs.
+  It paints these into the renderer's screen, handling tabs and spacer
+  cells for wide characters. Overwriting either half of a wide character
+  clears the other half.
+- **Shell:** the playground provides a `bash` stand-in backed by brush.
+  It translates `bash -c -l LINE` to `sh -c LINE` and responds to
+  `bash --version`. The Linux build of Claude Code passes an open file
+  descriptor as a child command's stdout, then immediately closes the
+  parent's descriptor. The child continues writing through its own copy.
+  Claude Code also uses `/proc/self/fd/N/…` to write into an open directory
+  and `/proc/self/fd/N` to run `rg`. `fs.ts` and `child.ts` resolve these
+  paths to the paths used when opening the descriptors.
+- **Search:** `claude` passes `--allowedTools=Glob,Grep` to enable the
+  Glob and Grep tools, which use `rg`. Without this flag, the pinned build
+  replaces them with bfs and ugrep, embedded in its executable and invoked
+  with commands such as `exec -a bfs "$CLAUDE_CODE_EXECPATH"`. Neither
+  brush nor Node can run these embedded programs. The playground does
+  not yet provide `find` or `grep` commands in the shell.
+- **Network access:** without the tailnet, Anthropic's API is accessible
+  through the gateway's `fetch()`, but settings and telemetry endpoints
+  lack the required CORS headers. `claude` defaults
+  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` to `1` unless the environment
+  specifies a value. `claude -p` works without the tailnet. Interactive
+  mode exits when its connectivity check to the OAuth host's `/api/hello`
+  endpoint fails. Connecting through the tailnet allows the check to
+  succeed using the process's own TLS connection.
 
-What it needed of Node: `/proc/self/fd/N` paths, a child's output to an
-fd, `path/win32`, `stream/consumers`,
-`fs.realpath.native`, a `FileHandle`'s `sync`, directories opened
-(`O_DIRECTORY`, `O_NOFOLLOW`) and owned by the process's uid (it refuses
-a temporary directory another user owns), resolutions kept as Node keeps
-them (some 90 lookups a module otherwise, each a call to files.js), and
-a rejection nothing handles reported before the loop ends (two tasks
-dry, not one).
+Supporting Claude Code required `/proc/self/fd/N` paths, child output to
+file descriptors, `path/win32`, `stream/consumers`, `fs.realpath.native`,
+and `FileHandle.sync`. Directories must support `O_DIRECTORY` and
+`O_NOFOLLOW` and report ownership by the process's uid; Claude Code
+rejects temporary directories owned by another user. Module resolutions
+are cached as in Node, avoiding about 90 lookups per module, each a call
+to `files.js`. The event loop waits for two idle tasks before exiting so
+the browser can report unhandled promise rejections.
 
 ## Tests
 

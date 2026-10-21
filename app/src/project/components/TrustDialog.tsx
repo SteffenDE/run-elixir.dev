@@ -30,8 +30,8 @@ export function TrustDialog() {
         Use your settings in {asking.name}?
       </h2>
       <p>
-        This project came from someone else. With your settings, its code can read what they give
-        it:
+        This project came from someone else. Using your settings lets this project's code access the
+        following:
       </p>
       <ul className="trust-list">
         {asking.env.length > 0 && (
@@ -51,7 +51,9 @@ export function TrustDialog() {
           </li>
         )}
       </ul>
-      <p className="nif-build-meta">The project's settings in the top bar change this later.</p>
+      <p className="nif-build-meta">
+        You can change this later in Project settings in the top bar.
+      </p>
       <div className="start-error-actions">
         <button type="button" className="button" onClick={() => answerTrust(false)}>
           Not this project

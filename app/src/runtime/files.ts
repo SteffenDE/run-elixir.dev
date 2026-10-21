@@ -211,7 +211,7 @@ function collect(
   }
 }
 
-// Write what changed; one write at a time, a keeper's.
+// Persist pending changes, serializing writes within each keeper.
 function persist(keeper: Keeper): Promise<void> | null {
   if (keeper.saving || !keeper.dirty.size) return keeper.saving;
   const records: KeptRecord[] = [];
@@ -254,7 +254,7 @@ function persist(keeper: Keeper): Promise<void> | null {
   return keeper.saving;
 }
 
-// Everything changed so far, kept.
+// Flush all pending changes to storage.
 async function flush(): Promise<void> {
   for (const keeper of keepers) {
     if (keeper.paused) continue;

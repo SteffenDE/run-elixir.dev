@@ -202,7 +202,7 @@ test('the settings page, and a project’s settings in its top bar', async ({ pa
   await page.getByLabel('Name').fill('GREETING');
   await page.getByLabel('Value of GREETING').fill('the project’s own');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Saved: new shells now')).toBeVisible();
+  await expect(page.getByText('Saved. Environment changes apply to new shells.')).toBeVisible();
   await page.screenshot({ path: '../target/tests/project-settings.png' });
   await page.keyboard.press('Escape');
   const own = await newShell(page);

@@ -33,15 +33,15 @@ export function SettingsPage() {
           <RiSettings3Line size={22} /> Settings
         </h1>
         <p className="muted home-lead">
-          For every project in this browser. A project from someone else (a link, a live session's
-          fork) asks before it takes them.
+          These settings apply to all projects in this browser. Projects imported from a link or
+          forked from a live session ask for permission first.
         </p>
 
         <h2>Environment</h2>
         <p className="muted">
-          Every shell starts with these, and what it runs gets them: a token for a tool, say (
-          <code>CLAUDE_CODE_OAUTH_TOKEN</code> from <code>claude setup-token</code>). Projects
-          already open give them to their new shells.
+          New shells and their child processes inherit these environment variables. For example, set{' '}
+          <code>CLAUDE_CODE_OAUTH_TOKEN</code> to the token from <code>claude setup-token</code>.
+          Changes also apply to new shells in open projects.
         </p>
         <EnvEditor label="Environment" env={settings.env} onChange={(env) => change({ env })} />
 
@@ -57,13 +57,13 @@ export function SettingsPage() {
           </span>
         </label>
         <p className="muted">
-          What one project changes there, the others open see at once. Link a tool's folder into it
-          to share its settings (the setup script below can).
+          Changes appear immediately in other open projects. To share a tool's settings, use the
+          setup script below to link its configuration folder to <code>/shared</code>.
         </p>
 
         <h2>Setup script</h2>
         <p className="muted">
-          Each new project runs it once, in its first shell, when it first starts.
+          The setup script runs in the first shell when a new project starts for the first time.
         </p>
         <textarea
           className="settings-script"

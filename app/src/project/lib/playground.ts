@@ -512,10 +512,10 @@ useLive.subscribe(() => {
   void exec.call('hideShared', [hide]).catch(() => {});
 });
 
-// What this project keeps in /shared, to the other projects open, and
-// what they keep, to it (the one that changed a file keeps it): heard from
-// before its files start (it may have loaded /shared before a peer's
-// change was kept), laid over them once they have (the answer's call).
+// Broadcast saved /shared changes to other open projects and apply their
+// updates locally. Subscribe before file initialization and queue incoming
+// updates until initialization completes, so changes saved during startup
+// are not missed. The originating project persists each change.
 function shareWithPeers(rpc: Rpc): () => void {
   sharedPeers?.close();
   const peers = new BroadcastChannel('playground-shared');

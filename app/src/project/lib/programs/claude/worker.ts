@@ -8,7 +8,7 @@ import { Rpc, transfer } from '@/shared/lib/rpc';
 import { CLAUDE_CODE, claudeFiles } from './build';
 
 const LOCK = 'playground-claude-code';
-// Who waits for the files: each hears how the making goes.
+// Progress listeners for requests waiting for Claude Code's files.
 const waiting = new Set<(text: string) => void>();
 const say = (text: string) => {
   for (const listener of waiting) listener(text);

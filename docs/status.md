@@ -91,20 +91,23 @@ chunks; the same memory.
   page's own JavaScript engine; a React app built and served by Vite;
   Pi, a coding agent.
 - **Claude Code** (`claude`, Chromium so far; [nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets)):
-  its JavaScript, read out of its npm package's Bun executable by the
-  claude frame ([frames.md](frames.md#the-claude-frame)) once a version
-  for every project (some 20 s), runs on that Node (0.4 s to start after).
-  `claude -p` and its tools (Bash through brush, Read, Write, Edit, Glob
-  and Grep by `rg`) answer a model; its terminal UI draws; started
-  interactively it needs the tailnet (its connectivity check reaches
-  endpoints that send no CORS headers). 2.1.306, the newest on
-  2026-10-21.
-- **Settings** ([projects.md](projects.md#settings)): the user's
-  environment (a `CLAUDE_CODE_OAUTH_TOKEN`, say), `/shared` (one folder in
-  every project, kept on the apex, live between open projects), a setup
-  script for new projects; a project's startup lines and environment. A
-  project from a link or a fork asks first; a live session's guests who
-  may type see none of them.
+  runs Claude Code's JavaScript on the playground's Node implementation.
+  The [claude frame](frames.md#the-claude-frame) extracts the JavaScript
+  from the npm package's Bun executable and caches it once per version
+  for all projects. Preparation takes about 20 seconds; cached starts
+  take about 0.4 seconds. `claude -p` can call a model and use Bash through
+  brush, Read, Write, Edit, and the `rg`-based Glob and Grep tools. The
+  terminal UI also renders. Interactive mode requires the tailnet because
+  the connectivity check reaches endpoints without CORS headers. The
+  pinned version is 2.1.306, the latest as of 2026-10-21.
+- **Settings** ([projects.md](projects.md#settings)): browser-wide
+  environment variables, such as `CLAUDE_CODE_OAUTH_TOKEN`, a setup script
+  for new projects, and a `/shared` folder stored on the apex. Changes to
+  `/shared` appear in other open projects. Projects can define their own
+  startup commands and environment variables. Imported and forked
+  projects ask before using the user's settings. By default, new shells
+  omit the user's environment variables and `/shared` is hidden while
+  guests have permission to type or edit in a live session.
 - **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.

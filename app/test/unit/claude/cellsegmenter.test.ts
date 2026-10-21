@@ -66,7 +66,7 @@ describe('Bun.ant.CellSegmenter', () => {
     expect(at(3)).toEqual([1, (5 << 17) | 2]);
     expect(at(4)).toEqual([0, 5 << 17]);
     expect(at(8)).toEqual([13, 5 << 17]);
-    // Its second half written over: the wide character goes.
+    // Overwriting the second cell of a wide character clears the whole character.
     s.setCell(screen, 12, 3, 1, 20, 0);
     expect(at(2)).toEqual([0, 0]);
   });

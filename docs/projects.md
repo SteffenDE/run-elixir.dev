@@ -174,42 +174,47 @@ want a server to keep them
 
 ## Settings
 
-The user's, for every project of the browser, on the apex's `/settings`
-page; a project's own, in its top bar (`src/shared/lib/settings.ts`).
+Manage browser-wide settings at `/settings` on the apex. Manage
+project-specific settings from the project's top bar
+(`src/shared/lib/settings.ts`).
 
-| Setting | Of | Applies |
+| Setting | Scope | Applies |
 | --- | --- | --- |
-| Environment | the user; a project's over it | each new shell, and what it runs: the user's under the playground's own (Hex's, the cookie, the preview's), so they cannot clobber them |
-| `/shared` | the user (on unless turned off) | at a project's start: the same folder in every project, kept on the apex |
-| Setup script | the user | once, in a new project's first shell, at its first start (sourced, so its lines run as a script); projects made before it never run it |
-| Startup lines | a project | at each start, in its first shell, in place of its kind's (Phoenix's `iex -S mix phx.server`) |
+| Environment | User defaults with project overrides | New shells and their child processes inherit the variables. Playground variables, including Hex, cookie, and preview settings, take precedence over both. |
+| `/shared` | User; enabled by default | Mounted at project startup. All projects share the same folder, stored on the apex. |
+| Setup script | User | Sourced once in a new project's first shell, on its first start. Projects created before this feature never run it. |
+| Startup lines | Project | Run in the first shell at each start, replacing the defaults for the project kind, such as Phoenix's `iex -S mix phx.server`. |
 
-Kept in the apex's `playground` database: the user's in table
-`settings`, a project's on its record. Saving reaches the new shells of
-the projects open (a `BroadcastChannel`); `/shared`, the startup lines
-and whether a project takes the user's settings, its next start.
+The apex's `playground` database stores user settings in the `settings`
+table and project settings on each project record. A `BroadcastChannel`
+notifies open projects when settings change. Environment changes apply to
+new shells. Changes to `/shared`, startup lines, and permission to use the
+user's settings apply when the project restarts.
 
-- **`/shared`** is the apex's database `playground-shared`, served to each
-  project's `files.js` over a port, as a project's own store is.
-  `files.js` keeps changes by prefix: the project's (`/work`, `/home`)
-  within a second, `/shared`'s within 200 ms, and reports what it keeps
-  in `/shared` to the IDE's page, which tells the other projects open,
-  whose `files.js` lays it over theirs (a file changed in place, so what
-  has it open reads it). The last change to a file wins. A project
-  without it (turned off, a link's) has an empty `/shared`, kept nowhere.
-  Link a tool's folder in to share it: `ln -s /shared/claude ~/.claude`.
-- **From someone else:** a project made from a share link or a live
-  session's fork is marked so, and asks at its first start, before
-  anything runs, whether it takes the user's settings: their environment
-  (the names, not the values), `/shared` if it holds anything, the setup
-  script's first line. Its code could read them. Closing says no; the
-  project's settings change the answer. A user with nothing to give is
-  not asked. A link carries files only, never settings.
-- **Live sessions:** while a guest who may type or edit is in, new shells
-  start without the user's environment and `/shared` is an empty folder
-  in its place, the real one back once no such guest is (the host's
-  choice, on unless unchecked; shells already running keep what they
-  had).
+- **`/shared`** is stored in the apex's `playground-shared` database.
+  Each project's `files.js` accesses it over a port, using the same
+  mechanism as the project's own store. `files.js` saves changes to
+  `/work` and `/home` within a second and `/shared` changes within 200 ms.
+  The IDE broadcasts saved `/shared` changes to other open projects.
+  Each project's `files.js` updates the affected files in place, so
+  existing file handles see the changes. The last change to a file wins.
+  Projects without access to the shared folder get an empty `/shared`
+  whose contents are not persisted. To share a tool's settings, link its
+  configuration folder to `/shared`: `ln -s /shared/claude ~/.claude`.
+- **Imported projects:** projects created from a share link or forked
+  from a live session are marked as imported. Before running any code
+  on their first start, they ask for permission to use the user's
+  settings. The dialog lists environment variable names without their
+  values, `/shared` if it contains anything, and the setup script's first
+  line. The project's code could access these settings. Closing the
+  dialog declines access. The user can change this decision in Project
+  settings. The dialog is skipped if no user settings would apply. Share
+  links contain files only and never include settings.
+- **Live sessions:** by default, new shells omit the user's environment
+  variables and `/shared` appears empty while any guest has permission
+  to type or edit. The shared folder is restored when those guests leave
+  or lose that permission. Hosts can disable this behavior. Existing
+  shells retain their environment.
 
 ## A folder from this computer
 

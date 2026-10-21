@@ -3,8 +3,9 @@ import { useState } from 'react';
 
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
-// Environment variables as rows of a name and a value (masked unless
-// shown: tokens live here); `onChange` hears the rows with a valid name.
+// Edit environment variables as name/value rows. Values are masked by
+// default because they may contain tokens. `onChange` receives only rows
+// with valid names.
 export function EnvEditor({
   env,
   onChange,

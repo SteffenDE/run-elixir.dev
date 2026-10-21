@@ -62,18 +62,21 @@ export function ProjectSettings({ project, first }: { project: Project; first: s
           }}
         >
           <h3>At each start</h3>
-          <p className="muted">What its first shell runs, line by line.</p>
+          <p className="muted">Run these commands in the project's first shell on startup.</p>
           <textarea
             className="settings-script"
             aria-label="Startup lines"
             spellCheck={false}
             rows={3}
-            placeholder={first.join('\n') || 'Nothing: a shell'}
+            placeholder={first.join('\n') || 'Start an empty shell'}
             value={current.startup ?? ''}
             onChange={(event) => change({ startup: event.target.value })}
           />
           <h3>Environment</h3>
-          <p className="muted">Over your settings', for this project's new shells.</p>
+          <p className="muted">
+            These variables override your global environment variables in new shells for this
+            project.
+          </p>
           <EnvEditor
             label="Project environment"
             env={current.env ?? {}}
@@ -95,7 +98,10 @@ export function ProjectSettings({ project, first }: { project: Project; first: s
               Save
             </button>
             {saved && (
-              <span className="muted">Saved: new shells now, the rest at its next start.</span>
+              <span className="muted">
+                Saved. Environment changes apply to new shells. Other changes apply when the project
+                restarts.
+              </span>
             )}
           </div>
           <a

@@ -219,7 +219,8 @@ function Running() {
           checked={settingsOff}
           onChange={(event) => setSettingsOff(event.target.checked)}
         />
-        None of my settings (environment, /shared) while a guest may type or edit
+        Exclude my environment variables from new shells and hide /shared while guests can type or
+        edit
       </label>
       {tailscale && (
         <label className="live-check">
