@@ -67,7 +67,9 @@ export function ImportPage() {
                 disabled={opening}
                 onClick={() => {
                   setOpening(true);
-                  void importProject(shared).then((project) => navigate(projectUrl(project.id)));
+                  void importProject(shared, 'link').then((project) =>
+                    navigate(projectUrl(project.id)),
+                  );
                 }}
               >
                 {opening ? 'Opening…' : 'Open as a new project'}

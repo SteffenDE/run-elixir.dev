@@ -47,7 +47,8 @@ import {
 import { disposeTerminals } from '@/project/lib/terminal-handle';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir } from '@/shared/lib/storage';
-import { seedTaken, takeSeed } from '@/shared/lib/projects';
+import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
+import { applied, loadSettings, type Applied } from '@/shared/lib/settings';
 import type { Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { setWorkspace, type Workspace } from './workspace';
@@ -91,6 +92,11 @@ let setup: Setup = setupOf('empty');
 let kind: WorkspaceKind = 'empty';
 // The stored project's id (null for a temporary IEx).
 let projectId: string | null = null;
+// The user's settings as this project takes them (settings.ts): what each
+// new shell starts with.
+let settings: Applied = { env: {}, shared: false, setup: null, startup: null };
+// Where the setup script goes for its one run (sourced in the first shell).
+const SETUP_SCRIPT = '/tmp/playground-setup.sh';
 // Started on the first connection to 5432; a stored project's is kept in
 // IndexedDB.
 let db: Promise<PGlite> | null = null;
@@ -363,7 +369,7 @@ export function openTerminal(initial: string[] = []): number {
     initial,
   );
   sessions.set(id, session);
-  void rpc.call('openShell', [id, { initial }]);
+  void rpc.call('openShell', [id, { initial, env: settings.env }]);
   useStore.getState().addTerminal(id);
   return id;
 }
@@ -618,7 +624,18 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   // The tree before start returns: a live session resumed next welcomes
   // its guests with it.
   await refreshTree();
-  openTerminal(setup.first);
+  // The user's settings: the project's startup lines (else its kind's),
+  // after the setup script at a new project's first start.
+  const project = id ? await getProject(id) : null;
+  settings = applied(await loadSettings(), project);
+  let first = settings.startup ?? setup.first;
+  if (settings.setup !== null && id) {
+    const script = settings.setup.endsWith('\n') ? settings.setup : `${settings.setup}\n`;
+    await exec.call('write', [SETUP_SCRIPT, script]);
+    first = [`source ${SETUP_SCRIPT}`, ...first];
+    await updateProject(id, { setUp: true });
+  }
+  openTerminal(first);
   const rpc = exec;
   // For tests and the curious.
   Object.assign(window, {

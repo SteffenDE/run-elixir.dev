@@ -72,6 +72,9 @@ export interface ExecStart {
 // A shell's start (openShell).
 export interface ShellStart {
   initial: string[];
+  // The user's environment and the project's (settings.ts), under the
+  // playground's own.
+  env?: Record<string, string>;
 }
 
 // What the host tells the IDE (events): see the handlers below.
@@ -577,7 +580,7 @@ const handlers = {
   saved: (path: string) => filesChanged([path]),
 
   // A shell (terminal tab `id`): its node, which runs the shell.
-  openShell(id: number, { initial }: ShellStart) {
+  openShell(id: number, { initial, env = {} }: ShellStart) {
     if (!files || !start) throw new Error('the playground is not running');
     const node = new Node({
       base: start.build,
@@ -600,7 +603,7 @@ const handlers = {
       initial,
       cwd: setup.cwd,
       boots: setup.boots,
-      env: { ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
+      env: { ...env, ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
     });
   },
   input: (id: number, text: string) => shells.get(id)?.input(text),
