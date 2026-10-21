@@ -250,3 +250,15 @@ describe("require.resolve's paths", () => {
     ]);
   });
 });
+
+describe("an ES module's private names", () => {
+  test('are not its exports of the same name', async () => {
+    const { root, loader } = project({
+      'a.mjs': `class Flag { #t = false; set() { this.#t = true; return #t in this && this.#t; } }
+        export function t() { return 'the export'; }
+        export const set = new Flag().set();`,
+    });
+    expect(loader.createRequire(`${root}/`)('./a.mjs')).toMatchObject({ set: true });
+    expect((loader.createRequire(`${root}/`)('./a.mjs') as { t(): string }).t()).toBe('the export');
+  });
+});
