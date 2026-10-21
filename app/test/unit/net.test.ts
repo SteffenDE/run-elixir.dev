@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createNet } from '../../src/runtime/nodejs/net';
+import { createNet } from '@/runtime/nodejs/net';
 
 describe('net', () => {
   test('a connection reset on the way is an ECONNRESET, not an end', async () => {

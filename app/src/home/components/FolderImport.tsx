@@ -178,7 +178,7 @@ function FolderReview({ folder, onClose }: { folder: Folder; onClose(): void }) 
           onClick={() => {
             setOpening(true);
             void folderShared(kept)
-              .then(importProject)
+              .then((shared) => importProject(shared))
               .then(
                 (project) => navigate(projectUrl(project.id)),
                 (failure: Error) => {

@@ -87,6 +87,29 @@ let loading: Promise<Exports> | null = null;
 // The browser's fetch, as the module loads: the process's global one is
 // Node's (fetch.ts), which reaches the project's ports, not the site.
 const siteFetch = globalThis.fetch.bind(globalThis);
+// And its XMLHttpRequest (a process with Bun's globals goes without one,
+// claude/bun.ts), for the roots, which Node's tls has at once.
+const SiteRequest = globalThis.XMLHttpRequest;
+
+// Mozilla's roots as PEM certificates (the site's roots.pem, the nodes'
+// CA bundle), read once, synchronously; none if the site has none.
+let roots: readonly string[] | null = null;
+function rootCertificates(runtime: string): readonly string[] {
+  if (roots) return roots;
+  let text = '';
+  try {
+    const request = new SiteRequest();
+    request.open('GET', new URL('roots.pem', runtime).href, false);
+    request.send();
+    if (request.status === 200) text = request.responseText;
+  } catch {
+    // No roots, as before.
+  }
+  roots = Object.freeze(
+    text.match(/-----BEGIN CERTIFICATE-----[\s\S]*?-----END CERTIFICATE-----/g) ?? [],
+  );
+  return roots;
+}
 
 // tls.wasm from the site's runtime files, once per process.
 export function loadTls(runtime: string): Promise<Exports> {
@@ -738,7 +761,12 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
       'ecdhe-rsa-aes128-gcm-sha256',
       'ecdhe-rsa-aes256-gcm-sha384',
     ],
-    rootCertificates: [] as string[],
+    get rootCertificates() {
+      return rootCertificates(runtime);
+    },
+    // Node's: the bundled roots by default; no system's or extra ones.
+    getCACertificates: (type = 'default') =>
+      type === 'default' || type === 'bundled' ? [...rootCertificates(runtime)] : [],
     DEFAULT_MIN_VERSION: 'TLSv1.2',
     DEFAULT_MAX_VERSION: 'TLSv1.3',
     DEFAULT_ECDH_CURVE: 'auto',

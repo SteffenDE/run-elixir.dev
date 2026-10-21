@@ -1,6 +1,6 @@
 import * as node from 'node:zlib';
 import { describe, expect, test } from 'vitest';
-import { createZlib } from '../../src/runtime/nodejs/zlib';
+import { createZlib } from '@/runtime/nodejs/zlib';
 
 const zlib = createZlib();
 

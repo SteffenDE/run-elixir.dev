@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { describe, expect, test, vi } from 'vitest';
-import { createBuiltins } from '../../src/runtime/nodejs/builtins';
+import { createBuiltins } from '@/runtime/nodejs/builtins';
 
 // events as the browser bundle has it: the events package, not Node's.
 vi.mock('node:events', async () => {

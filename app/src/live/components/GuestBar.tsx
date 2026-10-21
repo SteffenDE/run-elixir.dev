@@ -11,7 +11,7 @@ import { People } from './People';
 // A fork becomes a project of this browser's, in the apex's list (the
 // guest's page is the apex's too).
 async function keep(shared: Shared): Promise<string> {
-  return projectUrl((await importProject(shared)).id);
+  return projectUrl((await importProject(shared, 'fork')).id);
 }
 
 const STATUS: Record<string, string> = {

@@ -434,6 +434,9 @@ def page(out, wasm):
         shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
     for name, built in wasm.items():
         shutil.copy(built, os.path.join(out, f"{name}.wasm"))
+    # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js process's
+    # tls.rootCertificates (app/src/runtime/nodejs/tls.ts).
+    shutil.copy(cacerts(), os.path.join(out, "roots.pem"))
     # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
     # app/src/shared/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
@@ -458,13 +461,13 @@ def page(out, wasm):
 # (its scope is /), the site's configuration, the content-hashed Vite
 # assets, the builds and the runtimes; and what Vite copies from
 # app/public (the icons, the manifest, og.png), which the pages name there.
-ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "storage.html", "sw.js",
+ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.html", "storage.html", "sw.js",
               "playground.json", "_playground", "b", "r",
               *os.listdir(os.path.join(ROOT, "app", "public"))}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
-                 "tailscale.wasm", "tls.wasm", "rg.wasm"}
+                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm"}
 
 
 def unversion(out):

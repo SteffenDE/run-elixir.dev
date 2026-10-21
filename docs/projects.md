@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Projects
@@ -31,14 +31,15 @@ PGlite stopped, its lock let go, its terminals and stores reset, a popped-out
 preview closed, a live session left (not ended: it resumes when the project
 opens again in the tab). A live session's guest's page is left by a load.
 
-A project's kind (`src/project/lib/kinds.ts`) decides how it starts:
+A project's kind (`src/project/lib/kinds.ts`) chooses its files and initial
+settings. Startup commands are saved on the project and remain editable:
 
 | | Phoenix | Empty, temporary IEx |
 | --- | --- | --- |
 | Boot images | `boot`, `boot-phoenix` | `boot` |
 | `/work` starts with | the template, `/work/playground` | nothing |
-| Shells start in | `/work/playground` | `/work` |
-| First shell runs | `iex -S mix phx.server` ("Server" tab) | nothing ("Shell"), `iex` ("IEx") |
+| Shells start in | `/work` | `/work` |
+| Initial startup setting | `cd playground && iex -S mix phx.server` ("Server" tab), editable | empty ("Shell"), `iex` for a temporary IEx ("IEx") |
 | Preview | from the start | once a node serves (4000, else its lowest port) |
 | Files and editor | shown | shown; a temporary IEx starts with the terminals maximized |
 
@@ -77,11 +78,11 @@ itself.
 ## What is kept
 
 Three IndexedDB databases, all named after the project's id
-(`src/shared/lib/storage.ts`):
+(`src/shared/lib/storage.ts`), besides the user's own (below):
 
 | Database | Holds | Written by |
 | --- | --- | --- |
-| `playground` (Dexie), table `projects` | id, name, kind, created and opened times | the page |
+| `playground` (Dexie), table `projects` | id, name, kind, created and opened times; where it came from (a link, a fork), whether it takes the user's settings, its own settings | the page |
 | `playground-files-ID` | what changed below `/work`, and below `/home` (home: Mix's, Hex's and the tools' caches, escripts; not in the tree, search or a share link) | `files.js` (`src/runtime/overlay.ts`) |
 | `/pglite/playground-pg-ID` | the project's Postgres | PGlite (`idb://playground-pg-ID`) |
 
@@ -171,6 +172,51 @@ Phoenix project with one edited template file and one removed makes a
 link of a few KB. A link holds what a URL can; very large projects will
 want a server to keep them
 ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)).
+
+## Settings
+
+Manage browser-wide settings at `/settings` on the apex. Manage
+project-specific settings from the project's top bar
+(`src/shared/lib/settings.ts`).
+
+| Setting | Scope | Applies |
+| --- | --- | --- |
+| Environment | User defaults with project overrides | New shells and their child processes inherit the variables. Playground variables, including Hex, cookie, and preview settings, take precedence over both. |
+| `/shared` | User; enabled by default | Mounted at project startup. All projects share the same folder, stored on the apex. |
+| Setup script | User | Sourced once in a new project's first shell, on its first start. Projects created before this feature never run it. |
+| Startup lines | Project | Run in the first shell at each start, from `/work`. A Phoenix project's saved value initially contains `cd playground && iex -S mix phx.server`; it can be edited or cleared to start an empty shell. The start/restart action also uses the saved commands, starting from `/work`. |
+
+The apex's `playground` database stores user settings in the `settings`
+table and project settings on each project record. A `BroadcastChannel`
+notifies open projects when settings change. Environment changes apply to
+new shells. Startup changes apply on the next project start or use of the
+start/restart action. Changes to `/shared` and permission to use the user's
+settings apply when the project restarts.
+
+- **`/shared`** is stored in the apex's `playground-shared` database.
+  Each project's `files.js` accesses it over a port, using the same
+  mechanism as the project's own store. `files.js` saves changes to
+  `/work` and `/home` within a second and `/shared` changes within 200 ms.
+  The IDE broadcasts saved `/shared` changes to other open projects.
+  Each project's `files.js` updates the affected files in place, so
+  existing file handles see the changes. The last change to a file wins.
+  Projects without access to the shared folder get an empty `/shared`
+  whose contents are not persisted. To share a tool's settings, link its
+  configuration folder to `/shared`: `ln -s /shared/claude ~/.claude`.
+- **Imported projects:** projects created from a share link or forked
+  from a live session are marked as imported. Before running any code
+  on their first start, they ask for permission to use the user's
+  settings. The dialog lists environment variable names without their
+  values, `/shared` if it contains anything, and the setup script's first
+  line. The project's code could access these settings. Closing the
+  dialog declines access. The user can change this decision in Project
+  settings. The dialog is skipped if no user settings would apply. Share
+  links contain files only and never include settings.
+- **Live sessions:** by default, new shells omit the user's environment
+  variables and `/shared` appears empty while any guest has permission
+  to type or edit. The shared folder is restored when those guests leave
+  or lose that permission. Hosts can disable this behavior. Existing
+  shells retain their environment.
 
 ## A folder from this computer
 

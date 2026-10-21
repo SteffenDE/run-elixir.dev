@@ -2,7 +2,7 @@ import * as crypto from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { expect, test } from 'vitest';
-import { hashes } from '../../src/runtime/nodejs/hashes';
+import { hashes } from '@/runtime/nodejs/hashes';
 
 test('a hash is a stream: piped into, its digest read', async () => {
   const hash = hashes.createHash('sha256');

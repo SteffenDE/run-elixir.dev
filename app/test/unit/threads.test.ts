@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createThreads } from '../../src/runtime/nodejs/threads';
+import { createThreads } from '@/runtime/nodejs/threads';
 
 // A thread's worker_threads, with `workerData`, counting what holds it.
 function thread(workerData: unknown) {

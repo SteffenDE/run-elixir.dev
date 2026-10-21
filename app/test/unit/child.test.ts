@@ -1,11 +1,16 @@
 import { describe, expect, test, vi } from 'vitest';
-import { createChildProcess } from '../../src/runtime/nodejs/child';
+import { createChildProcess } from '@/runtime/nodejs/child';
 
 type Spawn = { id: number; shared?: SharedArrayBuffer };
 
 // node:child_process with an exec frame that answers each spawn with
 // `output` and `code`: at once to a synchronous one, else when asked.
-function children(output: string, code: number) {
+function children(
+  output: string,
+  code: number,
+  written: [number, string][] = [],
+  files?: { dup(fd: number): number; close(fd: number): void; throughFd(path: string): string },
+) {
   const spawned: Spawn[] = [];
   const posted: { op: string }[] = [];
   const bytes = new TextEncoder().encode(output);
@@ -24,7 +29,8 @@ function children(output: string, code: number) {
   const { module, receive } = createChildProcess(post, () => () => {}, {
     cwd: () => '/',
     env: {},
-    write: () => {},
+    write: (fd, data) => written.push([fd, new TextDecoder().decode(data)]),
+    files,
   });
   const answer = () => {
     for (const { id } of spawned.splice(0)) {
@@ -38,6 +44,27 @@ function children(output: string, code: number) {
 type Done = (error: (Error & { code?: unknown }) | null, stdout: unknown) => void;
 
 describe('child_process', () => {
+  test("a child's output to a file the process opened goes there, by an fd of its own", async () => {
+    const written: [number, string][] = [];
+    const closed: number[] = [];
+    const files = {
+      dup: (fd: number) => fd + 100,
+      close: (fd: number) => void closed.push(fd),
+      throughFd: (path: string) => path.replace(/^\/proc\/self\/fd\/31/, '/usr/bin/rg'),
+    };
+    const { module, answer, posted } = children('from the child\n', 0, written, files);
+    const child = module.spawn('/proc/self/fd/31', ['--files', '/proc/self/fd/31'], {
+      stdio: ['ignore', 7, 7],
+    });
+    const done = new Promise((resolve) => child.on('close', resolve));
+    answer();
+    await done;
+    // Claude Code closes its own fd once it has spawned: the child writes on.
+    expect(written).toEqual([[107, 'from the child\n']]);
+    expect(closed).toEqual([107]);
+    expect((posted[0] as unknown as { line: string }).line).toBe('/usr/bin/rg --files /usr/bin/rg');
+  });
+
   test('a program that exits 127 is not one that was not found', async () => {
     const { module, answer } = children('error: command not found: eslint\n', 127);
     const done = new Promise<Parameters<Done>>((resolve) =>

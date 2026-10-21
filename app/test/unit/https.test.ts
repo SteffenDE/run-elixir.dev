@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { httpsByFetch } from '../../src/runtime/https';
+import { httpsByFetch } from '@/runtime/https';
 
 // The gateway's answer to `request`, when the site's fetch() answers
 // `response`: what it wrote after its first line.

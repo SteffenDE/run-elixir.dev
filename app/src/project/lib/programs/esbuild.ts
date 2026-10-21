@@ -16,9 +16,9 @@ export const ESBUILD_VERSION = '0.25.4';
 // Called after each build in watch mode (the preview reloads).
 export const bundled = new Set<() => void>();
 
-// esbuild-wasm, loaded and started once, on first use.
+// esbuild-wasm, loaded and started once, on first use (claude.ts's too).
 let loading: Promise<typeof import('esbuild-wasm')> | null = null;
-function load() {
+export function load() {
   loading ??= import('esbuild-wasm').then(async (module) => {
     await module.initialize({ wasmURL, worker: true });
     return module;

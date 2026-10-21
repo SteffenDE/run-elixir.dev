@@ -240,7 +240,27 @@ export function createLoader(options: {
 
   // `request` from a module in `dir`: a builtin's name (node:fs) or a file.
   // `imported`: by an ES module's import (or import()), not require.
+  // What a request from a directory resolved to, as Node keeps it
+  // (Module._pathCache): each lookup is a call to the shared files, and a
+  // module's every import of another resolves it.
+  const resolved = new Map<string, string>();
   const resolve = (
+    request: string,
+    dir: string,
+    parent: Module | null,
+    paths?: string[],
+    imported = false,
+  ): string => {
+    if (paths) return resolveUncached(request, dir, parent, paths, imported);
+    const key = `${imported ? 'i' : 'r'}\0${dir}\0${request}`;
+    let found = resolved.get(key);
+    if (found === undefined) {
+      found = resolveUncached(request, dir, parent, paths, imported);
+      resolved.set(key, found);
+    }
+    return found;
+  };
+  const resolveUncached = (
     request: string,
     dir: string,
     parent: Module | null,
@@ -336,9 +356,13 @@ export function createLoader(options: {
     // An ES module's own require (createRequire's) under another name while
     // sucrase turns its imports into require calls, and as itself after
     // (TypeScript's import x = require(…) is sucrase's to turn).
+    // Private names (#name) renamed too: sucrase takes `#t = …` for an
+    // assignment to an exported t, and makes it one (3.35.1).
     let code = esm
       ? rewriteCode(source, (text) =>
-          text.replace(/(?<![\w$]|import\s+[\w$]+\s*=\s*)require(?![\w$])/g, OWN_REQUIRE),
+          text
+            .replace(/(?<![\w$]|import\s+[\w$]+\s*=\s*)require(?![\w$])/g, OWN_REQUIRE)
+            .replace(/#([A-Za-z_$][\w$]*)/g, '#$1__private'),
         )
       : source;
     if (transforms.length) {

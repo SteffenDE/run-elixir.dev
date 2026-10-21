@@ -19,6 +19,8 @@ import { Preview } from '@/project/components/Preview';
 import { QuickOpen } from '@/project/components/QuickOpen';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { ProjectSettings } from '@/project/components/ProjectSettings';
+import { TrustDialog } from '@/project/components/TrustDialog';
 import { ConsentDialog } from '@/tailscale/components/ConsentDialog';
 import { TailscaleDialog } from '@/tailscale/components/TailscaleDialog';
 import { TailscaleMenu } from '@/tailscale/components/TailscaleMenu';
@@ -120,14 +122,15 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
   useEffect(() => {
     if (guest || !beginStart()) return;
     start(kind, project?.id ?? null).then(
-      () =>
-        project &&
-        resumeSession({
+      (started) => {
+        if (!started || !project) return;
+        return resumeSession({
           id: project.id,
           kind,
           name: project.name,
           template: project.template,
-        }),
+        });
+      },
       (error: Error) => useStore.getState().failedToStart(error.message),
     );
   }, [kind, project, guest]);
@@ -193,12 +196,14 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
           </button>
         )}
         {!guest && <TailscaleMenu />}
+        {!guest && project && <ProjectSettings project={project} />}
       </header>
       <TemplateNotice project={project} />
       <StartError />
       <NifBuildDialog />
       <TailscaleDialog />
       <ConsentDialog name={project?.name ?? 'this temporary IEx'} />
+      <TrustDialog />
       <QuickOpen />
       {narrow ? (
         <NarrowWorkspace

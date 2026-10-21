@@ -16,6 +16,9 @@ import {
   serverRunning,
   syncLV,
   syncPreviewLV,
+  newShell,
+  run,
+  userSettings,
   writeText,
 } from './helpers';
 
@@ -355,4 +358,31 @@ test('a guest follows the host until it opens a file itself, and can follow agai
   await guest.getByRole('button', { name: 'Follow Ada' }).click();
   await expect(activeTab(guest)).toHaveText('c.txt');
   await guest.context().close();
+});
+
+// The host's settings (its environment, /shared) are none of a guest's
+// business: while one may type, new shells start without them and /shared
+// is empty (live/lib/store.ts settingsOff, on by default).
+test('while a guest may type, the host’s settings stay out', async ({ page, browser }) => {
+  await userSettings(page, { env: { GREETING: 'hello from settings' }, shared: true, setup: '' });
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'echo mine > /shared/notes.txt');
+  const link = await startLive(page);
+  const guest = await join(browser, link);
+  await expect(page.locator('.live-people')).toContainText('Bob');
+  await allow(page, 'Terminals');
+  await expect
+    .poll(() => run(page, 'cat /shared/notes.txt'), { timeout: 30_000 })
+    .toContain('No such file');
+  const shell = await newShell(page);
+  expect(await run(page, 'echo "[$GREETING]"', shell)).toContain('[]');
+
+  // No guest may type: /shared is back.
+  await livePanel(page);
+  await page.locator('.live-switches').getByLabel('Terminals').uncheck();
+  await expect
+    .poll(() => run(page, 'cat /shared/notes.txt'), { timeout: 30_000 })
+    .toContain('mine');
+  await guest.close();
 });

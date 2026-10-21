@@ -1,6 +1,6 @@
 import { expect, test } from './fixtures';
-import type { BrowserContext, Locator, Page } from '@playwright/test';
-import { newShell, output, prompted, run, writeText } from './helpers';
+import type { Locator, Page } from '@playwright/test';
+import { newShell, output, prompted, run, signIn, writeText } from './helpers';
 
 // Tailscale (docs/tailscale.md): the setup hint a project shows once, and
 // (with a Headscale, below) a node's HTTPS through the tailnet and an exit
@@ -64,51 +64,6 @@ test('a temporary IEx has the Tailscale menu too', async ({ page }) => {
   await expect.poll(() => output(page), { timeout: 120_000 }).toMatch(/iex\(1\)> $/);
   await expect(page.getByRole('button', { name: 'Tailscale: not set up' })).toBeVisible();
 });
-
-// Sign this browser's device in to the Headscale on `apex`'s Tailscale page
-// (the test registers it through Headscale's API, as an admin would) and
-// pick exit-box: its MagicDNS name.
-async function signIn(page: Page, context: BrowserContext, apex: string): Promise<string> {
-  await page.goto(`${apex}/tailscale`);
-  const control = page.getByLabel('Control server URL');
-  await page.getByText('Another control server').click();
-  await control.fill(HEADSCALE!);
-  await page.getByRole('button', { name: 'Save' }).click();
-  await expect(control).toHaveValue(HEADSCALE!);
-
-  // Signing in opens a tab for the control server's page; Headscale's
-  // registers the node by its id, as an admin would.
-  const popup = context.waitForEvent('page');
-  await page
-    .locator('.tailscale-device')
-    .getByRole('button', { name: 'Sign in with Tailscale' })
-    .click();
-  await popup.then((tab) => tab.close());
-  const link = page.getByRole('link', { name: "Tailscale's sign-in page" });
-  await expect(link).toBeVisible({ timeout: 120_000 });
-  const authId = new URL((await link.getAttribute('href'))!).pathname.split('/').pop()!;
-  const registered = await fetch(`${HEADSCALE}/api/v1/auth/register`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${process.env.HEADSCALE_API_KEY}`,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ user: process.env.HEADSCALE_USER ?? 'alice', authId }),
-  });
-  expect(registered.status, await registered.text()).toBe(200);
-
-  const state = page.locator('.tailscale-state');
-  await expect(state).toContainText('connected, no exit node', { timeout: 60_000 });
-  await expect(page.locator('.tailscale-facts')).toContainText(TAG);
-  const exit = page.locator('.tailscale-device select');
-  const box = exit.locator('option', { hasText: 'exit-box' });
-  await expect(box).toHaveCount(1, { timeout: 60_000 });
-  const name = (await box.textContent())!.replace(/ \(offline\)$/, '');
-  await exit.selectOption({ label: name });
-  await expect(state).toContainText('connected through exit-box');
-
-  return name;
-}
 
 // A server on port 4000 in a second shell of `project`, answering `text`.
 async function serve(project: Page, text: string): Promise<void> {

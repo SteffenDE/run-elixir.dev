@@ -1796,6 +1796,19 @@ button {
   position: absolute;
   top: 12px;
   right: 16px;
+  display: flex;
+  gap: 4px;
+}
+
+/* The settings' gear (the projects' corner, a project's top bar): an icon,
+   not a link's colours, as the Tailscale button beside it. */
+.settings-button,
+.settings-button:visited {
+  color: var(--muted);
+}
+.settings-button:hover,
+.settings-button[aria-expanded='true'] {
+  color: var(--fg);
 }
 
 .tailscale-button {
@@ -2095,4 +2108,70 @@ button {
   align-items: center;
   gap: 4px;
   margin-top: 10px;
+}
+
+/* A project from a link, before it starts: what the user's settings give it. */
+.trust-list {
+  margin: 0 0 12px;
+  padding-left: 20px;
+  display: grid;
+  gap: 4px;
+}
+.trust-list code {
+  overflow-wrap: anywhere;
+}
+
+/* The user's settings (/settings) and a project's (its top bar). */
+.settings-page h2 + .muted,
+.settings-page .live-check + .muted {
+  margin-top: 0;
+}
+.settings-script {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+  resize: vertical;
+}
+.settings-save {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 16px;
+}
+.project-settings {
+  width: min(420px, calc(100vw - 16px));
+}
+.env-editor {
+  display: grid;
+  gap: 6px;
+}
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 3fr) auto;
+  gap: 6px;
+  align-items: center;
+}
+.env-row input {
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 13px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: inherit;
+}
+.env-row input.invalid {
+  border-color: var(--accent);
+}
+.env-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }

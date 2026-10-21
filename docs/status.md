@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-21
 ---
 
 # Status
@@ -87,6 +87,27 @@ chunks; the same memory.
   UDP and names reach any host, each project asked first; Erlang
   distribution to a node in the tailnet; a project's server shared in
   the tailnet. Tried against Headscale.
+- **Node.js** ([nodejs.md](nodejs.md)): `node`, `npm` and `npx` on the
+  page's own JavaScript engine; a React app built and served by Vite;
+  Pi, a coding agent.
+- **Claude Code** (`claude`, Chromium so far; [nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets)):
+  runs Claude Code's JavaScript on the playground's Node implementation.
+  The [claude frame](frames.md#the-claude-frame) extracts the JavaScript
+  from the npm package's Bun executable and caches it once per version
+  for all projects. Preparation takes about 20 seconds; cached starts
+  take about 0.4 seconds. `claude -p` can call a model and use Bash through
+  brush, Read, Write, Edit, and the `rg`-based Glob and Grep tools. The
+  terminal UI also renders. Interactive mode requires the tailnet because
+  the connectivity check reaches endpoints without CORS headers. The
+  pinned version is 2.1.306, the latest as of 2026-10-21.
+- **Settings** ([projects.md](projects.md#settings)): browser-wide
+  environment variables, such as `CLAUDE_CODE_OAUTH_TOKEN`, a setup script
+  for new projects, and a `/shared` folder stored on the apex. Changes to
+  `/shared` appear in other open projects. Projects can define their own
+  startup commands and environment variables. Imported and forked
+  projects ask before using the user's settings. By default, new shells
+  omit the user's environment variables and `/shared` is hidden while
+  guests have permission to type or edit in a live session.
 - **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
@@ -137,6 +158,11 @@ chunks; the same memory.
   missing; rustler_precompiled packages still try to download.
 
 **In the playground**
+- **No `find`, `grep`, `sed` or `awk`** at the shell (uutils' coreutils
+  have none of them; `rg` is there). Agents fall back on their own tools.
+- **Claude Code in Firefox and WebKit** is untried: its claude frame's
+  storage is shared by every project only where the browser keys a
+  frame's storage by the top-level site.
 - **Compiling is about 2.3× native BEAM** (Ash under Node, four
   schedulers: [../beam/README.md](../beam/README.md#ash-benchmark-2026-10-16)):
   a new app's deps take minutes. The plan: prebuilt deps.
@@ -214,11 +240,8 @@ chunks; the same memory.
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.
 9. WebKit's two stalls; a faster node start.
-10. Node in the terminal, on the `worktree-node` branch
-    ([nodejs.md](nodejs.md)): `node`, `npm` and `npx` work, and a React
-    project builds with Vite (Rolldown's WebAssembly build). Next there:
-    Vite's dev server in the preview (`http` and `net` on the runtime's
-    TCP), `fs.watch`, `child_process`, `zlib`, `crypto.createHash`.
+10. `find`, `grep`, `sed` and `awk` built to WebAssembly beside
+    coreutils.
 11. Tailscale against Tailscale's own control server, and what is left
     ([tailscale.md](tailscale.md#not-built-yet)).
 

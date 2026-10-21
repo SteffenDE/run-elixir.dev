@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createUtil } from '../../src/runtime/nodejs/util';
+import { createUtil } from '@/runtime/nodejs/util';
 
 const util = createUtil(() => {});
 

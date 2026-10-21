@@ -2,7 +2,16 @@
 // with lazy_html, a NIF built to WebAssembly. The test environment's
 // dependencies compile first (about 5 minutes in Chromium).
 import { expect, test } from './fixtures';
-import { APP, newProject, newShell, output, prompts, serverRunning, writeText } from './helpers';
+import {
+  APP,
+  newProject,
+  newShell,
+  output,
+  prompts,
+  run,
+  serverRunning,
+  writeText,
+} from './helpers';
 
 const COUNTER_TEST = `defmodule PlaygroundWeb.CounterLiveTest do
   use PlaygroundWeb.ConnCase
@@ -29,6 +38,7 @@ test("mix test runs the app's tests and a LiveView test @slow", async ({ page })
   await newProject(page, 'phoenix');
   await serverRunning(page);
   const shell = await newShell(page);
+  await run(page, `cd ${APP}`, shell);
   await page.evaluate((p) => window.playground.files.mkdir(p), `${APP}/test/playground_web/live`);
   await writeText(page, `${APP}/test/playground_web/live/counter_live_test.exs`, COUNTER_TEST);
   await page.evaluate((id) => window.playground.sessions.get(id).node.input('mix test\n'), shell);
@@ -37,7 +47,7 @@ test("mix test runs the app's tests and a LiveView test @slow", async ({ page })
       timeout: 3_000_000,
       intervals: [5000],
     })
-    .toBeGreaterThanOrEqual(2);
+    .toBeGreaterThanOrEqual(3);
   const out = await output(page, shell);
   expect(out).toContain("make: lazy_html 0.1.13's native code, built to WebAssembly");
   expect(out).toContain('Result: 6 passed');

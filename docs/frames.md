@@ -18,6 +18,7 @@ yet), framed by the apex's pages:
 | `DOMAIN` (the apex) | The IDE (React), the stores, the projects' list. Cross-origin isolated (COOP `same-origin`, COEP `require-corp`). |
 | `v-ID-PORT.USERCONTENT` | The preview of port PORT of project ID's app: its pages, its service worker (`sw.ts`), and the relay frame that passes its requests to the IDE (`frames/relay.ts`). |
 | `e-ID.USERCONTENT` | The exec frame: a worker that runs the project (below). |
+| `claude.USERCONTENT` | The claude frame: a worker that makes Claude Code's files for every project, and keeps them (below). |
 
 The former layout ran each project's IDE on an origin of its own under the
 apex (`p-ID.DOMAIN`, and a live guest's page on `l-ID.DOMAIN`), the same
@@ -93,6 +94,35 @@ apex's stays the apex's:
 - **What the IDE changes** (a save, the tree's operations) is kept before
   the frame answers: the page may go at once (a reload), and the frame
   with it. What the nodes change is kept a second later, as before.
+
+## The claude frame
+
+`claude` ([nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets))
+runs the JavaScript embedded in Claude Code's npm package, a Bun
+executable. The claude frame downloads 125 MB from the registry and
+extracts and compiles the JavaScript in about 20 seconds. It caches the
+result once per version for all projects, on a separate origin. The apex
+does not store or execute Claude Code.
+
+- **Frame creation:** when a project first runs `claude`,
+  `programs/claude/frame.ts` creates an invisible iframe at
+  `claude.USERCONTENT/claude.html`, using the same approach as the exec
+  frame. `frames/claude.ts` starts the worker in
+  `programs/claude/worker.ts` and forwards ports received from the IDE.
+  It accepts ports only from the IDE's origin.
+- **Connections:** each run requests a port from the IDE through
+  `claudePort`. The IDE gives one end of a channel to the exec frame and
+  the other to the claude frame. The worker handles `files` requests by
+  transferring the cached file buffers. During preparation, it sends
+  `progress` events.
+- **Shared cache:** every project's IDE embeds the claude origin under
+  the same apex site, so the frames share an IndexedDB storage partition.
+  Subsequent projects reuse the cached files. A Web Lock serializes
+  preparation across tabs.
+- **Cache access:** projects can request cached files but cannot modify
+  the cache. Only the worker writes to it. The worker fetches the version
+  pinned by the site and verifies its integrity before preparing the
+  files. It does not execute Claude Code.
 
 A live session's guest has no exec frame: its page's bridge answers the
 relays of its own preview origins, its connections tunnelled to the

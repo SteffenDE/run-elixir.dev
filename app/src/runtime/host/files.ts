@@ -1,4 +1,5 @@
 // The page's side of the shared files (files.ts, a worker of its own).
+import type { KeptRecord } from '../overlay';
 import type { Manifest } from '../wasi/fs';
 import { worker } from './worker';
 
@@ -91,8 +92,10 @@ export class Files implements FileSystem {
   // base: where files.js is; runtime: the site's files (build.ts
   // RUNTIME), by default base. boots, template, store: what files.js
   // starts with (its 'start'); storePort, in place of store: a port to
-  // the apex's store (overlay.ts remote, docs/frames.md).
-  // onwarning(message): a change that was not kept.
+  // the apex's store (overlay.ts remote, docs/frames.md); sharedPort: a
+  // port to /shared's, the user's for every project.
+  // onwarning(message): a change that was not kept; onkept(records): what
+  // it kept in /shared, for the other projects open (apply).
   constructor({
     base = './',
     runtime = null as string | null,
@@ -100,7 +103,9 @@ export class Files implements FileSystem {
     template = [] as string[],
     store = null as string | null,
     storePort = null as MessagePort | null,
+    sharedPort = null as MessagePort | null,
     onchange = (_paths: string[]) => {},
+    onkept = (_records: KeptRecord[]) => {},
     onwarning = (_message: string) => {},
   } = {}) {
     this.doorbell = new SharedArrayBuffer(4);
@@ -115,6 +120,7 @@ export class Files implements FileSystem {
         } else if (data.kind === 'failed') reject(new Error(data.message));
         else if (data.kind === 'changed') onchange(data.paths);
         else if (data.kind === 'warning') onwarning(data.message);
+        else if (data.kind === 'kept') onkept(data.records);
         else if (data.kind === 'reply') {
           const request = this.requests.get(data.id);
           this.requests.delete(data.id);
@@ -133,9 +139,23 @@ export class Files implements FileSystem {
         template,
         store,
         storePort,
+        sharedPort,
       },
-      storePort ? [storePort] : [],
+      [storePort, sharedPort].filter((port): port is MessagePort => port !== null),
     );
+  }
+
+  // /shared hidden while a live session's guest may type (files.ts).
+  hideShared(hide: boolean): Promise<void> {
+    return this.ask({ op: 'hide-shared', hide }).then(() => {});
+  }
+
+  // What another project kept in /shared, laid over these files.
+  apply(records: KeptRecord[]): void {
+    const buffers = records.flatMap((record) =>
+      record.kind === 'file' ? [record.data.buffer] : [],
+    );
+    this.worker.postMessage({ kind: 'apply', records }, buffers);
   }
 
   // A node's channel (wasi/shared.ts sharedClient).

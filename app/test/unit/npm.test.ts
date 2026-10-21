@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { npmProgram, splitRequest, unpackBatches } from '../../src/project/lib/programs/npm';
+import { npmProgram, splitRequest, unpackBatches } from '@/project/lib/programs/npm';
 
 afterEach(() => vi.unstubAllGlobals());
 

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { entries } from '../../src/runtime/wasi/fs';
+import { entries } from '@/runtime/wasi/fs';
 
 const encoder = new TextEncoder();
 

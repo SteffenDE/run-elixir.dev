@@ -87,9 +87,12 @@ const E = {
   XDEV: 75,
 };
 const OFLAGS = { CREAT: 1, DIRECTORY: 2, EXCL: 4, TRUNC: 8 };
-export const SHARED = ['/work', '/tmp', '/home'];
+// /shared: the user's, the same in every project that has it (kept on the
+// apex, settings.ts); empty and kept nowhere in one that has not.
+export const SHARED = ['/work', '/tmp', '/home', '/shared'];
 // What is kept in the project's database: its files, and its home's.
 const KEPT = ['/work/', '/home/'];
+const KEPT_SHARED = ['/shared/'];
 export const CHANNEL = 1 << 20;
 
 const now = () => BigInt(Date.now()) * 1000000n;
@@ -105,15 +108,32 @@ const changed = new Set<string>();
 let reported = 0;
 const channels: { control: Int32Array; data: Uint8Array }[] = [];
 let doorbell: Int32Array = null!;
-// The kept changes: { db, version, whiteouts }, and the paths below /work
+// Where changes are kept: the project's database (/work, /home), and
+// /shared's (every project's); each with the paths below its prefixes
 // changed since they were last written (true: with everything in them).
-let overlay: { store: overlays.Store; version: string; whiteouts: Set<string> } | null = null;
-const dirty = new Map<string, boolean>();
+// /shared's saves are reported, for the other projects open (`apply`).
+interface Keeper {
+  prefixes: string[];
+  store: overlays.Store;
+  version: string;
+  whiteouts: Set<string>;
+  dirty: Map<string, boolean>;
+  saving: Promise<void> | null;
+  saved: number;
+  // How often it writes, at most: /shared's more often, so the other
+  // projects hear its changes soon.
+  every: number;
+  report: boolean;
+  // Hidden for a while (/shared, while a live session's guest may type):
+  // nothing kept, and what other projects kept held until it is back.
+  paused: KeptRecord[][] | null;
+}
+const keepers: Keeper[] = [];
+const keeperOf = (path: string) =>
+  keepers.find((keeper) => keeper.prefixes.some((prefix) => path.startsWith(prefix)));
 // The template's files, as the project started (what 'changes' compares
 // with).
 const templateFiles = new Set<string>();
-let saving: Promise<void> | null = null;
-let saved = 0;
 
 // { node, parent, name } or { error, parent?, name? } for an absolute path:
 // symbolic links on the way followed, a last one only when `follow`.
@@ -139,9 +159,10 @@ function status(node: FsNode) {
 // where it is whether or not the links are back yet.
 function report(path: string, deep = false): void {
   changed.add(path);
-  if (!overlay) return;
+  if (!keepers.length) return;
   path = physical(path);
-  if (KEPT.some((prefix) => path.startsWith(prefix))) dirty.set(path, dirty.get(path) || deep);
+  const keeper = keeperOf(path);
+  if (keeper && !keeper.paused) keeper.dirty.set(path, keeper.dirty.get(path) || deep);
 }
 
 // An absolute path with its directory's symbolic links resolved (its last
@@ -165,6 +186,7 @@ function physical(path: string): string {
 // The records for what changed (overlay.ts), and the directories whose
 // earlier records go.
 function collect(
+  keeper: Keeper,
   path: string,
   node: FsNode,
   deep: boolean,
@@ -172,33 +194,33 @@ function collect(
   cleared: string[],
 ): void {
   if (node instanceof Dir) {
-    const opaque = deep || overlay!.whiteouts.has(path);
+    const opaque = deep || keeper.whiteouts.has(path);
     records.push({ path, kind: 'dir', opaque, mtime: String(node.mtime) });
     if (opaque) cleared.push(path);
-    overlay!.whiteouts.delete(path);
+    keeper.whiteouts.delete(path);
     if (deep)
       for (const [name, child] of node.entries)
-        collect(`${path}/${name}`, child, true, records, cleared);
+        collect(keeper, `${path}/${name}`, child, true, records, cleared);
   } else if (node instanceof File) {
     load(node, fetchFile);
     records.push({ path, kind: 'file', data: node.bytes.slice(), mtime: String(node.mtime) });
-    overlay!.whiteouts.delete(path);
+    keeper.whiteouts.delete(path);
   } else if (node instanceof Symlink) {
     records.push({ path, kind: 'link', target: node.target, mtime: String(node.mtime) });
-    overlay!.whiteouts.delete(path);
+    keeper.whiteouts.delete(path);
   }
 }
 
-// Write what changed; one write at a time.
-function persist(): Promise<void> | null {
-  if (saving || !dirty.size) return saving;
+// Persist pending changes, serializing writes within each keeper.
+function persist(keeper: Keeper): Promise<void> | null {
+  if (keeper.saving || !keeper.dirty.size) return keeper.saving;
   const records: KeptRecord[] = [];
   const cleared: string[] = [];
-  for (const [path, deep] of [...dirty].sort(([a], [b]) => (a < b ? -1 : 1))) {
+  for (const [path, deep] of [...keeper.dirty].sort(([a], [b]) => (a < b ? -1 : 1))) {
     const found = resolve(path);
     if (found.node) {
       try {
-        collect(path, found.node, deep, records, cleared);
+        collect(keeper, path, found.node, deep, records, cleared);
       } catch (error) {
         postMessage({
           kind: 'warning',
@@ -208,26 +230,109 @@ function persist(): Promise<void> | null {
     } else {
       records.push({ path, kind: 'gone' });
       cleared.push(path);
-      overlay!.whiteouts.add(path);
+      keeper.whiteouts.add(path);
     }
   }
-  dirty.clear();
-  saved = performance.now();
-  saving = overlay!.store
-    .save(records, cleared, overlay!.version)
+  keeper.dirty.clear();
+  keeper.saved = performance.now();
+  // What the other projects open hear (the store takes the records' bytes).
+  if (keeper.report)
+    postMessage({
+      kind: 'kept',
+      records: records.map((record) =>
+        record.kind === 'file' ? { ...record, data: record.data.slice() } : record,
+      ),
+    });
+  keeper.saving = keeper.store
+    .save(records, cleared, keeper.version)
     .catch((error: Error) =>
       postMessage({ kind: 'warning', message: `changes not kept: ${error.message}` }),
     )
     .finally(() => {
-      saving = null;
+      keeper.saving = null;
     });
-  return saving;
+  return keeper.saving;
 }
 
-// Lay the kept changes over the files.
-function apply(records: KeptRecord[]): void {
+// Flush all pending changes to storage.
+async function flush(): Promise<void> {
+  for (const keeper of keepers) {
+    if (keeper.paused) continue;
+    await keeper.saving;
+    await persist(keeper);
+  }
+}
+
+// /shared hidden (an empty folder in its place, kept nowhere) while a live
+// session's guest may type, at the host's choice; back after, with what
+// the other projects kept meanwhile.
+let hiddenShared: FsNode | null = null;
+let sharedVisibility = Promise.resolve();
+function hideShared(hide: boolean): Promise<void> {
+  const transition = sharedVisibility.then(() => setSharedHidden(hide));
+  sharedVisibility = transition.catch(() => {});
+  return transition;
+}
+
+async function setSharedHidden(hide: boolean): Promise<void> {
+  const keeper = keepers.find((each) => each.prefixes === KEPT_SHARED);
+  if (hide && !hiddenShared) {
+    if (keeper) {
+      await keeper.saving;
+      await persist(keeper);
+      keeper.paused = [];
+    }
+    hiddenShared = root.entries.get('shared') ?? new Dir();
+    const empty = new Dir();
+    empty.parent = root;
+    root.entries.set('shared', empty);
+  } else if (!hide && hiddenShared) {
+    root.entries.set('shared', hiddenShared);
+    hiddenShared = null;
+    const held = keeper?.paused ?? [];
+    if (keeper) keeper.paused = null;
+    for (const records of held) apply(records, true, true);
+  }
+  changed.add('/shared');
+}
+
+// Lay the kept changes over the files. Those another project kept (/shared:
+// `live`) change a file in place, so what has it open reads them, and are
+// reported to the watchers and the page, not kept again.
+function apply(records: KeptRecord[], live = false, shared = false): void {
   for (const record of records) {
+    if (shared) {
+      if (!overlays.sharedRecords([record])) continue;
+      // Records describe physical paths. Never follow a project's links
+      // while applying another project's changes, even links inside /shared.
+      let parent = root;
+      let safe = true;
+      for (const name of record.path.split('/').slice(1, -1)) {
+        let next = parent.entries.get(name);
+        if (!next && record.kind !== 'gone') {
+          next = new Dir();
+          next.parent = parent;
+          parent.entries.set(name, next);
+        }
+        if (!(next instanceof Dir)) {
+          safe = false;
+          break;
+        }
+        parent = next;
+      }
+      if (!safe) continue;
+    }
     const found = resolve(record.path);
+    if (live) changed.add(record.path);
+    if (live && record.kind === 'file' && found.node instanceof File) {
+      found.node.truncate(record.data.length);
+      found.node.data.set(record.data);
+      found.node.written = true;
+      found.node.mtime = BigInt(record.mtime);
+      continue;
+    }
+    if (live && record.kind !== 'gone')
+      root.mkdirs(record.path.slice(0, record.path.lastIndexOf('/')) || '/');
     if (record.kind === 'gone') {
       if (found.node) found.parent!.entries.delete(found.name!);
     } else if (record.kind === 'dir') {
@@ -445,7 +550,9 @@ function answer() {
     changed.clear();
     reported = performance.now();
   }
-  if (overlay && dirty.size && performance.now() - saved > 1000) persist();
+  for (const keeper of keepers)
+    if (!keeper.paused && keeper.dirty.size && performance.now() - keeper.saved > keeper.every)
+      persist(keeper);
 }
 
 // Every file below `dir` (at `path`), but in directories named in `skip`.
@@ -624,6 +731,30 @@ function page({
 
 let loop: Promise<void> | null = null;
 
+function keeperFor(
+  prefixes: string[],
+  store: overlays.Store,
+  version: string,
+  records: KeptRecord[],
+  reports: boolean,
+): Keeper {
+  const whiteouts = new Set<string>(
+    records.filter((record) => record.kind === 'gone').map((record) => record.path),
+  );
+  return {
+    prefixes,
+    store,
+    version,
+    whiteouts,
+    dirty: new Map(),
+    saving: null,
+    saved: 0,
+    every: reports ? 200 : 1000,
+    report: reports,
+    paused: null,
+  };
+}
+
 onmessage = async ({ data }) => {
   if (data.kind === 'start') {
     try {
@@ -631,19 +762,22 @@ onmessage = async ({ data }) => {
       // directories below /work the project starts with, from the site's
       // files (/work/playground for a Phoenix project); store: the
       // IndexedDB database the project's changes are kept in, or
-      // storePort: a port to the apex's (overlay.ts remote).
+      // storePort: a port to the apex's (overlay.ts remote); sharedPort:
+      // a port to /shared's, the user's for every project (or none).
       const {
         runtime,
         boots = ['boot'],
         template = [],
         store = null,
         storePort = null,
+        sharedPort = null,
       }: {
         runtime: string;
         boots?: string[];
         template?: string[];
         store?: string | null;
         storePort?: MessagePort | null;
+        sharedPort?: MessagePort | null;
       } = data;
       const [images, manifest, version] = await Promise.all([
         Promise.all(
@@ -687,10 +821,13 @@ onmessage = async ({ data }) => {
           kept = await keeper.load();
         }
         apply(kept.records);
-        const whiteouts = new Set<string>(
-          kept.records.filter((record) => record.kind === 'gone').map((record) => record.path),
-        );
-        overlay = { store: keeper, version: version.trim(), whiteouts };
+        keepers.push(keeperFor(KEPT, keeper, version.trim(), kept.records, false));
+      }
+      if (sharedPort) {
+        const sharedStore = overlays.remote(sharedPort);
+        const records = (await sharedStore.load()).records;
+        apply(records, false, true);
+        keepers.push(keeperFor(KEPT_SHARED, sharedStore, '', records, true));
       }
       fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, runtime)));
       doorbell = new Int32Array(data.doorbell);
@@ -714,11 +851,16 @@ onmessage = async ({ data }) => {
     const index = channels.findIndex((c) => c.control.buffer === data.channel);
     if (index >= 0) channels.splice(index, 1);
   } else if (data.kind === 'request' && data.op === 'flush') {
-    // Everything changed so far, kept.
-    if (overlay) {
-      await saving;
-      await persist();
-    }
+    await flush();
+    postMessage({ kind: 'reply', id: data.id });
+  } else if (data.kind === 'apply') {
+    if (!overlays.sharedRecords(data.records)) return;
+    // What another project kept in /shared (held while it is hidden).
+    const keeper = keepers.find((each) => each.prefixes === KEPT_SHARED);
+    if (keeper?.paused) keeper.paused.push(data.records);
+    else apply(data.records, true, true);
+  } else if (data.kind === 'request' && data.op === 'hide-shared') {
+    await hideShared(Boolean(data.hide));
     postMessage({ kind: 'reply', id: data.id });
   } else if (data.kind === 'request') {
     let reply: PageReply;

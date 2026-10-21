@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { pieces } from '../../src/runtime/nodejs/source';
+import { pieces } from '@/runtime/nodejs/source';
 
 // The literals (strings, comments, regular expressions) the scan finds.
 const literals = (source: string) =>

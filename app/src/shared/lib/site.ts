@@ -101,6 +101,12 @@ export const previewOrigin = (id: string, port: number) =>
 export const execOrigin = (key: string) =>
   site.usercontent && isId(key) ? `${location.protocol}//e-${key}.${site.usercontent}` : null;
 
+// Where Claude Code's files are made and kept for every project
+// (claude.USERCONTENT, programs/claude/frame.ts); null without a
+// usercontent domain.
+export const claudeOrigin = () =>
+  site.usercontent ? `${location.protocol}//claude.${site.usercontent}` : null;
+
 export const projectUrl = (id: string) => apexUrl(`/${id}/`);
 
 // A path on the apex, from anywhere.

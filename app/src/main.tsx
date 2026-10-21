@@ -6,6 +6,7 @@ import { GuestPage } from '@/live/components/GuestPage';
 import { NotFound } from '@/home/components/NotFound';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
+import { SettingsPage } from '@/settings/components/SettingsPage';
 import { TailscalePage } from '@/tailscale/components/TailscalePage';
 import { endSession, leaveSession } from '@/live/lib/host';
 import { leave, shutdown } from '@/project/lib/playground';
@@ -31,6 +32,7 @@ import '@/styles.css';
 //   /iex        a temporary IEx, kept nowhere
 //   /import#…   a shared project's link
 //   /tailscale  this browser's Tailscale node (docs/tailscale.md)
+//   /settings   the user's settings for every project (settings.ts)
 //   /live/ID#…  a live session's link, to join it
 //
 // All of them on the apex (site.ts). A project's former origin (p-ID) and
@@ -61,6 +63,7 @@ async function page(path: string): Promise<ReactNode> {
   if (!name) return <HomePage />;
   if (name === 'import') return <ImportPage />;
   if (name === 'tailscale') return <TailscalePage />;
+  if (name === 'settings') return <SettingsPage />;
   if (name === 'live') {
     const session = path.split('/').filter(Boolean)[1] ?? '';
     if (!/^[\w-]{22}$/.test(session)) return <NotFound />;
@@ -145,7 +148,7 @@ const isRoute = ({ pathname }: URL) => {
   const name = pathname.split('/').filter(Boolean)[0] ?? '';
   return (
     !name ||
-    ['import', 'tailscale', 'live', 'iex', ...Object.keys(SHORTCUTS)].includes(name) ||
+    ['import', 'tailscale', 'settings', 'live', 'iex', ...Object.keys(SHORTCUTS)].includes(name) ||
     isId(name)
   );
 };

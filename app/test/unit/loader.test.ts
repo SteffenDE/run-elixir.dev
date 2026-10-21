@@ -2,8 +2,8 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { createLoader } from '../../src/runtime/nodejs/loader';
-import { createPath } from '../../src/runtime/nodejs/path';
+import { createLoader } from '@/runtime/nodejs/loader';
+import { createPath } from '@/runtime/nodejs/path';
 
 let dirs: string[] = [];
 afterEach(() => {
@@ -248,5 +248,17 @@ describe("require.resolve's paths", () => {
       `${root}/b/y.js`,
       'MODULE_NOT_FOUND',
     ]);
+  });
+});
+
+describe("an ES module's private names", () => {
+  test('are not its exports of the same name', async () => {
+    const { root, loader } = project({
+      'a.mjs': `class Flag { #t = false; set() { this.#t = true; return #t in this && this.#t; } }
+        export function t() { return 'the export'; }
+        export const set = new Flag().set();`,
+    });
+    expect(loader.createRequire(`${root}/`)('./a.mjs')).toMatchObject({ set: true });
+    expect((loader.createRequire(`${root}/`)('./a.mjs') as { t(): string }).t()).toBe('the export');
   });
 });
