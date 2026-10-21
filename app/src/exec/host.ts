@@ -14,6 +14,7 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
+import { ENV } from '@/runtime/setup';
 import {
   Node,
   type Connection,
@@ -619,7 +620,7 @@ const handlers = {
       initial,
       cwd: setup.cwd,
       boots: setup.boots,
-      env: { ...env, ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
+      env: { ...env, ...ENV, ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
     });
   },
   input: (id: number, text: string) => shells.get(id)?.input(text),

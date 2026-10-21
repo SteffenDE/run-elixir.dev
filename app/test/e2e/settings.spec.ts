@@ -105,6 +105,86 @@ test('a project from a link asks first, and takes the user’s settings only if 
   expect(await run(page, 'echo "[$GREETING]"')).toContain('[hello from settings]');
 });
 
+test('Back cancels a pending trust request before another project starts', async ({ page }) => {
+  await userSettings(page, { env: { GREETING: 'mine' }, shared: true, setup: '' });
+  await page.goto(await LINK(page));
+  await page.getByRole('button', { name: 'Open as a new project' }).click();
+  const dialog = page.getByRole('dialog', { name: /Use your settings/ });
+  await expect(dialog).toBeVisible();
+  const abandoned = new URL(page.url()).pathname;
+
+  await page.goBack();
+  await page.getByRole('link', { name: 'All projects', exact: true }).click();
+  await page.getByRole('link', { name: 'Empty project' }).click();
+  await expect(dialog).toHaveCount(0);
+  await prompted(page, 1);
+  await expect(page.locator('.exec-frame')).toHaveCount(1);
+  await run(page, 'echo current > /work/current.txt');
+
+  // The cancelled request did not save a trust answer or start its shell.
+  await page.getByTitle('All projects').click();
+  await page.locator(`.project-row a[href$="${abandoned}"]`).click();
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Use my settings' }).click();
+  await prompted(page, 1);
+  await expect(page.locator('.exec-frame')).toHaveCount(1);
+  expect(await exists(page, '/work/current.txt')).toBe(false);
+});
+
+test('a project first started without setup never runs a later setup script', async ({ page }) => {
+  await userSettings(page, { env: {}, shared: true, setup: '' });
+  const id = await newProject(page, 'empty');
+  await prompted(page, 1);
+  await userSettings(page, { setup: 'echo unexpected > /work/late-setup.txt' });
+  await page.goto(`/${id}/`);
+  await prompted(page, 1);
+  expect(await exists(page, '/work/late-setup.txt')).toBe(false);
+});
+
+test('playground environment defaults take precedence over user and project settings', async ({
+  page,
+}) => {
+  const overrides = {
+    HOME: '/custom/home',
+    PATH: '/custom/bin',
+    MIX_HOME: '/custom/mix',
+    TARGET_ARCH: 'custom',
+    GREETING: 'from the user',
+  };
+  await userSettings(page, { env: overrides, shared: false, setup: '' });
+  const id = await newProject(page, 'empty');
+  await prompted(page, 1);
+  const check = async (greeting: string) => {
+    const result = await run(page, 'echo "[$HOME][$PATH][$MIX_HOME][$TARGET_ARCH][$GREETING]"');
+    expect(result).toContain(
+      `[/home/user][/usr/bin:/rotp/bin:/home/user/.mix/escripts][/home/user/.mix][wasm32][${greeting}]`,
+    );
+    expect(await run(page, 'node -p "process.env.TARGET_ARCH"')).toContain('wasm32');
+  };
+  await check('from the user');
+  await projectSettings(page, id, { env: { ...overrides, GREETING: 'from the project' } });
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 1);
+  await check('from the project');
+});
+
+test('leaving broadcasts the final shared-folder changes to other open projects', async ({
+  page,
+  context,
+}) => {
+  await userSettings(page, { env: {}, shared: true, setup: '' });
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const other = await context.newPage();
+  await newProject(other, 'empty');
+  await prompted(other, 1);
+
+  await run(page, 'echo final > /shared/final.txt');
+  await page.getByTitle('All projects').click();
+  await expect(page.locator('.project-row')).toHaveCount(2);
+  await expect.poll(() => readText(other, '/shared/final.txt')).toBe('final\n');
+});
+
 // /shared: the same in every project of the user's, kept on the apex, and
 // what one changes the others open hear at once.
 test('/shared is every project’s, live, and kept', async ({ page, context }) => {

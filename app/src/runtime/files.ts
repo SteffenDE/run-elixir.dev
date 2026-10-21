@@ -267,7 +267,14 @@ async function flush(): Promise<void> {
 // session's guest may type, at the host's choice; back after, with what
 // the other projects kept meanwhile.
 let hiddenShared: FsNode | null = null;
-async function hideShared(hide: boolean): Promise<void> {
+let sharedVisibility = Promise.resolve();
+function hideShared(hide: boolean): Promise<void> {
+  const transition = sharedVisibility.then(() => setSharedHidden(hide));
+  sharedVisibility = transition.catch(() => {});
+  return transition;
+}
+
+async function setSharedHidden(hide: boolean): Promise<void> {
   const keeper = keepers.find((each) => each.prefixes === KEPT_SHARED);
   if (hide && !hiddenShared) {
     if (keeper) {

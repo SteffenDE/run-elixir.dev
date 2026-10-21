@@ -122,14 +122,15 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
   useEffect(() => {
     if (guest || !beginStart()) return;
     start(kind, project?.id ?? null).then(
-      () =>
-        project &&
-        resumeSession({
+      (started) => {
+        if (!started || !project) return;
+        return resumeSession({
           id: project.id,
           kind,
           name: project.name,
           template: project.template,
-        }),
+        });
+      },
       (error: Error) => useStore.getState().failedToStart(error.message),
     );
   }, [kind, project, guest]);

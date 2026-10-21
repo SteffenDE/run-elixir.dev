@@ -16,15 +16,22 @@ export const useTrust = create<{ asking: TrustQuestion | null }>(() => ({ asking
 
 let waiting: ((allowed: boolean) => void) | null = null;
 
-export function askTrust(question: TrustQuestion): Promise<boolean> {
-  useTrust.setState({ asking: question });
+export function askTrust(question: TrustQuestion, signal: AbortSignal): Promise<boolean> {
+  if (signal.aborted) return Promise.resolve(false);
   return new Promise((resolve) => {
-    waiting = resolve;
+    const cancel = () => answerTrust(false);
+    waiting = (allowed) => {
+      signal.removeEventListener('abort', cancel);
+      resolve(allowed);
+    };
+    signal.addEventListener('abort', cancel, { once: true });
+    useTrust.setState({ asking: question });
   });
 }
 
 export function answerTrust(allowed: boolean): void {
-  useTrust.setState({ asking: null });
-  waiting?.(allowed);
+  const answer = waiting;
   waiting = null;
+  useTrust.setState({ asking: null });
+  answer?.(allowed);
 }

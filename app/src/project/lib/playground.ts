@@ -150,8 +150,13 @@ function hidden(path: string): boolean {
 
 // The tree's paths, from the shared filesystem.
 export async function refreshTree(): Promise<void> {
-  if (!exec) return;
-  const entries = await files.list(WORK, HIDDEN);
+  const rpc = exec;
+  if (!rpc) return;
+  const entries = await rpc.call<Entry[]>('list', [WORK, HIDDEN]).catch((error) => {
+    if (exec !== rpc) return [];
+    throw error;
+  });
+  if (exec !== rpc) return;
   const prefix = WORK.length + 1;
   const dirs = new Set(
     entries.filter((e) => !e.dir).map((e) => e.path.slice(0, e.path.lastIndexOf('/'))),
@@ -402,7 +407,9 @@ export function closeTerminal(id: number): void {
 // bundles, and what a node could not reach without Tailscale.
 function listen(rpc: Rpc): void {
   const on = <K extends keyof ExecEvents>(event: K, listener: (data: ExecEvents[K]) => void) =>
-    rpc.on(event, listener);
+    rpc.on<ExecEvents[K]>(event, (data) => {
+      if (exec === rpc) listener(data);
+    });
   on('output', ({ id, bytes }) => {
     const session = sessions.get(id);
     if (session) emit(session, session.decoder.decode(bytes, { stream: true }));
@@ -468,6 +475,7 @@ onPreviewMessage(({ data }: MessageEvent<PreviewMessage>) => {
 // The page starts its project once (React may run its effect twice), and
 // again only after shutdown().
 let begun = false;
+let startup: AbortController | null = null;
 export function beginStart(): boolean {
   if (begun) return false;
   begun = true;
@@ -537,12 +545,19 @@ function shareWithPeers(rpc: Rpc): () => void {
 
 // Keep what changed and stop every node: the project runs elsewhere now.
 export async function shutdown(): Promise<void> {
+  startup?.abort();
+  startup = null;
+  const rpc = exec;
+  exec = null;
+  if (refreshing) clearTimeout(refreshing);
+  if (reloading) clearTimeout(reloading);
+  refreshing = null;
+  reloading = null;
+  sharedHidden = false;
+  await rpc?.call('shutdown').catch(() => {});
   sharedPeers?.close();
   sharedPeers = null;
-  sharedHidden = false;
-  await exec?.call('shutdown').catch(() => {});
-  exec?.close();
-  exec = null;
+  rpc?.close();
   setTailnetProject(null);
   frame?.remove();
   frame = null;
@@ -598,9 +613,21 @@ export const local: Workspace = {
 // The frame that runs the project (e-KEY on the usercontent domain), its
 // worker's port once it started. After the page's load: a frame of
 // another site would hold its load event up (Firefox) until it started.
-async function startFrame(origin: string): Promise<Rpc> {
+async function startFrame(origin: string, signal: AbortSignal): Promise<Rpc> {
   if (document.readyState !== 'complete')
-    await new Promise((loaded) => addEventListener('load', loaded, { once: true }));
+    await new Promise<void>((resolve, reject) => {
+      const loaded = () => {
+        signal.removeEventListener('abort', cancelled);
+        resolve();
+      };
+      const cancelled = () => {
+        removeEventListener('load', loaded);
+        reject(signal.reason);
+      };
+      signal.addEventListener('abort', cancelled, { once: true });
+      addEventListener('load', loaded, { once: true });
+    });
+  signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const element = document.createElement('iframe');
     element.src = `${origin}/exec.html`;
@@ -609,16 +636,27 @@ async function startFrame(origin: string): Promise<Rpc> {
     element.tabIndex = -1;
     // Its own SharedArrayBuffers and threads (Chromium asks for this).
     element.allow = 'cross-origin-isolated';
-    const timer = setTimeout(
-      () => reject(new Error(`${origin}: the project did not start`)),
-      30000,
-    );
+    const cleanup = () => {
+      removeEventListener('message', loaded);
+      signal.removeEventListener('abort', cancelled);
+      clearTimeout(timer);
+    };
+    const cancelled = () => {
+      cleanup();
+      element.remove();
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      cleanup();
+      element.remove();
+      reject(new Error(`${origin}: the project did not start`));
+    }, 30000);
     const loaded = (event: MessageEvent) => {
       if (event.origin !== origin || event.source !== element.contentWindow) return;
       if (event.data?.kind !== 'playground-exec-loaded') return;
-      removeEventListener('message', loaded);
-      clearTimeout(timer);
+      cleanup();
       if (!event.data.isolated) {
+        element.remove();
         reject(new Error(`${origin} is not cross-origin isolated (see docs/frames.md).`));
         return;
       }
@@ -627,6 +665,7 @@ async function startFrame(origin: string): Promise<Rpc> {
       resolve(new Rpc(channel.port1));
     };
     addEventListener('message', loaded);
+    signal.addEventListener('abort', cancelled, { once: true });
     frame = element;
     document.body.append(element);
   });
@@ -634,8 +673,10 @@ async function startFrame(origin: string): Promise<Rpc> {
 
 // Start a project of `kind`: the frame that runs it, its files, and the
 // first shell. `id`: the stored project's, whose changes are kept (none
-// for a temporary IEx).
-export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<void> {
+// for a temporary IEx). False if startup was cancelled or failed.
+export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<boolean> {
+  startup = new AbortController();
+  const { signal } = startup;
   kind = workspaceKind;
   projectId = id;
   // This page's project (it may have run another before).
@@ -646,14 +687,14 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   const store = useStore.getState();
   if (!crossOriginIsolated) {
     store.failedToStart('This page needs cross-origin isolation (see playground/README.md).');
-    return;
+    return false;
   }
   const origin = execOrigin(previewKey);
   if (!origin || !previewOrigins(previewKey)) {
     store.failedToStart(
       "This site names no usercontent domain (playground.json's usercontent; docs/frames.md).",
     );
-    return;
+    return false;
   }
   // The tailnet, for this project as the user lets it (docs/tailscale.md).
   setTailnetProject(id ?? IEX);
@@ -662,24 +703,37 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   // The user's settings, as this project takes them (settings.ts): one
   // from a link or a fork asks first, once.
   const project = id ? await getProject(id) : null;
+  if (signal.aborted) return false;
   const user = await loadSettings();
+  if (signal.aborted) return false;
   // Only what there is to give: /shared if it holds anything.
   const shares = user.shared && (await sharedHolds());
+  if (signal.aborted) return false;
   const any = Object.keys(user.env).length > 0 || shares || user.setup.trim() !== '';
   if (project?.origin && project.trust === undefined && any) {
     store.setStatus('Waiting for your answer…');
-    project.trust = await askTrust({
-      name: project.name,
-      env: Object.keys(user.env),
-      shared: shares,
-      setup: user.setup,
-    });
+    project.trust = await askTrust(
+      {
+        name: project.name,
+        env: Object.keys(user.env),
+        shared: shares,
+        setup: user.setup,
+      },
+      signal,
+    );
+    if (signal.aborted) return false;
     await updateProject(project.id, { trust: project.trust });
+    if (signal.aborted) return false;
   }
   settings = applied(user, project);
   try {
-    exec = await startFrame(origin);
-    listen(exec);
+    const rpc = await startFrame(origin, signal);
+    if (signal.aborted) {
+      rpc.close();
+      return false;
+    }
+    exec = rpc;
+    listen(rpc);
     let storePort: MessagePort | null = null;
     if (id) {
       const channel = new MessageChannel();
@@ -692,9 +746,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       const channel = new MessageChannel();
       serveStore(channel.port1, SHARED_STORE);
       sharedPort = channel.port2;
-      sharing = shareWithPeers(exec);
+      sharing = shareWithPeers(rpc);
     }
-    await exec.call<void>(
+    await rpc.call<void>(
       'start',
       [
         {
@@ -710,57 +764,66 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       ],
       [storePort, sharedPort].filter((port): port is MessagePort => port !== null),
     );
+    if (signal.aborted) return false;
     sharing();
+    // A project from a link: its changes, before anything runs.
+    const seed = id ? await takeSeed(id) : null;
+    if (signal.aborted) return false;
+    if (seed && id) {
+      store.setStatus('Adding the shared files…');
+      await rpc.call('applyShared', [seed]);
+      if (signal.aborted) return false;
+      await seedTaken(id);
+      if (signal.aborted) return false;
+    }
+    // The tree before start returns: a live session resumed next welcomes
+    // its guests with it.
+    await refreshTree();
+    if (signal.aborted) return false;
+    // The project's startup lines (else its kind's), after the setup script
+    // at a new project's first start.
+    let first = settings.startup ?? setup.first;
+    if (settings.setup !== null && id) {
+      const script = settings.setup.endsWith('\n') ? settings.setup : `${settings.setup}\n`;
+      await rpc.call('write', [SETUP_SCRIPT, script]);
+      if (signal.aborted) return false;
+      first = [`source ${SETUP_SCRIPT}`, ...first];
+    }
+    if (project?.setUp === false && id) {
+      await updateProject(id, { setUp: true });
+      if (signal.aborted) return false;
+    }
+    openTerminal(first);
+    // For tests and the curious.
+    Object.assign(window, {
+      playground: {
+        database,
+        files,
+        sessions,
+        get node() {
+          return sessions.get(FIRST_SESSION)?.node;
+        },
+        get output() {
+          return sessions.get(FIRST_SESSION)?.backlog ?? '';
+        },
+        bridge: {
+          cookieHeader: (jar?: string) => rpc.call<string | null>('cookieHeader', [jar]),
+          remember: (cookie: string) => rpc.call<string[]>('remember', [cookie]),
+        },
+        openTerminal,
+        shareable,
+        previewSnapshot,
+        // For a bug hunt: what is under way between the page and its nodes
+        // (see runtime/trace.ts for tracing it as it happens).
+        debug: async () => ({
+          ...(await rpc.call<object>('debug')),
+          postgres: serveDatabase.debug(),
+        }),
+      },
+    });
+    return true;
   } catch (error) {
-    store.failedToStart((error as Error).message);
-    return;
+    if (!signal.aborted) store.failedToStart((error as Error).message);
+    return false;
   }
-  // A project from a link: its changes, before anything runs.
-  const seed = id ? await takeSeed(id) : null;
-  if (seed && id) {
-    store.setStatus('Adding the shared files…');
-    await exec.call('applyShared', [seed]);
-    await seedTaken(id);
-  }
-  // The tree before start returns: a live session resumed next welcomes
-  // its guests with it.
-  await refreshTree();
-  // The project's startup lines (else its kind's), after the setup script
-  // at a new project's first start.
-  let first = settings.startup ?? setup.first;
-  if (settings.setup !== null && id) {
-    const script = settings.setup.endsWith('\n') ? settings.setup : `${settings.setup}\n`;
-    await exec.call('write', [SETUP_SCRIPT, script]);
-    first = [`source ${SETUP_SCRIPT}`, ...first];
-    await updateProject(id, { setUp: true });
-  }
-  openTerminal(first);
-  const rpc = exec;
-  // For tests and the curious.
-  Object.assign(window, {
-    playground: {
-      database,
-      files,
-      sessions,
-      get node() {
-        return sessions.get(FIRST_SESSION)?.node;
-      },
-      get output() {
-        return sessions.get(FIRST_SESSION)?.backlog ?? '';
-      },
-      bridge: {
-        cookieHeader: (jar?: string) => rpc.call<string | null>('cookieHeader', [jar]),
-        remember: (cookie: string) => rpc.call<string[]>('remember', [cookie]),
-      },
-      openTerminal,
-      shareable,
-      previewSnapshot,
-      // For a bug hunt: what is under way between the page and its nodes
-      // (see runtime/trace.ts for tracing it as it happens).
-      debug: async () => ({
-        ...(await rpc.call<object>('debug')),
-        postgres: serveDatabase.debug(),
-      }),
-    },
-  });
 }
