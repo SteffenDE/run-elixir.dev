@@ -605,9 +605,18 @@ onmessage = async ({
         say('exit', 2);
         return;
       }
+      // The rest are $0, $1, … as sh's: after `--`, or brush's options
+      // take one that starts with `-` (file_system's `inotifywait`
+      // wrapper passes -e …).
       const status = await brush({
         ...shellOptions(cwd),
-        args: ['--norc', '--noprofile', '-c', `cd ${quote(cwd)} || exit 1\n${line}`, ...rest],
+        args: [
+          '--norc',
+          '--noprofile',
+          '-c',
+          `cd ${quote(cwd)} || exit 1\n${line}`,
+          ...(rest.length ? ['--', ...rest] : []),
+        ],
       });
       say('exit', status);
       return;
