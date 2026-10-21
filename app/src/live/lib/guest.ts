@@ -3,7 +3,6 @@
 // the local one would do itself; what the host sends (signed) keeps the
 // tree, terminals, open files and people up to date.
 import * as Y from 'yjs';
-import { built } from '@/project/lib/programs/tailwind';
 import { previewKey } from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { Bridge, type Connection } from '@/runtime/bridge';
@@ -382,12 +381,6 @@ function receive({ from, message, bytes, signed }: Received) {
     }
     case 'preview':
       void preview((message.port as number | null) ?? null);
-      return;
-    case 'reload':
-      store.reloadPreview();
-      return;
-    case 'css':
-      for (const listener of built) listener('');
       return;
     case 'tcp-data': {
       const hooks = tunnelHooks.get(message.conn as number);

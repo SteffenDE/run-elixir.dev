@@ -13,9 +13,6 @@ import { type Watcher, watchers } from './watch';
 
 export const ESBUILD_VERSION = '0.25.4';
 
-// Called after each build in watch mode (the preview reloads).
-export const bundled = new Set<() => void>();
-
 // esbuild-wasm, loaded and started once, on first use (claude.ts's too).
 let loading: Promise<typeof import('esbuild-wasm')> | null = null;
 export function load() {
@@ -317,10 +314,9 @@ export async function esbuild(process: Process, { args, cwd, env, fs }: Context)
   const relevant = (paths: string[]) => paths.some((changed) => loaded.has(changed));
   const rebuild = async (first: boolean) => {
     building = true;
-    const built = await build();
+    await build();
     building = false;
     if (first) process.write('[watch] build finished, watching for changes...\n');
-    else if (built) for (const listener of bundled) listener();
     const again = relevant(during);
     during = [];
     if (again) schedule();

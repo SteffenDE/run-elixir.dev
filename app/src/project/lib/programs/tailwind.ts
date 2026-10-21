@@ -52,9 +52,6 @@ export interface Context {
   bun?: boolean;
 }
 
-// Called after each build in watch mode (the preview refreshes its CSS).
-export const built = new Set<(output: string) => void>();
-
 function option(args: string[], long: string, short: string): string | undefined {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -174,7 +171,6 @@ export async function tailwind(process: Process, { args, cwd, env, fs }: Context
     await made(fs, path.dirname(outputPath));
     await fs.write(outputPath, result);
     process.write(`\nDone in ${Math.round(performance.now() - started)}ms.\n`);
-    for (const listener of built) listener(outputPath);
   };
 
   process.write(`≈ tailwindcss v${TAILWIND_VERSION}\n`);

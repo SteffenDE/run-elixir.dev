@@ -1,6 +1,6 @@
 // The preview in its own window (preview.html): what the IDE's preview
 // panel shows, while the IDE gives the editor its space. The IDE tells it
-// when to reload; closing it brings the panel back.
+// which port to show; closing it brings the panel back.
 import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PreviewFrame } from '@/project/components/PreviewFrame';
@@ -18,15 +18,12 @@ function PreviewWindow() {
   const [path, setPath] = useState(() => new URLSearchParams(location.search).get('path') ?? '/');
   const [navigation, setNavigation] = useState(0);
   const [reload, setReload] = useState(0);
-  const [css, setCss] = useState(0);
   const [port, setPort] = useState<number | null>(null);
 
   useEffect(() => {
     send({ type: 'opened' });
     const listen = ({ data }: MessageEvent<PreviewMessage>) => {
-      if (data.type === 'reload') setReload((n) => n + 1);
-      else if (data.type === 'css') setCss((n) => n + 1);
-      else if (data.type === 'port') setPort(data.port);
+      if (data.type === 'port') setPort(data.port);
     };
     previewChannel.addEventListener('message', listen);
     const closed = () => send({ type: 'closed' });
@@ -46,7 +43,6 @@ function PreviewWindow() {
         path={path}
         navigation={navigation}
         reload={reload}
-        css={css}
         onNavigate={(next) => {
           setPath(next);
           setNavigation((n) => n + 1);
