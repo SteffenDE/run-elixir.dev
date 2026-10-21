@@ -18,7 +18,7 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import type { ExecEvents, ExecStart } from '@/exec/host';
 import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
 import type { Connection, NifBuild } from '@/runtime/host/node';
-import { serveStore } from '@/runtime/overlay';
+import { open as openStore, serveStore } from '@/runtime/overlay';
 import { PortConnection } from '@/runtime/portConnection';
 import { postgres } from '@/runtime/postgres';
 import { REPORT, lineDiscipline } from '@/runtime/terminal';
@@ -50,6 +50,7 @@ import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
 import type { KeptRecord } from '@/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
 import { applied, loadSettings, type Applied } from '@/shared/lib/settings';
+import { askTrust } from './trust';
 import type { Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { setWorkspace, type Workspace } from './workspace';
@@ -469,15 +470,44 @@ export function beginStart(): boolean {
   return true;
 }
 
+// Whether /shared holds anything (a file, a folder, a link).
+async function sharedHolds(): Promise<boolean> {
+  try {
+    const store = await openStore(SHARED_STORE);
+    try {
+      const counting = store.transaction('files').objectStore('files').count();
+      return await new Promise<boolean>((resolve) => {
+        counting.onsuccess = () => resolve(counting.result > 0);
+        counting.onerror = () => resolve(false);
+      });
+    } finally {
+      store.close();
+    }
+  } catch {
+    return false;
+  }
+}
+
 // What this project keeps in /shared, to the other projects open, and
-// what they keep, to it (the one that changed a file keeps it).
-function shareWithPeers(rpc: Rpc): void {
+// what they keep, to it (the one that changed a file keeps it): heard from
+// before its files start (it may have loaded /shared before a peer's
+// change was kept), laid over them once they have (the answer's call).
+function shareWithPeers(rpc: Rpc): () => void {
   sharedPeers?.close();
   const peers = new BroadcastChannel('playground-shared');
   sharedPeers = peers;
+  let early: KeptRecord[][] | null = [];
+  const apply = (records: KeptRecord[]) => {
+    if (exec === rpc) void rpc.call('applyKept', [records]).catch(() => {});
+  };
   rpc.on<KeptRecord[]>('kept', (records) => peers.postMessage(records));
   peers.onmessage = ({ data }: MessageEvent<KeptRecord[]>) => {
-    if (exec === rpc) void rpc.call('applyKept', [data]).catch(() => {});
+    if (early) early.push(data);
+    else apply(data);
+  };
+  return () => {
+    for (const records of early ?? []) apply(records);
+    early = null;
   };
 }
 
@@ -604,9 +634,24 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   setTailnetProject(id ?? IEX);
   connectTailscale();
   store.setStatus('Starting the files…');
-  // The user's settings, as this project takes them (settings.ts).
+  // The user's settings, as this project takes them (settings.ts): one
+  // from a link or a fork asks first, once.
   const project = id ? await getProject(id) : null;
-  settings = applied(await loadSettings(), project);
+  const user = await loadSettings();
+  // Only what there is to give: /shared if it holds anything.
+  const shares = user.shared && (await sharedHolds());
+  const any = Object.keys(user.env).length > 0 || shares || user.setup.trim() !== '';
+  if (project?.origin && project.trust === undefined && any) {
+    store.setStatus('Waiting for your answer…');
+    project.trust = await askTrust({
+      name: project.name,
+      env: Object.keys(user.env),
+      shared: shares,
+      setup: user.setup,
+    });
+    await updateProject(project.id, { trust: project.trust });
+  }
+  settings = applied(user, project);
   try {
     exec = await startFrame(origin);
     listen(exec);
@@ -617,11 +662,12 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       storePort = channel.port2;
     }
     let sharedPort: MessagePort | null = null;
+    let sharing = () => {};
     if (settings.shared) {
       const channel = new MessageChannel();
       serveStore(channel.port1, SHARED_STORE);
       sharedPort = channel.port2;
-      shareWithPeers(exec);
+      sharing = shareWithPeers(exec);
     }
     await exec.call<void>(
       'start',
@@ -639,6 +685,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       ],
       [storePort, sharedPort].filter((port): port is MessagePort => port !== null),
     );
+    sharing();
   } catch (error) {
     store.failedToStart((error as Error).message);
     return;

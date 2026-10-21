@@ -120,6 +120,9 @@ interface Keeper {
   dirty: Map<string, boolean>;
   saving: Promise<void> | null;
   saved: number;
+  // How often it writes, at most: /shared's more often, so the other
+  // projects hear its changes soon.
+  every: number;
   report: boolean;
 }
 const keepers: Keeper[] = [];
@@ -490,7 +493,7 @@ function answer() {
     reported = performance.now();
   }
   for (const keeper of keepers)
-    if (keeper.dirty.size && performance.now() - keeper.saved > 1000) persist(keeper);
+    if (keeper.dirty.size && performance.now() - keeper.saved > keeper.every) persist(keeper);
 }
 
 // Every file below `dir` (at `path`), but in directories named in `skip`.
@@ -687,6 +690,7 @@ function keeperFor(
     dirty: new Map(),
     saving: null,
     saved: 0,
+    every: reports ? 200 : 1000,
     report: reports,
   };
 }

@@ -19,6 +19,7 @@ import { Preview } from '@/project/components/Preview';
 import { QuickOpen } from '@/project/components/QuickOpen';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { TrustDialog } from '@/project/components/TrustDialog';
 import { ConsentDialog } from '@/tailscale/components/ConsentDialog';
 import { TailscaleDialog } from '@/tailscale/components/TailscaleDialog';
 import { TailscaleMenu } from '@/tailscale/components/TailscaleMenu';
@@ -199,6 +200,7 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
       <NifBuildDialog />
       <TailscaleDialog />
       <ConsentDialog name={project?.name ?? 'this temporary IEx'} />
+      <TrustDialog />
       <QuickOpen />
       {narrow ? (
         <NarrowWorkspace

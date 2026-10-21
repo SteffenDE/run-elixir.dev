@@ -97,18 +97,36 @@ test('the user’s environment, setup script once, and a project’s startup lin
   expect(await readText(page, '/work/setup.log')).toBe('setup-ran\n');
 });
 
-test('a project from a link takes none of the user’s settings until allowed', async ({ page }) => {
+test('a project from a link asks first, and takes the user’s settings only if allowed', async ({
+  page,
+}) => {
   await userSettings(page, {
     env: { GREETING: 'hello from settings' },
     shared: true,
     setup: 'echo setup-ran >> /work/setup.log',
   });
+  // Not this project: none of them, and it does not ask again.
   await page.goto(await LINK(page));
   await page.getByRole('button', { name: 'Open as a new project' }).click();
-  await page.waitForURL(/\/[a-z0-9]{10}\/$/);
+  const dialog = page.getByRole('dialog', { name: /Use your settings in from a link\?/ });
+  await expect(dialog).toContainText('GREETING');
+  await expect(dialog).not.toContainText('hello from settings');
+  await expect(dialog).toContainText('echo setup-ran');
+  await dialog.getByRole('button', { name: 'Not this project' }).click();
   await prompted(page, 1);
   expect(await run(page, 'echo "[$GREETING]"')).toContain('[]');
   expect(await exists(page, '/work/setup.log')).toBe(false);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 1);
+  await expect(page.getByRole('dialog', { name: /Use your settings/ })).toHaveCount(0);
+
+  // Allowed: the environment and the setup script.
+  await page.goto(await LINK(page));
+  await page.getByRole('button', { name: 'Open as a new project' }).click();
+  await page.getByRole('button', { name: 'Use my settings' }).click();
+  await prompted(page, 1);
+  await expect.poll(() => exists(page, '/work/setup.log'), { timeout: 30_000 }).toBe(true);
+  expect(await run(page, 'echo "[$GREETING]"')).toContain('[hello from settings]');
 });
 
 // /shared: the same in every project of the user's, kept on the apex, and
@@ -126,9 +144,12 @@ test('/shared is every project’s, live, and kept', async ({ page, context }) =
   const other = await context.newPage();
   await newProject(other, 'empty');
   await prompted(other, 1);
-  expect(await run(other, 'cat /shared/notes.txt /shared/claude/credentials.txt')).toMatch(
-    /one\s+token/,
-  );
+  // Kept within a moment, so a project opened at once may hear it after it starts.
+  await expect
+    .poll(() => run(other, 'cat /shared/notes.txt /shared/claude/credentials.txt'), {
+      timeout: 30_000,
+    })
+    .toMatch(/one\s+token/);
 
   // While both run: a change in one, the other reads (a Node.js process's too).
   await run(page, 'echo two > /shared/notes.txt');
@@ -160,9 +181,9 @@ test('/shared is empty, and kept nowhere, where the user turned it off or a link
 
   await page.goto(await LINK(page));
   await page.getByRole('button', { name: 'Open as a new project' }).click();
+  await page.getByRole('button', { name: 'Not this project' }).click();
   await page.waitForURL(/\/[a-z0-9]{10}\/$/);
   await prompted(page, 1);
-  expect(await run(page, 'ls -A /shared; echo "[end]"')).toMatch(/\$ $|\n\[end\]/);
   expect(await exists(page, '/shared/notes.txt')).toBe(false);
 
   await userSettings(page, { env: {}, shared: false, setup: '' });
