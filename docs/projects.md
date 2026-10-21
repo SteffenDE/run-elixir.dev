@@ -31,14 +31,15 @@ PGlite stopped, its lock let go, its terminals and stores reset, a popped-out
 preview closed, a live session left (not ended: it resumes when the project
 opens again in the tab). A live session's guest's page is left by a load.
 
-A project's kind (`src/project/lib/kinds.ts`) decides how it starts:
+A project's kind (`src/project/lib/kinds.ts`) chooses its files and initial
+settings. Startup commands are saved on the project and remain editable:
 
 | | Phoenix | Empty, temporary IEx |
 | --- | --- | --- |
 | Boot images | `boot`, `boot-phoenix` | `boot` |
 | `/work` starts with | the template, `/work/playground` | nothing |
-| Shells start in | `/work/playground` | `/work` |
-| First shell runs | `iex -S mix phx.server` ("Server" tab) | nothing ("Shell"), `iex` ("IEx") |
+| Shells start in | `/work` | `/work` |
+| Initial startup setting | `cd playground && iex -S mix phx.server` ("Server" tab), editable | empty ("Shell"), `iex` for a temporary IEx ("IEx") |
 | Preview | from the start | once a node serves (4000, else its lowest port) |
 | Files and editor | shown | shown; a temporary IEx starts with the terminals maximized |
 
@@ -183,13 +184,14 @@ project-specific settings from the project's top bar
 | Environment | User defaults with project overrides | New shells and their child processes inherit the variables. Playground variables, including Hex, cookie, and preview settings, take precedence over both. |
 | `/shared` | User; enabled by default | Mounted at project startup. All projects share the same folder, stored on the apex. |
 | Setup script | User | Sourced once in a new project's first shell, on its first start. Projects created before this feature never run it. |
-| Startup lines | Project | Run in the first shell at each start, replacing the defaults for the project kind, such as Phoenix's `iex -S mix phx.server`. |
+| Startup lines | Project | Run in the first shell at each start, from `/work`. A Phoenix project's saved value initially contains `cd playground && iex -S mix phx.server`; it can be edited or cleared to start an empty shell. The start/restart action also uses the saved commands, starting from `/work`. |
 
 The apex's `playground` database stores user settings in the `settings`
 table and project settings on each project record. A `BroadcastChannel`
 notifies open projects when settings change. Environment changes apply to
-new shells. Changes to `/shared`, startup lines, and permission to use the
-user's settings apply when the project restarts.
+new shells. Startup changes apply on the next project start or use of the
+start/restart action. Changes to `/shared` and permission to use the user's
+settings apply when the project restarts.
 
 - **`/shared`** is stored in the apex's `playground-shared` database.
   Each project's `files.js` accesses it over a port, using the same

@@ -12,6 +12,13 @@ import { siteTemplate, type Template } from './templates';
 export type Kind = 'phoenix' | 'empty';
 export type WorkspaceKind = Kind | 'iex';
 
+// Presets seed ordinary project settings; runtime startup reads the
+// project's saved commands, including an explicitly empty value.
+const STARTUP: Record<Kind, string> = {
+  phoenix: 'cd playground && iex -S mix phx.server',
+  empty: '',
+};
+
 export interface Project {
   id: string;
   name: string;
@@ -27,8 +34,8 @@ export interface Project {
   origin?: 'link' | 'fork';
   trust?: boolean;
   // Its own settings (settings.ts): what its first shell runs at each start
-  // (lines; none: its kind's), and environment over the user's defaults.
-  startup?: string;
+  // (lines; empty: just a shell), and environment over the user's defaults.
+  startup: string;
   env?: Record<string, string>;
   // The user's setup script ran in it (once, at its first start).
   setUp?: boolean;
@@ -57,6 +64,21 @@ class Database extends Dexie {
     this.version(1).stores({ projects: 'id, openedAt' });
     this.version(2).stores({ seeds: 'id' });
     this.version(3).stores({ settings: 'key' });
+    this.version(4)
+      .stores({})
+      .upgrade((transaction) =>
+        transaction
+          .table<Project>('projects')
+          .toCollection()
+          .modify((project) => {
+            if (project.startup === undefined) project.startup = STARTUP[project.kind];
+            else if (project.kind === 'phoenix' && project.startup.trim()) {
+              // Older Phoenix commands ran in /work/playground implicitly.
+              // Keep their meaning now that every shell starts in /work.
+              project.startup = `cd playground\n${project.startup}`;
+            }
+          }),
+      );
   }
 }
 
@@ -81,6 +103,7 @@ export async function createProject(
     createdAt: now,
     openedAt: now,
     setUp: false,
+    startup: STARTUP[kind],
   };
   if (made) project.template = made;
   await database.projects.add(project);

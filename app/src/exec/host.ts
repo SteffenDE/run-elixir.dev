@@ -618,7 +618,7 @@ const handlers = {
     node.start({
       shell: true,
       initial,
-      cwd: setup.cwd,
+      cwd: '/work',
       boots: setup.boots,
       env: { ...env, ...ENV, ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
     });

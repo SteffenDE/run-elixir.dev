@@ -1,5 +1,6 @@
 import { expect, test } from './fixtures';
 import {
+  APP,
   newProject,
   newShell,
   NO_FRAME_IN_FIREFOX,
@@ -22,6 +23,7 @@ test('phx.gen.auth generates, migrates and registers a user @slow', async ({
   await newProject(page, 'phoenix');
   await serverRunning(page);
   const shell = await newShell(page);
+  await run(page, `cd ${APP}`, shell);
   const generated = await run(
     page,
     'mix phx.gen.auth Accounts User users --hashing-lib pbkdf2 --live',

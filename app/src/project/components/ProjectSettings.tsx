@@ -8,7 +8,7 @@ import { apexUrl } from '@/shared/lib/site';
 // The top bar's settings for this project, in a popover: what its first
 // shell runs at each start, its environment over the user's, and (one from
 // a link or a fork) whether it takes the user's settings.
-export function ProjectSettings({ project, first }: { project: Project; first: string[] }) {
+export function ProjectSettings({ project }: { project: Project }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<Project | null>(null);
   const [saved, setSaved] = useState(false);
@@ -35,7 +35,7 @@ export function ProjectSettings({ project, first }: { project: Project; first: s
   };
   const save = async () => {
     const { startup, env, trust } = current!;
-    await updateProject(project.id, { startup: startup?.trim() || undefined, env, trust });
+    await updateProject(project.id, { startup, env, trust });
     await refreshSettings();
     setSaved(true);
   };
@@ -68,8 +68,8 @@ export function ProjectSettings({ project, first }: { project: Project; first: s
             aria-label="Startup lines"
             spellCheck={false}
             rows={3}
-            placeholder={first.join('\n') || 'Start an empty shell'}
-            value={current.startup ?? ''}
+            placeholder="Start an empty shell"
+            value={current.startup}
             onChange={(event) => change({ startup: event.target.value })}
           />
           <h3>Environment</h3>
@@ -99,8 +99,8 @@ export function ProjectSettings({ project, first }: { project: Project; first: s
             </button>
             {saved && (
               <span className="muted">
-                Saved. Environment changes apply to new shells. Other changes apply when the project
-                restarts.
+                Saved. Environment changes apply to new shells. Startup commands apply at the next
+                start or restart. Permission changes apply when the project restarts.
               </span>
             )}
           </div>

@@ -1,5 +1,13 @@
 import { expect, test } from './fixtures';
-import { newProject, newShell, NO_FRAME_IN_FIREFOX, preview, run, serverRunning } from './helpers';
+import {
+  APP,
+  newProject,
+  newShell,
+  NO_FRAME_IN_FIREFOX,
+  preview,
+  run,
+  serverRunning,
+} from './helpers';
 
 test('a second shell generates a LiveView while the server runs @slow', async ({
   page,
@@ -10,6 +18,7 @@ test('a second shell generates a LiveView while the server runs @slow', async ({
   await newProject(page, 'phoenix');
   await serverRunning(page);
   const shell = await newShell(page);
+  await run(page, `cd ${APP}`, shell);
   await run(page, 'mix phx.gen.live Blog Post posts title:string body:text', shell);
   const routes = [
     'live "/posts", PostLive.Index, :index',

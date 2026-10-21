@@ -196,7 +196,7 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
           </button>
         )}
         {!guest && <TailscaleMenu />}
-        {!guest && project && <ProjectSettings project={project} first={setup(kind).first} />}
+        {!guest && project && <ProjectSettings project={project} />}
       </header>
       <TemplateNotice project={project} />
       <StartError />

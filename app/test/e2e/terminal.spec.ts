@@ -75,7 +75,7 @@ test('the first terminal keeps the server command in its history', async ({ page
   await page.keyboard.press('a');
   await prompted(page, 2);
   await page.keyboard.press('ArrowUp');
-  await expect.poll(() => lastLine(page)).toMatch(/\$ iex -S mix phx\.server$/);
+  await expect.poll(() => lastLine(page)).toMatch(/\$ cd playground && iex -S mix phx\.server$/);
 });
 
 test('IEx edits its own lines: tab completes, up recalls, Ctrl+C breaks', async ({ page }) => {

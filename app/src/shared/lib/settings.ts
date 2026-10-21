@@ -44,8 +44,8 @@ export interface Applied {
   shared: boolean;
   // The setup script, if this start is the project's first.
   setup: string | null;
-  // What its first shell runs (null: its kind's).
-  startup: string[] | null;
+  // What its first shell runs (empty: just a shell).
+  startup: string[];
 }
 
 export function applied(settings: Settings, project: Project | null | undefined): Applied {
@@ -60,7 +60,7 @@ export function applied(settings: Settings, project: Project | null | undefined)
     env: { ...(user ? settings.env : {}), ...project?.env },
     shared: user && settings.shared,
     setup: user && project?.setUp === false && settings.setup.trim() ? settings.setup : null,
-    startup: startup.length ? startup : null,
+    startup,
   };
 }
 

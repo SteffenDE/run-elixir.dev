@@ -1,6 +1,15 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { exists, newProject, newShell, prompted, readText, run, userSettings } from './helpers';
+import {
+  exists,
+  newProject,
+  newShell,
+  prompted,
+  readText,
+  run,
+  serverRunning,
+  userSettings,
+} from './helpers';
 
 // A project's own settings, on its record.
 async function projectSettings(page: Page, id: string, changes: object): Promise<void> {
@@ -293,4 +302,130 @@ test('the settings page, and a project’s settings in its top bar', async ({ pa
   await prompted(page, 1);
   await expect.poll(() => exists(page, '/work/started.txt'), { timeout: 30_000 }).toBe(true);
   expect(await readText(page, '/work/started.txt')).toBe('started the project’s own\n');
+});
+
+test('Phoenix startup is an editable saved command that can be rerun or cleared', async ({
+  page,
+}) => {
+  await newProject(page, 'phoenix');
+  await serverRunning(page);
+  const shell = await newShell(page);
+  expect(await run(page, 'pwd', shell)).toMatch(/^\/work$/m);
+  await page.getByRole('button', { name: 'Restart server' }).click();
+  await expect
+    .poll(
+      () =>
+        page.evaluate(
+          () => (window.playground.output.match(/Running PlaygroundWeb.Endpoint/g) ?? []).length,
+        ),
+      { timeout: 60_000 },
+    )
+    .toBe(2);
+  await page.getByRole('button', { name: 'Project settings' }).click();
+  const startup = page.getByLabel('Startup lines');
+  await expect(startup).toHaveValue('cd playground && iex -S mix phx.server');
+  const command = 'cd playground && echo custom-startup >> /work/startup.log';
+  await startup.fill(command);
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved. Environment changes apply to new shells.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^(Start|Restart) server$/ }).click();
+  await expect
+    .poll(() => readText(page, '/work/startup.log').catch(() => ''))
+    .toBe('custom-startup\n');
+
+  // Reload uses the same saved command, without starting Phoenix again.
+  await page.evaluate(() => window.playground.files.flush());
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 2);
+  expect(await readText(page, '/work/startup.log')).toBe('custom-startup\ncustom-startup\n');
+  await page.getByRole('button', { name: 'Project settings' }).click();
+  await expect(startup).toHaveValue(command);
+  await startup.fill('');
+  await page.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved. Environment changes apply to new shells.')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: /^(Start|Restart) server$/ }).click();
+  await expect.poll(() => run(page, 'pwd'), { timeout: 10_000 }).toMatch(/^\/work$/m);
+
+  // Empty is a stored choice, rather than a fallback to the Phoenix preset.
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 1);
+  expect(await run(page, 'echo shell-ready')).toContain('shell-ready');
+  expect(await run(page, 'pwd')).toMatch(/^\/work$/m);
+  expect(await page.evaluate(() => window.playground.sessions.get(1).node.serving.size)).toBe(0);
+  await page.getByRole('button', { name: 'Project settings' }).click();
+  await expect(startup).toHaveValue('');
+});
+
+test('existing projects receive startup defaults and preserve custom command directories or empty commands', async ({
+  page,
+}) => {
+  // The prior Dexie schema (version 3) before the app opens its database.
+  await page.route('**/legacy-projects.html', (route) =>
+    route.fulfill({
+      contentType: 'text/html',
+      body: '<!doctype html><title>Legacy projects</title>',
+    }),
+  );
+  await page.goto('/legacy-projects.html');
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const opening = indexedDB.open('playground', 30);
+        opening.onupgradeneeded = () => {
+          const db = opening.result;
+          db.createObjectStore('projects', { keyPath: 'id' }).createIndex('openedAt', 'openedAt');
+          db.createObjectStore('seeds', { keyPath: 'id' });
+          db.createObjectStore('settings', { keyPath: 'key' });
+        };
+        opening.onerror = () => reject(opening.error);
+        opening.onsuccess = () => {
+          const db = opening.result;
+          const tx = db.transaction('projects', 'readwrite');
+          const store = tx.objectStore('projects');
+          const base = { name: 'legacy', createdAt: Date.now(), openedAt: Date.now() };
+          store.put({ ...base, id: 'legacy0001', kind: 'phoenix' });
+          store.put({ ...base, id: 'legacy0002', kind: 'empty' });
+          store.put({ ...base, id: 'legacy0003', kind: 'phoenix', startup: 'echo custom' });
+          store.put({ ...base, id: 'legacy0004', kind: 'phoenix', startup: '' });
+          store.put({
+            ...base,
+            id: 'legacy0005',
+            kind: 'phoenix',
+            startup: '# A custom script\necho custom',
+          });
+          tx.oncomplete = () => {
+            db.close();
+            resolve();
+          };
+          tx.onerror = () => reject(tx.error);
+        };
+      }),
+  );
+  await page.goto('/');
+  await expect(page.locator('.project-row')).toHaveCount(5);
+  const commands = await page.evaluate(
+    () =>
+      new Promise<string[]>((resolve, reject) => {
+        const opening = indexedDB.open('playground');
+        opening.onerror = () => reject(opening.error);
+        opening.onsuccess = () => {
+          const db = opening.result;
+          const got = db.transaction('projects').objectStore('projects').getAll();
+          got.onsuccess = () => {
+            db.close();
+            resolve(got.result.map((project) => project.startup));
+          };
+          got.onerror = () => reject(got.error);
+        };
+      }),
+  );
+  expect(commands).toEqual([
+    'cd playground && iex -S mix phx.server',
+    '',
+    'cd playground\necho custom',
+    '',
+    'cd playground\n# A custom script\necho custom',
+  ]);
 });

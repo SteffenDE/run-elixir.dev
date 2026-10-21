@@ -59,7 +59,7 @@ import { forgetRelays, previewRelay } from './previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
 import { hex } from './hex';
-import { serverCommand, setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
+import { setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
 
@@ -97,7 +97,7 @@ let kind: WorkspaceKind = 'empty';
 let projectId: string | null = null;
 // The user's settings as this project takes them (settings.ts): what each
 // new shell starts with.
-let settings: Applied = { env: {}, shared: false, setup: null, startup: null };
+let settings: Applied = { env: {}, shared: false, setup: null, startup: [] };
 // Where the setup script goes for its one run (sourced in the first shell).
 const SETUP_SCRIPT = '/tmp/playground-setup.sh';
 // The other projects open in this browser, which hear what this one kept
@@ -253,10 +253,14 @@ export async function openFile(path: string, line = 1): Promise<void> {
   useStore.getState().setFilesShown(true);
 }
 
-// Where relative paths a shell prints may start: its usual directory,
-// then /work.
+// Relative paths printed by a command may start at /work or in one of
+// its project folders. Discover those from the tree, without a preset cwd.
 export function searchPath(): string[] {
-  return [...new Set([setup.cwd, WORK])];
+  const folders = useStore
+    .getState()
+    .paths.filter((path) => path.includes('/'))
+    .map((path) => `${WORK}/${path.split('/')[0]}`);
+  return [WORK, ...new Set(folders)];
 }
 
 export async function save(path: string, text: string): Promise<void> {
@@ -287,13 +291,17 @@ export function resize(id: number, columns: number, rows: number): void {
   sessions.get(id)!.screen.resize(columns, rows);
 }
 
-// Stop whatever runs in the first shell, then start the Phoenix server
-// again.
+// Stop whatever runs in the first shell, then run its saved startup
+// commands from the same directory as a new shell.
 export function restartServer(): void {
   const node = sessions.get(FIRST_SESSION)?.node;
-  if (!node || kind !== 'phoenix') return;
+  const commands = settings.startup;
+  const rpc = exec;
+  if (!node) return;
   node.terminate();
-  setTimeout(() => node.input(serverCommand(setup.cwd)), 300);
+  setTimeout(() => {
+    if (exec === rpc) node.input(`cd ${WORK}\n${commands.join('\n')}\n`);
+  }, 300);
 }
 
 // A connection to a server a node or a Node.js process runs on `port`
@@ -501,10 +509,15 @@ async function sharedHolds(): Promise<boolean> {
 }
 
 // The settings changed (the settings page, the project's): new shells
-// start with them; /shared, the startup lines and trust at the next start.
+// start with them; startup lines also apply to the start/restart action.
+// /shared and trust apply at the next project start.
 export async function refreshSettings(): Promise<void> {
-  const project = projectId ? await getProject(projectId) : null;
-  settings = { ...settings, env: applied(await loadSettings(), project).env };
+  const id = projectId;
+  const rpc = exec;
+  const project = id ? await getProject(id) : null;
+  const next = applied(await loadSettings(), project);
+  if (projectId !== id || exec !== rpc) return;
+  settings = { ...settings, env: next.env, startup: next.startup };
 }
 new BroadcastChannel(SETTINGS_CHANNEL).onmessage = () => {
   if (exec) void refreshSettings();
@@ -783,9 +796,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     // its guests with it.
     await refreshTree();
     if (signal.aborted) return false;
-    // The project's startup lines (else its kind's), after the setup script
-    // at a new project's first start.
-    let first = settings.startup ?? setup.first;
+    // The project's saved startup lines, after its one-time setup script.
+    // A temporary IEx has no stored project settings.
+    let first = kind === 'iex' ? ['iex'] : settings.startup;
     if (settings.setup !== null && id) {
       const script = settings.setup.endsWith('\n') ? settings.setup : `${settings.setup}\n`;
       await rpc.call('write', [SETUP_SCRIPT, script]);
