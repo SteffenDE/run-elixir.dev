@@ -313,6 +313,7 @@ export const nodeProgram =
       runtime: new URL(runtime, location.href).href,
       tty: context.tty?.stdout ?? false,
       stdinTty: context.tty?.stdin ?? false,
+      bun: context.bun ?? false,
       columns: process.size?.()[0] ?? 80,
       rows: process.size?.()[1] ?? 24,
     });

@@ -48,6 +48,8 @@ export interface Context {
   fs: Files;
   // Whether its stdin and stdout are the terminal.
   tty?: { stdin: boolean; stdout: boolean };
+  // node: Bun's globals too (programs/claude/claude.ts).
+  bun?: boolean;
 }
 
 // Called after each build in watch mode (the preview refreshes its CSS).

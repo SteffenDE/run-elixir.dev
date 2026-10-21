@@ -14,6 +14,7 @@
 // then waits to be stopped.
 import { Buffer } from './buffer';
 import { createBuiltins, BUILTINS } from './builtins';
+import { installBun } from './claude/bun';
 import { createFetch } from './fetch';
 import { installClosedPromises } from './webstreams';
 import { createFs } from './fs';
@@ -45,6 +46,8 @@ interface Start {
   thread?: ThreadStart;
   // The site's runtime files (tls.wasm).
   runtime?: string;
+  // Bun's globals too (claude/bun.ts): Claude Code's process (programs/claude/claude.ts).
+  bun?: boolean;
 }
 
 const USAGE = `Usage: node [options] [ script.js | -e "script" ] [arguments]
@@ -340,6 +343,33 @@ async function run(start: Start) {
     io.write(2, encoder.encode(`${text}\n\nNode.js ${VERSION}\n`));
     proc.end(1);
   });
+
+  if (start.bun && !thread)
+    await installBun({
+      readFile: (p) => (files.module.readFileSync as (p: string, e: string) => string)(p, 'utf8'),
+      crc32: (data) => (builtin('zlib') as { crc32(d: Uint8Array): number }).crc32(data),
+      which: (command) => {
+        if (!/^[\w.+-]+$/.test(command)) return null;
+        try {
+          const { execSync } = builtin('child_process') as {
+            execSync(line: string, o: object): string;
+          };
+          return execSync(`command -v ${command}`, { encoding: 'utf8' }).trim() || null;
+        } catch {
+          return null;
+        }
+      },
+      stdin: () =>
+        new ReadableStream<Uint8Array>({
+          start(controller) {
+            const stdin = process.stdin as unknown as {
+              on(event: string, listener: (chunk?: Uint8Array) => void): void;
+            };
+            stdin.on('data', (chunk) => controller.enqueue(chunk!));
+            stdin.on('end', () => controller.close());
+          },
+        }),
+    });
 
   // The script's own turn holds the loop until it has run.
   const release = hold();
