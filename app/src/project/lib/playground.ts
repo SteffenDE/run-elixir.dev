@@ -49,7 +49,7 @@ import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
 import type { KeptRecord } from '@/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
-import { applied, loadSettings, type Applied } from '@/shared/lib/settings';
+import { applied, loadSettings, SETTINGS_CHANNEL, type Applied } from '@/shared/lib/settings';
 import { guestMayType, useLive } from '@/live/lib/store';
 import { askTrust } from './trust';
 import type { Shared } from '@/shared/lib/share';
@@ -491,6 +491,16 @@ async function sharedHolds(): Promise<boolean> {
     return false;
   }
 }
+
+// The settings changed (the settings page, the project's): new shells
+// start with them; /shared, the startup lines and trust at the next start.
+export async function refreshSettings(): Promise<void> {
+  const project = projectId ? await getProject(projectId) : null;
+  settings = { ...settings, env: applied(await loadSettings(), project).env };
+}
+new BroadcastChannel(SETTINGS_CHANNEL).onmessage = () => {
+  if (exec) void refreshSettings();
+};
 
 // /shared hidden while a live session's guest who may type is in, at the
 // host's choice (live/lib/store.ts settingsOff); back once none is.

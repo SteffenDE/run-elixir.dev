@@ -1,4 +1,10 @@
-import { RiDeleteBinLine, RiFireLine, RiFolderAddLine, RiTerminalLine } from '@remixicon/react';
+import {
+  RiDeleteBinLine,
+  RiFireLine,
+  RiFolderAddLine,
+  RiSettings3Line,
+  RiTerminalLine,
+} from '@remixicon/react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { FolderImport } from '@/home/components/FolderImport';
 import { KindChip } from '@/shared/components/KindChip';
@@ -120,6 +126,9 @@ export function HomePage() {
   return (
     <div className="home">
       <div className="home-corner">
+        <a className="icon-button" href="/settings" title="Settings" aria-label="Settings">
+          <RiSettings3Line size={16} />
+        </a>
         <TailscaleButton />
       </div>
       <main className="home-main">

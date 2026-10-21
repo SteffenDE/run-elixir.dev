@@ -63,3 +63,12 @@ export function applied(settings: Settings, project: Project | null | undefined)
     startup: startup.length ? startup : null,
   };
 }
+
+// Saved: the projects open in this browser give their new shells the
+// settings now (playground.ts hears it).
+export const SETTINGS_CHANNEL = 'playground-settings';
+export function settingsChanged(): void {
+  const channel = new BroadcastChannel(SETTINGS_CHANNEL);
+  channel.postMessage('changed');
+  channel.close();
+}

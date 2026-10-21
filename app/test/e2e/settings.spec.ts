@@ -1,6 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { exists, newProject, prompted, readText, run, userSettings } from './helpers';
+import { exists, newProject, newShell, prompted, readText, run, userSettings } from './helpers';
 
 // A project's own settings, on its record.
 async function projectSettings(page: Page, id: string, changes: object): Promise<void> {
@@ -166,4 +166,51 @@ test('/shared is empty, and kept nowhere, where the user turned it off or a link
   await newProject(page, 'empty');
   await prompted(page, 1);
   expect(await exists(page, '/shared/notes.txt')).toBe(false);
+});
+
+test('the settings page, and a project’s settings in its top bar', async ({ page, context }) => {
+  // A project open meanwhile: its new shells take what is saved.
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+
+  const settingsPage = await context.newPage();
+  await settingsPage.goto('/');
+  await settingsPage.getByRole('link', { name: 'Settings' }).click();
+  await expect(settingsPage.getByRole('heading', { name: 'Settings' })).toBeVisible();
+  await settingsPage.getByRole('button', { name: 'Add a variable' }).click();
+  await settingsPage.getByLabel('Name').fill('GREETING');
+  await settingsPage.getByLabel('Value of GREETING').fill('from the page');
+  await settingsPage.getByLabel('Setup script').fill('echo set-up > /work/setup.txt');
+  await settingsPage.getByRole('button', { name: 'Save' }).click();
+  await expect(settingsPage.getByText('Saved.')).toBeVisible();
+  await settingsPage.screenshot({ path: '../target/tests/settings-page.png' });
+
+  const shell = await newShell(page);
+  await expect
+    .poll(() => run(page, 'echo "[$GREETING]"', shell), { timeout: 10_000 })
+    .toContain('[from the page]');
+
+  // A new project: the setup script, the environment.
+  const id = await newProject(page, 'empty');
+  await prompted(page, 1);
+  await expect.poll(() => exists(page, '/work/setup.txt'), { timeout: 30_000 }).toBe(true);
+
+  // Its own: startup lines and environment over the user's.
+  await page.getByRole('button', { name: 'Project settings' }).click();
+  await page.getByLabel('Startup lines').fill('echo "started $GREETING" > /work/started.txt');
+  await page.getByRole('button', { name: 'Add a variable' }).click();
+  await page.getByLabel('Name').fill('GREETING');
+  await page.getByLabel('Value of GREETING').fill('the project’s own');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Saved: new shells now')).toBeVisible();
+  await page.screenshot({ path: '../target/tests/project-settings.png' });
+  await page.keyboard.press('Escape');
+  const own = await newShell(page);
+  expect(await run(page, 'echo "[$GREETING]"', own)).toContain('[the project’s own]');
+  await page.evaluate(() => window.playground.files.flush());
+  expect(id).toBeTruthy();
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 1);
+  await expect.poll(() => exists(page, '/work/started.txt'), { timeout: 30_000 }).toBe(true);
+  expect(await readText(page, '/work/started.txt')).toBe('started the project’s own\n');
 });

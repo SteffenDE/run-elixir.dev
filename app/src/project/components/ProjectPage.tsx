@@ -19,6 +19,7 @@ import { Preview } from '@/project/components/Preview';
 import { QuickOpen } from '@/project/components/QuickOpen';
 import { ProjectTitle } from '@/project/components/ProjectTitle';
 import { ShareButton } from '@/project/components/ShareButton';
+import { ProjectSettings } from '@/project/components/ProjectSettings';
 import { TrustDialog } from '@/project/components/TrustDialog';
 import { ConsentDialog } from '@/tailscale/components/ConsentDialog';
 import { TailscaleDialog } from '@/tailscale/components/TailscaleDialog';
@@ -193,6 +194,7 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
             </span>
           </button>
         )}
+        {!guest && project && <ProjectSettings project={project} first={setup(kind).first} />}
         {!guest && <TailscaleMenu />}
       </header>
       <TemplateNotice project={project} />
