@@ -80,6 +80,9 @@ interface Start {
 const SHARED = ['/work', '/tmp', '/home'];
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
+// sh and bash (a stand-in for it, Claude Code's shell): brush's -c.
+const isSh = (name?: string) =>
+  name !== undefined && /^(sh|bash)$/.test(name.slice(name.lastIndexOf('/') + 1));
 
 function join(cwd: string, path: string): string {
   const parts = (path.startsWith('/') ? path : `${cwd}/${path}`).split('/');
@@ -274,7 +277,7 @@ onmessage = async ({
       listed ?? fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
       // The shell (brush.ts), if the site has it: the terminal's, or a
       // node's sh -c.
-      shellModule ?? (shell || named?.[0] === 'sh' ? loadModule(runtime('brush.wasm')) : null),
+      shellModule ?? (shell || isSh(named?.[0]) ? loadModule(runtime('brush.wasm')) : null),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -463,7 +466,7 @@ onmessage = async ({
     };
 
     say('status', 'running');
-    const sh = named?.[0] === 'sh';
+    const sh = isSh(named?.[0]);
     if (!shell && !sh) {
       const cwd = env.PWD || start;
       const argv = named
@@ -574,7 +577,19 @@ onmessage = async ({
     // /).
     if (sh) {
       const cwd = env.PWD || start;
-      const [flag, line = '', ...rest] = named!.slice(1);
+      // bash -c -l LINE (Claude Code's) as sh -c LINE: brush has no
+      // profile to log in with.
+      const args = named!.slice(1);
+      const login = (a: string | undefined) => a === '-l' || a === '--login';
+      while (login(args[0])) args.shift();
+      if (args[0] === '-c') while (login(args[1])) args.splice(1, 1);
+      const [flag, line = '', ...rest] = args;
+      // What a program probes a shell with (Claude Code's, for bash).
+      if (flag === '--version') {
+        text('GNU bash, version 5.2.0 compatible (brush, the playground)\n');
+        say('exit', 0);
+        return;
+      }
       if (flag !== '-c') {
         text('sh: only sh -c LINE runs in the playground\n');
         say('exit', 2);

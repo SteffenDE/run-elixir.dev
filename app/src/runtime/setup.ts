@@ -69,6 +69,7 @@ export function prepare(root: Dir, { dns = false } = {}): void {
     'npm',
     'npx',
     'sh',
+    'bash',
     'elixir',
     'iex',
     'erl',

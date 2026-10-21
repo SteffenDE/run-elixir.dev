@@ -371,6 +371,8 @@ function nodeServices() {
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
       sh: shProgram(startNode),
+      // Claude Code's shell: bash -c -l LINE, as sh's.
+      bash: shProgram(startNode),
       rebar3: rebar3Program(startNode),
       ...Object.fromEntries(
         ['mix', 'elixir', 'iex', 'erl', 'escript'].map((name) => [

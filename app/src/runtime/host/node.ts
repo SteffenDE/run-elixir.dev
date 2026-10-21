@@ -403,7 +403,10 @@ export class Node {
     // fetching and gunzipping them. Without, the worker fetches them itself.
     const names = boots ?? ['boot'];
     const files = this.files;
-    const brush = shell || command?.[0] === 'sh' ? siteModule(this.runtime, 'brush.wasm') : null;
+    const brush =
+      shell || command?.[0] === 'sh' || command?.[0] === 'bash'
+        ? siteModule(this.runtime, 'brush.wasm')
+        : null;
     void Promise.all([
       files
         ? files.ready.then(
