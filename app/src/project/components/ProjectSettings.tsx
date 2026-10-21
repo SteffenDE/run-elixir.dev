@@ -1,4 +1,4 @@
-import { RiArrowRightUpLine, RiSettings3Line } from '@remixicon/react';
+import { RiArrowRightLine, RiSettings3Line } from '@remixicon/react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { refreshSettings } from '@/project/lib/playground';
 import { EnvEditor } from '@/shared/components/EnvEditor';
@@ -104,13 +104,8 @@ export function ProjectSettings({ project }: { project: Project }) {
               </span>
             )}
           </div>
-          <a
-            className="tailscale-settings"
-            href={apexUrl('/settings')}
-            target="_blank"
-            rel="noopener"
-          >
-            <RiArrowRightUpLine size={14} /> Your settings for every project
+          <a className="tailscale-settings" href={apexUrl('/settings')}>
+            <RiArrowRightLine size={14} /> Your settings for every project
           </a>
         </div>
       )}

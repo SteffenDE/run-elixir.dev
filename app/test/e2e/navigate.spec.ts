@@ -113,3 +113,23 @@ test('a project runs on while the tab shows other pages, and asks about unsaved 
   expect(await readText(page, '/work/notes.txt')).toBe('draft from the file\n');
   await expect(page.locator('.tab-close.dirty')).toHaveCount(0);
 });
+
+// The project's links to the user's settings and to Tailscale go in place:
+// the project runs on, and the floating button goes back to it.
+test("a project's links to settings and Tailscale stay in the tab", async ({ page }) => {
+  const id = await newProject(page, 'empty');
+  await prompted(page, 1);
+  const back = page.locator('.back-to-project');
+  await page.getByRole('button', { name: 'Project settings' }).click();
+  await page.getByRole('link', { name: 'Your settings for every project' }).click();
+  await expect(page).toHaveURL('/settings');
+  await back.click();
+  await expect(page).toHaveURL(`/${id}/`);
+  await page.getByRole('button', { name: 'Tailscale: not set up' }).click();
+  await page.getByRole('link', { name: 'Tailscale settings' }).click();
+  await expect(page).toHaveURL('/tailscale');
+  await back.click();
+  await expect(page).toHaveURL(`/${id}/`);
+  await expect(page.locator('.exec-frame')).toHaveCount(1);
+  expect(page.context().pages()).toHaveLength(1);
+});

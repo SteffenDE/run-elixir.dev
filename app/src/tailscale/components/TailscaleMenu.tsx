@@ -1,4 +1,4 @@
-import { RiArrowRightUpLine, RiLoader4Line } from '@remixicon/react';
+import { RiArrowRightLine, RiLoader4Line } from '@remixicon/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLive } from '@/live/lib/store';
 import { connectServer } from '@/project/lib/playground';
@@ -203,13 +203,8 @@ export function TailscaleMenu() {
               )}
             </>
           )}
-          <a
-            className="tailscale-settings"
-            href={apexUrl('/tailscale')}
-            target="_blank"
-            rel="noopener"
-          >
-            <RiArrowRightUpLine size={14} /> Tailscale settings
+          <a className="tailscale-settings" href={apexUrl('/tailscale')}>
+            <RiArrowRightLine size={14} /> Tailscale settings
           </a>
         </div>
       )}

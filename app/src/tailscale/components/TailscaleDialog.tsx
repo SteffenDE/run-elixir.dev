@@ -1,4 +1,4 @@
-import { RiArrowRightUpLine } from '@remixicon/react';
+import { RiArrowRightLine } from '@remixicon/react';
 import { useLayoutEffect, useRef } from 'react';
 import { apexUrl } from '@/shared/lib/site';
 import { dismissHint, useTailscale } from '@/tailscale/client';
@@ -19,11 +19,7 @@ export function TailscaleDialog() {
   }, [blocked]);
   if (!blocked) return null;
   const host = URL.canParse(blocked) ? new URL(blocked).host : blocked;
-  const setup = (
-    <a href={apexUrl('/tailscale')} target="_blank" rel="noopener">
-      Sign in on the playground's Tailscale page
-    </a>
-  );
+  const setup = <a href={apexUrl('/tailscale')}>Sign in on the playground's Tailscale page</a>;
   return (
     <dialog
       ref={dialog}
@@ -53,11 +49,9 @@ export function TailscaleDialog() {
           // The dialog's focus, not the first link in its text.
           autoFocus
           href={apexUrl('/tailscale')}
-          target="_blank"
-          rel="noopener"
           onClick={() => dialog.current?.close()}
         >
-          <RiArrowRightUpLine size={16} />
+          <RiArrowRightLine size={16} />
           Set up Tailscale
         </a>
       </div>
