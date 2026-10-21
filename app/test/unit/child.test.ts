@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest';
-import { createChildProcess } from '../../src/runtime/nodejs/child';
+import { createChildProcess } from '@/runtime/nodejs/child';
 
 type Spawn = { id: number; shared?: SharedArrayBuffer };
 

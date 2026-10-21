@@ -1,7 +1,7 @@
 import { EventEmitter } from 'node:events';
 import { Duplex, type Readable } from 'node:stream';
 import { describe, expect, test } from 'vitest';
-import { createHttp } from '../../src/runtime/nodejs/http';
+import { createHttp } from '@/runtime/nodejs/http';
 
 // A connection the test answers on: what it is sent is dropped.
 function connection() {

@@ -86,7 +86,7 @@ test('claude runs Claude Code: its tools, against a mock API', async ({ page }) 
   await expect.poll(() => output(page, mock), { timeout: 60_000 }).toContain('mock listening');
   const agent = await run(
     page,
-    'ANTHROPIC_BASE_URL=http://localhost:3456 ANTHROPIC_API_KEY=sk-ant-none claude -p "do it" --dangerously-skip-permissions; echo "status $?"; cat bash.txt written.txt',
+    'printf "do it\\n" | ANTHROPIC_BASE_URL=http://localhost:3456 ANTHROPIC_API_KEY=sk-ant-none claude -p --dangerously-skip-permissions; echo "status $?"; cat bash.txt written.txt',
   );
   // What the Bash and Grep tools said reached the model.
   expect(agent).toMatch(/BASH SAID: .*from-bash 42.*v24/);

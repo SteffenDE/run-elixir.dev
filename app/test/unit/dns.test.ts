@@ -1,6 +1,6 @@
 import { promisify } from 'node:util';
 import { describe, expect, test } from 'vitest';
-import { createDns } from '../../src/runtime/nodejs/dns';
+import { createDns } from '@/runtime/nodejs/dns';
 
 describe('dns.lookup', () => {
   test('promisified answers its address and family, as Node’s', async () => {

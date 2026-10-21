@@ -179,7 +179,7 @@ async function fetchBinary(say: (text: string) => void): Promise<Uint8Array> {
 
 // A tar's file named `want`, read from its stream (the rest read through,
 // so the stream ends and its hash is whole); null if it has none.
-async function untarOne(
+export async function untarOne(
   reader: ReadableStreamDefaultReader<Uint8Array>,
   want: string,
 ): Promise<Uint8Array | null> {
@@ -225,7 +225,7 @@ async function untarOne(
       if (!buffered.length) throw new Error('the tarball ends early');
       const take = Math.min(buffered.length, padded - at);
       const piece = buffered.subarray(0, Math.min(take, Math.max(0, size - at)));
-      (body ?? small)?.set(piece, at);
+      if (piece.length) (body ?? small)?.set(piece, at);
       at += take;
       buffered = buffered.slice(take);
     }

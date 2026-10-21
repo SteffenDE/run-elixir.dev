@@ -1,11 +1,6 @@
 import { Duplex } from 'node:stream';
 import { describe, expect, test } from 'vitest';
-import {
-  certificate,
-  checkServerIdentity,
-  createTls,
-  identityRefusal,
-} from '../../src/runtime/nodejs/tls';
+import { certificate, checkServerIdentity, createTls, identityRefusal } from '@/runtime/nodejs/tls';
 
 // A connection still connecting, whose writes are dropped.
 function connecting() {

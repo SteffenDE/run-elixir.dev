@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
 import { Duplex } from 'node:stream';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { createFetch } from '../../src/runtime/nodejs/fetch';
-import { createHttp } from '../../src/runtime/nodejs/http';
+import { createFetch } from '@/runtime/nodejs/fetch';
+import { createHttp } from '@/runtime/nodejs/http';
 
 // Node's fetch over http.ts, on connections the test answers: `answer`
 // hears each request's head as it was sent (and the connection to answer

@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { Channel, END, FRAME, INPUT, RING } from '../../src/runtime/worker/channel';
+import { Channel, END, FRAME, INPUT, RING } from '@/runtime/worker/channel';
 
 // A channel, and a way to write the page's frames to it (host/node.ts's).
 function channel() {

@@ -1,6 +1,6 @@
 import stringWidth from 'string-width';
 import { describe, expect, test } from 'vitest';
-import { cellSegmenter } from '../../../src/runtime/nodejs/claude/cellsegmenter';
+import { cellSegmenter } from '@/runtime/nodejs/claude/cellsegmenter';
 
 // The screen as Claude Code's renderer lays it out: a cell's word is
 // style << 17 | link << 2 | its width's kind.

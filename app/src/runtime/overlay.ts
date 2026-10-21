@@ -21,6 +21,31 @@ export type KeptRecord =
   | { path: string; kind: 'link'; target: string; mtime: string }
   | { path: string; kind: 'gone' };
 
+// Peer updates may come from project code. Only canonical paths below
+// /shared are records for other projects; never accept traversal or roots.
+export function sharedRecords(value: unknown): value is KeptRecord[] {
+  return (
+    Array.isArray(value) &&
+    value.every((record) => {
+      if (!record || typeof record.path !== 'string' || !record.path.startsWith('/shared/'))
+        return false;
+      if (
+        record.path.includes('\0') ||
+        record.path
+          .split('/')
+          .slice(2)
+          .some((part: string) => !part || part === '.' || part === '..')
+      )
+        return false;
+      if (record.kind === 'gone') return true;
+      if (typeof record.mtime !== 'string' || !/^-?\d+$/.test(record.mtime)) return false;
+      if (record.kind === 'file') return record.data instanceof Uint8Array;
+      if (record.kind === 'dir') return typeof record.opaque === 'boolean';
+      return record.kind === 'link' && typeof record.target === 'string';
+    })
+  );
+}
+
 function request<T>(r: IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     r.onsuccess = () => resolve(r.result);

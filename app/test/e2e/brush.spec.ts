@@ -1,5 +1,5 @@
 import { expect, test } from './fixtures';
-import { newProject, output, prompted, prompts, readText, run } from './helpers';
+import { newProject, output, prompted, prompts, readText, run, writeText } from './helpers';
 
 // The terminal's shell is brush (runtime/worker/brush.ts): bash's language,
 // with the playground's commands (coreutils, nodes) in its pipelines,
@@ -54,4 +54,19 @@ test("brush's line editor completes, recalls and continues lines", async ({ page
   await keys('echo "n$i"\r');
   await keys('done\r');
   await expect.poll(() => output(page)).toMatch(/n1\s+n2\s+\/work \$ $/);
+});
+
+test('oversized external output fails within a bounded pipe and leaves the shell usable', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  // Finite producers keep this regression safe even if the bound breaks.
+  expect(await run(page, 'seq 1 3000000 | head -n 1')).toContain('buffered output exceeded 16 MiB');
+  await writeText(page, '/work/large.cjs', 'process.stdout.write("x".repeat(17 * 1024 * 1024));');
+  expect(await run(page, 'node large.cjs | head -c 1')).toContain(
+    'buffered output exceeded 16 MiB',
+  );
+  expect(await run(page, 'echo still-running')).toContain('still-running');
 });

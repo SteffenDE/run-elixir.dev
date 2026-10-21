@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createProcess } from '../../src/runtime/nodejs/process';
+import { createProcess } from '@/runtime/nodejs/process';
 
 // A process whose end is recorded, with `dirs` its directories and `files`
 // its files.

@@ -18,7 +18,7 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import type { ExecEvents, ExecStart } from '@/exec/host';
 import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
 import type { Connection, NifBuild } from '@/runtime/host/node';
-import { open as openStore, serveStore } from '@/runtime/overlay';
+import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
 import { PortConnection } from '@/runtime/portConnection';
 import { postgres } from '@/runtime/postgres';
 import { REPORT, lineDiscipline } from '@/runtime/terminal';
@@ -532,8 +532,11 @@ function shareWithPeers(rpc: Rpc): () => void {
   const apply = (records: KeptRecord[]) => {
     if (exec === rpc) void rpc.call('applyKept', [records]).catch(() => {});
   };
-  rpc.on<KeptRecord[]>('kept', (records) => peers.postMessage(records));
+  rpc.on<unknown>('kept', (records) => {
+    if (sharedRecords(records)) peers.postMessage(records);
+  });
   peers.onmessage = ({ data }: MessageEvent<KeptRecord[]>) => {
+    if (!sharedRecords(data)) return;
     if (early) early.push(data);
     else apply(data);
   };

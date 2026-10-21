@@ -41,3 +41,25 @@ test('a Node.js process runs children: execSync, spawnSync, stdin, kill', async 
   expect(out).toContain('stdin WRITTEN LATER 0');
   expect(out).toContain('killed null SIGTERM');
 });
+
+test('a child shares the inherited output descriptor’s offset with its parent', async ({
+  page,
+}) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(
+    page,
+    '/work/offset.cjs',
+    `
+const fs = require('fs');
+const cp = require('child_process');
+const fd = fs.openSync('/work/child-output', 'w+');
+cp.spawn('echo', ['child'], {stdio: ['ignore', fd, fd]}).on('close', () => {
+  fs.writeSync(fd, 'tail');
+  fs.closeSync(fd);
+  console.log('inherited:', JSON.stringify(fs.readFileSync('/work/child-output', 'utf8')));
+});
+`,
+  );
+  expect(await run(page, 'node offset.cjs')).toContain('inherited: "child\\ntail"');
+});

@@ -2,8 +2,8 @@ import * as fs from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, test } from 'vitest';
-import { createLoader } from '../../src/runtime/nodejs/loader';
-import { createPath } from '../../src/runtime/nodejs/path';
+import { createLoader } from '@/runtime/nodejs/loader';
+import { createPath } from '@/runtime/nodejs/path';
 
 let dirs: string[] = [];
 afterEach(() => {

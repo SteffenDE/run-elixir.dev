@@ -6,7 +6,7 @@ import {
   lockThread,
   processLock,
   sharedClient,
-} from '../../src/runtime/wasi/shared';
+} from '@/runtime/wasi/shared';
 
 const realWait = Atomics.wait;
 const realExchange = Atomics.compareExchange;

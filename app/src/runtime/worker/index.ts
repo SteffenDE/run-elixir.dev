@@ -442,6 +442,10 @@ onmessage = async ({
               );
           channel.sleep(1000);
         }
+      } catch (error) {
+        // A bounded pipe capture can stop a producer before it exits.
+        process.onclose?.();
+        throw error;
       } finally {
         if (forward) channel.reading = null;
         channel.mode(...mode);
@@ -520,9 +524,14 @@ onmessage = async ({
           name,
         )!;
         const process = new Process();
+        // Coreutils runs synchronously. Send output to its sink as it is
+        // written so the pipe's bound applies during execution, not after.
+        process.write = (bytes) =>
+          (io.stdout ?? ((b) => say('out', b)))(
+            typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes,
+          );
         if (io.input) process.input.push(io.input);
         tool(process, { args: given, cwd: at, env: vars, root });
-        for (const bytes of process.output) (io.stdout ?? ((b) => say('out', b)))(bytes);
         return process.status ?? 1;
       }
       return null;

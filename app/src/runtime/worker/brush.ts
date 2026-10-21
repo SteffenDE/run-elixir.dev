@@ -8,6 +8,7 @@
 // output brush's unless it is the terminal's (brush-core's
 // sys/wasm/playground.rs).
 import { Exit, WASI } from '../wasi';
+import { BufferedOutput, OutputLimitError } from './output';
 
 // JSPI, which TypeScript's DOM library does not have yet.
 declare global {
@@ -67,7 +68,7 @@ export async function brush(options: BrushOptions): Promise<number> {
   // The terminal's input, a line at a time.
   let pending = new Uint8Array(0);
   // What the last command wrote that was not the terminal's.
-  const captured: Record<number, Uint8Array[]> = { 1: [], 2: [] };
+  let captured = new BufferedOutput();
 
   const wasi = new WASI({
     args: ['brush', ...options.args],
@@ -110,29 +111,25 @@ export async function brush(options: BrushOptions): Promise<number> {
           return [v.slice(0, at), v.slice(at + 1)];
         }),
       );
-      captured[1] = [];
-      captured[2] = [];
-      const keep = (stream: number) => (bytes: Uint8Array) => captured[stream].push(bytes.slice());
-      const status = await options.run(program, args, cwd, env, {
-        input: flags & 1 ? null : view(input, inputLength).slice(),
-        stdout: flags & 2 ? null : keep(1),
-        stderr: flags & 4 ? null : keep(2),
-      });
-      return status ?? -1;
+      captured = new BufferedOutput();
+      const keep = (stream: number) => (bytes: Uint8Array) => captured.write(stream, bytes);
+      try {
+        const status = await options.run(program, args, cwd, env, {
+          input: flags & 1 ? null : view(input, inputLength).slice(),
+          stdout: flags & 2 ? null : keep(1),
+          stderr: flags & 4 ? null : keep(2),
+        });
+        return status ?? -1;
+      } catch (error) {
+        if (!(error instanceof OutputLimitError)) throw error;
+        captured = new BufferedOutput();
+        options.out(new TextEncoder().encode(`${error.message}\n`));
+        return 125;
+      }
     },
   );
   const output = (stream: number, buffer: number, max: number) => {
-    const chunks = captured[stream] ?? [];
-    let n = 0;
-    while (chunks.length && n < max) {
-      const chunk = chunks[0];
-      const part = chunk.subarray(0, max - n);
-      view(buffer + n, part.length).set(part);
-      n += part.length;
-      if (part.length === chunk.length) chunks.shift();
-      else chunks[0] = chunk.subarray(part.length);
-    }
-    return n;
+    return captured.read(stream, view(buffer, max));
   };
 
   // crossterm's WASI backend (brush/crossterm/patches).

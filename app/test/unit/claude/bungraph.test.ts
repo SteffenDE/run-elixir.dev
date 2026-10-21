@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { graphParts, readGraph } from '../../../src/project/lib/programs/claude/bungraph';
+import { graphParts, readGraph } from '@/project/lib/programs/claude/bungraph';
 
 const encoder = new TextEncoder();
 

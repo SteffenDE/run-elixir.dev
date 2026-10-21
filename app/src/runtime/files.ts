@@ -291,7 +291,7 @@ async function setSharedHidden(hide: boolean): Promise<void> {
     hiddenShared = null;
     const held = keeper?.paused ?? [];
     if (keeper) keeper.paused = null;
-    for (const records of held) apply(records, true);
+    for (const records of held) apply(records, true, true);
   }
   changed.add('/shared');
 }
@@ -299,8 +299,29 @@ async function setSharedHidden(hide: boolean): Promise<void> {
 // Lay the kept changes over the files. Those another project kept (/shared:
 // `live`) change a file in place, so what has it open reads them, and are
 // reported to the watchers and the page, not kept again.
-function apply(records: KeptRecord[], live = false): void {
+function apply(records: KeptRecord[], live = false, shared = false): void {
   for (const record of records) {
+    if (shared) {
+      if (!overlays.sharedRecords([record])) continue;
+      // Records describe physical paths. Never follow a project's links
+      // while applying another project's changes, even links inside /shared.
+      let parent = root;
+      let safe = true;
+      for (const name of record.path.split('/').slice(1, -1)) {
+        let next = parent.entries.get(name);
+        if (!next && record.kind !== 'gone') {
+          next = new Dir();
+          next.parent = parent;
+          parent.entries.set(name, next);
+        }
+        if (!(next instanceof Dir)) {
+          safe = false;
+          break;
+        }
+        parent = next;
+      }
+      if (!safe) continue;
+    }
     const found = resolve(record.path);
     if (live) changed.add(record.path);
     if (live && record.kind === 'file' && found.node instanceof File) {
@@ -805,7 +826,7 @@ onmessage = async ({ data }) => {
       if (sharedPort) {
         const sharedStore = overlays.remote(sharedPort);
         const records = (await sharedStore.load()).records;
-        apply(records);
+        apply(records, false, true);
         keepers.push(keeperFor(KEPT_SHARED, sharedStore, '', records, true));
       }
       fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, runtime)));
@@ -833,10 +854,11 @@ onmessage = async ({ data }) => {
     await flush();
     postMessage({ kind: 'reply', id: data.id });
   } else if (data.kind === 'apply') {
+    if (!overlays.sharedRecords(data.records)) return;
     // What another project kept in /shared (held while it is hidden).
     const keeper = keepers.find((each) => each.prefixes === KEPT_SHARED);
     if (keeper?.paused) keeper.paused.push(data.records);
-    else apply(data.records as KeptRecord[], true);
+    else apply(data.records, true, true);
   } else if (data.kind === 'request' && data.op === 'hide-shared') {
     await hideShared(Boolean(data.hide));
     postMessage({ kind: 'reply', id: data.id });

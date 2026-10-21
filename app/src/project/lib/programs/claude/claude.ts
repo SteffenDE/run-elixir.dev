@@ -13,19 +13,31 @@ import type { Context, Process } from '../tailwind';
 
 // The files in `dir`, unless they are there already (cli.js last, so its
 // being there means they all are).
-async function install(fs: Files, dir: string, files: GraphFile[]): Promise<void> {
+async function install(
+  fs: Files,
+  dir: string,
+  files: GraphFile[],
+  signal: AbortSignal,
+): Promise<void> {
+  signal.throwIfAborted();
   if (await fs.stat(`${dir}/cli.js`)) return;
+  signal.throwIfAborted();
   const dirs = new Set<string>([dir]);
   for (const { name } of files)
     for (let at = name.indexOf('/'); at >= 0; at = name.indexOf('/', at + 1))
       dirs.add(`${dir}/${name.slice(0, at)}`);
-  for (const path of [...dirs].sort()) await fs.mkdir(path);
+  for (const path of [...dirs].sort()) {
+    signal.throwIfAborted();
+    await fs.mkdir(path);
+  }
+  signal.throwIfAborted();
   const entry = files.find((file) => file.name === 'cli.js');
   await Promise.all(
     files
       .filter((file) => file !== entry)
       .map((file) => fs.write(`${dir}/${file.name}`, file.data)),
   );
+  signal.throwIfAborted();
   if (entry) await fs.write(`${dir}/cli.js`, entry.data);
 }
 
@@ -36,12 +48,21 @@ type Program = (process: Process, context: Context) => void | Promise<void>;
 async function claudeFiles(
   connect: () => Promise<MessagePort>,
   say: (text: string) => void,
+  signal: AbortSignal,
 ): Promise<{ version: string; files: GraphFile[] }> {
-  const rpc = new Rpc(await connect());
+  const port = await connect();
+  if (signal.aborted) {
+    port.close();
+    signal.throwIfAborted();
+  }
+  const rpc = new Rpc(port);
+  const cancel = () => rpc.close();
+  signal.addEventListener('abort', cancel, { once: true });
   rpc.on<string>('progress', say);
   try {
     return await rpc.call<{ version: string; files: GraphFile[] }>('files');
   } finally {
+    signal.removeEventListener('abort', cancel);
     rpc.close();
   }
 }
@@ -54,16 +75,32 @@ export const claudeProgram =
       process.write('claude: node is not in this playground\n');
       return process.exit(1);
     }
+    // Input (including EOF) can arrive while the shared cache prepares.
+    // Keep it until node installs its handlers; a stopped command never
+    // starts a runtime after its preparation eventually finishes.
+    const controller = new AbortController();
+    const { signal } = controller;
+    const pending: (Uint8Array | null)[] = [];
+    process.oninput = (bytes) => pending.push(bytes?.slice() ?? null);
+    const cancel = () => {
+      controller.abort();
+      pending.length = 0;
+      process.exit(130);
+    };
+    process.onkill = cancel;
+    process.onowner = cancel;
     let dir: string;
     try {
-      const { version, files } = await claudeFiles(connect, (text) => process.write(text));
+      const { version, files } = await claudeFiles(connect, (text) => process.write(text), signal);
       dir = `${DIR}/${version}`;
-      await install(context.fs as unknown as Files, dir, files);
+      await install(context.fs as unknown as Files, dir, files, signal);
+      signal.throwIfAborted();
     } catch (error) {
+      if (signal.aborted) return;
       process.write(`claude: ${(error as Error).message}\n`);
       return process.exit(1);
     }
-    return node(process, {
+    const running = node(process, {
       ...context,
       // Its Glob and Grep tools (ripgrep's), named so it keeps them: else
       // a build such as this one drops them for the find and grep its own
@@ -80,4 +117,6 @@ export const claudeProgram =
       },
       bun: true,
     });
+    for (const bytes of pending.splice(0)) process.oninput?.(bytes);
+    return running;
   };

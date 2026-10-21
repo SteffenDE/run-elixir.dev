@@ -1,6 +1,6 @@
 import { EventEmitter } from 'events';
 import { describe, expect, test } from 'vitest';
-import { createReadline } from '../../src/runtime/nodejs/readline';
+import { createReadline } from '@/runtime/nodejs/readline';
 
 // An interface on an input that is not a terminal, and what it emits.
 function lines() {

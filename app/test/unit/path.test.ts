@@ -1,6 +1,6 @@
 import { posix } from 'node:path';
 import { expect, test } from 'vitest';
-import { createPath } from '../../src/runtime/nodejs/path';
+import { createPath } from '@/runtime/nodejs/path';
 
 const path = createPath(() => '/work');
 

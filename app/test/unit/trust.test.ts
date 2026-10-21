@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { answerTrust, askTrust, useTrust } from '../../src/project/lib/trust';
+import { answerTrust, askTrust, useTrust } from '@/project/lib/trust';
 
 const question = { name: 'from a link', env: ['TOKEN'], shared: true, setup: '' };
 

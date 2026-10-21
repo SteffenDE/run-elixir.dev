@@ -168,6 +168,7 @@ interface Open {
   path: string;
   position: number;
   append: boolean;
+  refs: number;
 }
 
 // fs.constants' open flags (Linux's), and flag strings as open takes them.
@@ -265,7 +266,7 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
         throw fsError(E.NOTDIR, 'open', String(p));
       if (kind?.isDirectory()) {
         const fd = nextFd++;
-        files.set(fd, { handle: -1, path, position: 0, append: false });
+        files.set(fd, { handle: -1, path, position: 0, append: false, refs: 1 });
         return fd;
       }
     }
@@ -275,7 +276,13 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     if (f & O.TRUNC) oflags |= OFLAGS.TRUNC;
     const { answer } = ask('open', String(p), { op: 'open', path, oflags });
     const fd = nextFd++;
-    files.set(fd, { handle: answer.handle, path, position: 0, append: Boolean(f & O.APPEND) });
+    files.set(fd, {
+      handle: answer.handle,
+      path,
+      position: 0,
+      append: Boolean(f & O.APPEND),
+      refs: 1,
+    });
     return fd;
   };
 
@@ -339,7 +346,7 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
       const file = files.get(fd);
       if (!file) return;
       files.delete(fd);
-      if (file.handle !== -1) call({ op: 'close', handle: file.handle });
+      if (--file.refs === 0 && file.handle !== -1) call({ op: 'close', handle: file.handle });
     },
     readSync(
       fd: number,
@@ -1061,12 +1068,13 @@ export function createFs(call: SharedCall, cwd: () => string, resolvePath: (p: s
     // child's program, arguments and directory, as a child that inherits
     // the fd sees them).
     throughFd,
-    // Another fd on `fd`'s file, from its position: a child's output (its
-    // own, as an inherited fd is, which the parent may close at once).
+    // Another fd on the same open file, sharing its offset and keeping
+    // its handle alive until both the parent and child close it.
     dup(fd: number): number {
       const file = opened(fd, 'dup');
-      const copy = openFd(file.path, file.append ? 'a' : 'r+');
-      files.get(copy)!.position = file.position;
+      const copy = nextFd++;
+      file.refs++;
+      files.set(copy, file);
       return copy;
     },
     setStdio(write: (fd: number, bytes: Uint8Array) => void) {

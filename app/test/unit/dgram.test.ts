@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import { createDgram } from '../../src/runtime/nodejs/dgram';
+import { createDgram } from '@/runtime/nodejs/dgram';
 
 // dgram whose host binds every port asked for, and what it was sent.
 function dgram() {
