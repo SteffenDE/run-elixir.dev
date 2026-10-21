@@ -472,6 +472,8 @@ onPreviewMessage(({ data }: MessageEvent<PreviewMessage>) => {
 // again only after shutdown().
 let begun = false;
 let startup: AbortController | null = null;
+// Whether the page has started its project (it shows it again, running).
+export const hasBegun = (): boolean => begun;
 export function beginStart(): boolean {
   if (begun) return false;
   begun = true;

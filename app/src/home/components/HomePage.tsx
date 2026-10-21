@@ -13,6 +13,7 @@ import { listProjects, type Project } from '@/shared/lib/projects';
 import { projectUrl } from '@/shared/lib/site';
 import { whenReleased } from '@/shared/lib/lock';
 import { deleteProject, openProjects } from '@/shared/lib/storage';
+import { stopActive, useActive } from '@/project/lib/active';
 import { TailscaleButton } from '@/tailscale/components/TailscaleButton';
 
 function ago(time: number): string {
@@ -45,12 +46,17 @@ function ProjectRow({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const running = useActive((state) => state.active?.key === project.id);
   return (
     <li className="project-row">
       <a className="project-link" href={projectUrl(project.id)}>
         <span className="project-row-name">{project.name}</span>
         <KindChip kind={project.kind} />
-        {open && <span className="chip">open in a tab</span>}
+        {running ? (
+          <span className="chip">running here</span>
+        ) : (
+          open && <span className="chip">open in a tab</span>
+        )}
         <span className="muted project-row-time">{ago(project.openedAt)}</span>
       </a>
       {error && <span className="project-error">{error}</span>}
@@ -60,10 +66,13 @@ function ProjectRow({
             type="button"
             className="button danger"
             onClick={() =>
-              deleteProject(project.id).then(onDeleted, (failed: Error) => {
-                setConfirming(false);
-                setError(failed.message);
-              })
+              // Running here: it stops first (its unsaved edits go with it).
+              (running ? stopActive() : Promise.resolve())
+                .then(() => deleteProject(project.id))
+                .then(onDeleted, (failed: Error) => {
+                  setConfirming(false);
+                  setError(failed.message);
+                })
             }
           >
             Delete

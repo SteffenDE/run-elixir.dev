@@ -26,6 +26,7 @@ test('the tab goes between pages in place, and from one project to another', asy
   // A project, a file of its own; home by the top bar; another project,
   // without it.
   const first = await newEmpty();
+  const firstName = (await page.locator('.project-name').textContent())!;
   await run(page, 'echo one > a.txt');
   await page.getByTitle('All projects').click();
   await expect(page.locator('.project-row')).toHaveCount(1);
@@ -39,9 +40,12 @@ test('the tab goes between pages in place, and from one project to another', asy
   await expect(page.locator('.project-row')).toHaveCount(2);
   await page.goBack();
   await expect(page).toHaveURL(first);
+  // The second project, running until then, gives way.
+  await expect(page.locator('.project-name')).toHaveText(firstName);
   await prompted(page, 1);
   expect(await run(page, 'cat a.txt')).toContain('one');
   await expect(page.locator('.exec-frame')).toHaveCount(1);
 
   expect(await stayed()).toBe(true);
 });
+

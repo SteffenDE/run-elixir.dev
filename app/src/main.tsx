@@ -8,12 +8,14 @@ import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
 import { SettingsPage } from '@/settings/components/SettingsPage';
 import { TailscalePage } from '@/tailscale/components/TailscalePage';
-import { endSession, leaveSession } from '@/live/lib/host';
-import { leave, shutdown } from '@/project/lib/playground';
+import { endSession } from '@/live/lib/host';
+import { BackToProject } from '@/project/components/BackToProject';
+import { stopActive, useActive } from '@/project/lib/active';
+import { shutdown } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
 import { dropFramesOnLeave } from '@/shared/lib/leave';
 import { moveFormerStores } from '@/shared/lib/migrate';
-import { claimProject, onProjectRelease, releaseProject, takeOverProject } from '@/shared/lib/lock';
+import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
 import { routeWith } from '@/shared/lib/navigate';
 import { createProject, getProject, isId, openedProject, type Kind } from '@/shared/lib/projects';
 import { loadSite, movedTo, previewSite, projectUrl, strayOrigin } from '@/shared/lib/site';
@@ -21,10 +23,11 @@ import '@/styles.css';
 
 // The tab goes from page to page in place (navigate.ts): links to these
 // routes, back and forward render the next page here, so what lives as long
-// as the tab (the Tailscale node's connection) stays. Leaving a project
-// ends what it ran, as a load would (leaveProject); a live session's
-// guest's page is left by a load. One page runs a project at a time
-// (lock.ts).
+// as the tab (the Tailscale node's connection) stays. A project keeps
+// running while the tab shows the projects, settings or Tailscale
+// (BackToProject goes back to it), and stops when the tab goes to another
+// project (active.ts); a live session's guest's page is left by a load.
+// One page runs a project at a time (lock.ts).
 //
 //   /           the projects, and new ones
 //   /ID/        a project
@@ -40,14 +43,16 @@ import '@/styles.css';
 // itself, and any other name, is not found.
 const SHORTCUTS: Record<string, Kind> = { phoenix: 'phoenix', empty: 'empty' };
 
-// What leaving the page now shown takes: nothing, its teardown, or a load
-// (a guest's page).
-let leaving: (() => Promise<void>) | 'load' | null = null;
+// Whether leaving the page now shown takes a load (a guest's page).
+let leaving: 'load' | null = null;
 
-async function leaveProject(): Promise<void> {
-  leaveSession();
-  await leave();
-  releaseProject();
+// The project a path opens (its id, 'iex', 'new' for a new one, 'live' for
+// a live session's), or null for another page.
+function projectOf(pathname: string): string | null {
+  const name = pathname.split('/').filter(Boolean)[0] ?? '';
+  if (name === 'iex' || name === 'live') return name;
+  if (SHORTCUTS[name]) return 'new';
+  return isId(name) ? name : null;
 }
 
 async function page(path: string): Promise<ReactNode> {
@@ -72,7 +77,7 @@ async function page(path: string): Promise<ReactNode> {
   }
   if (name === 'iex') {
     document.title = 'IEx · Elixir Playground';
-    leaving = leaveProject;
+    useActive.setState({ active: { key: 'iex', project: null, name: 'IEx', path: '/iex' } });
     return <ProjectPage project={null} />;
   }
   if (SHORTCUTS[name]) {
@@ -93,7 +98,12 @@ async function projectPage(id: string, path: string): Promise<ReactNode> {
   const home = `/${project.id}/`;
   if (path !== home) history.replaceState(null, '', home);
   document.title = `${project.name} · Elixir Playground`;
-  leaving = leaveProject;
+  // Back to the project this tab runs: as it was.
+  const active = useActive.getState().active;
+  if (active?.key === project.id) {
+    useActive.setState({ active: { ...active, project, name: project.name } });
+    return <ProjectPage project={project} />;
+  }
   // Asked to let go: stop here first. Taken (after not answering): stop.
   onProjectRelease(
     () => endSession().then(shutdown),
@@ -106,6 +116,9 @@ async function projectPage(id: string, path: string): Promise<ReactNode> {
   const here = shown;
   const run = () => {
     void openedProject(project.id);
+    useActive.setState({
+      active: { key: project.id, project, name: project.name, path: home },
+    });
     return <ProjectPage project={project} />;
   };
   if (await claimProject(project.id)) return run();
@@ -161,6 +174,7 @@ const render = (content: ReactNode) =>
   root.render(
     <StrictMode>
       <Fragment key={shown}>{content}</Fragment>
+      <BackToProject />
     </StrictMode>,
   );
 
@@ -169,18 +183,21 @@ let path: string | null = null;
 async function show(url: URL): Promise<void> {
   // The page shown already (a link to it, a change of its #…).
   if (url.pathname === path) return;
+  // Another project than the one this tab runs: that one stops.
+  const active = useActive.getState().active;
+  const target = projectOf(url.pathname);
+  const switching = active !== null && target !== null && target !== active.key;
   path = url.pathname;
-  const before = leaving;
-  if (before === 'load') return location.assign(url);
-  leaving = null;
+  if (leaving === 'load') return location.assign(url);
   shown++;
-  if (before) {
-    root.render(null);
-    await before();
+  if (switching) {
+    render(null);
+    await stopActive();
   }
   const content = await page(url.pathname);
   // Where it went (a project's /ID/, after a shortcut).
   path = location.pathname;
+  useActive.setState({ here: path });
   if (content) render(content);
 }
 
