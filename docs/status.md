@@ -99,6 +99,12 @@ chunks; the same memory.
   interactively it needs the tailnet (its connectivity check reaches
   endpoints that send no CORS headers). 2.1.306, the newest on
   2026-10-21.
+- **Settings** ([projects.md](projects.md#settings)): the user's
+  environment (a `CLAUDE_CODE_OAUTH_TOKEN`, say), `/shared` (one folder in
+  every project, kept on the apex, live between open projects), a setup
+  script for new projects; a project's startup lines and environment. A
+  project from a link or a fork asks first; a live session's guests who
+  may type see none of them.
 - **Phones:** one pane at a time.
 - **Terminals** fit their panels and link source locations to the editor
   and addresses to the preview.
@@ -231,15 +237,9 @@ chunks; the same memory.
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.
 9. WebKit's two stalls; a faster node start.
-10. Settings and a shared folder: `/shared`, kept on the apex and the same
-    in every project that may have it; a setup script for new projects
-    (to link, say, `~/.claude` there); the apex's settings (default
-    environment such as `CLAUDE_CODE_OAUTH_TOKEN`, `/shared` on or off)
-    and a project's own (a command at each start); a project from a link
-    asks before any of it applies.
-11. `find`, `grep`, `sed` and `awk` built to WebAssembly beside
+10. `find`, `grep`, `sed` and `awk` built to WebAssembly beside
     coreutils.
-12. Tailscale against Tailscale's own control server, and what is left
+11. Tailscale against Tailscale's own control server, and what is left
     ([tailscale.md](tailscale.md#not-built-yet)).
 
 Shelved: Linux programs through [Blink](https://github.com/jart/blink),

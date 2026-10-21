@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-20
+last_updated: 2026-10-21
 ---
 
 # Projects
@@ -77,11 +77,11 @@ itself.
 ## What is kept
 
 Three IndexedDB databases, all named after the project's id
-(`src/shared/lib/storage.ts`):
+(`src/shared/lib/storage.ts`), besides the user's own (below):
 
 | Database | Holds | Written by |
 | --- | --- | --- |
-| `playground` (Dexie), table `projects` | id, name, kind, created and opened times | the page |
+| `playground` (Dexie), table `projects` | id, name, kind, created and opened times; where it came from (a link, a fork), whether it takes the user's settings, its own settings | the page |
 | `playground-files-ID` | what changed below `/work`, and below `/home` (home: Mix's, Hex's and the tools' caches, escripts; not in the tree, search or a share link) | `files.js` (`src/runtime/overlay.ts`) |
 | `/pglite/playground-pg-ID` | the project's Postgres | PGlite (`idb://playground-pg-ID`) |
 
@@ -171,6 +171,45 @@ Phoenix project with one edited template file and one removed makes a
 link of a few KB. A link holds what a URL can; very large projects will
 want a server to keep them
 ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)).
+
+## Settings
+
+The user's, for every project of the browser, on the apex's `/settings`
+page; a project's own, in its top bar (`src/shared/lib/settings.ts`).
+
+| Setting | Of | Applies |
+| --- | --- | --- |
+| Environment | the user; a project's over it | each new shell, and what it runs: the user's under the playground's own (Hex's, the cookie, the preview's), so they cannot clobber them |
+| `/shared` | the user (on unless turned off) | at a project's start: the same folder in every project, kept on the apex |
+| Setup script | the user | once, in a new project's first shell, at its first start (sourced, so its lines run as a script); projects made before it never run it |
+| Startup lines | a project | at each start, in its first shell, in place of its kind's (Phoenix's `iex -S mix phx.server`) |
+
+Kept in the apex's `playground` database: the user's in table
+`settings`, a project's on its record. Saving reaches the new shells of
+the projects open (a `BroadcastChannel`); `/shared`, the startup lines
+and whether a project takes the user's settings, its next start.
+
+- **`/shared`** is the apex's database `playground-shared`, served to each
+  project's `files.js` over a port, as a project's own store is.
+  `files.js` keeps changes by prefix: the project's (`/work`, `/home`)
+  within a second, `/shared`'s within 200 ms, and reports what it keeps
+  in `/shared` to the IDE's page, which tells the other projects open,
+  whose `files.js` lays it over theirs (a file changed in place, so what
+  has it open reads it). The last change to a file wins. A project
+  without it (turned off, a link's) has an empty `/shared`, kept nowhere.
+  Link a tool's folder in to share it: `ln -s /shared/claude ~/.claude`.
+- **From someone else:** a project made from a share link or a live
+  session's fork is marked so, and asks at its first start, before
+  anything runs, whether it takes the user's settings: their environment
+  (the names, not the values), `/shared` if it holds anything, the setup
+  script's first line. Its code could read them. Closing says no; the
+  project's settings change the answer. A user with nothing to give is
+  not asked. A link carries files only, never settings.
+- **Live sessions:** while a guest who may type or edit is in, new shells
+  start without the user's environment and `/shared` is an empty folder
+  in its place, the real one back once no such guest is (the host's
+  choice, on unless unchecked; shells already running keep what they
+  had).
 
 ## A folder from this computer
 
