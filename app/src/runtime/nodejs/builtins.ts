@@ -44,6 +44,7 @@ export const BUILTINS = [
   'os',
   'path',
   'path/posix',
+  'path/win32',
   'perf_hooks',
   'process',
   'punycode',
@@ -51,6 +52,7 @@ export const BUILTINS = [
   'readline',
   'readline/promises',
   'stream',
+  'stream/consumers',
   'stream/promises',
   'stream/web',
   'string_decoder',
@@ -328,6 +330,7 @@ export function createBuiltins(deps: {
     os: () => createOs(deps.env),
     path: () => deps.path,
     'path/posix': () => deps.path,
+    'path/win32': () => deps.path,
     perf_hooks: () => ({
       // The browser's, with Node's markResourceTiming (undici's fetch reports
       // its timing there): nothing to mark.
@@ -360,6 +363,23 @@ export function createBuiltins(deps: {
       const out = stream.Stream as unknown as Record<string, unknown>;
       for (const [key, value] of Object.entries(stream)) if (!(key in out)) out[key] = value;
       return out;
+    },
+    'stream/consumers': () => {
+      const bytes = async (source: AsyncIterable<unknown>) => {
+        const chunks: Buffer[] = [];
+        for await (const chunk of source)
+          chunks.push(
+            typeof chunk === 'string' ? Buffer.from(chunk) : Buffer.from(chunk as Uint8Array),
+          );
+        return Buffer.concat(chunks);
+      };
+      return {
+        buffer: bytes,
+        arrayBuffer: async (s: AsyncIterable<unknown>) => new Uint8Array(await bytes(s)).buffer,
+        text: async (s: AsyncIterable<unknown>) => (await bytes(s)).toString('utf8'),
+        json: async (s: AsyncIterable<unknown>) => JSON.parse((await bytes(s)).toString('utf8')),
+        blob: async (s: AsyncIterable<unknown>) => new Blob([await bytes(s)]),
+      };
     },
     'stream/promises': () => (stream as unknown as { promises: unknown }).promises,
     'stream/web': () => ({
