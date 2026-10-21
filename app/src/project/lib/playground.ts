@@ -444,6 +444,16 @@ function listen(rpc: Rpc): void {
   rpc.handle({ connect, tailnetDial, tailnetResolve, claudePort });
 }
 
+// Unsaved edits: the browser asks before the page goes.
+const unsaved = (event: BeforeUnloadEvent) => event.preventDefault();
+useStore.subscribe((state, before) => {
+  if (state.tabs === before.tabs) return;
+  const was = before.tabs.some((tab) => tab.draft !== tab.saved);
+  const is = state.tabs.some((tab) => tab.draft !== tab.saved);
+  if (is && !was) addEventListener('beforeunload', unsaved);
+  else if (was && !is) removeEventListener('beforeunload', unsaved);
+});
+
 // A popped-out preview hears which port to show. Its closing brings the
 // panel back.
 useStore.subscribe((state, before) => {
