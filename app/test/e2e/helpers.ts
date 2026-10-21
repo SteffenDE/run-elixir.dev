@@ -1,6 +1,12 @@
 // What the tests do to a playground page, mostly through
 // window.playground (src/project/lib/playground.ts).
-import { expect, type Frame, type FrameLocator, type Page } from '@playwright/test';
+import {
+  expect,
+  type BrowserContext,
+  type Frame,
+  type FrameLocator,
+  type Page,
+} from '@playwright/test';
 
 export const APP = '/work/playground';
 
@@ -215,4 +221,50 @@ export async function syncLV(scope: Page | FrameLocator): Promise<void> {
     expect(scope.locator('.phx-click-loading')).toHaveCount(0),
     expect(scope.locator('.phx-submit-loading')).toHaveCount(0),
   ]);
+}
+
+// Sign this browser's device in to the Headscale (HEADSCALE_URL,
+// HEADSCALE_API_KEY, HEADSCALE_USER: tests/headscale.sh) on `apex`'s Tailscale page
+// (the test registers it through Headscale's API, as an admin would) and
+// pick exit-box: its MagicDNS name.
+export async function signIn(page: Page, context: BrowserContext, apex: string): Promise<string> {
+  await page.goto(`${apex}/tailscale`);
+  const control = page.getByLabel('Control server URL');
+  await page.getByText('Another control server').click();
+  await control.fill(process.env.HEADSCALE_URL!);
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(control).toHaveValue(process.env.HEADSCALE_URL!);
+
+  // Signing in opens a tab for the control server's page; Headscale's
+  // registers the node by its id, as an admin would.
+  const popup = context.waitForEvent('page');
+  await page
+    .locator('.tailscale-device')
+    .getByRole('button', { name: 'Sign in with Tailscale' })
+    .click();
+  await popup.then((tab) => tab.close());
+  const link = page.getByRole('link', { name: "Tailscale's sign-in page" });
+  await expect(link).toBeVisible({ timeout: 120_000 });
+  const authId = new URL((await link.getAttribute('href'))!).pathname.split('/').pop()!;
+  const registered = await fetch(`${process.env.HEADSCALE_URL}/api/v1/auth/register`, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${process.env.HEADSCALE_API_KEY}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ user: process.env.HEADSCALE_USER ?? 'alice', authId }),
+  });
+  expect(registered.status, await registered.text()).toBe(200);
+
+  const state = page.locator('.tailscale-state');
+  await expect(state).toContainText('connected, no exit node', { timeout: 60_000 });
+  await expect(page.locator('.tailscale-facts')).toContainText('tag:elixir-playground');
+  const exit = page.locator('.tailscale-device select');
+  const box = exit.locator('option', { hasText: 'exit-box' });
+  await expect(box).toHaveCount(1, { timeout: 60_000 });
+  const name = (await box.textContent())!.replace(/ \(offline\)$/, '');
+  await exit.selectOption({ label: name });
+  await expect(state).toContainText('connected through exit-box');
+
+  return name;
 }
