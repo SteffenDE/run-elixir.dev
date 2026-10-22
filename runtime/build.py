@@ -331,9 +331,20 @@ def app_files(app):
         if parts[0] in ("_build", "_build_rotp", "_build_otp", ".elixir_ls") and parts[0] != BUILD or (len(parts) > 2 and parts[0] == "deps" and parts[2] == ".git"):
             dirs[:] = []
             if len(parts) == 3 and parts[0] == "deps" and parts[2] == ".git":
-                for name in ("config", "HEAD"):
+                # A repository to git, without its objects: its config, HEAD
+                # and refs, and an empty objects/info/packs (git takes a
+                # directory with objects/ and refs/ for one; Mix's
+                # lock_status reads only the origin and HEAD).
+                for name in ("config", "HEAD", "packed-refs"):
                     if os.path.exists(os.path.join(directory, name)):
                         out.append((f"work/playground/{relative_dir}/{name}", os.path.join(directory, name)))
+                for refs, _, ref_names in os.walk(os.path.join(directory, "refs")):
+                    for name in sorted(ref_names):
+                        ref = os.path.relpath(os.path.join(refs, name), directory)
+                        out.append((f"work/playground/{relative_dir}/{ref}", os.path.join(refs, name)))
+                empty = os.path.join(CACHE, "empty")
+                open(empty, "w").close()
+                out.append((f"work/playground/{relative_dir}/objects/info/packs", empty))
             continue
         if parts[0] == BUILD and len(parts) == 1:
             dirs[:] = [d for d in dirs if d == "dev"]
@@ -412,18 +423,25 @@ def record(out, boot, snapshot):
 
 
 # The terminal's shell, brush, uutils coreutils (ls, cp, rm, … for the
-# shell and the nodes), ripgrep (rg), the Tailscale node (docs/tailscale.md)
-# and a Node.js process's TLS client (docs/nodejs.md), built to WebAssembly
-# by their own scripts.
-WASM = {"brush": "brush/build.py", "coreutils": "coreutils/build.py", "tailscale": "tailscale/build.py",
-        "tls": "tls/build.py", "rg": "ripgrep/build.py"}
+# shell and the nodes), ripgrep (rg), git (docs/git.md), GNU's text tools
+# (docs/tools.md: sed, grep, diff, cmp, diff3, sdiff, gawk, find), the Tailscale node (docs/tailscale.md) and a
+# Node.js process's TLS client (docs/nodejs.md), built to WebAssembly by
+# their own scripts.
+WASM = {"brush": "brush/build.py", "tailscale": "tailscale/build.py", "tls": "tls/build.py",
+        "coreutils": "tools/coreutils/build.py", "rg": "tools/ripgrep/build.py", "git": "tools/git/build.py",
+        "sed": "tools/sed/build.py", "grep": "tools/grep/build.py", "gawk": "tools/gawk/build.py",
+        "findutils/find": "tools/findutils/build.py",
+        **{f"diffutils/{name}": "tools/diffutils/build.py" for name in ("diff", "cmp", "diff3", "sdiff")}}
 
 
 def prebuilt():
-    """WASM's builds, {name: target/NAME/NAME.wasm}; the build stops
-    before it touches the site if any is missing."""
-    built = {name: os.path.join(ROOT, "target", name, f"{name}.wasm") for name in WASM}
-    missing = [f"{path}: missing (python3 -I {WASM[name]} first)"
+    """WASM's builds, {name: target/NAME/NAME.wasm}, or for a key DIR/NAME
+    (one build's several programs) {NAME: target/DIR/NAME.wasm}; the build
+    stops before it touches the site if any is missing."""
+    built = {key.split("/")[-1]: os.path.join(ROOT, "target", *key.split("/")[:1], f"{key.split('/')[-1]}.wasm")
+             for key in WASM}
+    scripts = {key.split("/")[-1]: script for key, script in WASM.items()}
+    missing = [f"{path}: missing (python3 -I {scripts[name]} first)"
                for name, path in built.items() if not os.path.exists(path)]
     if missing:
         raise SystemExit("\n".join(missing))
@@ -485,7 +503,8 @@ ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.h
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
-                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm"}
+                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm", "sed.wasm",
+                 "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm", "find.wasm"}
 
 
 def unversion(out):
@@ -565,6 +584,11 @@ def main():
     # editing needs it.
     files.append(("usr/share/terminfo/x/xterm-256color",
                   os.path.join(ROOT, "runtime", "terminfo", "x", "xterm-256color")))
+    # git's commands that are shell scripts (tools/git/build.py), at git.wasm's
+    # exec path (its prefix is /usr).
+    libexec = os.path.join(ROOT, "target", "git", "libexec")
+    for name in sorted(os.listdir(libexec)):
+        files.append(("usr/libexec/git-core/" + name, os.path.join(libexec, name)))
     files += app_files(phoenix_app())
 
     # Everything lazy first, to record what each boot image's command

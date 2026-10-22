@@ -55,8 +55,7 @@ child processes, a clock, random bytes and a terminal.
   4, 2 or 1 GiB, as can be had). The node's worker is the module's main
   thread: every file and network call the threads make is proxied to it,
   so it never blocks while the node runs. It takes the page's frames as
-  they come (`Atomics.waitAsync` on the ring's write count); where that
-  wakes late (WebKit), it runs the proxied calls in 8 ms slices.
+  they come (`Atomics.waitAsync` on the ring's write count).
 - **The shell.** A worker runs a small shell. `elixir`, `iex`, `mix` and `erl`
   each start a fresh node, as a Unix shell starts processes; `cd`, `ls`,
   `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are builtins. A line
@@ -162,16 +161,15 @@ can fail but not alter packages. Tarballs are kept in Cache Storage
 ## git
 
 GitHub's, GitLab's and Codeberg's git endpoints send no CORS headers
-either. The node's `git` is a page program (`src/project/lib/programs/git.ts`)
-on isomorphic-git over the node's files (through `Files`' POSIX-shaped
-operations), fetching over git's smart HTTP through the site's proxy at
-`/git/HOST/OWNER/REPO/` (cloning and fetching only). It answers what Mix
-asks for a git dependency: `init`, `remote add` and `set-head`, `config`,
-`fetch` (a branch, a tag, or a locked revision, which it finds among the
-server's refs; a locked revision with depth 1), `checkout` (sparse, as
-`.git/info/sparse-checkout` says), `read-tree -mu HEAD`, `rev-parse`.
-In the shell it also clones and pulls ([git.md](git.md#built)).
-The Node harness keeps a stub that answers only the lock check.
+either. The node's `git` is git itself, git.wasm ([git.md](git.md#gitwasm-git-itself)),
+as the shell's is: a process of the worker's table (`portProgram`), its
+transport the HTTPS helper through the site's proxy at
+`/git/HOST/OWNER/REPO/` (cloning and fetching only). Mix's git
+dependencies are git's own `init`, `fetch --depth`, sparse checkout and
+the lock's `rev-parse`. The template's dependencies keep a `.git` git takes
+for a repository without its objects (config, HEAD, refs and an empty
+`objects/info/packs`), which is all Mix's lock check reads. The Node
+harness (`node.ts`, the build's recording) runs git.wasm the same way.
 
 ## Programs
 

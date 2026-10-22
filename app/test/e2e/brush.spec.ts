@@ -25,6 +25,155 @@ test('brush runs pipelines, substitutions and redirections over the playground c
   expect(await run(page, `elixir -e 'IO.puts(:from_node)' | tr a-z A-Z`)).toContain('FROM_NODE');
   expect(await run(page, 'ls nope 2>/dev/null || echo missing')).toContain('missing');
   expect(await run(page, 'nosuch; echo "status $?"')).toContain('status 127');
+  // What starts other programs: env, xargs, sh (its $0 and arguments).
+  expect(await run(page, `env GREETING=hi sh -c 'echo "$GREETING from $0 $1"' me there`)).toContain(
+    'hi from me there',
+  );
+  expect(await run(page, 'printf "a b\\nc\\n" | xargs -n 2 echo got')).toMatch(/got a b\s+got c/);
+  expect(await run(page, 'ls a/b | xargs wc -c | tail -n 1')).toMatch(/0 total/);
+});
+
+// GNU sed (tools/sed/build.py, its own module over tools/wasi-compat/): in a pipeline,
+// in place, its `e` through sh (brush, a process of the worker's), and a
+// node's.
+test('sed edits streams and files, and runs commands through sh', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(await run(page, `printf 'one two\\n' | sed -E 's/(\\w+) (\\w+)/\\2 \\1/'`)).toContain(
+    'two one',
+  );
+  await writeText(page, '/work/s.txt', 'alpha\nbeta\n');
+  await run(page, "sed -i 's/^/- /; /beta/d' s.txt");
+  expect(await readText(page, '/work/s.txt')).toBe('- alpha\n');
+  expect(await run(page, `echo x | sed 'e echo from sh: $((6 * 7))'`)).toMatch(/from sh: 42\s+x/);
+  expect(await run(page, "sed -n '$=' s.txt; sed 's/(/' s.txt; echo \"status $?\"")).toMatch(
+    /^1\s+sed: -e expression #1, char 4: unterminated 's' command\s+status 1/m,
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("sed", ["s/a/A/g", "s.txt"]); IO.write(out)'`,
+    ),
+  ).toContain('- AlphA');
+});
+
+// GNU grep and diffutils (tools/grep/build.py, tools/diffutils/build.py): grep's basic
+// regex with back-references and -r over the tree, diff -u and cmp's
+// statuses, diff3 starting diff through sh, and a node's grep.
+test('grep searches and diff compares, as GNU has them', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mkdir -p t/sub');
+  await writeText(page, '/work/t/a.txt', 'abab\nxyz\n');
+  await writeText(page, '/work/t/sub/b.txt', 'cdcd\nab\n');
+  expect(await run(page, String.raw`grep -rn '\(..\)\1' t | sort`)).toMatch(
+    /t\/a\.txt:1:abab\s+t\/sub\/b\.txt:1:cdcd/,
+  );
+  expect(await run(page, 'printf "a1\\nb\\n" | grep -cE "[0-9]+"')).toMatch(/^1$/m);
+  expect(await run(page, 'grep x nope.txt; echo "status $?"')).toMatch(
+    /grep: nope\.txt: No such file or directory\s+status 2/,
+  );
+  await writeText(page, '/work/old.txt', 'one\ntwo\nthree\nfour\nfive\n');
+  await writeText(page, '/work/new.txt', 'one\n2\nthree\nfour\nfive\n');
+  await writeText(page, '/work/other.txt', 'one\ntwo\nthree\nfour\n5\n');
+  const unified = await run(page, 'diff -u old.txt new.txt; echo "status $?"');
+  expect(unified).toMatch(/@@ -1,5 \+1,5 @@\s+one\s+-two\s+\+2\s+three[\s\S]*status 1/);
+  expect(await run(page, 'cmp old.txt new.txt; echo "status $?"')).toMatch(
+    /old\.txt new\.txt differ: char 5, line 2\s+status 1/,
+  );
+  expect(await run(page, 'diff3 -m new.txt old.txt other.txt')).toMatch(
+    /^one\s+2\s+three\s+four\s+5\s*$/m,
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("grep", ["-c", "o", "old.txt"]); IO.write(out)'`,
+    ),
+  ).toMatch(/^3$/m);
+});
+
+// GNU awk (tools/gawk/build.py), as awk and gawk: fields and gawk's own
+// functions, its pipes both ways and a coprocess through sh (brush), and a
+// node's.
+test('awk is gawk, its pipes and system() through sh', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(
+    await run(page, `printf 'a 1\\nb 2\\nc 3\\n' | awk '{ s += $2 } END { print NR, s }'`),
+  ).toMatch(/^3 6$/m);
+  expect(
+    await run(page, `gawk 'BEGIN { print gensub(/(o+)/, "<\\\\1>", "g", "foo boo") }'`),
+  ).toContain('f<oo> b<oo>');
+  expect(
+    await run(
+      page,
+      `awk 'BEGIN { "echo $((6 * 7))" | getline n; print "n=" n; print "z\\ny" | "sort" }'`,
+    ),
+  ).toMatch(/n=42\s+y\s+z/);
+  expect(
+    await run(
+      page,
+      `awk 'BEGIN { c = "tr a-z A-Z"; print "co" |& c; close(c, "to"); c |& getline r; print r }'`,
+    ),
+  ).toMatch(/^CO$/m);
+  expect(await run(page, `awk 'BEGIN { exit system("exit 4") }'; echo "status $?"`)).toContain(
+    'status 4',
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("awk", ["BEGIN { print toupper(\\"node\\") }"]); IO.write(out)'`,
+    ),
+  ).toMatch(/^NODE$/m);
+});
+
+// GNU find (tools/findutils/build.py): its tests over the tree, -exec through the
+// table (sh, coreutils), -execdir in the file's directory, xargs -0, and a
+// node's.
+test('find walks the tree and runs commands for what it finds', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(
+    page,
+    'mkdir -p f/sub && echo a > f/a.txt && echo b > f/sub/b.txt && echo c > f/sub/c.md',
+  );
+  expect(await run(page, `find f -name '*.txt' | sort`)).toMatch(/^f\/a\.txt\s+f\/sub\/b\.txt$/m);
+  expect(await run(page, 'find f -type d | sort')).toMatch(/^f\s+f\/sub$/m);
+  expect(await run(page, `find f -name '*.md' -exec sh -c 'echo "md: $1"' _ {} \\;`)).toContain(
+    'md: f/sub/c.md',
+  );
+  expect(await run(page, `find f -name b.txt -execdir pwd \\;`)).toMatch(/^\/work\/f\/sub$/m);
+  expect(await run(page, `find f -type f -print0 | xargs -0 cat | sort | tr -d '\\n'`)).toContain(
+    'abc',
+  );
+  expect(await run(page, `find nope; echo "status $?"`)).toMatch(
+    /find: .nope.: No such file or directory\s+status 1/,
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("find", ["f", "-name", "*.md"]); IO.write(out)'`,
+    ),
+  ).toMatch(/^f\/sub\/c\.md$/m);
+});
+
+// chmod (utilities.ts): WASI keeps no modes, so it changes nothing, but a
+// script's chmod +x passes and a missing file is said, as GNU's does.
+test('chmod passes over files that are there, and says which are not', async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(page, '/work/run.sh', '#!/bin/sh\necho ran\n');
+  expect(await run(page, 'chmod +x run.sh && ./run.sh')).toContain('ran');
+  expect(await run(page, 'chmod 644 run.sh nope; echo "status $?"')).toMatch(
+    /chmod: cannot access 'nope': No such file or directory\s+status 1/,
+  );
+  expect(await run(page, 'chmod +q run.sh; echo "status $?"')).toMatch(
+    /chmod: invalid mode: '\+q'\s+status 1/,
+  );
 });
 
 // Its line editor (reedline, over crossterm on the page's terminal): Tab
@@ -56,17 +205,82 @@ test("brush's line editor completes, recalls and continues lines", async ({ page
   await expect.poll(() => output(page)).toMatch(/n1\s+n2\s+\/work \$ $/);
 });
 
-test('oversized external output fails within a bounded pipe and leaves the shell usable', async ({
-  page,
-}) => {
+// A pipeline's commands run at once (processes.ts): a producer that never
+// ends stops when its reader does, and what flows through a pipe is
+// bounded by the pipe, not by what one end holds. A page program cannot
+// wait for room: what it writes ahead of its reader is bounded (16 MiB),
+// and once its reader is gone, dropped.
+test('pipelines stream between processes, page programs too', async ({ page }) => {
   test.setTimeout(60_000);
   await newProject(page, 'empty');
   await prompted(page, 1);
-  // Finite producers keep this regression safe even if the bound breaks.
-  expect(await run(page, 'seq 1 3000000 | head -n 1')).toContain('buffered output exceeded 16 MiB');
+  expect(await run(page, 'yes | head -n 3')).toMatch(/y\s+y\s+y\s+\/work \$ $/);
+  expect(await run(page, 'seq 1 3000000 | head -n 1')).toMatch(/^1$/m);
+  expect(await run(page, 'seq 1 3000000 | tail -n 1')).toMatch(/^3000000$/m);
+  // A compound command before the last runs beside it (more than a pipe
+  // holds, from a program it starts).
+  expect(await run(page, '{ seq 1 100000; echo end; } | tail -n 1')).toMatch(/^end$/m);
+  expect(await run(page, 'for n in 1 2; do seq 1 50000; done | wc -l')).toMatch(/^\s*100000$/m);
   await writeText(page, '/work/large.cjs', 'process.stdout.write("x".repeat(17 * 1024 * 1024));');
-  expect(await run(page, 'node large.cjs | head -c 1')).toContain(
-    'buffered output exceeded 16 MiB',
-  );
+  const large = await run(page, 'node large.cjs | head -c 1');
+  expect(large).toMatch(/^x\s*\/work \$ $/m);
+  expect(large).not.toContain('exceeded');
   expect(await run(page, 'echo still-running')).toContain('still-running');
+  // A page program between two processes, its input and output streaming:
+  // through it, from what never ends, and into a reader that stops.
+  expect(
+    await run(page, `seq 1 200000 | node -e 'process.stdin.pipe(process.stdout)' | tail -n 1`),
+  ).toMatch(/^200000$/m);
+  await writeText(
+    page,
+    '/work/enough.cjs',
+    'let n = 0; process.stdin.on("data", (d) => { n += d.length; if (n > 1e6) { console.log("enough"); process.exit(0); } });',
+  );
+  expect(await run(page, 'yes | node enough.cjs')).toMatch(/^enough$/m);
+  // All of what it wrote, up to its end, while its reader is slower.
+  await writeText(
+    page,
+    '/work/lines.cjs',
+    'for (let i = 1; i <= 200000; i++) process.stdout.write(i + "\\n");',
+  );
+  expect(await run(page, 'node lines.cjs | wc -c')).toMatch(/^\s*1288895$/m);
+  expect(
+    await run(page, `node -e 'setInterval(() => console.log("tick"), 5)' | head -n 3`),
+  ).toMatch(/tick\s+tick\s+tick\s+\/work \$ $/);
+});
+
+// A command with & runs while the shell reads the next line.
+test('a job in the background runs while the shell takes commands', async ({ page }) => {
+  test.setTimeout(60_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const started = Date.now();
+  await run(page, 'sleep 2 && echo late > /work/bg.txt &');
+  expect(Date.now() - started).toBeLessThan(1500);
+  expect(await run(page, 'echo now; ls /work')).not.toContain('bg.txt');
+  await expect.poll(() => run(page, 'cat /work/bg.txt'), { timeout: 15_000 }).toContain('late');
+  expect(await run(page, 'wait; echo waited')).toContain('waited');
+  // A page program too.
+  const node = Date.now();
+  await run(
+    page,
+    `node -e 'setTimeout(() => require("fs").writeFileSync("/work/node.txt", "done"), 1500)' &`,
+  );
+  expect(Date.now() - node).toBeLessThan(1500);
+  await expect.poll(() => run(page, 'cat /work/node.txt'), { timeout: 15_000 }).toContain('done');
+  expect(await run(page, 'wait; echo waited')).toContain('waited');
+  // A job's pid ($!) and kill: as file_system's sh -c line has them
+  // (inotifywait in the background, killed once its port's input ends).
+  expect(
+    await run(
+      page,
+      'sleep 30 & PID=$!; kill -KILL $PID; echo "pid $PID killed $?"; wait; echo over',
+    ),
+  ).toMatch(/pid \d+ killed 0\s+(?:.*\n)*over/);
+  expect(
+    await run(
+      page,
+      `elixir -e 'p = Port.open({:spawn, "sh -c \\"read a; echo eof > /work/port.txt\\""}, [:binary]); Process.sleep(500); Port.close(p); Process.sleep(3000)'; cat /work/port.txt`,
+    ),
+  ).toMatch(/^eof$/m);
 });

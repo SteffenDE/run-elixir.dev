@@ -654,7 +654,7 @@ function page({
         id,
         type: found.node instanceof Dir ? 'dir' : found.node instanceof File ? 'file' : null,
       };
-    // POSIX's shape, with its error codes (isomorphic-git's fs).
+    // POSIX's shape, with its error codes (as Node's fs has them).
     case 'lstat': {
       if (!found.node) return { id, error: `${path}: no such file`, code: 'ENOENT' };
       const node = found.node;

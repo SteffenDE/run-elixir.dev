@@ -1,0 +1,61 @@
+From 385c9ada8569411503124bb86291dbd0190d3b3b Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Thu, 22 Oct 2026 12:38:04 +0000
+Subject: [PATCH] =?UTF-8?q?brush-shell:=20what=20follows=20-c's=20command?=
+ =?UTF-8?q?=20string=20are=20operands,=20as=20POSIX's=20sh=20has=20them=20?=
+ =?UTF-8?q?(sh=20-c=20LINE=20-e=20=E2=80=A6)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ brush-shell/src/entry.rs | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/brush-shell/src/entry.rs b/brush-shell/src/entry.rs
+index a16efff..797e427 100644
+--- a/brush-shell/src/entry.rs
++++ b/brush-shell/src/entry.rs
+@@ -67,6 +67,15 @@ impl CommandLineArgs {
+             }
+         }
+ 
++        // As POSIX's sh: what follows `-c`'s command string are operands ($0,
++        // $1, …), options or not (`sh -c LINE -e …`).
++        let operands = args
++            .iter()
++            .position(|a| Self::has_pending_c_flag(a))
++            .filter(|&i| i + 1 < args.len())
++            .map(|i| args.split_off(i + 2))
++            .unwrap_or_default();
++
+         let (mut this, script_args) = brush_core::builtins::try_parse_known::<Self>(args)?;
+ 
+         // Collect any args from after `--` (handled by try_parse_known) into
+@@ -74,6 +83,7 @@ impl CommandLineArgs {
+         if let Some(args) = script_args {
+             this.script_args.extend(args);
+         }
++        this.script_args.extend(operands);
+ 
+         Ok(this)
+     }
+@@ -729,6 +739,15 @@ mod tests {
+         Ok(())
+     }
+ 
++    #[test]
++    fn parse_c_operands_may_look_like_options() -> Result<()> {
++        let parsed_args =
++            CommandLineArgs::try_parse_from(args(&["brush", "-c", "echo hi", "-e", "x"]))?;
++        assert_eq!(parsed_args.command, Some("echo hi".to_string()));
++        assert_eq!(parsed_args.script_args, ["-e", "x"]);
++        Ok(())
++    }
++
+     #[test]
+     fn parse_c_with_double_dash_no_command() {
+         assert!(CommandLineArgs::try_parse_from(args(&["brush", "-c", "--"])).is_err());
+-- 
+2.47.3
+

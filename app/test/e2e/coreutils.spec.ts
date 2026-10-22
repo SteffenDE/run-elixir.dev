@@ -60,7 +60,7 @@ IO.inspect(System.shell(~S[node -p 6*7 | tr 4 x; nope 2>/dev/null; echo $?]))
   expect(out).toContain('{"x2\\n127\\n", 0}');
 });
 
-// ripgrep (ripgrep/build.py, its own module): at the shell in the
+// ripgrep (tools/ripgrep/build.py, its own module): at the shell in the
 // project's directory, honouring an ignore file (.ignore: .gitignore needs
 // a git repository, as ripgrep has it), in a pipe; from a Node.js process
 // (execSync) and from a node (System.cmd, by PATH).

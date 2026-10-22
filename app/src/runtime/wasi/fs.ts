@@ -232,7 +232,8 @@ export function lookup(root: Dir, start: Dir, path: string, follow = true, hops 
   return { node: dir };
 }
 
-// A file whose reads are made as they happen (/dev/urandom).
+// A file whose reads are made as they happen (/dev/urandom, /dev/null);
+// what is written to it is dropped.
 export class Device {
   declare ino: bigint;
   declare read: (count: number) => Uint8Array;
@@ -253,6 +254,8 @@ export const urandom = () =>
       crypto.getRandomValues(bytes.subarray(at, at + 65536));
     return bytes;
   });
+
+export const devnull = () => new Device(() => new Uint8Array(0));
 
 // The entries of a tar (ustar, as Python's tarfile writes it): name,
 // type ('0' file, '5' directory), body and mtime (ns).

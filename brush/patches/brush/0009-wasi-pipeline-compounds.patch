@@ -1,0 +1,53 @@
+From fd04b32a0f95fbb22f30a86bda5138011ffb12e1 Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Thu, 22 Oct 2026 10:43:46 +0000
+Subject: [PATCH] brush-core: on WASI a pipeline's compound command before its
+ last runs as a task: inline, a program it starts waited on a full pipe for
+ good
+
+---
+ brush-core/src/interp.rs | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index dd528cc..20b3941 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -495,6 +495,34 @@ async fn spawn_pipeline_processes(
+             cmd_params.open_files.set_fd(OpenFiles::STDOUT_FD, writer);
+         }
+ 
++        // WASI: a compound command or a function before the pipeline's last
++        // runs in a task of its own (a subshell's clone), as a forked one
++        // would: inline it would run to its end before its reader starts,
++        // and a program it starts would wait on a full pipe for good.
++        #[cfg(target_os = "wasi")]
++        if !run_in_current_shell
++            && current_pipeline_index + 1 < pipeline_len
++            && !matches!(command, ast::Command::Simple(_))
++        {
++            let mut owned = shell.clone();
++            let command = command.clone();
++            let handle = tokio::spawn(async move {
++                let context = PipelineExecutionContext {
++                    shell: commands::ShellForCommand::ParentShell(&mut owned),
++                    process_group_id: None,
++                };
++                match command.execute_in_pipeline(context, cmd_params).await?.wait().await? {
++                    crate::results::ExecutionWaitResult::Completed(result) => Ok(result),
++                    crate::results::ExecutionWaitResult::Stopped(_) => {
++                        Ok(ExecutionResult::new(148))
++                    }
++                }
++            });
++            spawn_results.push_back(ExecutionSpawnResult::StartedTask(handle));
++            tokio::task::yield_now().await;
++            continue;
++        }
++
+         let pipeline_context = if !run_in_current_shell {
+             // Make sure that all commands in the pipeline are in the same process group.
+             if current_pipeline_index > 0 {
+-- 
+2.47.3
+

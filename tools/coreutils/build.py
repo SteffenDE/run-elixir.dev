@@ -1,7 +1,7 @@
 """uutils coreutils built to WebAssembly (wasm32-wasip1), the playground's
 ls, cp, rm, … (docs/runtime.md).
 
-    python3 -I coreutils/build.py   # → target/coreutils/coreutils.wasm
+    python3 -I tools/coreutils/build.py   # → target/coreutils/coreutils.wasm
 
 One program for all of them, as BusyBox is: its first argument names the
 tool. uutils' own feature set for WASI (feat_wasm), with patches/ applied,
@@ -17,7 +17,8 @@ import subprocess
 import tarfile
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The repository (this file is tools/NAME/build.py).
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "target", "coreutils")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()

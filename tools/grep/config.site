@@ -1,0 +1,6 @@
+# grep's configure for wasm32-wasip1 (after tools/wasi-compat/config.site),
+# which cannot run what it builds: gnulib's regex and getopt, GNU's own,
+# rather than wasi-libc's (musl's), so that grep matches as Linux's does
+# (back-references, \w, \<, GNU's options in any order).
+gl_cv_func_re_compile_pattern_working=no
+gl_cv_func_getopt_gnu=no

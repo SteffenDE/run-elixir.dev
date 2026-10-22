@@ -32,7 +32,21 @@ import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
-import { TOOLS, coreutils, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { PROGRAMS, TOOLS, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
+import { UTILITIES } from '../utilities';
+import {
+  HOSTED_LIMIT,
+  Processes,
+  feed,
+  hosted,
+  portProgram,
+  wasmProgram,
+  writeAll,
+  type Program,
+} from '../processes';
+import { OutputLimitError } from './output';
+import type { Descriptor } from '../wasi/descriptors';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
@@ -79,6 +93,8 @@ interface Start {
 
 // files.ts's SHARED (that module is files.js's worker, not one to import).
 const SHARED = ['/work', '/tmp', '/home', '/shared'];
+// What a page program may have been sent of its input and not yet taken.
+const INPUT_WINDOW = 1 << 20;
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
 // sh and bash (a stand-in for it, Claude Code's shell): brush's -c.
@@ -365,6 +381,8 @@ onmessage = async ({
       network.peers = channel.peers;
       channel.interrupted = false;
       channel.terminated = false;
+      // Ctrl+C is the node's while it runs (its break), not its processes'.
+      processes.hosting++;
       try {
         return await runBeam({
           module: runtime('beam.mjs').href,
@@ -376,10 +394,22 @@ onmessage = async ({
           shared: sharedFs,
           network,
           programs: withCoreutils(
-            {
-              ...programs(fs, nif),
-              ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
-            },
+            Object.assign(
+              {
+                ...programs(fs, nif),
+                ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
+              },
+              // The site's WASI programs (git.wasm, sed.wasm, …) as processes
+              // of the worker's table: they take the `processes` imports
+              // (git's transport and children, sed's `e`, gnulib's dup2);
+              // and the shell's own utilities (env, xargs, chmod).
+              Object.fromEntries(
+                [...Object.keys(PROGRAMS), ...Object.keys(UTILITIES)].map((name) => [
+                  name,
+                  portProgram(processes, name),
+                ]),
+              ),
+            ),
             tools,
           ),
           channel,
@@ -388,6 +418,7 @@ onmessage = async ({
           stdout,
         });
       } finally {
+        processes.hosting--;
         channel.interrupted = false;
         channel.terminated = false;
         channel.mode(false);
@@ -398,82 +429,223 @@ onmessage = async ({
       }
     };
 
-    // A page program (git, tailwind, node, …) the shell runs, until it
-    // exits or Ctrl+C stops it. Its input: a pipe's (`input`), else the
-    // terminal's as it is typed (Ctrl+D its end), as a node's own is; its
-    // output the pipe's or the terminal's. The terminal's mode, which it
-    // may set (Node's setRawMode), is the shell's again after it.
-    const runOnPage = (
-      name: string,
-      args: string[],
-      cwd: string,
-      vars: Record<string, string> = env,
-      out: ((bytes: Uint8Array) => void) | null = null,
-      input: Uint8Array | null = null,
-    ): number => {
-      const process = new Process();
-      const terminal = !input && channel.tty[0];
-      let id = 0;
-      onPage(channel, name, {
-        // A pipe's bytes and their end; the terminal's as forwarded below;
-        // else nothing, and no end (sh -c with no terminal: an open pipe).
-        input,
-        tty: [terminal, !out && channel.tty[1]],
-        started: (started) => (id = started),
-      })(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
-      const mode = [channel.raw, channel.signals] as const;
-      // Without a pipe, the node's input is the program's (the terminal's
-      // typing, or what a program's child_process writes to its child).
-      const forward = !input;
-      if (forward) channel.reading = id;
-      try {
-        for (;;) {
-          channel.pump();
-          for (const bytes of process.output.splice(0)) (out ?? ((b) => say('out', b)))(bytes);
-          if (process.ended) return process.status ?? 1;
-          if (channel.interrupted || channel.terminated) {
-            channel.interrupted = false;
-            channel.terminated = false;
-            channel.input = [];
-            process.onclose?.();
-            return 130;
+    // A page program (git, tailwind, node, …) as a process, until it exits
+    // or a signal stops it. Its input: a pipe's or a file's, as it comes;
+    // else the terminal's as it is typed (Ctrl+D its end), as a node's own
+    // is. Its output goes to its stdout as it comes, waiting while a pipe
+    // is full: once nothing reads it, the program stops (SIGPIPE's 141).
+    // The terminal's mode, which it may set (Node's setRawMode), is the
+    // shell's again after it.
+    const pageProgram =
+      (name: string, args: string[]): Program =>
+      async (child, { cwd, env: vars, stdio: [input, output] }) => {
+        const process = new Process();
+        let wake = () => {};
+        // What the input waits on: the program to take what it was sent.
+        let taken = () => {};
+        process.notify = () => {
+          wake();
+          taken();
+        };
+        // Without a pipe or a file, the node's input is the program's (the
+        // terminal's typing, or what a program's child_process writes to
+        // its child).
+        const forward = !!input.source;
+        let id = 0;
+        onPage(channel, name, {
+          input: null,
+          tty: [forward && channel.tty[0], !!output.tty],
+          started: (started) => (id = started),
+        })(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
+        const mode = [channel.raw, channel.signals] as const;
+        let done = false;
+        let sent = 0;
+        const send = (bytes: Uint8Array | null) => {
+          sent += bytes?.length ?? 0;
+          postMessage(bytes ? { kind: 'stdin', id, bytes } : { kind: 'stdin', id, end: true });
+        };
+        // At most INPUT_WINDOW bytes on their way to it.
+        const room = async () => {
+          for (;;) {
+            if (done || sent - process.taken < INPUT_WINDOW) return;
+            await Promise.race([
+              new Promise<void>((resolve) => (taken = resolve)),
+              child.woken,
+              channel.rest(1000).then(() => channel.pump()),
+            ]);
           }
-          if (forward)
-            for (const bytes of channel.input.splice(0))
-              postMessage(
-                bytes === END ? { kind: 'stdin', id, end: true } : { kind: 'stdin', id, bytes },
-              );
-          channel.sleep(1000);
+        };
+        if (forward) channel.reading = id;
+        else void feed(input, send, room, () => done, sharedFs);
+        try {
+          for (;;) {
+            const changed = new Promise<void>((resolve) => (wake = resolve));
+            channel.pump();
+            if (forward)
+              for (const bytes of channel.input.splice(0)) send(bytes === END ? null : bytes);
+            // What it wrote ahead of a reader too slow for it (it cannot
+            // wait) is bounded.
+            if (process.output.reduce((size, bytes) => size + bytes.length, 0) > HOSTED_LIMIT)
+              throw new OutputLimitError();
+            // Whether it had ended before what it wrote is taken: more may
+            // come while a pipe is full (other processes take in frames),
+            // and its end after all it wrote.
+            const ended = process.ended;
+            for (const bytes of process.output.splice(0))
+              if (!(await writeAll(output, bytes, child, sharedFs))) {
+                process.onclose?.();
+                return child.signal === null ? 141 : 128 + child.signal;
+              }
+            if (ended) return process.status ?? 1;
+            if (child.signal !== null) {
+              process.onclose?.();
+              return 128 + child.signal;
+            }
+            await Promise.race([changed, child.woken, channel.rest(1000)]);
+          }
+        } finally {
+          done = true;
+          if (forward) {
+            channel.reading = null;
+            channel.input = [];
+          }
+          channel.mode(...mode);
         }
-      } catch (error) {
-        // A bounded pipe capture can stop a producer before it exits.
-        process.onclose?.();
-        throw error;
-      } finally {
-        if (forward) channel.reading = null;
-        channel.mode(...mode);
-      }
-    };
+      };
 
     // The node's input for a tool that reads it (no pipe's): the
     // terminal's typing (Ctrl+D its end) or what its process writes it, as
-    // it comes; none after its end, or once Ctrl+C or a stop came.
-    const readInput = (max: number): Uint8Array => {
-      channel.reading = 0;
-      try {
-        for (;;) {
-          channel.pump();
-          if (channel.interrupted || channel.terminated) return new Uint8Array(0);
-          const bytes = channel.takeInput(max);
-          if (bytes) return bytes;
-          channel.sleep(1000);
-        }
-      } finally {
-        channel.reading = null;
-      }
+    // it comes; none after its end, or once Ctrl+C or a stop came. Null
+    // while nothing came: the reader waits for a frame (`ready`), and the
+    // worker's other processes run meanwhile.
+    const readInput = (max: number): Uint8Array | null => {
+      channel.pump();
+      if (channel.interrupted || channel.terminated) return new Uint8Array(0);
+      const bytes = channel.takeInput(max);
+      channel.reading = bytes ? null : 0;
+      return bytes;
     };
+    const inputReady = () => channel.rest(1000);
 
     say('status', 'running');
+    // What the shell runs for `program`: a node (its argv: a node command,
+    // an escript), a page program (a
+    // script for node, #!/usr/bin/env node, a package's bin in
+    // node_modules/.bin), a program built for WASI (coreutils' tools, the
+    // site's PROGRAMS), or nothing.
+    type Found =
+      | { node: string[] }
+      | { page: string; args: string[] }
+      | { script: string[] }
+      | { wasm: WebAssembly.Module };
+    const find = (
+      program: string,
+      given: string[],
+      at: string,
+      vars: Record<string, string> = env,
+    ): Found | null => {
+      const name = program.split('/').pop()!;
+      const read = (path: string) => fs.read(join(at, path));
+      // A path's first bytes (a relative one's from `at`: git's hooks; a
+      // name's, a script's on PATH, as execvp finds it: ~/bin's, the
+      // stubs are empty).
+      const path = program.startsWith('/')
+        ? program
+        : program.includes('/')
+          ? join(at, program)
+          : ((vars.PATH ?? '')
+              .split(':')
+              .filter(Boolean)
+              .map((dir) => join(at, `${dir}/${program}`))
+              .find((candidate) => (fs.read(candidate)?.length ?? 0) > 2) ?? null);
+      const head = path ? fs.read(path)?.subarray(0, 64) : null;
+      const shebang = head ? new TextDecoder().decode(head) : '';
+      const argv =
+        command(name, given, read) ??
+        (/^#!.*\bescript\b/.test(shebang) ? command('escript', [program, ...given], read) : null);
+      if (argv) return { node: argv };
+      // A script for sh (a git hook, #!/bin/sh or #!/usr/bin/env bash).
+      if (/^#!.*\b(sh|bash)\b/.test(shebang)) return { script: [path!, ...given] };
+      // git's dashed commands (git starts them by name): its scripts from its
+      // exec path (git-submodule), and git.wasm as a transport's other end
+      // (git-upload-pack); another git-NAME is none (an alias's, then).
+      if (name.startsWith('git-')) {
+        const exec = path ?? `/usr/libexec/git-core/${name}`;
+        const script = fs.read(exec)?.subarray(0, 64);
+        if (script && /^#!.*\b(sh|bash)\b/.test(new TextDecoder().decode(script)))
+          return { script: [exec, ...given] };
+        const git = GIT_DASHED.has(name) ? load(PROGRAMS.git) : null;
+        if (git) return { wasm: git };
+        return null;
+      }
+      const own = name in PROGRAMS ? load(PROGRAMS[name]) : null;
+      if (own) return { wasm: own };
+      if (pagePrograms.includes(name)) return { page: name, args: given };
+      if (/^#!.*\bnode\b/.test(shebang) && pagePrograms.includes('node'))
+        return { page: 'node', args: [program, ...given] };
+      const tool = TOOLS.has(name) ? module() : null;
+      return tool ? { wasm: tool } : null;
+    };
+    // Ctrl+C for the processes: the channel takes in the page's frames.
+    // While a node or a page program runs, it is theirs.
+    const check = () => {
+      channel.pump();
+      if (processes.hosting) return;
+      if (channel.interrupted || channel.terminated) {
+        channel.interrupted = false;
+        channel.terminated = false;
+        processes.interrupt();
+      }
+    };
+    // What brush starts, and what that starts in turn (processes.ts):
+    // programs built for WASI as processes of their own, page programs
+    // streaming to and from them, and nodes as the shell has always run
+    // them (`external`), their input whole.
+    // sh as a process (below: it needs the shell's options).
+    let shProgram: Program = async () => 127;
+    const processes: Processes = new Processes((program, given, at, vars) => {
+      if (isSh(program)) return (child, spawn) => shProgram(child, spawn);
+      const utility = UTILITIES[program.split('/').pop()!];
+      if (utility) return utility(processes, (path) => fs.stat(path));
+      // git's transport for a remote (git.wasm starts it): HTTPS through
+      // the site's proxy.
+      if (program.split('/').pop() === 'git' && /^remote-https?$/.test(given[0] ?? ''))
+        return remoteHelper(throughProxy(location.origin));
+      const found = find(program, given, at, vars);
+      if (!found) return null;
+      if ('page' in found) return pageProgram(found.page, found.args);
+      if ('script' in found)
+        return (child, spawn) => shProgram(child, { ...spawn, args: found.script });
+      if ('node' in found) return hosted(processes, external, sharedFs);
+      const argv0 = program.split('/').pop()!;
+      return wasmProgram(processes, found.wasm, {
+        root,
+        fetch: fetchFile,
+        shared: sharedFs,
+        argv0,
+        pump: check,
+        // git's pager would be another process; `cat` is none to git.
+        defaults: /^git(-|$)/.test(argv0) ? { GIT_PAGER: 'cat', ...GIT_CONFIG } : {},
+        columns: () => channel.size[0],
+      });
+    }, check);
+    // A node, as `find` has it, to its end.
+    const external: Run = async (program, given, at, vars, io) => {
+      const found = find(program, given, at);
+      if (!found || !('node' in found)) return null;
+      const status = await run(found.node, at, vars, io.stdout ?? undefined);
+      if (status === 130) text('\n');
+      return status;
+    };
+    // The standard streams of what the shell starts, where they are the
+    // shell's own: the node's input (the terminal's typing) and output.
+    const standard: [Descriptor, Descriptor, Descriptor] = [
+      { stream: true, source: readInput, ready: inputReady, tty: channel.tty[0] },
+      { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
+      { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
+    ];
+    // One node, not under a shell: its command, to its end (its git and
+    // the like are processes of the table above).
     const sh = isSh(named?.[0]);
     if (!shell && !sh) {
       const cwd = env.PWD || start;
@@ -491,59 +663,12 @@ onmessage = async ({
     // The terminal's shell, or a node's sh -c: brush (brush.ts), which the
     // site has.
     if (!brushModule) throw new Error('the site has no shell (brush.wasm: brush/build.py)');
-    // What brush runs (brush.ts): a node command (or an escript), a page
-    // program, or a coreutils tool.
-    const external: Run = async (program, given, at, vars, io) => {
-      const name = program.split('/').pop()!;
-      const read = (path: string) => fs.read(join(at, path));
-      const head = program.startsWith('/') ? fs.read(program)?.subarray(0, 64) : null;
-      const argv =
-        command(name, given, read) ??
-        (head && /^#!.*\bescript\b/.test(new TextDecoder().decode(head))
-          ? command('escript', [program, ...given], read)
-          : null);
-      if (argv) {
-        const status = await run(argv, at, vars, io.stdout ?? undefined);
-        if (status === 130) text('\n');
-        return status;
-      }
-      if (pagePrograms.includes(name)) return runOnPage(name, given, at, vars, io.stdout, io.input);
-      // A script for node (#!/usr/bin/env node: a package's bin in
-      // node_modules/.bin): the page's node runs it.
-      if (
-        head &&
-        /^#!.*\bnode\b/.test(new TextDecoder().decode(head)) &&
-        pagePrograms.includes('node')
-      )
-        return runOnPage('node', [program, ...given], at, vars, io.stdout, io.input);
-      if (isTool(name) && (!TOOLS.has(name) || module())) {
-        const tool = coreutils(
-          {
-            ...tools,
-            terminal: io.stdout ? undefined : () => channel.size,
-            stderr: io.stderr ?? undefined,
-            read: io.input ? undefined : readInput,
-          },
-          name,
-        )!;
-        const process = new Process();
-        // Coreutils runs synchronously. Send output to its sink as it is
-        // written so the pipe's bound applies during execution, not after.
-        process.write = (bytes) =>
-          (io.stdout ?? ((b) => say('out', b)))(
-            typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes,
-          );
-        if (io.input) process.input.push(io.input);
-        tool(process, { args: given, cwd: at, env: vars, root });
-        return process.status ?? 1;
-      }
-      return null;
-    };
-    // The terminal as brush's line editor has it.
+    // The terminal as brush's line editor has it. Waiting for a key holds
+    // nothing: the worker's processes (a job with `&`) run meanwhile.
     const terminal: BrushOptions['terminal'] = {
       raw: (on) => channel.mode(on),
       size: () => channel.size,
-      read: (max, timeout) => {
+      read: async (max, timeout) => {
         // The page's first commands, as if typed.
         const first = initial.shift();
         if (first !== undefined) return new TextEncoder().encode(`${first}\r`);
@@ -565,7 +690,7 @@ onmessage = async ({
           if (bytes.length) return bytes.map((byte) => (byte === 10 ? 13 : byte));
           const left = deadline - performance.now();
           if (left <= 0) return new Uint8Array(0);
-          channel.sleep(Math.min(left, 1000));
+          await channel.rest(Math.min(left, 1000));
         }
       },
     };
@@ -576,13 +701,57 @@ onmessage = async ({
       root,
       fetch: fetchFile,
       shared: sharedFs,
-      // A line for what reads the terminal while brush's line editor
-      // does not (`read`, as typed).
-      line: () => channel.line(),
       out: (bytes: Uint8Array) => say('out', bytes),
       terminal,
-      run: external,
+      processes,
+      standard,
     });
+
+    // sh -c LINE [NAME ARGS…] as brush's arguments, without its line editor
+    // or rc files, from `cwd` (WASI has none: brush starts in /); else
+    // what sh says instead, and its status. bash -c -l LINE (Claude
+    // Code's) is sh -c LINE: brush has no profile to log in with. The rest
+    // are $0, $1, … as sh's.
+    const shArgs = (
+      given: string[],
+      cwd: string,
+    ): { args: string[] } | { message: string; status: number } => {
+      const args = [...given];
+      const login = (a: string | undefined) => a === '-l' || a === '--login';
+      while (login(args[0])) args.shift();
+      if (args[0] === '-c') while (login(args[1])) args.splice(1, 1);
+      // sh FILE ARGS…: the script, sourced (its $0 the file).
+      if (args[0] && !args[0].startsWith('-')) args.unshift('-c', `. ${quote(args[0])}`);
+      const [flag, line = '', ...rest] = args;
+      // What a program probes a shell with (Claude Code's, for bash).
+      if (flag === '--version')
+        return {
+          message: 'GNU bash, version 5.2.0 compatible (brush, the playground)\n',
+          status: 0,
+        };
+      if (flag !== '-c')
+        return { message: 'sh: only sh -c LINE runs in the playground\n', status: 2 };
+      return {
+        args: ['--norc', '--noprofile', '-c', `cd ${quote(cwd)} || exit 1\n${line}`, ...rest],
+      };
+    };
+    // sh (or bash) as a process of the table: brush with the streams it
+    // was given (git's `sh -c`, a hook, an alias's `!`).
+    shProgram = async (child, { args: given, cwd, env: vars, stdio }) => {
+      const parsed = shArgs(given, cwd);
+      if ('message' in parsed) {
+        await writeAll(stdio[1], new TextEncoder().encode(parsed.message), child, sharedFs);
+        return parsed.status;
+      }
+      return brush({
+        ...shellOptions(cwd),
+        env: { ...ENV, ...vars, PWD: cwd },
+        args: parsed.args,
+        stdio,
+        self: child,
+        pump: check,
+      });
+    };
 
     // sh -c LINE [NAME ARGS…], as a node's sh runs it (System.shell,
     // open_port's spawn, npm's scripts): brush, without its line editor or
@@ -590,38 +759,13 @@ onmessage = async ({
     // /).
     if (sh) {
       const cwd = env.PWD || start;
-      // bash -c -l LINE (Claude Code's) as sh -c LINE: brush has no
-      // profile to log in with.
-      const args = named!.slice(1);
-      const login = (a: string | undefined) => a === '-l' || a === '--login';
-      while (login(args[0])) args.shift();
-      if (args[0] === '-c') while (login(args[1])) args.splice(1, 1);
-      const [flag, line = '', ...rest] = args;
-      // What a program probes a shell with (Claude Code's, for bash).
-      if (flag === '--version') {
-        text('GNU bash, version 5.2.0 compatible (brush, the playground)\n');
-        say('exit', 0);
+      const parsed = shArgs(named!.slice(1), cwd);
+      if ('message' in parsed) {
+        text(parsed.message);
+        say('exit', parsed.status);
         return;
       }
-      if (flag !== '-c') {
-        text('sh: only sh -c LINE runs in the playground\n');
-        say('exit', 2);
-        return;
-      }
-      // The rest are $0, $1, … as sh's: after `--`, or brush's options
-      // take one that starts with `-` (file_system's `inotifywait`
-      // wrapper passes -e …).
-      const status = await brush({
-        ...shellOptions(cwd),
-        args: [
-          '--norc',
-          '--noprofile',
-          '-c',
-          `cd ${quote(cwd)} || exit 1\n${line}`,
-          ...(rest.length ? ['--', ...rest] : []),
-        ],
-      });
-      say('exit', status);
+      say('exit', await brush({ ...shellOptions(cwd), args: parsed.args }));
       return;
     }
 

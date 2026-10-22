@@ -1,10 +1,11 @@
 // What every playground node gets, in the browser and under node.ts: its
 // environment, the files around the installation, and its programs.
-import { File, urandom, type Dir } from './wasi/fs';
+import { File, devnull, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
-import { git, esbuild, tailwind, make, memsup, type NifSource } from './programs';
+import { esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
 import { PROGRAMS, TOOLS } from './coreutils';
+import { UTILITIES } from './utilities';
 
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
 // Hex tool wrappers take their Linux paths; its architecture is its own
@@ -44,7 +45,11 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
   root.mkdirs('tmp');
   root.mkdirs('home/user');
   root.mkdirs('shared');
+  // git.wasm's templates (none: hooks are samples): its init and clone
+  // warn without the directory.
+  root.mkdirs('usr/share/git-core/templates');
   root.put('dev/urandom', urandom());
+  root.put('dev/null', devnull());
   // Names from the hosts file, then the page's DNS (the Emscripten BEAM's
   // inet, with ERL_INETRC; it has no inet_gethost).
   const text = (string: string) => new File(new TextEncoder().encode(string));
@@ -82,15 +87,21 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
     // coreutils.wasm's, and the site's other WASI programs (coreutils.ts).
     ...TOOLS,
     ...Object.keys(PROGRAMS),
+    // The shell's own processes (utilities.ts UTILITIES).
+    ...Object.keys(UTILITIES),
     ...(inotifywait ? ['inotifywait'] : []),
   ])
     root.put(`usr/bin/${name}`, new File());
+  // What git starts by name from its exec path (on PATH when it runs sh):
+  // git.wasm as a transport's other end (git-remote.ts GIT_DASHED); its
+  // scripts are the site's files there.
+  for (const name of ['git-upload-pack', 'git-receive-pack', 'git-upload-archive'])
+    root.put(`usr/libexec/git-core/${name}`, new File());
 }
 
 // fs: the node's files (vfs.ts); nif(name, version): a package's NIF
 // library build (make), or null.
 export const programs = (fs: Vfs, nif: NifSource = () => null): Programs => ({
-  git: git(fs),
   memsup,
   esbuild,
   tailwind,

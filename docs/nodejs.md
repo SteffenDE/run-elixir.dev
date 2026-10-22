@@ -63,7 +63,7 @@ the IDE's line discipline (`runtime/terminal.ts`):
 
 - **Lines:** cooked, the line discipline echoes and edits a line, and the
   process gets it at Enter; Ctrl+D on an empty line is the end of its
-  input. While the shell runs a page program (`runOnPage` in
+  input. While the shell runs a page program (`pageProgram` in
   `worker/index.ts`), the terminal's input goes to it (`stdin` messages to
   the page's `PageProcess.oninput`), not to the shell.
 - **Raw input:** `process.stdin.setRawMode(true)` asks for it (a `MODE`
@@ -166,6 +166,11 @@ commands as the terminal's shell does: pipes, `||`, `;`, variables,
 redirections; node commands in that worker, page programs, coreutils. A
 tool with neither a file nor a pipe reads the node's input, as on a
 real machine: an open-ended `System.shell("sort")` waits for its end.
+Reading it waits without holding the worker (`ready` on the input's
+descriptor), so a job in the background runs meanwhile, and the port's
+closing is the input's end. file_system's line, `inotifywait "$0" "$@" &
+PID=$!; read a; kill -KILL $PID`, runs as written: the page's
+`inotifywait` in the background until the port closes.
 `sh.ts`'s `commands()` remains only for the Node harness (no page).
 `System.shell("true")` takes some 70–220 ms, mostly the worker's start
 (it builds its tree from the boot tars the exec frame's worker has).
@@ -389,11 +394,12 @@ site does not host Claude Code's files.
   Claude Code also uses `/proc/self/fd/N/…` to write into an open directory
   and `/proc/self/fd/N` to run `rg`. `fs.ts` and `child.ts` resolve these
   paths to the paths used when opening the descriptors.
-  External commands in pipelines currently run one after another, with
-  output buffered between them. Captured stdout and stderr, including
-  output redirected to files, are limited to 16 MiB per command; exceeding
-  the limit stops the producer and prints an error. Streaming pipelines
-  such as `yes | mix ...` are not supported.
+  A pipeline's commands run at once, as processes joined by pipes
+  ([runtime.md](runtime.md#processes-processests)). `node` streams both
+  ways (`yes | node …`, `node … | head`); a node (`mix`, `elixir`) takes
+  its input whole and cannot wait for room in a pipe: each way, 16 MiB at
+  most ahead of the other end, so `yes | mix …` fails with an error once
+  16 MiB came.
 - **Search:** `claude` passes `--allowedTools=Glob,Grep` to enable the
   Glob and Grep tools, which use `rg`. Without this flag, the pinned build
   replaces them with bfs and ugrep, embedded in its executable and invoked

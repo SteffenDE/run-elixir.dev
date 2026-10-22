@@ -1,7 +1,7 @@
 """ripgrep built to WebAssembly (wasm32-wasip1): rg for the shell, the nodes
 and Node.js processes, as an OS has it (docs/runtime.md).
 
-    python3 -I ripgrep/build.py   # → target/rg/rg.wasm
+    python3 -I tools/ripgrep/build.py   # → target/rg/rg.wasm
 
 ripgrep's release with patches/ applied (WASI's working directory, as
 coreutils has it: PWD), built in Docker with its own size-and-speed
@@ -18,11 +18,12 @@ import subprocess
 import tarfile
 import urllib.request
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# The repository (this file is tools/NAME/build.py).
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "target", "rg")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# rust:1.99-slim, as coreutils/build.py's.
+# rust:1.99-slim, as tools/coreutils/build.py's.
 IMAGE = "rust@sha256:4df2ae8cfdfebdfc13a65da7f253b73d68983dc0339f2719bc17a279c913b13d"
 VERSION = "15.2.0"
 SOURCE = f"https://github.com/BurntSushi/ripgrep/archive/refs/tags/{VERSION}.tar.gz"

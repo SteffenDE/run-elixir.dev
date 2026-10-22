@@ -18,7 +18,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "target", "tls")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# rust:1.99-slim, as coreutils/build.py's.
+# rust:1.99-slim, as tools/coreutils/build.py's.
 IMAGE = "rust@sha256:4df2ae8cfdfebdfc13a65da7f253b73d68983dc0339f2719bc17a279c913b13d"
 SOURCES = ["Cargo.toml", "Cargo.lock", "src/lib.rs"]
 

@@ -56,6 +56,28 @@ export function spawn(node: Node, { id, name, args, cwd, env, tty }: SpawnMessag
       node.frame(FRAME.EXIT, id, new Uint8Array([code & 255]));
     },
   };
+  // What it reads waits until it reads (it may set oninput after an
+  // await); the worker hears what it took (TAKEN), and sends more.
+  const early: (Uint8Array | null)[] = [];
+  let reader: PageProcess['oninput'] = null;
+  const take = (bytes: Uint8Array | null) => {
+    reader!(bytes);
+    if (!bytes?.length) return;
+    const taken = new Uint8Array(4);
+    new DataView(taken.buffer).setUint32(0, bytes.length, true);
+    node.frame(FRAME.TAKEN, id, taken);
+  };
+  Object.defineProperty(process, 'oninput', {
+    get: () => (bytes: Uint8Array | null) => (reader ? take(bytes) : void early.push(bytes)),
+    set: (read: PageProcess['oninput']) => {
+      reader = read;
+      // (Each may set another reader, or none.)
+      while (early.length) {
+        if (!reader) break;
+        take(early.shift()!);
+      }
+    },
+  });
   node.running.set(id, process);
   node.spawned.set(id, { command: [name, ...args].join(' '), started: Date.now() });
   Promise.resolve()

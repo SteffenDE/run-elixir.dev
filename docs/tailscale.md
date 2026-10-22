@@ -411,4 +411,4 @@ the `/git/` and `/hex/` proxies, where Caddy ends TLS).
   else `fetch()`; no setup hint for a relayed host, no consent asked
   (nothing a `fetch()` could not reach but for CORS).
 - **Not** `gen_tcp` to an address, nor names: those stay the tailnet's.
-  The page's git (isomorphic-git, no TLS of its own) keeps `/git/`.
+  git.wasm's HTTPS helper (`git-remote.ts`, no TLS of its own) keeps `/git/`.

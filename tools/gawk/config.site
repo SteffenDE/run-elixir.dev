@@ -1,0 +1,11 @@
+# gawk's configure for wasm32-wasip1 (after tools/wasi-compat/config.site), which
+# cannot run what it builds: gnulib's regex and getopt, GNU's own (gawk's
+# own regex is GNU's already), as Linux's gawk has them.
+gl_cv_func_re_compile_pattern_working=no
+gl_cv_func_getopt_gnu=no
+# No /inet special files (WASI has no sockets: stubs.c's connect fails)
+# and no ptys for |& (the stub termios.h is for git's prompt), so that
+# coprocesses are pipes.
+ac_cv_func_connect=no
+ac_cv_lib_socket_connect=no
+ac_cv_header_termios_h=no

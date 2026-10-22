@@ -1,0 +1,76 @@
+--- a/run-command.c
++++ b/run-command.c
+@@ -745,7 +745,7 @@
+ 	if (cmd->odb_to_close)
+ 		odb_close(cmd->odb_to_close);
+ 
+-#ifndef GIT_WINDOWS_NATIVE
++#if !defined(GIT_WINDOWS_NATIVE) && !defined(__wasi__)
+ {
+ 	int notify_pipe[2];
+ 	int null_fd = -1;
+@@ -908,6 +908,64 @@
+ }
+ end_of_spawn:
+ 
++#elif defined(__wasi__)
++/*
++ * WASI has no fork: the host starts the child with three of our
++ * descriptors as its standard streams (wasi_spawn), as Windows does.
++ */
++{
++	int fhin = 0, fhout = 1, fherr = 2;
++	const char **sargv = cmd->args.v;
++	struct strvec nargv = STRVEC_INIT;
++	char **childenv;
++
++	if (cmd->no_stdin)
++		fhin = open("/dev/null", O_RDWR);
++	else if (need_in)
++		fhin = dup(fdin[0]);
++	else if (cmd->in)
++		fhin = dup(cmd->in);
++
++	if (cmd->no_stderr)
++		fherr = open("/dev/null", O_RDWR);
++	else if (need_err)
++		fherr = dup(fderr[1]);
++	else if (cmd->err > 2)
++		fherr = dup(cmd->err);
++
++	if (cmd->no_stdout)
++		fhout = open("/dev/null", O_RDWR);
++	else if (cmd->stdout_to_stderr)
++		fhout = dup(fherr);
++	else if (need_out)
++		fhout = dup(fdout[1]);
++	else if (cmd->out > 1)
++		fhout = dup(cmd->out);
++
++	if (cmd->git_cmd)
++		cmd->args.v = prepare_git_cmd(&nargv, sargv);
++	else if (cmd->use_shell)
++		cmd->args.v = prepare_shell_cmd(&nargv, sargv);
++
++	trace_argv_printf(cmd->args.v, "trace: start_command:");
++	childenv = prep_childenv(cmd->env.v);
++	cmd->pid = wasi_spawn(cmd->args.v, childenv, cmd->dir, fhin, fhout, fherr);
++	failed_errno = errno;
++	if (cmd->pid < 0 && (!cmd->silent_exec_failure || errno != ENOENT))
++		error_errno("cannot run %s", cmd->args.v[0]);
++	if (cmd->clean_on_exit && cmd->pid >= 0)
++		mark_child_for_cleanup(cmd->pid, cmd);
++
++	free(childenv);
++	strvec_clear(&nargv);
++	cmd->args.v = sargv;
++	if (fhin != 0)
++		close(fhin);
++	if (fhout != 1)
++		close(fhout);
++	if (fherr != 2)
++		close(fherr);
++}
+ #else
+ {
+ 	int fhin = 0, fhout = 1, fherr = 2;

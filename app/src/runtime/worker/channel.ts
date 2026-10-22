@@ -18,8 +18,19 @@ export const FRAME = {
   CONNECTED: 12,
   DATAGRAM: 13,
   MODE: 14,
+  TAKEN: 15,
 };
 export const RING = 1 << 20;
+// Atomics.waitAsync, which not every browser has.
+const waitAsync = (
+  Atomics as unknown as {
+    waitAsync?: (
+      array: Int32Array,
+      index: number,
+      value: number,
+    ) => { async: boolean; value: Promise<string> };
+  }
+).waitAsync;
 // INPUT frames' ids: the terminal's typing (Ctrl+D on an empty line its
 // end), or a process's input (programs/node.ts): its bytes as they are, and
 // their end.
@@ -59,6 +70,8 @@ export class Channel {
   declare processes: Map<number, Process>;
   // The ports the project's other nodes listen on (PEERS frames).
   declare peers: Set<number>;
+  // The wait for the page's next frame that rest races (null: none yet).
+  declare next: Promise<unknown> | null;
 
   constructor(shared: SharedArrayBuffer) {
     this.control = new Int32Array(shared, 0, 2);
@@ -77,6 +90,7 @@ export class Channel {
     // Programs the page runs (host/programs.ts), by id.
     this.processes = new Map();
     this.peers = new Set();
+    this.next = null;
   }
   bytes(from: number, count: number): Uint8Array {
     const out = new Uint8Array(count);
@@ -118,7 +132,13 @@ export class Channel {
           this.peers.add((payload[at] << 8) | payload[at + 1]);
         if (net) net.peers = this.peers;
       } else if (kind === FRAME.OUTPUT) this.processes.get(id)?.write(payload);
-      else if (kind === FRAME.EXIT) {
+      else if (kind === FRAME.TAKEN) {
+        const process = this.processes.get(id);
+        if (process) {
+          process.taken += new DataView(payload.buffer).getUint32(0, true);
+          process.notify?.();
+        }
+      } else if (kind === FRAME.EXIT) {
         this.processes.get(id)?.exit(payload[0]);
         this.processes.delete(id);
       } else if (kind === FRAME.CONNECTED) {
@@ -149,6 +169,24 @@ export class Channel {
   // Until a frame comes or `ms` pass.
   sleep(ms: number): void {
     Atomics.wait(this.control, 0, Atomics.load(this.control, 1), ms);
+  }
+  // sleep, without holding the thread: the worker's processes
+  // (processes.ts) run meanwhile. One wait with no timeout, which every
+  // rest shares, ends with the page's notify; a timer ends a rest before
+  // it. (In WebKit a waitAsync that times out never settles, and no notify
+  // finds it again.) Without waitAsync, 10 ms at most.
+  rest(ms: number): Promise<void> {
+    if (!waitAsync) return new Promise((resolve) => setTimeout(resolve, Math.min(ms, 10)));
+    if (!this.next) {
+      const waiting = waitAsync(this.control, 0, Atomics.load(this.control, 1));
+      if (!waiting.async) return Promise.resolve();
+      this.next = waiting.value.then(() => (this.next = null));
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      this.next,
+      new Promise((resolve) => (timer = setTimeout(resolve, ms))),
+    ]).then(() => clearTimeout(timer));
   }
   // Up to `max` bytes of the input (past its ends: what reads this has none).
   take(max: number): Uint8Array {
@@ -197,31 +235,12 @@ export class Channel {
     this.signals = signals;
     postMessage({ kind: 'tty', raw, signals });
   }
-  // A line typed at the shell (blocking).
-  line(): string | null {
-    for (;;) {
-      this.pump();
-      if (this.interrupted) {
-        this.interrupted = false;
-        this.input = [];
-        return null;
-      }
-      const all = this.take(Infinity);
-      const newline = all.indexOf(10);
-      if (newline >= 0) {
-        if (newline + 1 < all.length) this.input.unshift(all.subarray(newline + 1));
-        return new TextDecoder().decode(all.subarray(0, newline));
-      }
-      if (all.length) this.input.unshift(all);
-      this.sleep(1000);
-    }
-  }
 }
 
 // A program the page runs (host/programs.ts): its output and exit come back
 // as frames; it is told when the node closes its port. Its input: bytes,
 // then their end; or (null) none that ends, as an open pipe's (the BEAM's
-// ports), unless the caller forwards some (runOnPage, the terminal's);
+// ports), unless the caller forwards some (pageProgram, the terminal's);
 // `tty`: whether its stdin and stdout are the terminal. started(id) hears
 // its id.
 let processes = 0;

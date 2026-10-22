@@ -1,0 +1,541 @@
+From a18048e1391952c5d5b3795281d161f285c0b5f4 Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Thu, 22 Oct 2026 04:50:50 +0000
+Subject: [PATCH] brush-core: the playground's processes on WASI: pipelines at
+ once, jobs in the background
+
+---
+ brush-core/src/commands.rs                 |   5 +-
+ brush-core/src/interp.rs                   |   4 +
+ brush-core/src/openfiles.rs                |   8 +-
+ brush-core/src/processes.rs                |  12 +-
+ brush-core/src/results.rs                  |  12 +
+ brush-core/src/sys/wasm/mod.rs             |   3 +
+ brush-core/src/sys/wasm/playground.rs      | 286 ++++++++++++++++-----
+ brush-interactive/src/interactive_shell.rs |   4 +
+ brush-shell/src/entry.rs                   |   4 +
+ 9 files changed, 264 insertions(+), 74 deletions(-)
+
+diff --git a/brush-core/src/commands.rs b/brush-core/src/commands.rs
+index c01d277..4092261 100644
+--- a/brush-core/src/commands.rs
++++ b/brush-core/src/commands.rs
+@@ -793,10 +793,11 @@ pub(crate) async fn invoke_command_in_subshell_and_get_output(
+     let mut params = params.clone();
+     params.process_group_policy = ProcessGroupPolicy::SameProcessGroup;
+ 
+-    // WASI: the command to its end, then what it wrote.
++    // WASI: the command to its end, then what it wrote (to the shell's
++    // memory: a process's output is fed to it as it is written).
+     #[cfg(target_os = "wasi")]
+     {
+-        let (mut reader, writer) = openfiles::pipe()?;
++        let (mut reader, writer) = sys::platform::playground::memory_pipe();
+         params.set_fd(OpenFiles::STDOUT_FD, writer);
+         let cmd_result = run_substitution_command(subshell, params, s).await?;
+         let mut output_str = String::new();
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index 5330bdb..dd528cc 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -251,6 +251,10 @@ impl Execute for ast::CompoundList {
+                 let job = spawn_async_ao_list_in_task(ao_list, shell, params);
+                 let job_formatted = job.to_pid_style_string();
+ 
++                // WASI: one thread; the job starts once this yields.
++                #[cfg(target_os = "wasi")]
++                tokio::task::yield_now().await;
++
+                 if shell.options().interactive && !shell.is_subshell() {
+                     writeln!(params.stderr(shell), "{job_formatted}")?;
+                 }
+diff --git a/brush-core/src/openfiles.rs b/brush-core/src/openfiles.rs
+index a0adc08..0749afd 100644
+--- a/brush-core/src/openfiles.rs
++++ b/brush-core/src/openfiles.rs
+@@ -23,6 +23,12 @@ pub trait Stream: std::io::Read + std::io::Write + Send + Sync {
+     #[cfg(unix)]
+     fn try_clone_to_owned(&self) -> Result<std::os::fd::OwnedFd, error::Error>;
+ 
++    /// The host's descriptor for the stream, if it has one (WASI).
++    #[cfg(target_os = "wasi")]
++    fn raw_fd(&self) -> Option<i32> {
++        None
++    }
++
+     /// Borrows the stream as a `BorrowedFd`. Returns an error if the operation
+     /// is not supported or if it fails.
+     #[cfg(unix)]
+@@ -223,7 +229,7 @@ impl From<std::fs::File> for OpenFile {
+ /// A pipe: its read end and its write end.
+ pub(crate) fn pipe() -> std::io::Result<(OpenFile, OpenFile)> {
+     #[cfg(target_os = "wasi")]
+-    return Ok(crate::sys::platform::playground::pipe());
++    return crate::sys::platform::playground::pipe();
+     #[cfg(not(target_os = "wasi"))]
+     {
+         let (reader, writer) = std::io::pipe()?;
+diff --git a/brush-core/src/processes.rs b/brush-core/src/processes.rs
+index 4b55356..4293887 100644
+--- a/brush-core/src/processes.rs
++++ b/brush-core/src/processes.rs
+@@ -4,9 +4,15 @@ use futures::FutureExt;
+ 
+ use crate::{error, sys};
+ 
++/// What a child process leaves: on WASI, the host's (sys::process).
++#[cfg(not(target_os = "wasi"))]
++pub(crate) type Output = std::process::Output;
++#[cfg(target_os = "wasi")]
++pub(crate) type Output = sys::process::Output;
++
+ /// A waitable future that will yield the results of a child process's execution.
+ pub(crate) type WaitableChildProcess = std::pin::Pin<
+-    Box<dyn futures::Future<Output = Result<std::process::Output, std::io::Error>> + Send + Sync>,
++    Box<dyn futures::Future<Output = Result<Output, std::io::Error>> + Send + Sync>,
+ >;
+ 
+ /// Tracks a child process being awaited.
+@@ -73,7 +79,7 @@ impl ChildProcess {
+         }
+     }
+ 
+-    pub(crate) fn poll(&mut self) -> Option<Result<std::process::Output, error::Error>> {
++    pub(crate) fn poll(&mut self) -> Option<Result<Output, error::Error>> {
+         let checkable_future = &mut self.exec_future;
+         checkable_future
+             .now_or_never()
+@@ -84,7 +90,7 @@ impl ChildProcess {
+ /// Represents the result of waiting for an executing process.
+ pub enum ProcessWaitResult {
+     /// The process completed.
+-    Completed(std::process::Output),
++    Completed(Output),
+     /// The process stopped and has not yet completed.
+     Stopped,
+ }
+diff --git a/brush-core/src/results.rs b/brush-core/src/results.rs
+index 478363b..ade30c2 100644
+--- a/brush-core/src/results.rs
++++ b/brush-core/src/results.rs
+@@ -109,6 +109,18 @@ impl From<ExecutionWaitResult> for ExecutionResult {
+     }
+ }
+ 
++#[cfg(target_os = "wasi")]
++impl From<crate::sys::process::Output> for ExecutionResult {
++    fn from(output: crate::sys::process::Output) -> Self {
++        if let Some(code) = output.status.code() {
++            #[expect(clippy::cast_sign_loss)]
++            return Self::new((code & 0xFF) as u8);
++        }
++        #[expect(clippy::cast_sign_loss)]
++        Self::new((output.status.signal().unwrap_or(0) & 0xFF) as u8 + 128)
++    }
++}
++
+ impl From<std::process::Output> for ExecutionResult {
+     fn from(output: std::process::Output) -> Self {
+         if let Some(code) = output.status.code() {
+diff --git a/brush-core/src/sys/wasm/mod.rs b/brush-core/src/sys/wasm/mod.rs
+index 620bf69..d14d388 100644
+--- a/brush-core/src/sys/wasm/mod.rs
++++ b/brush-core/src/sys/wasm/mod.rs
+@@ -9,6 +9,9 @@ pub use crate::sys::stubs::input;
+ pub(crate) use crate::sys::stubs::network;
+ pub(crate) use crate::sys::stubs::pipes;
+ pub use crate::sys::stubs::poll;
++#[cfg(target_os = "wasi")]
++pub use playground::process;
++#[cfg(not(target_os = "wasi"))]
+ pub use crate::sys::stubs::process;
+ pub use crate::sys::stubs::resource;
+ pub use crate::sys::stubs::signal;
+diff --git a/brush-core/src/sys/wasm/playground.rs b/brush-core/src/sys/wasm/playground.rs
+index aab657b..0f414da 100644
+--- a/brush-core/src/sys/wasm/playground.rs
++++ b/brush-core/src/sys/wasm/playground.rs
+@@ -1,40 +1,68 @@
+ //! The Elixir playground's host (run-elixir.dev) on WASI: its programs as
+ //! the shell's external commands, and pipes and files that clone.
+ //!
+-//! WASI has no processes, pipes or `dup`. A command runs to its end when the
+-//! shell starts it, so a pipeline's commands run one after another, each
+-//! with what the one before wrote: pipes hold what is written until it is
+-//! read, and a read of an empty one is its end.
++//! WASI has no processes, pipes or `dup`: the host has them (its
++//! `processes` imports, app/src/runtime/processes.ts). An external command
++//! is a process of the host's that runs while the shell goes on, with
++//! three of the shell's descriptors as its standard streams: a pipeline's
++//! commands run at once, connected by the host's pipes, and a command
++//! with `&` runs while the shell reads the next line. A stream the host
++//! has no descriptor for (a command substitution's capture) is fed
++//! through a pipe of the host's while the shell waits for the command.
+ 
+ use std::collections::VecDeque;
+ use std::io::{Read, Write};
++use std::os::fd::{AsRawFd, FromRawFd};
+ use std::sync::{Arc, Mutex};
+ 
+ use crate::commands::{CommandArg, ExecutionContext};
+ use crate::openfiles::{OpenFile, OpenFiles, Stream};
+-use crate::results::{ExecutionResult, ExecutionSpawnResult};
++use crate::processes::ChildProcess;
++use crate::results::ExecutionSpawnResult;
+ use crate::{error, extensions};
+ 
+-#[link(wasm_import_module = "playground")]
++#[link(wasm_import_module = "processes")]
+ unsafe extern "C" {
+-    /// Runs a program to its end; the host may suspend the shell meanwhile.
+-    /// `request`: NUL-separated program, cwd, argc, args, envc, env.
+-    /// `input`: its standard input, unless `flags` has 1 (it has the
+-    /// shell's); 2 and 4: its output and errors are the shell's.
+-    /// Its exit status, or -1 when there is no such program.
+-    fn spawn(
++    /// A pipe: its read end at `fds[0]`, its write end at `fds[1]`.
++    #[link_name = "pipe"]
++    fn host_pipe(fds: *mut i32) -> i32;
++    /// Starts a program: `request` NUL-separated program, cwd, argc, args,
++    /// envc, env; its standard streams our descriptors `stdin`, `stdout`
++    /// and `stderr` (the shell's own 0, 1 and 2: the terminal). An errno.
++    #[link_name = "spawn"]
++    fn host_spawn(
+         request: *const u8,
+         request_len: usize,
+-        input: *const u8,
+-        input_len: usize,
+-        flags: u32,
++        stdin: i32,
++        stdout: i32,
++        stderr: i32,
++        pid: *mut i32,
+     ) -> i32;
+-    /// What the last program wrote to `stream` (1 or 2) that was not the
+-    /// shell's, up to `max` bytes at a time; 0 at its end.
+-    fn output(stream: u32, buf: *mut u8, max: usize) -> usize;
++    /// Waits for `pid` (`mode` 0), or not (1: EAGAIN while it runs), or a
++    /// little (2: until it exits or a few milliseconds pass; EAGAIN if it
++    /// still runs). Its status as waitpid has it.
++    #[link_name = "wait"]
++    fn host_wait(pid: i32, status: *mut i32, mode: i32) -> i32;
+ }
+ 
+-/// One end of a pipe; both ends share the bytes.
++const EAGAIN: i32 = 6;
++const ENOENT: i32 = 44;
++
++/// A pipe of the host's: its read end and its write end.
++fn host_pipe_files() -> std::io::Result<(std::fs::File, std::fs::File)> {
++    let mut fds = [0i32; 2];
++    // SAFETY: the host writes two descriptors into `fds`.
++    let error = unsafe { host_pipe(fds.as_mut_ptr()) };
++    if error != 0 {
++        return Err(std::io::Error::from_raw_os_error(error));
++    }
++    // SAFETY: the host opened both, and they are ours alone.
++    Ok(unsafe { (std::fs::File::from_raw_fd(fds[0]), std::fs::File::from_raw_fd(fds[1])) })
++}
++
++/// One end of a pipe in the shell's memory; both ends share the bytes, and
++/// a read of an empty one is its end. For what the shell itself writes and
++/// reads back (a command substitution's output, a here-string).
+ #[derive(Clone, Default)]
+ struct Pipe(Arc<Mutex<VecDeque<u8>>>);
+ 
+@@ -69,8 +97,8 @@ impl Stream for Pipe {
+     }
+ }
+ 
+-/// A pipe: its read end and its write end.
+-pub(crate) fn pipe() -> (OpenFile, OpenFile) {
++/// A pipe in the shell's memory: its read end and its write end.
++pub(crate) fn memory_pipe() -> (OpenFile, OpenFile) {
+     let pipe = Pipe::default();
+     (
+         OpenFile::Stream(Box::new(pipe.clone())),
+@@ -78,6 +106,13 @@ pub(crate) fn pipe() -> (OpenFile, OpenFile) {
+     )
+ }
+ 
++/// A pipe of the host's, between processes: its read end and its write
++/// end. Each end closes once its last clone is gone.
++pub(crate) fn pipe() -> std::io::Result<(OpenFile, OpenFile)> {
++    let (reader, writer) = host_pipe_files()?;
++    Ok((file(reader), file(writer)))
++}
++
+ /// A file every clone of which is the same open file (WASI has no `dup`).
+ #[derive(Clone)]
+ struct SharedFile(Arc<Mutex<std::fs::File>>);
+@@ -102,6 +137,10 @@ impl Stream for SharedFile {
+     fn clone_box(&self) -> Box<dyn Stream> {
+         Box::new(self.clone())
+     }
++
++    fn raw_fd(&self) -> Option<i32> {
++        Some(self.0.lock().unwrap_or_else(|e| e.into_inner()).as_raw_fd())
++    }
+ }
+ 
+ /// An open file that clones.
+@@ -109,7 +148,119 @@ pub(crate) fn file(file: std::fs::File) -> OpenFile {
+     OpenFile::Stream(Box::new(SharedFile(Arc::new(Mutex::new(file)))))
+ }
+ 
+-/// Runs an external command through the host, to its end.
++/// The host's descriptor for `file`, if it has one: the shell's own
++/// standard streams are its 0, 1 and 2 (the terminal).
++fn descriptor(file: &OpenFile) -> Option<i32> {
++    match file {
++        OpenFile::Stdin(_) => Some(0),
++        OpenFile::Stdout(_) => Some(1),
++        OpenFile::Stderr(_) => Some(2),
++        OpenFile::File(file) => Some(file.as_raw_fd()),
++        OpenFile::Stream(stream) => stream.raw_fd(),
++        _ => None,
++    }
++}
++
++/// A process of the host's, as the shell waits for it.
++pub mod process {
++    use std::task::Poll;
++
++    /// A process's id: the host's.
++    pub type ProcessId = i32;
++
++    /// How a process ended, as waitpid has it.
++    #[derive(Clone, Copy, Debug)]
++    pub struct ExitStatus(i32);
++
++    impl ExitStatus {
++        /// Its exit status, unless a signal ended it.
++        pub const fn code(&self) -> Option<i32> {
++            if self.0 & 0x7f == 0 { Some((self.0 >> 8) & 0xff) } else { None }
++        }
++
++        /// The signal that ended it, if one did.
++        pub const fn signal(&self) -> Option<i32> {
++            if self.0 & 0x7f == 0 { None } else { Some(self.0 & 0x7f) }
++        }
++    }
++
++    /// What a process left: how it ended (its output went where it was
++    /// sent).
++    pub struct Output {
++        /// How it ended.
++        pub status: ExitStatus,
++    }
++
++    /// A process of the host's, and what feeds streams from its output
++    /// (`feeds`) while the shell waits for it.
++    pub struct Child {
++        pub(super) pid: ProcessId,
++        pub(super) feeds: Vec<super::Feed>,
++    }
++
++    impl Child {
++        /// Returns the process ID of the child process.
++        pub fn id(&self) -> Option<u32> {
++            #[expect(clippy::cast_sign_loss)]
++            Some(self.pid as u32)
++        }
++
++        /// Its output, once it has exited. In the shell's own flow (not a
++        /// task of its, as a job is), waiting suspends the shell, and the
++        /// host's processes run meanwhile. A task waits a little at a time
++        /// and yields: the shell's runtime goes on with its other work.
++        pub async fn wait_with_output(mut self) -> std::io::Result<Output> {
++            let pid = self.pid;
++            for feed in std::mem::take(&mut self.feeds) {
++                feed.run()?;
++            }
++            let in_task = tokio::task::try_id().is_some();
++            std::future::poll_fn(move |context| {
++                let mode = if in_task { 2 } else { 0 };
++                let mut status = 0;
++                // SAFETY: the host writes the status into `status`.
++                let error = unsafe { super::host_wait(pid, &raw mut status, mode) };
++                if error == super::EAGAIN {
++                    context.waker().wake_by_ref();
++                    return Poll::Pending;
++                }
++                if error != 0 {
++                    return Poll::Ready(Err(std::io::Error::from_raw_os_error(error)));
++                }
++                Poll::Ready(Ok(Output { status: ExitStatus(status) }))
++            })
++            .await
++        }
++    }
++
++    /// Not on WASI: the host starts processes (`run_external`).
++    pub(crate) fn spawn(_command: std::process::Command) -> std::io::Result<Child> {
++        Err(std::io::ErrorKind::Unsupported.into())
++    }
++}
++
++/// What a process writes to a pipe of the host's, fed to a stream of the
++/// shell's (a command substitution's capture).
++pub(crate) struct Feed {
++    from: std::fs::File,
++    to: OpenFile,
++}
++
++impl Feed {
++    fn run(mut self) -> std::io::Result<()> {
++        let mut buf = vec![0u8; 64 * 1024];
++        loop {
++            let n = self.from.read(&mut buf)?;
++            if n == 0 {
++                break;
++            }
++            self.to.write_all(&buf[..n])?;
++        }
++        self.to.flush()
++    }
++}
++
++/// Starts an external command as a process of the host's.
+ pub(crate) fn run_external(
+     context: &ExecutionContext<'_, impl extensions::ShellExtensions>,
+     executable_path: &str,
+@@ -147,60 +298,59 @@ pub(crate) fn run_external(
+         field(var);
+     }
+ 
+-    let mut flags = 0;
+-    let mut input = Vec::new();
+-    match context.try_fd(OpenFiles::STDIN_FD) {
+-        Some(OpenFile::Stdin(_)) | None => flags |= 1,
+-        Some(mut file) => {
+-            file.read_to_end(&mut input)?;
+-        }
+-    }
+-    let stdout = match context.try_fd(OpenFiles::STDOUT_FD) {
+-        Some(OpenFile::Stdout(_)) | None => {
+-            flags |= 2;
+-            None
+-        }
+-        Some(file) => Some(file),
++    // Its standard streams: the host's descriptors for ours; else a pipe
++    // of the host's, with what our stream holds (its input), or fed to our
++    // stream while we wait (its output).
++    let mut opened = Vec::new();
++    let stdin = match context.try_fd(OpenFiles::STDIN_FD) {
++        None => 0,
++        Some(file) => match descriptor(&file) {
++            Some(fd) => fd,
++            None => {
++                let mut file = file;
++                let mut input = Vec::new();
++                file.read_to_end(&mut input)?;
++                let (reader, mut writer) = host_pipe_files()?;
++                writer.write_all(&input)?;
++                drop(writer);
++                let fd = reader.as_raw_fd();
++                opened.push(reader);
++                fd
++            }
++        },
+     };
+-    let stderr = match context.try_fd(OpenFiles::STDERR_FD) {
+-        Some(OpenFile::Stderr(_)) | None => {
+-            flags |= 4;
+-            None
++    let mut feeds = Vec::new();
++    let mut output = |fd: i32, standard: i32| -> std::io::Result<i32> {
++        let Some(file) = context.try_fd(fd) else {
++            return Ok(standard);
++        };
++        if let Some(fd) = descriptor(&file) {
++            return Ok(fd);
+         }
+-        Some(file) => Some(file),
++        let (reader, writer) = host_pipe_files()?;
++        let fd = writer.as_raw_fd();
++        opened.push(writer);
++        feeds.push(Feed { from: reader, to: file });
++        Ok(fd)
+     };
++    let stdout = output(OpenFiles::STDOUT_FD, 1)?;
++    let stderr = output(OpenFiles::STDERR_FD, 2)?;
+ 
++    let mut pid = 0;
+     // SAFETY: the pointers and lengths are of live buffers the host only
+-    // reads during the call.
+-    let status = unsafe {
+-        spawn(
+-            request.as_ptr(),
+-            request.len(),
+-            input.as_ptr(),
+-            input.len(),
+-            flags,
+-        )
++    // reads during the call, and it writes the pid into `pid`.
++    let error = unsafe {
++        host_spawn(request.as_ptr(), request.len(), stdin, stdout, stderr, &raw mut pid)
+     };
+-    if status < 0 {
++    // The process has its own references to the pipes we made for it.
++    drop(opened);
++    if error == ENOENT {
+         return Err(error::ErrorKind::CommandNotFound(context.command_name.clone()).into());
+     }
+-
+-    for (stream, file) in [(1, stdout), (2, stderr)] {
+-        let Some(mut file) = file else { continue };
+-        let mut buf = vec![0u8; 64 * 1024];
+-        loop {
+-            // SAFETY: the host writes at most `buf.len()` bytes into `buf`.
+-            let n = unsafe { output(stream, buf.as_mut_ptr(), buf.len()) };
+-            if n == 0 {
+-                break;
+-            }
+-            file.write_all(&buf[..n])?;
+-        }
+-        file.flush()?;
++    if error != 0 {
++        return Err(std::io::Error::from_raw_os_error(error).into());
+     }
+ 
+-    #[expect(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+-    Ok(ExecutionSpawnResult::Completed(ExecutionResult::new(
+-        (status & 0xff) as u8,
+-    )))
++    let child = process::Child { pid, feeds };
++    Ok(ExecutionSpawnResult::StartedProcess(ChildProcess::new(child, Some(pid), None)))
+ }
+diff --git a/brush-interactive/src/interactive_shell.rs b/brush-interactive/src/interactive_shell.rs
+index 10002fe..82f292e 100644
+--- a/brush-interactive/src/interactive_shell.rs
++++ b/brush-interactive/src/interactive_shell.rs
+@@ -329,6 +329,10 @@ impl<'a, IB: InputBackend, SE: brush_core::ShellExtensions> InteractiveShell<'a,
+         shell: &mut brush_core::Shell<SE>,
+         options: &InteractiveOptions,
+     ) -> Result<(), ShellError> {
++        // WASI: one thread; the jobs see whether their processes ended.
++        #[cfg(target_os = "wasi")]
++        tokio::task::yield_now().await;
++
+         // Check for any completed jobs.
+         shell.check_for_completed_jobs()?;
+ 
+diff --git a/brush-shell/src/entry.rs b/brush-shell/src/entry.rs
+index f205944..a16efff 100644
+--- a/brush-shell/src/entry.rs
++++ b/brush-shell/src/entry.rs
+@@ -177,6 +177,10 @@ pub fn run() {
+     let mut builder = tokio::runtime::Builder::new_multi_thread();
+     #[cfg(not(any(unix, windows)))]
+     let mut builder = tokio::runtime::Builder::new_current_thread();
++    // WASI: a job waits for its process a little at a time (sys/wasm/
++    // playground.rs); the shell's own flow goes on between each.
++    #[cfg(target_os = "wasi")]
++    builder.event_interval(1);
+ 
+     let Ok(runtime) = builder.enable_all().build() else {
+         tracing::error!("error: failed to create Tokio runtime");
+-- 
+2.47.3
+
