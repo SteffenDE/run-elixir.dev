@@ -18,4 +18,6 @@ python3 -I ripgrep/build.py
 python3 -I tls/build.py
 python3 -I git/build.py
 python3 -I sed/build.py
+python3 -I grep/build.py
+python3 -I diffutils/build.py
 python3 -I runtime/build.py

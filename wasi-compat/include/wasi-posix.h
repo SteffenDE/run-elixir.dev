@@ -40,3 +40,34 @@ pid_t wasi_spawn(const char **argv, char **env, const char *dir, int in, int out
 FILE *popen(const char *, const char *);
 int pclose(FILE *);
 int system(const char *);
+
+/* Signals: wasi-libc emulates signal() and raise() (-D_WASI_EMULATED_SIGNAL),
+   and its sigset_t is a placeholder of one byte. Sets of 64 signals,
+   masks kept and never applied (no signal arrives but raise()'s and the
+   host's kill, which ends a process), sigaction over signal() (stubs.c).
+   As POSIX's, gnulib has no blocking of its own to emulate (its emulation
+   wants NSIG <= 32; wasi-libc's is 65). */
+#include <__typedef_sigset_t.h>
+typedef unsigned long long wasi_sigset_t;
+#define sigset_t wasi_sigset_t
+#define SIG_BLOCK 0
+#define SIG_UNBLOCK 1
+#define SIG_SETMASK 2
+#define SA_RESTART 0x10000000
+struct sigaction { void (*sa_handler)(int); sigset_t sa_mask; int sa_flags; };
+int sigaction(int, const struct sigaction *, struct sigaction *);
+int sigemptyset(sigset_t *);
+int sigfillset(sigset_t *);
+int sigaddset(sigset_t *, int);
+int sigdelset(sigset_t *, int);
+int sigismember(const sigset_t *, int);
+int sigprocmask(int, const sigset_t *, sigset_t *);
+
+/* No time zones (WASI has no tables): UTC, and tzset does nothing. */
+void tzset(void);
+
+/* wasi-libc has an opendirat(fd, path) of its own; gnulib's (fts, for
+   grep -r and find) takes four arguments, so is gnulib's by another name
+   from here on. */
+#include <dirent.h>
+#define opendirat gnulib_opendirat

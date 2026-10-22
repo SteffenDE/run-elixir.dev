@@ -1,8 +1,9 @@
 // git's own tests (git's t/, test-lib.sh) against git.wasm, in Node: brush
 // is sh, git.wasm git (and its dashed programs), test-tool.wasm git's test
-// helper, coreutils.wasm coreutils' tools, sed.wasm GNU sed, each a process
-// of the table (processes.ts) as the playground runs them; what the
-// playground lacks yet (grep, awk, diff, perl, …) is the host's own program. The files
+// helper, coreutils.wasm coreutils' tools, GNU's sed, grep and diffutils
+// (sed.wasm, …: GNU), each a process of the table (processes.ts) as the
+// playground runs them; what the playground lacks yet (awk, find, perl, …)
+// is the host's own program. The files
 // are the host's (hostfs.ts) at their own paths: the build's tree, where
 // test-lib.sh makes its trash directories, and a scratch directory.
 import { spawn as spawnHost } from 'node:child_process';
@@ -48,7 +49,14 @@ export function machine(scratch: string): Machine {
   const git = module('git/git.wasm');
   const testTool = module('git/test-tool.wasm');
   const coreutils = module('coreutils/coreutils.wasm');
-  const sed = module('sed/sed.wasm');
+  // GNU's tools (sed/build.py, grep/build.py, diffutils/build.py), by name.
+  const GNU: Record<string, WebAssembly.Module> = {
+    sed: module('sed/sed.wasm'),
+    grep: module('grep/grep.wasm'),
+    ...Object.fromEntries(
+      ['diff', 'cmp', 'diff3', 'sdiff'].map((name) => [name, module(`diffutils/${name}.wasm`)]),
+    ),
+  };
   const shell = module('brush/brush.wasm');
   const root = new Dir();
   root.put('dev/null', devnull());
@@ -186,7 +194,7 @@ export function machine(scratch: string): Machine {
       return wasmProgram(processes, testTool, { root, fetch, shared, argv0: name });
     if (TOOLS.has(name))
       return wasmProgram(processes, coreutils, { root, fetch, shared, argv0: name });
-    if (name === 'sed') return wasmProgram(processes, sed, { root, fetch, shared, argv0: name });
+    if (name in GNU) return wasmProgram(processes, GNU[name], { root, fetch, shared, argv0: name });
     if (name in UTILITIES) return UTILITIES[name](processes);
     return hostProgram(name);
   });

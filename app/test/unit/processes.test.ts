@@ -368,11 +368,26 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
   );
 });
 
-// GNU sed (sed/build.py), when it is built: a program built for WASI over
-// the shared C layer (wasi-compat/), its `e` command through popen and sh.
-const SED = new URL('../../../target/sed/sed.wasm', import.meta.url).pathname;
-describe.skipIf(!existsSync(SED))('sed.wasm as a process', () => {
-  const module = existsSync(SED) ? new WebAssembly.Module(readFileSync(SED)) : null;
+// GNU's sed, grep and diffutils (sed/build.py, grep/build.py,
+// diffutils/build.py), when they are built: programs built for WASI over
+// the shared C layer (wasi-compat/), sed's `e` and diff3's diff through
+// popen and sh.
+const TARGET = new URL('../../../target/', import.meta.url).pathname;
+const GNU_TOOLS: Record<string, string> = {
+  sed: 'sed/sed.wasm',
+  grep: 'grep/grep.wasm',
+  diff: 'diffutils/diff.wasm',
+  cmp: 'diffutils/cmp.wasm',
+  diff3: 'diffutils/diff3.wasm',
+};
+const built = Object.values(GNU_TOOLS).every((path) => existsSync(TARGET + path));
+describe.skipIf(!built)("GNU's tools as processes", () => {
+  const modules = new Map<string, WebAssembly.Module>();
+  const load = (name: string) => {
+    if (!modules.has(name))
+      modules.set(name, new WebAssembly.Module(readFileSync(TARGET + GNU_TOOLS[name])));
+    return modules.get(name)!;
+  };
   const root = new Dir();
   root.put('dev/null', devnull());
   root.mkdirs('tmp');
@@ -399,12 +414,14 @@ describe.skipIf(!existsSync(SED))('sed.wasm as a process', () => {
     const name = program.split('/').pop()!;
     if (name === 'sh') return sh;
     if (name === 'echo') return echo;
-    return name === 'sed' ? wasmProgram(processes, module!, { root, fetch, shared: null }) : null;
+    return name in GNU_TOOLS
+      ? wasmProgram(processes, load(name), { root, fetch, shared: null })
+      : null;
   });
-  const sed = async (input: string, ...args: string[]) => {
+  const tool = async (program: string, input: string, ...args: string[]) => {
     const out = capture();
     const status = await processes.run({
-      program: 'sed',
+      program,
       args,
       cwd: '/work',
       env: {},
@@ -412,6 +429,7 @@ describe.skipIf(!existsSync(SED))('sed.wasm as a process', () => {
     });
     return { status, text: out.text() };
   };
+  const sed = (input: string, ...args: string[]) => tool('sed', input, ...args);
   root.mkdirs('work');
   const read = (name: string) =>
     decode((root.mkdirs('work').entries.get(name) as File | undefined)?.bytes ?? encode('-'));
@@ -438,6 +456,42 @@ describe.skipIf(!existsSync(SED))('sed.wasm as a process', () => {
     expect((await sed('x\n', 'e echo before')).text).toBe('before\nx\n');
     expect((await sed('echo hi\n', 'e')).text).toBe('hi\n');
     expect((await sed('x\n', 's/x/echo made/e')).text).toBe('made\n');
+    expect(processes.table.size).toBe(0);
+  });
+  test('grep: basic regex with back-references, -E, -c, -r, -v, -q', async () => {
+    root.put('work/g/a.txt', new File(encode('abab\nxyz\n')));
+    root.put('work/g/sub/b.txt', new File(encode('cdcd\nab\n')));
+    expect(await tool('grep', 'abab\nabcd\n', '\\(ab\\)\\1')).toEqual({
+      status: 0,
+      text: 'abab\n',
+    });
+    expect((await tool('grep', 'a1\nb\n', '-E', '-c', '[0-9]+')).text).toBe('1\n');
+    expect(
+      (await tool('grep', '', '-r', '-n', '\\(..\\)\\1', 'g')).text.split('\n').sort(),
+    ).toEqual(['', 'g/a.txt:1:abab', 'g/sub/b.txt:1:cdcd']);
+    expect((await tool('grep', 'a\nb\n', '-v', 'a')).text).toBe('b\n');
+    expect((await tool('grep', 'a\n', '-q', 'z')).status).toBe(1);
+    expect(await tool('grep', '', 'x', 'nope.txt')).toEqual({
+      status: 2,
+      text: 'grep: nope.txt: No such file or directory\n',
+    });
+  });
+
+  test('diff -u, cmp, and diff3 running diff', async () => {
+    root.put('work/d/old.txt', new File(encode('one\ntwo\nthree\nfour\nfive\n')));
+    root.put('work/d/new.txt', new File(encode('one\n2\nthree\nfour\nfive\n')));
+    root.put('work/d/other.txt', new File(encode('one\ntwo\nthree\nfour\n5\n')));
+    const unified = await tool('diff', '', '-u', 'd/old.txt', 'd/new.txt');
+    expect(unified.status).toBe(1);
+    expect(unified.text).toMatch(
+      /^--- d\/old\.txt\t.*\n\+\+\+ d\/new\.txt\t.*\n@@ -1,5 \+1,5 @@\n one\n-two\n\+2\n three\n four\n five\n$/,
+    );
+    expect(await tool('diff', '', 'd/old.txt', 'd/old.txt')).toEqual({ status: 0, text: '' });
+    expect((await tool('cmp', '', 'd/old.txt', 'd/new.txt')).text).toBe(
+      'd/old.txt d/new.txt differ: char 5, line 2\n',
+    );
+    const merged = await tool('diff3', '', '-m', 'd/new.txt', 'd/old.txt', 'd/other.txt');
+    expect(merged).toEqual({ status: 0, text: 'one\n2\nthree\nfour\n5\n' });
     expect(processes.table.size).toBe(0);
   });
 });

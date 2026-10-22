@@ -33,7 +33,8 @@ CC = "/opt/wasi-sdk/bin/clang --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/sha
 # wasi-libc's emulations (signal, raise, clock, getpid, mmap), as git's.
 EMULATED = ("signal", "process-clocks", "getpid", "mman")
 CFLAGS = "-Oz -I/wasi/include " + " ".join(f"-D_WASI_EMULATED_{e.upper().replace('-', '_')}" for e in EMULATED)
-LIBS = "/wasi/stubs.o " + " ".join(f"-lwasi-emulated-{e}" for e in EMULATED)
+# fcntl.o wraps wasi-libc's fcntl (F_DUPFD by dup).
+LIBS = "/wasi/stubs.o /wasi/fcntl.o -Wl,--wrap=fcntl " + " ".join(f"-lwasi-emulated-{e}" for e in EMULATED)
 
 
 def fetch(source, sha256, path):
@@ -91,17 +92,28 @@ def build(here, name, release, programs, configure=()):
     sites = "/wasi/config.site" + (" /tool/config.site" if os.path.exists(os.path.join(here, "config.site")) else "")
     script = (
         f"{CC} {CFLAGS} -include /wasi/include/wasi-compat.h -c /wasi/stubs.c -o /wasi/stubs.o\n"
+        f"{CC} {CFLAGS} -c /wasi/fcntl.c -o /wasi/fcntl.o\n"
         "cd /src\n"
         f"CONFIG_SITE='{sites}' ./configure --host=wasm32-wasip1 --disable-nls {' '.join(configure)} "
         f"CC='{CC}' CFLAGS='{CFLAGS}' LIBS='{LIBS}' >configure.out 2>&1 "
         "|| { tail -20 configure.out; tail -40 config.log; exit 1; }\n"
         # After config.h, whose #defines gnulib's headers want first.
-        "echo '#include <wasi-posix.h>' >> config.h\n"
+        # (config.h, or lib/config.h: diffutils'.)
+        "header=$(ls config.h lib/config.h 2>/dev/null | head -n 1)\n"
+        "echo '#include <wasi-posix.h>' >> ${header:?configure made no config.h}\n"
         # The programs alone (gnulib-tests/ does not build for WASI), after
         # what automake makes first for `all` (gnulib's generated headers).
         "printf 'built-sources: $(BUILT_SOURCES)\\n' > built-sources.mk\n"
         "make -s -j$(nproc) -f Makefile -f built-sources.mk built-sources >/dev/null\n"
-        f"make -s -j$(nproc) {' '.join(programs.values())} >/dev/null\n"
+        # A recursive tree (grep's, diffutils': lib/, src/) makes gnulib's
+        # lib/ first, then each program in its directory; a flat one
+        # (sed's) each from the top.
+        "if [ -f lib/Makefile ]; then make -s -j$(nproc) -C lib >/dev/null; fi\n"
+        f"for program in {' '.join(programs.values())}; do\n"
+        "  dir=${program%/*}\n"
+        "  if [ -f $dir/Makefile ]; then make -s -j$(nproc) -C $dir ${program##*/} >/dev/null\n"
+        "  else make -s -j$(nproc) $program >/dev/null; fi\n"
+        "done\n"
     )
     subprocess.run(DOCKER + [
         "run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-v", f"{src}:/src", "-v", f"{wasi}:/wasi",

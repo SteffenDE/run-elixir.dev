@@ -17,6 +17,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <wasi/api.h>
 
 #define NOSYS(...) { errno = ENOSYS; return __VA_ARGS__; }
 
@@ -193,6 +194,26 @@ int sigaction(int n, const struct sigaction *act, struct sigaction *old) {
   if (old) { old->sa_handler = was; old->sa_mask = 0; old->sa_flags = 0; }
   return 0;
 }
+static int member(int n, sigset_t *bit) {
+  if (n <= 0 || n > 64) { errno = EINVAL; return -1; }
+  *bit = 1ULL << (n - 1);
+  return 0;
+}
+int sigemptyset(sigset_t *s) { *s = 0; return 0; }
+int sigfillset(sigset_t *s) { *s = ~0ULL; return 0; }
+int sigaddset(sigset_t *s, int n) { sigset_t bit; if (member(n, &bit)) return -1; *s |= bit; return 0; }
+int sigdelset(sigset_t *s, int n) { sigset_t bit; if (member(n, &bit)) return -1; *s &= ~bit; return 0; }
+int sigismember(const sigset_t *s, int n) { sigset_t bit; if (member(n, &bit)) return -1; return (*s & bit) != 0; }
+static sigset_t blocked;
+int sigprocmask(int how, const sigset_t *set, sigset_t *old) {
+  if (old) *old = blocked;
+  if (!set) return 0;
+  if (how == SIG_BLOCK) blocked |= *set;
+  else if (how == SIG_UNBLOCK) blocked &= ~*set;
+  else if (how == SIG_SETMASK) blocked = *set;
+  else { errno = EINVAL; return -1; }
+  return 0;
+}
 
 /* One user, uid 0, who owns every file (WASI's st_uid is 0). */
 uid_t getuid(void) { return 0; }
@@ -213,6 +234,9 @@ struct group *getgrgid(gid_t gid) { return NULL; }
 int initgroups(const char *u, gid_t g) { return 0; }
 int chown(const char *p, uid_t u, gid_t g) { return 0; }
 int fchown(int fd, uid_t u, gid_t g) { return 0; }
+
+/* No time zones: UTC. */
+void tzset(void) {}
 
 /* No umask (wasi-libc has chmod, which fails). */
 mode_t umask(mode_t m) { return 022; }
@@ -264,6 +288,24 @@ int setsockopt(int s, int l, int n, const void *v, socklen_t len) NOSYS(-1)
 #undef fchmod
 int wasi_chmod(const char *p, mode_t m) { return 0; }
 int wasi_fchmod(int fd, mode_t m) { return 0; }
+
+/* The program's name (program_invocation_name, gnulib's getprogname and
+   error()), which wasi-libc has and never sets: argv[0], as musl's start
+   sets it. */
+extern char *__progname, *__progname_full;
+__attribute__((constructor)) static void program_name(void) {
+  __wasi_size_t argc, size;
+  if (__wasi_args_sizes_get(&argc, &size) || !argc) return;
+  char **argv = malloc(argc * sizeof *argv), *strings = malloc(size);
+  if (argv && strings && !__wasi_args_get((uint8_t **)argv, (uint8_t *)strings)) {
+    char *slash = strrchr(argv[0], '/');
+    __progname_full = argv[0];
+    __progname = slash ? slash + 1 : argv[0];
+    strings = NULL;
+  }
+  free(argv);
+  free(strings);
+}
 
 /* WASI has no working directory: the host's PWD is it (wasi-libc keeps
    one for chdir, relative to the preopen). */

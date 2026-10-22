@@ -1,0 +1,19 @@
+--- a/src/dir.c
++++ b/src/dir.c
+@@ -27,7 +27,15 @@
+ #include <filenamecat.h>
+ #include <mcel.h>
+ #include <quote.h>
+-#include <setjmp.h>
++/* WASI has no setjmp without wasm's exception handling: its strcoll (the
++   C locale's) never fails, so nothing jumps.  */
++#ifdef __wasi__
++typedef int jmp_buf;
++# define setjmp(env) 0
++# define longjmp(env, val) abort ()
++#else
++# include <setjmp.h>
++#endif
+ #include <xalloc.h>
+ 
+ #ifndef HAVE_STRUCT_DIRENT_D_TYPE

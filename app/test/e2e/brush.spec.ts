@@ -58,6 +58,42 @@ test('sed edits streams and files, and runs commands through sh', async ({ page 
   ).toContain('- AlphA');
 });
 
+// GNU grep and diffutils (grep/build.py, diffutils/build.py): grep's basic
+// regex with back-references and -r over the tree, diff -u and cmp's
+// statuses, diff3 starting diff through sh, and a node's grep.
+test('grep searches and diff compares, as GNU has them', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mkdir -p t/sub');
+  await writeText(page, '/work/t/a.txt', 'abab\nxyz\n');
+  await writeText(page, '/work/t/sub/b.txt', 'cdcd\nab\n');
+  expect(await run(page, String.raw`grep -rn '\(..\)\1' t | sort`)).toMatch(
+    /t\/a\.txt:1:abab\s+t\/sub\/b\.txt:1:cdcd/,
+  );
+  expect(await run(page, 'printf "a1\\nb\\n" | grep -cE "[0-9]+"')).toMatch(/^1$/m);
+  expect(await run(page, 'grep x nope.txt; echo "status $?"')).toMatch(
+    /grep: nope\.txt: No such file or directory\s+status 2/,
+  );
+  await writeText(page, '/work/old.txt', 'one\ntwo\nthree\nfour\nfive\n');
+  await writeText(page, '/work/new.txt', 'one\n2\nthree\nfour\nfive\n');
+  await writeText(page, '/work/other.txt', 'one\ntwo\nthree\nfour\n5\n');
+  const unified = await run(page, 'diff -u old.txt new.txt; echo "status $?"');
+  expect(unified).toMatch(/@@ -1,5 \+1,5 @@\s+one\s+-two\s+\+2\s+three[\s\S]*status 1/);
+  expect(await run(page, 'cmp old.txt new.txt; echo "status $?"')).toMatch(
+    /old\.txt new\.txt differ: char 5, line 2\s+status 1/,
+  );
+  expect(await run(page, 'diff3 -m new.txt old.txt other.txt')).toMatch(
+    /^one\s+2\s+three\s+four\s+5\s*$/m,
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("grep", ["-c", "o", "old.txt"]); IO.write(out)'`,
+    ),
+  ).toMatch(/^3$/m);
+});
+
 // Its line editor (reedline, over crossterm on the page's terminal): Tab
 // completes a path and a command, Up recalls a line, and a loop typed over
 // lines runs as one.

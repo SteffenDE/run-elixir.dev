@@ -342,12 +342,13 @@ instance of its own over the node's tree and the shared files (`wasi/`).
 
 **GNU's text tools** are not coreutils: each is a program of its own
 built from C for WASI ([tools.md](tools.md)), named in `PROGRAMS` beside
-`rg` and `git`. `sed` (sed.wasm) is in; its `e` starts `sh -c` as a child
-process, so a node's `sed` runs in the process table, as its `git` does
+`rg` and `git`: `sed`, `grep`, `diff`, `cmp`, `diff3` and `sdiff`. They
+take the `processes` imports (sed's `e` and diff3's diff start `sh -c` as
+a child), so a node's runs in the process table, as its `git` does
 (`portProgram`).
 
-Not yet: `os:cmd`'s `sh -s` (its line on standard input); `grep`,
-`diff`, `find` and `awk` ([tools.md](tools.md)); file modes and owners,
+Not yet: `os:cmd`'s `sh -s` (its line on standard input); `find` and
+`awk` ([tools.md](tools.md)); `grep -P`; file modes and owners,
 which WASI does not have (`chmod`, `ls -l`'s columns).
 
 ## Page and node (`host/`, `worker/`)

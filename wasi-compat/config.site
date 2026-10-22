@@ -11,7 +11,12 @@ ac_cv_func_vfork=no
 ac_cv_func_vfork_works=no
 for ac_func in getuid geteuid getgid getegid getppid getpgid \
     setsid tcgetpgrp umask chmod fchmod chown fchown dup dup2 pipe kill alarm getdtablesize getpass \
-    mkdtemp mkstemp popen pclose system; do
+    mkdtemp mkstemp popen pclose system sigaction sigemptyset sigfillset sigaddset sigdelset sigismember \
+    sigprocmask tzset; do
   eval "ac_cv_func_$ac_func=yes"
   eval "ac_cv_have_decl_$ac_func=yes"
 done
+# Its sigset_t and struct sigaction (wasi-posix.h's), not wasi-libc's.
+gl_cv_type_sigset_t=yes
+ac_cv_type_sigset_t=yes
+ac_cv_member_struct_sigaction_sa_sigaction=no

@@ -399,9 +399,12 @@ onmessage = async ({
                 ...programs(fs, nif),
                 ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
               },
-              // git itself (git.wasm), a process of the worker's table, its
-              // transport and children too; sed, whose `e` starts sh.
-              { git: portProgram(processes, 'git'), sed: portProgram(processes, 'sed') },
+              // The site's WASI programs (git.wasm, sed.wasm, …) as processes
+              // of the worker's table: they take the `processes` imports
+              // (git's transport and children, sed's `e`, gnulib's dup2).
+              Object.fromEntries(
+                Object.keys(PROGRAMS).map((name) => [name, portProgram(processes, name)]),
+              ),
             ),
             tools,
           ),
