@@ -46,7 +46,10 @@ function ProjectRow({
 }) {
   const [confirming, setConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const running = useActive((state) => state.active?.key === project.id);
+  // Running here: deleting closes it first (stopping it changes `running`).
+  const [closing, setClosing] = useState(false);
+  const runningHere = useActive((state) => state.active?.key === project.id);
+  const running = runningHere || closing;
   return (
     <li className="project-row">
       <a className="project-link" href={projectUrl(project.id)}>
@@ -65,17 +68,20 @@ function ProjectRow({
           <button
             type="button"
             className="button danger"
-            onClick={() =>
+            disabled={closing}
+            onClick={() => {
               // Running here: it stops first (its unsaved edits go with it).
-              (running ? stopActive() : Promise.resolve())
-                .then(() => deleteProject(project.id))
+              setClosing(runningHere);
+              (runningHere ? stopActive() : Promise.resolve())
+                .then(() => deleteProject(project.id, runningHere))
                 .then(onDeleted, (failed: Error) => {
+                  setClosing(false);
                   setConfirming(false);
                   setError(failed.message);
-                })
-            }
+                });
+            }}
           >
-            Delete
+            {running ? 'Close and delete' : 'Delete'}
           </button>
           <button type="button" className="button" onClick={() => setConfirming(false)}>
             Keep

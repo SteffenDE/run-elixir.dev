@@ -49,6 +49,19 @@ test('an empty project has a shell, is listed, and is deleted', async ({ page })
   await expect(page.getByText('None yet.')).toBeVisible();
 });
 
+test('a project running here is closed and deleted at once', async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const name = (await page.locator('.project-name').textContent())!;
+  await page.getByTitle('All projects').click();
+  const row = page.locator('.project-row', { hasText: name });
+  await expect(row.getByText('running here')).toBeVisible();
+  await row.locator('button[title^="Delete"]').click();
+  await page.getByRole('button', { name: 'Close and delete', exact: true }).click();
+  await expect(page.getByText('None yet.')).toBeVisible();
+  await expect(page.locator('.project-error')).toHaveCount(0);
+});
+
 test('a project is renamed in place', async ({ page }) => {
   await newProject(page, 'empty');
   await page.locator('.project-name').click();

@@ -36,19 +36,26 @@ const OPEN = 'The project is open in another tab. Close it first.';
 // Delete what a project keeps on this origin: its files and its database,
 // and on a project's own origin (site.ts) all of the origin's caches and
 // its service worker too. A project open in a tab is not deleted: the
-// lock is taken for the time it takes.
-export async function deleteStores(id: string): Promise<void> {
-  await navigator.locks.request(projectLock(id), { ifAvailable: true }, async (lock) => {
-    if (!lock) throw new Error(OPEN);
-    await Promise.all([
-      deleteDatabase(filesStore(id)),
-      deleteDatabase(`/pglite/${pgliteName(id)}`),
-    ]);
-  });
+// lock is taken for the time it takes. `wait`: a project this tab just
+// stopped, whose lock the browser lets go of a moment later; it is waited
+// for, a little.
+export async function deleteStores(id: string, wait = false): Promise<void> {
+  const options = wait ? { signal: AbortSignal.timeout(5000) } : { ifAvailable: true };
+  await navigator.locks
+    .request(projectLock(id), options, async (lock) => {
+      if (!lock) throw new Error(OPEN);
+      await Promise.all([
+        deleteDatabase(filesStore(id)),
+        deleteDatabase(`/pglite/${pgliteName(id)}`),
+      ]);
+    })
+    .catch((error: Error) => {
+      throw error.name === 'TimeoutError' ? new Error(OPEN) : error;
+    });
 }
 
 // Delete a project and everything it keeps, where it all is on this origin.
-export async function deleteProject(id: string): Promise<void> {
-  await deleteStores(id);
+export async function deleteProject(id: string, wait = false): Promise<void> {
+  await deleteStores(id, wait);
   await removeProject(id);
 }
