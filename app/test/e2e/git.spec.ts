@@ -49,7 +49,7 @@ test('git clones a repository into the shell and pulls it forward', async ({ pag
   // Into the empty project itself.
   const cloned = await run(page, 'git clone git@github.com:chrismccord/todo_trek.git .');
   expect(cloned).toContain("Cloning into '.'...");
-  expect(cloned).toMatch(/Receiving objects: 100% \(\d+\/\d+\), done\./);
+  expect(cloned).toMatch(/Receiving objects: 100% \(\d+\/\d+\),.* done\./);
   expect(await readText(page, '/work/mix.exs')).toContain('app: :todo_trek');
   const head = (await run(page, 'git rev-parse HEAD')).match(/[0-9a-f]{40}/)![0];
   expect(await run(page, 'git pull')).toContain('Already up to date.');
@@ -66,12 +66,12 @@ test('git clones a repository into the shell and pulls it forward', async ({ pag
     "fatal: destination path '.' already exists and is not an empty directory.",
   );
   expect(await run(page, 'git clone https://example.com/a/b.git')).toContain(
-    'fatal: the playground clones only from github.com, gitlab.com, codeberg.org',
+    'the playground fetches only from github.com, gitlab.com, codeberg.org',
   );
 });
 
 // git itself (git.wasm, git/build.py) at the shell: what it does in its own
-// process. A remote's subcommands stay the page's (coreutils.ts wasmGit).
+// process.
 test("the shell's git is git's own: commits, diffs, branches and a rebase", async ({ page }) => {
   await newProject(page, 'empty');
   await prompted(page, 1);
@@ -107,4 +107,42 @@ test("the shell's git is git's own: commits, diffs, branches and a rebase", asyn
   expect(gc).toContain('count: 0');
   expect(gc).not.toMatch(/cannot run|error/);
   expect(await run(page, 'git log --format=%s | head -n 1')).toMatch(/^feature$/m);
+});
+
+// What git starts besides itself: its transport (the remote helper,
+// git-remote.ts, through the site's proxy), an alias's `!` (sh -c) and a
+// hook (a #!/bin/sh script), each a process.
+test("git's remotes, aliases and hooks run as processes", async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(
+    await run(page, 'git ls-remote https://github.com/chrismccord/todo_trek.git main'),
+  ).toMatch(/^[0-9a-f]{40}\s+refs\/heads\/main$/m);
+  await run(page, 'mkdir repo && cd repo && git init -q -b main');
+  await run(page, 'git config user.name Ada && git config user.email ada@example.com');
+  await run(page, 'git remote add origin git@github.com:chrismccord/todo_trek.git');
+  const fetched = await run(
+    page,
+    'git fetch -q --depth 1 origin main && git log --oneline FETCH_HEAD',
+  );
+  expect(fetched).toMatch(/^[0-9a-f]{7,} /m);
+  expect(fetched).not.toMatch(/fatal|error/);
+  expect(await run(page, 'git push origin FETCH_HEAD:refs/heads/playground')).toContain('no push');
+
+  await run(page, `git config alias.hi '!echo "hi from $(basename "$PWD")"'`);
+  expect(await run(page, 'git hi')).toContain('hi from repo');
+  // (No templates: no hooks directory.)
+  await run(page, 'mkdir -p .git/hooks');
+  await writeText(
+    page,
+    '/work/repo/.git/hooks/pre-commit',
+    '#!/bin/sh\necho "hook saw $(git diff --cached --name-only)"\n',
+  );
+  await writeText(page, '/work/repo/a.txt', 'a\n');
+  expect(await run(page, 'git add a.txt && git commit -qm hooked')).toContain('hook saw a.txt');
+  await writeText(page, '/work/repo/.git/hooks/pre-commit', '#!/bin/sh\necho refused; exit 1\n');
+  const refused = await run(page, 'git commit -q --allow-empty -m nope; echo "status $?"');
+  expect(refused).toContain('refused');
+  expect(refused).toContain('status 1');
 });

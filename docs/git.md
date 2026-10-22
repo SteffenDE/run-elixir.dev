@@ -8,9 +8,10 @@ last_updated: 2026-10-22
 
 A plan for git in a project (clone, history, a diff view, push) and for
 signing in, and what each needs from the site's origins to stay safe.
-Built so far: `git clone` and `git pull` in the shell over isomorphic-git,
-and git itself built to WebAssembly for everything local, the processes
-it runs included ([below](#gitwasm-git-itself)). A project's history beyond git (every
+Built so far: git itself built to WebAssembly for the shell, the
+processes it runs and fetching over HTTPS included
+([below](#gitwasm-git-itself)); isomorphic-git for what a node (Mix) asks
+of git. A project's history beyond git (every
 change, the database too) is [history.md](history.md)'s.
 Mix's git dependencies are [architecture.md](architecture.md#git)'s.
 
@@ -19,18 +20,17 @@ Mix's git dependencies are [architecture.md](architecture.md#git)'s.
 Two engines, for now:
 
 - **git.wasm** ([below](#gitwasm-git-itself)): git 2.56 itself, for
-  every local subcommand at the shell. The engine to grow: agents (Claude
-  Code in the playground) and people expect git's own output,
-  `--porcelain` and all, and its whole porcelain (stash, rebase, apply,
-  blame, …), which a reimplementation would chase forever.
+  every subcommand at the shell, clone, fetch and pull included. The
+  engine to grow: agents (Claude Code in the playground) and people
+  expect git's own output, `--porcelain` and all, and its whole porcelain
+  (stash, rebase, apply, blame, …), which a reimplementation would chase
+  forever.
 - **The page program** (`src/project/lib/programs/git.ts`, isomorphic-git
   over the node's files), fetching through the site's proxy at
   `/git/HOST/OWNER/REPO/` (GitHub, GitLab, Codeberg; `git-upload-pack`
-  only): the shell's `clone`, `fetch`, `pull`, `push`, `ls-remote` and
-  `remote` (`wasmGit` in `coreutils.ts`), and all of what Mix asks of git
-  for a dependency (a node's `git` is always the page's). It stays Mix's
-  until git.wasm has a transport; maybe for good, as Mix's few commands
-  work.
+  only): all of what Mix asks of git for a dependency (a node's `git` is
+  always the page's; its ports run a program to its end, and git.wasm's
+  transport needs processes of the worker's).
 
 ### A baseline commit
 
@@ -225,14 +225,49 @@ instance of git.wasm, its own memory and so fresh globals; it runs at
 once with its parent, and either waits, suspended, on a pipe or the
 other.
 
+**`start_async`** (`patches/0002-wasi-async.patch`) runs a function of
+git's beside git (fetch-pack's and send-pack's sideband demultiplexer, a
+filter's feeder): under `__wasi__`, `wasi_async_start` (`stubs.c`) gives
+the host the `struct async` and a C stack of its own (512 KiB), and the
+host runs the exported `wasi_run_async` as a second coroutine of the same
+instance (`WebAssembly.promising`, from once git waits). Both share git's
+memory and descriptors, as a thread would; at each wait
+(`WASI.suspended`) a coroutine keeps its `__stack_pointer` (exported by
+the link) and the host's note of which runs (`in_async`), and puts them
+back when it resumes. The coroutine is a process of git's in the table
+(`Processes.task`), so `finish_async` waits for its pid; a `die` in it
+ends it alone (`die_async`).
+
+**`sh`** is brush, as a process with the streams it was given
+(`shProgram` in `worker/index.ts`): `sh -c LINE` (the file transport's
+`git-upload-pack '…'`, an alias's `!`), and a script whose `#!` names sh
+or bash (a hook). git has no templates (`/usr/share/git-core/templates`
+is empty), so no sample hooks.
+
+**The transport** is a remote helper (`runtime/git-remote.ts`), a
+process of the worker's that git starts as `git remote-https REMOTE URL`:
+protocol v2's `stateless-connect`, which only carries pkt-lines between
+git and smart HTTP through the site's proxy (`/git/HOST/OWNER/REPO`, the
+page's git's): the capability advertisement from a GET of `info/refs`
+(its `# service=` packet dropped), then each request git writes (to a
+flush packet) a POST to `git-upload-pack`, its answer passed on as it
+comes and a response-end packet (`0002`) after. SSH addresses
+(`git@HOST:OWNER/REPO`, `ssh://git@HOST/…`) of the proxied hosts are
+HTTPS by git's own `url.<base>.insteadOf` (`GIT_CONFIG_COUNT` in git's
+environment, `GIT_CONFIG`). Another host is refused by name; push is
+refused (the proxy has no `git-receive-pack`: [below](#push)).
+
 **Works** (in Chromium, Firefox and WebKit; `git.spec.ts`, and
 `processes.test.ts` in Node): init, add, commit (with `-m`, and its
 maintenance after), status (`--porcelain`, `--short --branch`), diff,
 log, show, blame, grep, branch, switch, rebase (not `-i`), cherry-pick,
-revert, reset, tag, stash, format-patch, config; and what runs other
+revert, reset, tag, stash, format-patch, config; what runs other
 processes: a merge with local changes (`--autostash`), `worktree add`,
 `gc` (`pack-refs`, `repack`, `pack-objects` over pipes), `repack`,
-`fsck`. Per command: a few ms over a small repository. On a Phoenix
+`fsck`, aliases with `!`, hooks; and over a transport: clone, fetch,
+pull, ls-remote from GitHub (HTTPS and SSH addresses, `--depth`), and
+clone, fetch and push over `file://` (`--no-local`: `upload-pack` and
+`receive-pack` as processes). Per command: a few ms over a small repository. On a Phoenix
 project with `deps` and `_build` forced in (3.8k files): `add` 3.3 s
 (fetching the template's lazy files included), `status` 0.2 s, `commit`
 0.5 s.
@@ -241,9 +276,9 @@ project with `deps` and `_build` forced in (3.8k files): `add` 3.3 s
 
 | Needs | For |
 | --- | --- |
-| A transport: `git-remote-https`, a conversation with git both ways | clone, fetch, pull, push (the page's git has them meanwhile) |
-| `start_async`, which forks without threads (`fetch-pack`'s and `send-pack`'s demultiplexer, `convert.c`'s filters) | fetch and push; a filter driver |
-| An editor; hooks through `sh` | `commit` without `-m`, `rebase -i`, `add -p`'s editing; hooks |
+| A token, and push over GitHub's REST API ([below](#push)) | push to GitHub |
+| An editor | `commit` without `-m`, `rebase -i`, `add -p`'s editing |
+| Private repositories (credentials through the helper, not the proxy) | clone and fetch of those |
 
 Also: the Phoenix template's `.git` (phx.new's `git init`) lacks `refs/`
 (the template keeps no empty directories), so git.wasm does not take it
@@ -254,21 +289,13 @@ for a repository until `git init` again: the baseline commit
 
 ### Next
 
-**The transport** is a remote helper written for the page (in
-TypeScript, a page program): `git-remote-https` speaking protocol v2's
-`stateless-connect`, which only carries pkt-lines between git and a
-POST to the proxy's `/git/…/git-upload-pack`. A few hundred lines; no
-curl, no `http.c`. As a child it must stream both ways while git runs,
-which a page program does not yet (it takes its input whole): it wants
-the process table's pipes on the page's side, or to be built for WASI.
-Push stays the REST API ([below](#push)), as the proxy must not see
-tokens: a helper with the `push` capability, or a page program after
-`git bundle`.
+**Push** stays the REST API ([below](#push)), as the proxy must not see
+tokens: the helper with the `push` capability, turning git's pack into
+the API's blobs, trees and commits.
 
-**`start_async`** runs a function of git's beside git: a second stack in
-the same instance under JSPI (`WebAssembly.promising` of an exported
-trampoline, with a C stack of its own), or, simpler, the demultiplexer
-inline where git allows it.
+**Mix on git.wasm** would retire isomorphic-git: a node's `git` (its
+ports run a program to its end, synchronously) would have to become a
+process of the worker's for the transport.
 
 **The editor** is the IDE's: `GIT_EDITOR` names a page program that
 opens the file in a tab and exits when it is closed. No pager: xterm
@@ -292,15 +319,14 @@ The architecture is still to settle; what there is, and the options:
 
 ## Built
 
-- **`git clone URL [DIR]`** (`--depth N`, `--branch NAME`, `-b`): into
-  `DIR`, or the repository's name, which must be missing or empty (`.`
-  clones into the shell's directory). The whole history, as git clones;
-  `--depth` (one branch, as in git) is for a large repository. An SSH address (`git@HOST:OWNER/REPO`)
-  is fetched over HTTPS; a host the proxy does not serve is refused by name.
-  Progress as git prints it.
-- **`git pull`**: fetches the current branch's upstream (origin, the same
-  name) and fast-forwards; a branch that has diverged is refused, a
-  detached HEAD too.
-- **The shell runs the page's programs** (`git`, `tailwind`, `esbuild`,
-  `sh`, `rebar3`) as it runs a node's commands; Ctrl+C stops one.
-- **git.wasm** for the shell's local subcommands ([above](#gitwasm-git-itself)).
+- **git.wasm at the shell** for every subcommand ([above](#gitwasm-git-itself)):
+  `git clone URL [DIR]`, `fetch`, `pull` (merges and rebases as git's do),
+  `ls-remote` from GitHub, GitLab and Codeberg through the proxy, SSH
+  addresses as HTTPS; a host the proxy does not serve is refused by name,
+  and push is refused. Progress as git prints it, as it is git's.
+- **The page's git** (isomorphic-git) for a node's `git` (Mix's
+  dependencies): `git clone` (`--depth`, `--branch`), `pull` as a
+  fast-forward, and what Mix runs.
+- **The shell runs the page's programs** (`tailwind`, `esbuild`, `node`,
+  `rebar3`) as processes that stream ([runtime.md](runtime.md#processes-processests));
+  Ctrl+C stops one.

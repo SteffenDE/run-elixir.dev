@@ -28,19 +28,6 @@ export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm', git: 'git.wasm'
 
 // git's subcommands that reach a remote, which git.wasm cannot yet (it has
 // no processes, so no transport): the page's git (isomorphic-git) runs them.
-const REMOTE = new Set(['clone', 'fetch', 'pull', 'push', 'ls-remote', 'remote']);
-
-// Whether git.wasm runs `git ARGS` (else the page's git): not for a remote,
-// the subcommand being the first argument that is not an option (-C DIR
-// and -c NAME=VALUE take the next).
-export function wasmGit(args: string[]): boolean {
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === '-C' || args[i] === '-c') i++;
-    else if (!args[i].startsWith('-')) return !REMOTE.has(args[i]);
-  }
-  return true;
-}
-
 // A tool of coreutils' or a program of PROGRAMS'.
 export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;
 

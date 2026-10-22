@@ -7,7 +7,7 @@
 // what would wait (a child, a pipe, the terminal's next key) suspends it,
 // and the worker's processes run meanwhile.
 import { Exit, WASI } from '../wasi';
-import { processCalls, type Processes } from '../processes';
+import { processCalls, share, type Child, type Processes } from '../processes';
 import type { Descriptor } from '../wasi/descriptors';
 import type { Dir, Fetch } from '../wasi/fs';
 import type { Shared } from '../wasi/shared';
@@ -50,6 +50,11 @@ export interface BrushOptions {
   // where it has the terminal's: its input and output.
   processes: Processes;
   standard: [Descriptor, Descriptor, Descriptor];
+  // As a process of the table (sh -c from git): its standard streams, the
+  // process it is, and what takes in signals at its calls.
+  stdio?: [Descriptor, Descriptor, Descriptor];
+  self?: Child;
+  pump?: () => void;
 }
 
 // brush until it exits: its exit status.
@@ -76,14 +81,22 @@ export async function brush(options: BrushOptions): Promise<number> {
     stdout: (bytes) => options.out(bytes.slice()),
     stderr: (bytes) => options.out(bytes.slice()),
     sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
-    tty: true,
+    tty: !options.stdio,
     fetch: options.fetch,
     shared: options.shared,
     suspending: true,
     // A pipeline's input, which brush writes before its reader starts.
     bounded: false,
+    pump: () => {
+      options.pump?.();
+      options.self?.check();
+    },
   });
-  const self = options.processes.adopt();
+  const self = options.self ?? options.processes.adopt();
+  if (options.stdio) {
+    options.stdio.forEach((entry, fd) => wasi.fds.set(fd, share(entry)));
+    wasi.interrupt = self.woken;
+  }
 
   // crossterm's WASI backend (brush/crossterm/patches).
   const crossterm = {
@@ -107,7 +120,7 @@ export async function brush(options: BrushOptions): Promise<number> {
   };
   const instance = new WebAssembly.Instance(options.module, {
     ...wasi.imports,
-    processes: processCalls(wasi, options.processes, self, options.standard),
+    processes: processCalls(wasi, options.processes, self, options.stdio ? [] : options.standard),
     crossterm,
   } as unknown as WebAssembly.Imports);
   memory = instance.exports.memory as WebAssembly.Memory;
@@ -121,6 +134,7 @@ export async function brush(options: BrushOptions): Promise<number> {
     if (error instanceof Exit) return error.code;
     throw error;
   } finally {
-    options.processes.forget(self);
+    if (options.stdio) wasi.release();
+    else options.processes.forget(self);
   }
 }

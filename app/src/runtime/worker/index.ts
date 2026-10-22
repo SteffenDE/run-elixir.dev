@@ -32,7 +32,8 @@ import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
-import { PROGRAMS, TOOLS, wasmGit, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { PROGRAMS, TOOLS, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { GIT_CONFIG, remoteHelper, throughProxy } from '../git-remote';
 import {
   HOSTED_LIMIT,
   Processes,
@@ -528,25 +529,33 @@ onmessage = async ({
     // site has.
     if (!brushModule) throw new Error('the site has no shell (brush.wasm: brush/build.py)');
     // What the shell runs for `program`: a node (its argv: a node command,
-    // an escript), a page program (git but for git.wasm's: wasmGit; a
+    // an escript), a page program (a
     // script for node, #!/usr/bin/env node, a package's bin in
     // node_modules/.bin), a program built for WASI (coreutils' tools, the
     // site's PROGRAMS), or nothing.
     type Found =
       | { node: string[] }
       | { page: string; args: string[] }
+      | { script: string[] }
       | { wasm: WebAssembly.Module };
     const find = (program: string, given: string[], at: string): Found | null => {
       const name = program.split('/').pop()!;
       const read = (path: string) => fs.read(join(at, path));
-      const head = program.startsWith('/') ? fs.read(program)?.subarray(0, 64) : null;
+      // A path's first bytes (a relative one's from `at`: git's hooks).
+      const path = program.startsWith('/')
+        ? program
+        : program.includes('/')
+          ? join(at, program)
+          : null;
+      const head = path ? fs.read(path)?.subarray(0, 64) : null;
       const shebang = head ? new TextDecoder().decode(head) : '';
       const argv =
         command(name, given, read) ??
         (/^#!.*\bescript\b/.test(shebang) ? command('escript', [program, ...given], read) : null);
       if (argv) return { node: argv };
-      const own =
-        name in PROGRAMS && (name !== 'git' || wasmGit(given)) ? load(PROGRAMS[name]) : null;
+      // A script for sh (a git hook, #!/bin/sh or #!/usr/bin/env bash).
+      if (/^#!.*\b(sh|bash)\b/.test(shebang)) return { script: [path!, ...given] };
+      const own = name in PROGRAMS ? load(PROGRAMS[name]) : null;
       if (own) return { wasm: own };
       if (pagePrograms.includes(name)) return { page: name, args: given };
       if (/^#!.*\bnode\b/.test(shebang) && pagePrograms.includes('node'))
@@ -569,10 +578,19 @@ onmessage = async ({
     // programs built for WASI as processes of their own, page programs
     // streaming to and from them, and nodes as the shell has always run
     // them (`external`), their input whole.
+    // sh as a process (below: it needs the shell's options).
+    let shProgram: Program = async () => 127;
     const processes: Processes = new Processes((program, given, at) => {
+      if (isSh(program)) return (child, spawn) => shProgram(child, spawn);
+      // git's transport for a remote (git.wasm starts it): HTTPS through
+      // the site's proxy.
+      if (program.split('/').pop() === 'git' && /^remote-https?$/.test(given[0] ?? ''))
+        return remoteHelper(throughProxy(location.origin));
       const found = find(program, given, at);
       if (!found) return null;
       if ('page' in found) return pageProgram(found.page, found.args);
+      if ('script' in found)
+        return (child, spawn) => shProgram(child, { ...spawn, args: found.script });
       if ('node' in found) return hosted(processes, external, sharedFs);
       const argv0 = program.split('/').pop()!;
       return wasmProgram(processes, found.wasm, {
@@ -582,7 +600,7 @@ onmessage = async ({
         argv0,
         pump: check,
         // git's pager would be another process; `cat` is none to git.
-        defaults: argv0 === 'git' ? { GIT_PAGER: 'cat' } : {},
+        defaults: argv0 === 'git' ? { GIT_PAGER: 'cat', ...GIT_CONFIG } : {},
         columns: () => channel.size[0],
       });
     }, check);
@@ -648,35 +666,32 @@ onmessage = async ({
       standard,
     });
 
-    // sh -c LINE [NAME ARGS…], as a node's sh runs it (System.shell,
-    // open_port's spawn, npm's scripts): brush, without its line editor or
-    // rc files, from the port's directory (WASI has none: brush starts in
-    // /).
-    if (sh) {
-      const cwd = env.PWD || start;
-      // bash -c -l LINE (Claude Code's) as sh -c LINE: brush has no
-      // profile to log in with.
-      const args = named!.slice(1);
+    // sh -c LINE [NAME ARGS…] as brush's arguments, without its line editor
+    // or rc files, from `cwd` (WASI has none: brush starts in /); else
+    // what sh says instead, and its status. bash -c -l LINE (Claude
+    // Code's) is sh -c LINE: brush has no profile to log in with. The rest
+    // are $0, $1, … as sh's: after `--`, or brush's options take one that
+    // starts with `-` (file_system's `inotifywait` wrapper passes -e …).
+    const shArgs = (
+      given: string[],
+      cwd: string,
+    ): { args: string[] } | { message: string; status: number } => {
+      const args = [...given];
       const login = (a: string | undefined) => a === '-l' || a === '--login';
       while (login(args[0])) args.shift();
       if (args[0] === '-c') while (login(args[1])) args.splice(1, 1);
+      // sh FILE ARGS…: the script, sourced (its $0 the file).
+      if (args[0] && !args[0].startsWith('-')) args.unshift('-c', `. ${quote(args[0])}`);
       const [flag, line = '', ...rest] = args;
       // What a program probes a shell with (Claude Code's, for bash).
-      if (flag === '--version') {
-        text('GNU bash, version 5.2.0 compatible (brush, the playground)\n');
-        say('exit', 0);
-        return;
-      }
-      if (flag !== '-c') {
-        text('sh: only sh -c LINE runs in the playground\n');
-        say('exit', 2);
-        return;
-      }
-      // The rest are $0, $1, … as sh's: after `--`, or brush's options
-      // take one that starts with `-` (file_system's `inotifywait`
-      // wrapper passes -e …).
-      const status = await brush({
-        ...shellOptions(cwd),
+      if (flag === '--version')
+        return {
+          message: 'GNU bash, version 5.2.0 compatible (brush, the playground)\n',
+          status: 0,
+        };
+      if (flag !== '-c')
+        return { message: 'sh: only sh -c LINE runs in the playground\n', status: 2 };
+      return {
         args: [
           '--norc',
           '--noprofile',
@@ -684,8 +699,39 @@ onmessage = async ({
           `cd ${quote(cwd)} || exit 1\n${line}`,
           ...(rest.length ? ['--', ...rest] : []),
         ],
+      };
+    };
+    // sh (or bash) as a process of the table: brush with the streams it
+    // was given (git's `sh -c`, a hook, an alias's `!`).
+    shProgram = async (child, { args: given, cwd, env: vars, stdio }) => {
+      const parsed = shArgs(given, cwd);
+      if ('message' in parsed) {
+        await writeAll(stdio[1], new TextEncoder().encode(parsed.message), child, sharedFs);
+        return parsed.status;
+      }
+      return brush({
+        ...shellOptions(cwd),
+        env: { ...ENV, ...vars, PWD: cwd },
+        args: parsed.args,
+        stdio,
+        self: child,
+        pump: check,
       });
-      say('exit', status);
+    };
+
+    // sh -c LINE [NAME ARGS…], as a node's sh runs it (System.shell,
+    // open_port's spawn, npm's scripts): brush, without its line editor or
+    // rc files, from the port's directory (WASI has none: brush starts in
+    // /).
+    if (sh) {
+      const cwd = env.PWD || start;
+      const parsed = shArgs(named!.slice(1), cwd);
+      if ('message' in parsed) {
+        text(parsed.message);
+        say('exit', parsed.status);
+        return;
+      }
+      say('exit', await brush({ ...shellOptions(cwd), args: parsed.args }));
       return;
     }
 

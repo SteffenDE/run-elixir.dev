@@ -15,6 +15,13 @@ int dup(int); int dup2(int, int);
 int pipe(int [2]);
 /* The host's spawn (stubs.c; run-command.c's WASI branch). */
 pid_t wasi_spawn(const char **argv, char **env, const char *dir, int in, int out, int err);
+/* The host's coroutines for start_async (run-command.c's WASI branch):
+   one runs wasi_run_async(async) on a stack of its own (*stack, for the
+   caller to free once it waited for the pid); the async that runs now
+   (NULL: git's own); and ending it. */
+pid_t wasi_async_start(void *async, void **stack);
+void *wasi_async_current(void);
+_Noreturn void wasi_async_exit(int code);
 unsigned alarm(unsigned);
 int kill(pid_t, int);
 pid_t setsid(void);

@@ -24,6 +24,9 @@ HOST(wait) int host_wait(int pid, int *status, int nohang);
 HOST(kill) int host_kill(int pid, int signal);
 HOST(dup) int host_dup(int fd, int *opened);
 HOST(dup2) int host_dup2(int fd, int to);
+HOST(async_start) int host_async_start(void *async, void *top, int *pid);
+HOST(async_current) void *host_async_current(void);
+HOST(async_exit) _Noreturn void host_async_exit(int code);
 
 static int answer(int error) {
   if (!error) return 0;
@@ -46,6 +49,25 @@ pid_t waitpid(pid_t pid, int *status, int options) {
   if (status) *status = got;
   return pid;
 }
+
+/* An async's C stack: what sideband_demux and its kind need (git's own
+   is 1 MiB, config.mak). */
+#define ASYNC_STACK (512 << 10)
+
+pid_t wasi_async_start(void *async, void **stack) {
+  int pid;
+  char *base = malloc(ASYNC_STACK);
+  *stack = base;
+  if (!base) return answer(ENOMEM);
+  if (answer(host_async_start(async, base + ASYNC_STACK, &pid))) {
+    free(base);
+    *stack = NULL;
+    return -1;
+  }
+  return pid;
+}
+void *wasi_async_current(void) { return host_async_current(); }
+_Noreturn void wasi_async_exit(int code) { host_async_exit(code); }
 
 /* The host runs argv[0] (by name, as the shell finds it) in `dir` (else
    here), with `env` as its environment and our in, out and err as its

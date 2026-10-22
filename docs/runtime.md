@@ -34,6 +34,7 @@ JavaScript.
 | `nodejs/` (`nodejs.js`) | worker | A Node.js process or worker thread: Node's modules over the shared files ([nodejs.md](nodejs.md)). |
 | `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
 | `processes.ts` | worker, Node | A worker's processes: programs built for WASI (and the host's) running at once as coroutines under JSPI, their descriptors shared, pipes between them ([below](#processes-processests)). |
+| `git-remote.ts` | worker, Node | git's remote helper for HTTPS (`git remote-https`): protocol v2's `stateless-connect` through the site's proxy, as a process ([git.md](git.md#gitwasm-git-itself)). |
 | `sh.ts` | worker, page | Command lines split into words; `&&`-joined commands for the Node harness's `sh -c` (with a page, `sh -c` is brush). |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
@@ -279,6 +280,15 @@ Firefox and WebKit have JSPI (`WebAssembly.Suspending`, `promising`).
   to its end, holding the worker. It cannot wait for room in a pipe: it
   writes up to 16 MiB ahead of its reader, and drops what it writes once
   the reader is gone.
+- **A task** (`Processes.task`) is a function of a process's own, run
+  beside it as a coroutine of the same instance (git's `start_async`:
+  `async_start`): it shares its parent's descriptors, and each coroutine
+  keeps its C stack pointer across a wait (`WASI.suspended`). A process
+  that exits leaves its children to nobody: those that exited are
+  forgotten, the others once they do (as init reaps orphans).
+- **sh** is brush as a process (`shProgram`): `sh -c LINE`, `sh FILE`,
+  and a script whose `#!` names sh or bash, with the streams it was
+  given.
 - **Signals:** `kill` marks a process and wakes it if it waits; its next
   call ends it (128 + the signal). A parent's `wait` takes in Ctrl+C
   (`idle`, the channel), which stops every process but the shell.

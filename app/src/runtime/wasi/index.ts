@@ -98,6 +98,14 @@ export class WASI {
   // Settles when the process is told to stop (a signal): a wait ends,
   // and `pump` sees why.
   declare interrupt: Promise<unknown> | null;
+  // An instance with coroutines of its own (git's start_async: processes.ts
+  // async_start): its C stack pointer, which each keeps across a wait
+  // (`suspended`), and the one that runs now (its `struct async`, 0: the
+  // instance's start).
+  declare stack: WebAssembly.Global | null;
+  declare strand: number;
+  // The instance's exports, once instantiated (for its coroutines).
+  declare exports: WebAssembly.Exports | null;
 
   // { args, env, root: Dir, stdin(), stdout(bytes), stderr(bytes),
   // sleep(ms), tty }: with tty, the standard streams are terminals.
@@ -137,6 +145,9 @@ export class WASI {
     this.bounded = bounded;
     this.blocked = null;
     this.interrupt = null;
+    this.stack = null;
+    this.strand = 0;
+    this.exports = null;
     this.shared = shared;
     this.terminal = terminal;
     this.onchange = onchange;
@@ -180,6 +191,20 @@ export class WASI {
     return E.AGAIN;
   }
 
+  // Until `waiting` settles, suspended: another of the instance's
+  // coroutines may run meanwhile, on its own C stack, so the caller's
+  // comes back with it.
+  async suspended<T>(waiting: Promise<T>): Promise<T> {
+    const stack = this.stack?.value as number | undefined;
+    const strand = this.strand;
+    try {
+      return await waiting;
+    } finally {
+      if (this.stack) this.stack.value = stack;
+      this.strand = strand;
+    }
+  }
+
   // The calls that may wait, wrapped for JSPI: one that does not wait
   // answers at once, without suspending.
   suspend(calls: Record<string, Syscall>): Record<string, Syscall> {
@@ -189,7 +214,7 @@ export class WASI {
       while (this.blocked) {
         const blocked = this.blocked;
         this.blocked = null;
-        await (this.interrupt ? Promise.race([blocked, this.interrupt]) : blocked);
+        await this.suspended(this.interrupt ? Promise.race([blocked, this.interrupt]) : blocked);
         this.pump();
         result = call(...args);
       }
@@ -262,7 +287,7 @@ export class WASI {
       if (soonest !== null)
         waits.push(new Promise((resolve) => setTimeout(resolve, Number(soonest - time) / 1e6)));
       if (this.interrupt) waits.push(this.interrupt);
-      await Promise.race(waits);
+      await this.suspended(Promise.race(waits));
     }
   }
 

@@ -44,6 +44,9 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
   root.mkdirs('tmp');
   root.mkdirs('home/user');
   root.mkdirs('shared');
+  // git.wasm's templates (none: hooks are samples): its init and clone
+  // warn without the directory.
+  root.mkdirs('usr/share/git-core/templates');
   root.put('dev/urandom', urandom());
   root.put('dev/null', devnull());
   // Names from the hosts file, then the page's DNS (the Emscripten BEAM's

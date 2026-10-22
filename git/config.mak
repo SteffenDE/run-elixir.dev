@@ -8,7 +8,9 @@ CFLAGS = -Oz -Wno-macro-redefined -I/zlib/include -I/wasi/include -include /wasi
 	-Dchmod=wasi_chmod -Dfchmod=wasi_fchmod \
 	-D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_GETPID -D_WASI_EMULATED_MMAN
 # A stack of 1 MiB (wasm-ld's default is 64 KiB): history walks recurse.
-LDFLAGS = -L/zlib/lib -Wl,-z,stack-size=1048576 \
+# The stack pointer exported: the host switches it between git and an
+# async's coroutine (stubs.c wasi_async_start).
+LDFLAGS = -L/zlib/lib -Wl,-z,stack-size=1048576 -Wl,--export=__stack_pointer \
 	-lwasi-emulated-signal -lwasi-emulated-process-clocks -lwasi-emulated-getpid -lwasi-emulated-mman
 LIB_OBJS += /wasi/stubs.o
 

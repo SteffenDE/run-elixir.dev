@@ -8,12 +8,16 @@ import {
   inputPipe,
   pipe,
   release,
+  share,
   wasmProgram,
   type Program,
+  type Resolve,
 } from '@/runtime/processes';
+import { remoteHelper } from '@/runtime/git-remote';
 import type { Descriptor } from '@/runtime/wasi/descriptors';
 import { CAPACITY, Pipe } from '@/runtime/wasi/pipe';
 import { Dir, File, devnull } from '@/runtime/wasi/fs';
+import { words } from '@/runtime/sh';
 
 const encode = (text: string) => new TextEncoder().encode(text);
 const decode = (bytes: Uint8Array) => new TextDecoder().decode(bytes);
@@ -192,20 +196,40 @@ describe('Processes', () => {
 // git itself (git/build.py), when it is built: what it runs as processes.
 const GIT = new URL('../../../target/git/git.wasm', import.meta.url).pathname;
 describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
-  test('a merge with local changes, a worktree, gc and fsck', { timeout: 60_000 }, async () => {
+  // A repository at /work/repo with one commit, and git(cwd, ...args).
+  async function repository(other: Resolve = () => null) {
     const module = new WebAssembly.Module(readFileSync(GIT));
     const root = new Dir();
     root.put('dev/null', devnull());
     root.put('home/.keep', new File());
+    root.mkdirs('usr/share/git-core/templates');
     root.put('work/repo/a.txt', new File(encode('one\n')));
     const fetch = () => {
       throw new Error('no fetch');
     };
-    const processes: Processes = new Processes((program) =>
-      program.split('/').pop() === 'git'
-        ? wasmProgram(processes, module, { root, fetch, shared: null })
-        : null,
-    );
+    // sh -c LINE as a simple command's words, run with sh's own streams
+    // (the playground's sh is brush: worker/index.ts).
+    const sh: Program = async (_child, { args, cwd, env: vars, stdio }) => {
+      const [program, ...rest] = words(args[1] ?? '');
+      const status = await processes.run({
+        program,
+        args: rest,
+        cwd,
+        env: vars,
+        stdio: stdio.map((entry) => share(entry)) as typeof stdio,
+      });
+      return status ?? 127;
+    };
+    const processes: Processes = new Processes((program, args, cwd) => {
+      const found = other(program, args, cwd);
+      if (found) return found;
+      const name = program.split('/').pop()!;
+      if (name === 'sh') return sh;
+      // git-upload-pack and its kind: git's dashed names.
+      return name === 'git' || name.startsWith('git-')
+        ? wasmProgram(processes, module, { root, fetch, shared: null, argv0: name })
+        : null;
+    });
     const env = {
       HOME: '/home',
       GIT_AUTHOR_NAME: 'A',
@@ -214,33 +238,132 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
       GIT_COMMITTER_EMAIL: 'a@example.com',
       GIT_PAGER: 'cat',
     };
-    const git = async (...args: string[]) => {
+    const git = async (cwd: string, ...args: string[]) => {
       const out = capture();
       const status = await processes.run({
         program: 'git',
         args,
-        cwd: '/work/repo',
+        cwd,
         env,
         stdio: [inputPipe(new Uint8Array(0)), out.entry, out.entry],
       });
       return { status, text: out.text() };
     };
-    await git('init', '-q', '-b', 'main');
-    await git('add', 'a.txt');
-    expect((await git('commit', '-qm', 'first')).text).not.toContain('cannot run');
-    await git('switch', '-qc', 'feature');
+    // git upload-pack as smart HTTP's server runs it (protocol v2): its
+    // answer's bytes.
+    const serve = async (dir: string, body: Uint8Array, info: boolean) => {
+      const parts: Uint8Array[] = [];
+      const out: Descriptor = { stream: true, sink: (bytes) => void parts.push(bytes.slice()) };
+      await processes.run({
+        program: 'git',
+        args: [
+          'upload-pack',
+          '--stateless-rpc',
+          ...(info ? ['--http-backend-info-refs'] : []),
+          dir,
+        ],
+        cwd: '/',
+        env: { ...env, GIT_PROTOCOL: 'version=2' },
+        stdio: [inputPipe(body), out, capture().entry],
+      });
+      return new Blob(parts as BlobPart[]);
+    };
+    await git('/work/repo', 'init', '-q', '-b', 'main');
+    await git('/work/repo', 'add', 'a.txt');
+    await git('/work/repo', 'commit', '-qm', 'first');
+    return { git, root, processes, serve };
+  }
+
+  test('a merge with local changes, a worktree, gc and fsck', { timeout: 60_000 }, async () => {
+    const { git, root, processes } = await repository();
+    const at = (...args: string[]) => git('/work/repo', ...args);
+    await at('switch', '-qc', 'feature');
     root.put('work/repo/b.txt', new File(encode('b\n')));
-    await git('add', 'b.txt');
-    await git('commit', '-qm', 'feature');
-    await git('switch', '-q', 'main');
+    await at('add', 'b.txt');
+    expect((await at('commit', '-qm', 'feature')).text).not.toContain('cannot run');
+    await at('switch', '-q', 'main');
     root.put('work/repo/a.txt', new File(encode('one\nlocal\n')));
-    expect((await git('merge', '--autostash', '--no-edit', 'feature')).text).toContain(
+    expect((await at('merge', '--autostash', '--no-edit', 'feature')).text).toContain(
       'Applied autostash.',
     );
-    expect((await git('worktree', 'add', '-q', '../wt')).status).toBe(0);
-    expect((await git('gc', '-q')).status).toBe(0);
-    expect((await git('count-objects', '-v')).text).toContain('count: 0');
-    expect((await git('fsck')).status).toBe(0);
+    expect((await at('worktree', 'add', '-q', '../wt')).status).toBe(0);
+    expect((await at('gc', '-q')).status).toBe(0);
+    expect((await at('count-objects', '-v')).text).toContain('count: 0');
+    expect((await at('fsck')).status).toBe(0);
     expect(processes.table.size).toBe(0);
   });
+
+  test(
+    'a clone, a push and a fetch over file://, with start_async',
+    { timeout: 60_000 },
+    async () => {
+      const { git, root, processes } = await repository();
+      // --no-local: upload-pack as a child (through sh), the sideband
+      // demultiplexed beside git (start_async).
+      const cloned = await git('/work', 'clone', '--no-local', '-q', 'file:///work/repo', 'copy');
+      expect(cloned.text).toBe('');
+      expect(cloned.status).toBe(0);
+      expect((await git('/work/copy', 'log', '--format=%s')).text).toBe('first\n');
+      root.put('work/copy/c.txt', new File(encode('c\n')));
+      await git('/work/copy', 'add', 'c.txt');
+      await git('/work/copy', 'commit', '-qm', 'second');
+      await git('/work', 'init', '-q', '--bare', 'bare.git');
+      const pushed = await git('/work/copy', 'push', '-q', 'file:///work/bare.git', 'main');
+      expect(pushed.text).toBe('');
+      expect(pushed.status).toBe(0);
+      expect((await git('/work/bare.git', 'log', '--format=%s', 'main')).text).toBe(
+        'second\nfirst\n',
+      );
+      const fetched = await git('/work/repo', 'fetch', '-q', 'file:///work/bare.git', 'main');
+      expect(fetched.status).toBe(0);
+      expect((await git('/work/repo', 'log', '--format=%s', 'FETCH_HEAD')).text).toBe(
+        'second\nfirst\n',
+      );
+      expect(processes.table.size).toBe(0);
+    },
+  );
+
+  test(
+    'a clone and a fetch over HTTPS, through the remote helper',
+    { timeout: 60_000 },
+    async () => {
+      // The helper's server: git upload-pack for /work/repo (as a proxy's
+      // smart HTTP would answer), its requests and answers counted.
+      const asked: string[] = [];
+      const fake = (async (url: string, init?: RequestInit) => {
+        asked.push(`${init?.method ?? 'GET'} ${url}`);
+        const body = init?.body ? new Uint8Array(init.body as Uint8Array) : new Uint8Array(0);
+        return new Response(await serve('/work/repo', body, url.includes('/info/refs')));
+      }) as typeof fetch;
+      const helper = remoteHelper(
+        (url) =>
+          url.hostname === 'github.com' ? `http://proxy/git/github.com${url.pathname}` : null,
+        fake,
+      );
+      const { git, root, processes, serve } = await repository((program, args) =>
+        program === 'git' && args[0] === 'remote-https' ? helper : null,
+      );
+      const cloned = await git('/work', 'clone', '-q', 'https://github.com/a/repo', 'copy');
+      expect(cloned.text).toBe('');
+      expect(cloned.status).toBe(0);
+      expect((await git('/work/copy', 'log', '--format=%s')).text).toBe('first\n');
+      expect(asked[0]).toBe(
+        'GET http://proxy/git/github.com/a/repo/info/refs?service=git-upload-pack',
+      );
+      expect(
+        asked
+          .slice(1)
+          .every((line) => line === 'POST http://proxy/git/github.com/a/repo/git-upload-pack'),
+      ).toBe(true);
+      root.put('work/repo/b.txt', new File(encode('b\n')));
+      await git('/work/repo', 'add', 'b.txt');
+      await git('/work/repo', 'commit', '-qm', 'second');
+      const fetched = await git('/work/copy', 'pull', '-q', '--ff-only');
+      expect(fetched.text).toBe('');
+      expect((await git('/work/copy', 'log', '--format=%s')).text).toBe('second\nfirst\n');
+      expect((await git('/work/copy', 'ls-remote', 'origin')).text).toMatch(/refs\/heads\/main/);
+      expect((await git('/work/copy', 'push', 'origin', 'main')).text).toContain('no push');
+      expect(processes.table.size).toBe(0);
+    },
+  );
 });

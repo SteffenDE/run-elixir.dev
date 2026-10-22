@@ -21,6 +21,9 @@ import { OutputLimitError } from './worker/output';
 // cannot wait): an infinite producer fails instead of exhausting memory.
 export const HOSTED_LIMIT = 16 << 20;
 
+// The parent of a process whose parent exited first.
+const ORPHAN = -1;
+
 export const SIGINT = 2;
 export const SIGKILL = 9;
 export const SIGTERM = 15;
@@ -136,12 +139,48 @@ export class Processes {
         }
       } finally {
         for (const entry of spawn.stdio) release(entry);
+        this.ended(child);
       }
       return child.status;
     })();
     // An orphan's failure is nobody's to hear.
     child.exited.catch(() => {});
     return child;
+  }
+
+  // A process that is a function of `parent`'s own (git's start_async),
+  // run from the next microtask: it shares its parent's descriptors, so it
+  // has no streams of its own.
+  task(parent: number, run: () => Promise<number>): Child {
+    const child = new Child(this.next++, parent);
+    this.table.set(child.pid, child);
+    child.exited = (async () => {
+      await Promise.resolve();
+      try {
+        child.status = (await run()) & 0xff;
+      } catch (error) {
+        if (error instanceof Exit) child.status = error.code & 0xff;
+        else {
+          console.error(error);
+          child.status = 1;
+        }
+      }
+      this.ended(child);
+      return child.status;
+    })();
+    child.exited.catch(() => {});
+    return child;
+  }
+
+  // `child` exited: what it did not wait for is nobody's to (an orphan,
+  // as init reaps them), nor is it once it was orphaned itself.
+  ended(child: Child): void {
+    for (const other of this.table.values())
+      if (other.parent === child.pid) {
+        if (other.status !== null) this.table.delete(other.pid);
+        else other.parent = ORPHAN;
+      }
+    if (child.parent === ORPHAN) this.table.delete(child.pid);
   }
 
   // Every process but the shell: Ctrl+C at the terminal. (Not only the
@@ -402,6 +441,9 @@ export function wasmProgram(
       processes: processCalls(wasi, processes, child),
     } as WebAssembly.Imports);
     wasi.memory = instance.exports.memory as WebAssembly.Memory;
+    wasi.exports = instance.exports;
+    // oxlint-disable-next-line no-underscore-dangle -- the C stack's own name.
+    wasi.stack = (instance.exports.__stack_pointer as WebAssembly.Global | undefined) ?? null;
     // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a program's start.
     const start = WebAssembly.promising(instance.exports._start as () => void);
     try {
@@ -476,20 +518,42 @@ export function processCalls(
       if (!child || child.parent !== self.pid) return E.CHILD;
       if (child.status === null && mode === 1) return E.AGAIN;
       if (child.status === null && mode === 2) {
-        await Promise.race([child.exited, new Promise((resolve) => setTimeout(resolve, 10))]);
+        await wasi.suspended(
+          Promise.race([child.exited, new Promise((resolve) => setTimeout(resolve, 10))]),
+        );
         if (child.status === null) return E.AGAIN;
       }
       while (child.status === null) {
         const tick = new Promise((resolve) => setTimeout(resolve, 50));
-        await Promise.race([child.exited, self.woken, tick]);
+        await wasi.suspended(Promise.race([child.exited, self.woken, tick]));
         processes.idle();
         self.check();
       }
-      const status = (await processes.wait(pid, self.pid))!;
+      const status = (await wasi.suspended(processes.wait(pid, self.pid)))!;
       const signaled = child.signal !== null && status === 128 + child.signal;
       wasi.view().setInt32(statusPtr, signaled ? child.signal! : status << 8, true);
       return E.SUCCESS;
     }),
+    // async_start(async, top, pid): wasi_run_async(async) as a coroutine
+    // of this instance beside its own (git's start_async), its C stack
+    // below `top`, from once this one waits; a process of this one's to
+    // wait for.
+    async_start(asyncPtr: number, top: number, pidPtr: number) {
+      const run = wasi.exports?.wasi_run_async as ((async: number) => number) | undefined;
+      const stack = wasi.stack;
+      if (!run || !stack) return E.NOSYS;
+      const task = processes.task(self.pid, async () => {
+        stack.value = top;
+        wasi.strand = asyncPtr;
+        return WebAssembly.promising(run)(asyncPtr);
+      });
+      wasi.view().setUint32(pidPtr, task.pid, true);
+      return E.SUCCESS;
+    },
+    async_current: () => wasi.strand,
+    async_exit(code: number) {
+      throw new Exit(code);
+    },
     kill(pid: number, signal: number) {
       const child = processes.table.get(pid);
       if (!child) return E.SRCH;
