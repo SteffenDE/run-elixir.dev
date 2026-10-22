@@ -92,6 +92,22 @@ describe('changes', () => {
     ]);
   });
 
+  it('keeps a committed script executable where files have no executable bit', async () => {
+    writeFileSync(join(dir, 'run.sh'), '#!/bin/sh\n');
+    sh('update-index', '--add', '--chmod=+x', 'run.sh');
+    sh('commit', '-q', '-m', 'Script');
+    // As git.wasm sees the files (no mode bits), from an index of its own.
+    sh('config', 'core.filemode', 'false');
+    sh('update-index', '--chmod=-x', 'run.sh');
+    sh('reset', '-q');
+    const found = await changes(git, 'uncommitted');
+    expect(found.changes).toEqual([]);
+    // Moved on (another HEAD): the index starts from that one.
+    writeFileSync(join(dir, 'run.sh'), '#!/bin/sh\necho\n');
+    sh('commit', '-q', '-am', 'More');
+    expect((await changes(git, 'uncommitted')).changes).toEqual([]);
+  });
+
   it('diffs a repository with no commit against the empty tree', async () => {
     rmSync(join(dir, '.git'), { recursive: true });
     sh('init', '-q');

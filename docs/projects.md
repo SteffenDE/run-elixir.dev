@@ -19,6 +19,7 @@ Nothing is stored on the server.
 | `/iex` | A temporary IEx: an empty project whose first shell runs `iex`, kept nowhere, marked *ephemeral*. Each visit is a new one. |
 | `/ID/` | A project. `ID` is ten random letters and digits; an unknown one says so. |
 | `/import#DATA` | A shared project's link: what it holds, and a new project made from it. |
+| `/github/OWNER/REPO[/tree/REF]` | A public repository (`/gitlab/…`, `/codeberg/…` too), and a new project cloned from it ([git.md](git.md#opening-a-repository)). |
 
 Every path is the same page (`index.html`; the server falls back to it, see
 [deploy.md](deploy.md)). The tab moves between them in place

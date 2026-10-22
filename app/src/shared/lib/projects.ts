@@ -4,6 +4,7 @@
 import Dexie, { type Table } from 'dexie';
 import { newId } from './ids';
 import { randomName } from './names';
+import type { Repository } from './repository';
 import type { Shared } from './share';
 import { siteTemplate, type Template } from './templates';
 
@@ -11,6 +12,7 @@ import { siteTemplate, type Template } from './templates';
 // /work. A temporary IEx is an empty project that is not stored.
 export type Kind = 'phoenix' | 'empty';
 export type WorkspaceKind = Kind | 'iex';
+export type Origin = 'link' | 'fork' | 'repository';
 
 // Presets seed ordinary project settings; runtime startup reads the
 // project's saved commands, including an explicitly empty value.
@@ -28,10 +30,11 @@ export interface Project {
   // The template it was made from (Phoenix; none for older projects until
   // they are opened).
   template?: Template;
-  // Where it came from, if not this browser's own: a share link, or a
-  // live session's fork. Such a project takes the user's settings (their
-  // environment, /shared, the setup script) only once allowed (`trust`).
-  origin?: 'link' | 'fork';
+  // Where it came from, if not this browser's own: a share link, a live
+  // session's fork, or a repository cloned. Such a project takes the
+  // user's settings (their environment, /shared, the setup script) only
+  // once allowed (`trust`).
+  origin?: Origin;
   trust?: boolean;
   // Its own settings (settings.ts): what its first shell runs at each start
   // (lines; empty: just a shell), and environment over the user's defaults.
@@ -39,13 +42,17 @@ export interface Project {
   env?: Record<string, string>;
   // The user's setup script ran in it (once, at its first start).
   setUp?: boolean;
+  // The GitHub repository (OWNER/REPO) it last pushed to: a push elsewhere
+  // asks again (its remote is the project's code's to change).
+  pushedTo?: string;
 }
 
 // What a project made from a link starts with, until its first start
-// lays it over the template.
-interface Seed {
+// lays it over the template; or the repository its first start clones.
+export interface Seed {
   id: string;
-  shared: Shared;
+  shared?: Shared;
+  clone?: Repository;
 }
 
 // The user's settings for every project (settings.ts), under one key.
@@ -127,18 +134,29 @@ export async function importProject(shared: Shared, origin?: 'link' | 'fork'): P
   });
 }
 
+// A new empty project that its first start clones `repository` into.
+export async function cloneProject(repository: Repository): Promise<Project> {
+  // Before the transaction: it would end while a fetch is awaited.
+  const template = (await siteTemplate('empty')) ?? undefined;
+  return database.transaction('rw', database.projects, database.seeds, async () => {
+    const project = await createProject('empty', repository.name, template);
+    await database.projects.update(project.id, { origin: 'repository' });
+    await database.seeds.put({ id: project.id, clone: repository });
+    return { ...project, origin: 'repository' as const };
+  });
+}
+
 // A project's own settings, and what the user allowed it.
 export async function updateProject(
   id: string,
-  changes: Partial<Pick<Project, 'trust' | 'startup' | 'env' | 'setUp'>>,
+  changes: Partial<Pick<Project, 'trust' | 'startup' | 'env' | 'setUp' | 'pushedTo'>>,
 ): Promise<void> {
   await database.projects.update(id, changes);
 }
 
-// The link's changes a project has yet to take (once).
-export async function takeSeed(id: string): Promise<Shared | null> {
-  const seed = await database.seeds.get(id);
-  return seed?.shared ?? null;
+// The link's changes (or the repository) a project has yet to take (once).
+export async function takeSeed(id: string): Promise<Seed | null> {
+  return (await database.seeds.get(id)) ?? null;
 }
 
 export async function seedTaken(id: string): Promise<void> {

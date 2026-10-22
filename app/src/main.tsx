@@ -2,6 +2,7 @@ import { Fragment, StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { HomePage } from '@/home/components/HomePage';
 import { ImportPage } from '@/home/components/ImportPage';
+import { RepositoryPage } from '@/home/components/RepositoryPage';
 import { GuestPage } from '@/live/components/GuestPage';
 import { NotFound } from '@/home/components/NotFound';
 import { OpenElsewhere } from '@/project/components/OpenElsewhere';
@@ -19,6 +20,7 @@ import { moveFormerStores } from '@/shared/lib/migrate';
 import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lock';
 import { routeWith } from '@/shared/lib/navigate';
 import { createProject, getProject, isId, openedProject, type Kind } from '@/shared/lib/projects';
+import { isRepositoryPath, repositoryOfPath, repositoryPath } from '@/shared/lib/repository';
 import { loadSite, movedTo, previewSite, projectUrl, strayOrigin } from '@/shared/lib/site';
 import '@/styles.css';
 
@@ -36,6 +38,8 @@ import '@/styles.css';
 //   /phoenix    a new Phoenix project; /empty, a new empty one
 //   /iex        a temporary IEx, kept nowhere
 //   /import#…   a shared project's link
+//   /github/OWNER/REPO[/tree/REF]  a public repository, to clone into a
+//               new project (/gitlab/…, /codeberg/… too: repository.ts)
 //   /tailscale  this browser's Tailscale node (docs/tailscale.md)
 //   /settings   the user's settings for every project (settings.ts)
 //   /live/ID#…  a live session's link, to join it
@@ -69,6 +73,14 @@ async function page(path: string): Promise<ReactNode> {
   const name = path.split('/').filter(Boolean)[0] ?? '';
   if (!name) return <HomePage />;
   if (name === 'import') return <ImportPage />;
+  if (isRepositoryPath(name)) {
+    const repository = repositoryOfPath(path);
+    if (!repository) return <NotFound />;
+    // The site's own form of the address.
+    if (path !== repositoryPath(repository))
+      history.replaceState(null, '', repositoryPath(repository));
+    return <RepositoryPage repository={repository} />;
+  }
   if (name === 'tailscale') return <TailscalePage />;
   if (name === 'settings') return <SettingsPage />;
   if (name === 'live') {
@@ -164,6 +176,7 @@ const isRoute = ({ pathname }: URL) => {
   return (
     !name ||
     ['import', 'tailscale', 'settings', 'live', 'iex', ...Object.keys(SHORTCUTS)].includes(name) ||
+    isRepositoryPath(name) ||
     isId(name)
   );
 };

@@ -19,6 +19,11 @@ const decoder = new TextDecoder();
 // The site's proxy at /git/HOST/OWNER/REPO (serve.py, Caddy: docs/deploy.md).
 const PROXIED = ['github.com', 'gitlab.com', 'codeberg.org'];
 
+// The shell's git only fetches: a push goes from the page, with the user's
+// token, which no node holds (project/lib/push.ts).
+const NO_PUSH =
+  'git push does not work in the shell: push from the Changes panel (with your GitHub token from Settings)';
+
 // What git starts by a dashed name that is git.wasm itself: a transport's
 // other end (over file://, through sh).
 export const GIT_DASHED = new Set(['git-upload-pack', 'git-receive-pack', 'git-upload-archive']);
@@ -156,11 +161,10 @@ export function remoteHelper(locate: Locate, fetcher: typeof fetch = fetch): Pro
         continue;
       }
       const [command, service] = line.split(' ');
-      if (command !== 'stateless-connect')
-        return fail(`remote-https: ${command}: only fetching (no push) works in the playground`);
+      if (command !== 'stateless-connect') return fail(`remote-https: ${command}: ${NO_PUSH}`);
       if (service !== 'git-upload-pack') {
         await write('fallback\n');
-        return fail(`remote-https: ${service}: only fetching (no push) works in the playground`);
+        return fail(`remote-https: ${service}: ${NO_PUSH}`);
       }
       const refs = await fetcher(`${base}/info/refs?service=${service}`, {
         headers: { 'Git-Protocol': 'version=2' },

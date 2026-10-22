@@ -10,7 +10,9 @@ A plan for git in a project (clone, history, a diff view, push) and for
 signing in, and what each needs from the site's origins to stay safe.
 Built so far: git itself built to WebAssembly, the only git: the
 shell's and a node's (Mix's), the processes it runs and fetching over
-HTTPS included ([below](#gitwasm-git-itself)). A project's history beyond git (every
+HTTPS included ([below](#gitwasm-git-itself)); a public repository opened
+as a new project ([below](#opening-a-repository)); pushing to GitHub from
+the Changes panel with a pasted token ([below](#push)). A project's history beyond git (every
 change, the database too) is [history.md](history.md)'s.
 Mix's git dependencies are [architecture.md](architecture.md#git)'s.
 
@@ -41,6 +43,8 @@ ref `refs/playground/baseline` keeps it for "All changes".
 - **Empty project:** no repository. `git clone URL .` takes an empty
   directory only, so `git init` (or the changes view's *Initialize*) is
   the user's.
+- **A repository opened as a project** ([below](#opening-a-repository)):
+  its clone's HEAD.
 
 This is also what a share could become: the commits over the baseline
 instead of whole changed files ([projects.md](projects.md#sharing)).
@@ -64,7 +68,10 @@ makes them with the IDE's git:
 
 - **A snapshot** of the files as they are: `git add -A` and `git
   write-tree` with an index of the IDE's own (`GIT_INDEX_FILE` =
-  `.git/playground-index`). The user's `.git/index` stays theirs, an
+  `.git/playground-index`), which starts from HEAD's entries (`read-tree
+  --reset`) whenever HEAD moves: git.wasm has no executable bit
+  (`core.filemode` is false), so an entry takes its mode from the one it
+  replaces, and a committed script stays 100755. The user's `.git/index` stays theirs, an
   untracked file is a new file, and what `.gitignore` leaves out is
   not there; the index's stat cache hashes only what changed since.
 - **One diff**, base to snapshot: `git diff --raw --numstat --patch -z
@@ -83,9 +90,35 @@ makes them with the IDE's git:
 the shell), but not for builds and dependencies or for the snapshot's own
 writes (the IDE's index, `.git/objects`), one refresh at a time.
 
+## Opening a repository
+
+`/github/OWNER/REPO[/tree/REF]` (and `/gitlab/…`, `/codeberg/…`: the
+hosts the proxy serves) is a page of its own (`RepositoryPage`): the
+repository, its description from the host's API (CORS, no token), and
+*Open as a new project*. The home page takes an address too
+(`RepositoryImport`): a repository's URL, a `/tree/REF` of it, git's SSH
+form, or `OWNER/REPO` for GitHub's (`shared/lib/repository.ts`), and goes
+to that page. Opening the link alone makes nothing (a crawler, a
+preview), and the page says the code will run here.
+
+The project is an empty one whose seed is the repository instead of a
+link's files (`cloneProject`, `Seed.clone`). Its first start runs `git
+clone -q --depth 1 [--branch REF] URL .` in `/work` with the IDE's git
+(which has the shell's HTTPS helper for it, through the proxy), and
+the clone's HEAD becomes the baseline. Shallow: a look at a project wants
+the files, not its history (`git fetch --unshallow`). `--depth` implies
+`--single-branch`, so the remote is then set to track every branch
+(`remote.origin.fetch`), as a full clone's does: `git fetch origin
+BRANCH` makes `origin/BRANCH`, and `git switch BRANCH` finds it. A failed clone
+keeps the seed and says why; the next start tries again. Public
+repositories only, as for the shell. The project's origin is
+`repository`, so it asks before it takes the user's settings, as a
+link's does.
+
 ## Push
 
-Not over git's protocol: opening `git-receive-pack` on the proxy would pass
+Built (2026-10-22) as below, with a pasted token; the GitHub App is
+later. Not over git's protocol: opening `git-receive-pack` on the proxy would pass
 every token through the site's server in the clear (Caddy ends TLS), which
 the relay's rule rules out: the server stays blind.
 
@@ -95,10 +128,41 @@ parent's, a commit, then the branch's ref. One request per blob, within
 5000 an hour: enough for a playground's pushes. GitLab and Codeberg have
 APIs of the same shape, later.
 
+**How** (`project/lib/push.ts`): the branch's remote (its
+`branch.NAME.remote`, else `origin`) must name a GitHub repository; its
+branch there (`branch.NAME.merge`, else the same name) must be an
+ancestor of HEAD (fetched first if this repository lacks it; else *pull
+first*). Each commit GitHub lacks, oldest first: the blobs its diff from
+its first parent adds (`diff-tree -r`; all of a root commit's files), a
+tree over the parent's (`base_tree`) whose id must be the commit's own,
+then the commit with the same message, parents, author and committer, the
+dates in their own time zones. So GitHub's commits are this repository's
+(the same ids), and the branch moves fast-forward only. Should GitHub
+write one otherwise (a date in UTC, say), its commit is written here too
+from the API's answer (`git hash-object`, its id checked) and the branch
+moves to it: same files, so nothing else changes, and no fetch is needed
+(a private repository's could not be). An empty repository takes nothing
+until it has a commit: a placeholder file starts it, and the first push
+moves its branch past it (forced, once). A new branch is made; the
+branch's upstream is set, so `git status` says how far it is. Shallow
+history cannot be pushed to where its parents are missing (*git fetch
+--unshallow*).
+
+The Changes panel's *Push* (`PushDialog`) says where it goes (branch,
+`OWNER/REPO`, commits to push), commits what changed first with a
+message (git's identity if it has one, else the token's user and their
+`users.noreply.github.com` address), and warns when the project pushed
+to another repository before (`Project.pushedTo`: its remote is the
+project's code's to change). Tests: `test/unit/push.test.ts` and
+`test/e2e/github.spec.ts`, against a stand-in for the API over a bare
+repository (`test/fake-github.ts`).
+
 **A token**, in order:
 
 1. A pasted fine-grained personal access token (the chosen repositories,
-   contents read and write). No server.
+   contents read and write). No server. Built: Settings' *GitHub*
+   (`shared/lib/github.ts`), checked with `GET /user`, kept in the
+   apex's IndexedDB under its own key, never with the environment.
 2. A GitHub App's user tokens: the user picks the repositories, a token
    lasts 8 hours and refreshes. The web flow's code exchange needs the
    app's secret, so the backend makes it and keeps nothing; the device
@@ -113,7 +177,12 @@ APIs of the same shape, later.
   page program holds it, and only for its own requests.
 - **Page programs are the node's to run:** `System.cmd("git", ["push"])`
   runs the page's `git`. A program that uses a credential asks first, on
-  the account's origin ([below](#confirmations)).
+  the account's origin ([below](#confirmations)). So far no program
+  does: the shell's `git push` is refused (pointing to the panel), and
+  only the IDE's own dialog, on the apex, uses the token. The IDE's git
+  that reads the commits runs in the exec frame, with the project's code,
+  and never sees the token; what it reports could be the project's
+  making, as its files are, so the dialog names the repository.
 - **Live sessions:** a guest who may edit types into the host's terminals;
   a push from a session asks the host on the host's own page, or is off.
 
@@ -376,7 +445,13 @@ status, and a pipeline's compound commands ([runtime.md](runtime.md#the-shell-wo
   `git clone URL [DIR]`, `fetch`, `pull` (merges and rebases as git's do),
   `ls-remote` from GitHub, GitLab and Codeberg through the proxy, SSH
   addresses as HTTPS; a host the proxy does not serve is refused by name,
-  and push is refused. Progress as git prints it, as it is git's.
+  and push is refused (pointing to the Changes panel's).
+- **A public repository as a new project** (`/github/OWNER/REPO`, the
+  home page's field): a shallow clone at its first start
+  ([above](#opening-a-repository)).
+- **Push to GitHub** from the Changes panel with a fine-grained token
+  from Settings: the same commits, made through the REST API
+  ([above](#push)). Progress as git prints it, as it is git's.
 - **A baseline commit** for each project with files, and **the IDE's
   git** (a worker of its own) to run git for the page
   ([above](#the-ides-git)).

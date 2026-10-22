@@ -46,7 +46,8 @@ import {
 } from '@/project/lib/previewChannel';
 import { disposeTerminals } from '@/project/lib/terminal-handle';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
-import { baseline } from '@/project/lib/git';
+import { baseline, clone } from '@/project/lib/git';
+import { repositoryLabel } from '@/shared/lib/repository';
 import { filesChanged as changesHeard, watchChanges } from '@/project/lib/review';
 import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
 import type { KeptRecord } from '@/runtime/overlay';
@@ -798,16 +799,24 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     };
     await repository();
     if (signal.aborted) return false;
-    // A project from a link: its changes, before anything runs.
+    // A project from a link: its changes, before anything runs. One from a
+    // repository: its clone, into the empty /work (kept for the next start
+    // if it fails: the error shows, and the project stays empty).
     const seed = id ? await takeSeed(id) : null;
     if (signal.aborted) return false;
-    if (seed && id) {
+    if (seed?.shared && id) {
       store.setStatus('Adding the shared files…');
-      await rpc.call('applyShared', [seed]);
+      await rpc.call('applyShared', [seed.shared]);
       if (signal.aborted) return false;
       await seedTaken(id);
       if (signal.aborted) return false;
       await repository();
+      if (signal.aborted) return false;
+    } else if (seed?.clone && id) {
+      store.setStatus(`Cloning ${repositoryLabel(seed.clone)}…`);
+      await clone(git, seed.clone);
+      if (signal.aborted) return false;
+      await seedTaken(id);
       if (signal.aborted) return false;
     }
     // The tree before start returns: a live session resumed next welcomes

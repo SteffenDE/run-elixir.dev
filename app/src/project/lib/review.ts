@@ -1,7 +1,7 @@
 // The changes view's data while a project runs here: the project's changes
 // (changes.ts) again whenever its files or its repository change (a save,
 // a node's write, a commit or checkout at the shell), one refresh at a time.
-import { changes, ours, type Run } from '@/project/lib/changes';
+import { changes, ours, seedSnapshots, type Run } from '@/project/lib/changes';
 import { initialize } from '@/project/lib/git';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 
@@ -72,6 +72,7 @@ export function filesChanged(paths: string[]): void {
 export function watchChanges(git: Run, stat: Watched['stat']): () => void {
   const mine: Watched = { git, stat };
   watched = mine;
+  seedSnapshots();
   void refresh();
   const unsubscribe = useStore.subscribe((state, before) => {
     if (state.base !== before.base) void refresh();

@@ -48,7 +48,7 @@ beamos checkout (`BEAMOS`, or `../beamos`).
 | [frames.md](frames.md) | The apex as the one trusted origin; previews (and next, the project's runtime) in frames of the usercontent domain; measurements. |
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
 | [collaboration.md](collaboration.md) | Plan: *Share* as a link or a live session; the encrypted relay, permissions, editing with Yjs, terminals and preview for guests. |
-| [git.md](git.md) | git in a project: git itself built to WebAssembly (git.wasm), the shell's and the nodes' only git, its processes, HTTPS transport and git's own test suite; plans for a diff view, push and its tokens, signing in, and the origins that keep a project's code from the account. |
+| [git.md](git.md) | git in a project: git itself built to WebAssembly (git.wasm), the shell's and the nodes' only git, its processes, HTTPS transport and git's own test suite; the diff view, a repository opened as a project, push to GitHub and its token; plans for signing in, and the origins that keep a project's code from the account. |
 | [tools.md](tools.md) | Plan: GNU sed, grep, diffutils, findutils and a POSIX awk built with wasi-sdk over a shared C layer, measured by git's suite. |
 | [history.md](history.md) | Plan: every moment of a project's files and database, content-addressed in git's format; churn from `_build`, `deps` and `node_modules`; restoring at once. |
 | [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |

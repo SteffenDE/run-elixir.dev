@@ -688,6 +688,34 @@ button {
   font-size: 12px;
 }
 
+/* The Changes panel's Push, at the end of its row. */
+.changes-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.changes-actions > .search-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font: inherit;
+  font-size: 12px;
+}
+.push-dialog .settings-script {
+  margin-top: 4px;
+}
+.push-dialog .folder-review-warning {
+  margin: 8px 0;
+}
+.github-token {
+  display: grid;
+  gap: 8px;
+}
+.github-token p {
+  margin: 0;
+}
+
 .change-mark {
   flex: none;
   width: 1ch;
@@ -2291,6 +2319,7 @@ button {
   gap: 6px;
   align-items: center;
 }
+.text-field,
 .env-row input {
   min-width: 0;
   font-family: ui-monospace, SFMono-Regular, monospace;
@@ -2300,6 +2329,20 @@ button {
   border-radius: 6px;
   background: var(--panel);
   color: inherit;
+}
+/* A repository's address to open (the home page). */
+.repository-import-body {
+  display: grid;
+  flex: 1;
+  gap: 8px;
+  min-width: 0;
+}
+.repository-import-row {
+  display: flex;
+  gap: 6px;
+}
+.repository-import-row .text-field {
+  flex: 1;
 }
 .env-row input.invalid {
   border-color: var(--accent);

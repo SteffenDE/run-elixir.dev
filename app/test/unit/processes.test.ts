@@ -363,7 +363,9 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
       expect(fetched.text).toBe('');
       expect((await git('/work/copy', 'log', '--format=%s')).text).toBe('second\nfirst\n');
       expect((await git('/work/copy', 'ls-remote', 'origin')).text).toMatch(/refs\/heads\/main/);
-      expect((await git('/work/copy', 'push', 'origin', 'main')).text).toContain('no push');
+      expect((await git('/work/copy', 'push', 'origin', 'main')).text).toContain(
+        'push from the Changes panel',
+      );
       expect(processes.table.size).toBe(0);
     },
   );

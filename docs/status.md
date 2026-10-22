@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-21
+last_updated: 2026-10-22
 ---
 
 # Status
@@ -73,6 +73,13 @@ chunks; the same memory.
   again from the lock.
 - **Sharing:** a link carries a project's changes over its template; opening
   it makes a new project with them (Phoenix included).
+- **Repositories** ([git.md](git.md#opening-a-repository)): a public
+  repository on GitHub, GitLab or Codeberg opens as a new project
+  (`/github/OWNER/REPO`, or its address on the home page), shallow-cloned
+  at its first start. A project pushes its commits to GitHub from the
+  Changes panel with a fine-grained token from Settings, through the
+  REST API, the same commits there ([git.md](git.md#push)); tested
+  against a stand-in for the API (Chromium), not yet against GitHub's.
 - **A project per origin** with a project domain (`p-ID.DOMAIN`; the apex
   keeps the list): [projects.md](projects.md#a-project-domain).
 - **Node programs and shell lines from a node:** `System.cmd("mix", …)`,

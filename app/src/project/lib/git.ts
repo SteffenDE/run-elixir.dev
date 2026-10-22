@@ -2,6 +2,7 @@
 // changes view diffs against, made with the IDE's own git (runtime/git.ts).
 import type { GitOptions, GitOutput } from '@/runtime/host/git';
 import { WORK } from '@/project/lib/store';
+import { cloneUrl, type Repository } from '@/shared/lib/repository';
 
 export type Run = (args: string[], options?: GitOptions) => Promise<GitOutput>;
 
@@ -48,5 +49,17 @@ export async function initialize(git: Run): Promise<void> {
   const staged = await git(['diff', '--cached', '--quiet'], { cwd: WORK });
   if (staged.code === 0) return;
   await must(git, ['commit', '-q', '--no-verify', '-m', 'Baseline'], { env: IDENTITY });
+  await must(git, ['update-ref', BASELINE, 'HEAD']);
+}
+
+// A repository's clone into the empty /work (a project made from it):
+// shallow, as a look at a project wants (`git fetch --unshallow` brings the
+// rest), its branch or tag if it names one. --depth implies one branch;
+// the remote then tracks them all, as a full clone's does, so `git fetch
+// origin BRANCH` and `git switch BRANCH` work (fetching only what is asked).
+export async function clone(git: Run, repository: Repository): Promise<void> {
+  const ref = repository.ref ? ['--branch', repository.ref] : [];
+  await must(git, ['clone', '-q', '--depth', '1', ...ref, cloneUrl(repository), '.']);
+  await must(git, ['config', 'remote.origin.fetch', '+refs/heads/*:refs/remotes/origin/*']);
   await must(git, ['update-ref', BASELINE, 'HEAD']);
 }

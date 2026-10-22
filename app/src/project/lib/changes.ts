@@ -74,9 +74,29 @@ async function resolveBase(git: Run, base: Base): Promise<string> {
   return text(empty.stdout).trim();
 }
 
+// The commit the IDE's index last started from (seedSnapshots forgets it).
+let seeded: string | null = null;
+
+// A project's first snapshot seeds the index again (another project's may
+// have had the same HEAD).
+export function seedSnapshots(): void {
+  seeded = null;
+}
+
 // The files as they are, as a tree (what .gitignore leaves out is not in it).
+// git.wasm has no executable bit (core.filemode is false), so a file new to
+// an index takes the mode of the entry it replaces, or 100644: the index
+// starts from HEAD's entries whenever HEAD moves, so a script stays 100755.
+// --reset, as its entries may be stale against the files (after a checkout);
+// the stat cache of those that still match is kept.
 async function snapshot(git: Run): Promise<string> {
   const env = { GIT_INDEX_FILE: INDEX };
+  const head = await git(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], { cwd: WORK });
+  const id = head.code === 0 ? text(head.stdout).trim() : null;
+  if (id && id !== seeded) {
+    await must(git, ['read-tree', '--reset', id], { env });
+    seeded = id;
+  }
   await must(git, ['add', '-A'], { env });
   return text((await must(git, ['write-tree'], { env })).stdout).trim();
 }

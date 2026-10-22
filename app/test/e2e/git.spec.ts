@@ -128,7 +128,9 @@ test("git's remotes, aliases and hooks run as processes", async ({ page }) => {
   );
   expect(fetched).toMatch(/^[0-9a-f]{7,} /m);
   expect(fetched).not.toMatch(/fatal|error/);
-  expect(await run(page, 'git push origin FETCH_HEAD:refs/heads/playground')).toContain('no push');
+  expect(await run(page, 'git push origin FETCH_HEAD:refs/heads/playground')).toContain(
+    'push from the Changes panel',
+  );
 
   await run(page, `git config alias.hi '!echo "hi from $(basename "$PWD")"'`);
   expect(await run(page, 'git hi')).toContain('hi from repo');

@@ -90,7 +90,12 @@ export function ProjectSettings({ project }: { project: Project }) {
                 onChange={(event) => change({ trust: event.target.checked })}
               />
               Use my settings in this project (it came from{' '}
-              {current.origin === 'link' ? 'a link' : 'a live session'})
+              {current.origin === 'link'
+                ? 'a link'
+                : current.origin === 'repository'
+                  ? 'a repository'
+                  : 'a live session'}
+              )
             </label>
           )}
           <div className="settings-save">

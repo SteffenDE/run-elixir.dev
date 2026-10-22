@@ -1,8 +1,9 @@
-// git for the IDE itself (its changes view, the baseline commit): git.wasm
-// as the shell has it, in a worker of its own over the project's files
-// (files.js), with no node. One command at a time, its output whole; git's
-// own locks (index.lock) are then never the IDE's own to race.
-import { GIT_CONFIG, GIT_DASHED } from './git-remote';
+// git for the IDE itself (its changes view, the baseline commit, a clone,
+// what a push reads): git.wasm as the shell has it, in a worker of its own
+// over the project's files (files.js), with no node. One command at a time,
+// its output whole; git's own locks (index.lock) are then never the IDE's
+// own to race.
+import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from './git-remote';
 import type { FilesChannel } from './host/files';
 import { Processes, inputPipe, release, wasmProgram } from './processes';
 import { ENV } from './setup';
@@ -105,8 +106,12 @@ onmessage = ({ data }: MessageEvent<GitStart | GitRun>) => {
     };
     // Nothing is lazily mounted here: every file git reads is files.js's.
     const fetch = () => new Uint8Array(0);
-    processes = new Processes((program) => {
+    processes = new Processes((program, given) => {
       const name = program.split('/').pop()!;
+      // A remote's transport (a project cloned from a repository: the
+      // shell's own, worker/index.ts), through the site's proxy.
+      if (name === 'git' && /^remote-https?$/.test(given[0] ?? ''))
+        return remoteHelper(throughProxy(location.origin));
       if (name !== 'git' && !GIT_DASHED.has(name)) return null;
       return wasmProgram(processes!, data.git, {
         root,

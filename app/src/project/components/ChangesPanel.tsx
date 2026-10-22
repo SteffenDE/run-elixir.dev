@@ -1,5 +1,6 @@
-import { RiGitRepositoryLine } from '@remixicon/react';
+import { RiGitRepositoryLine, RiUploadCloud2Line } from '@remixicon/react';
 import { useState } from 'react';
+import { PushDialog } from '@/project/components/PushDialog';
 import type { Change } from '@/project/lib/changes';
 import { initializeRepository } from '@/project/lib/review';
 import { useStore } from '@/project/lib/store';
@@ -84,6 +85,7 @@ export function ChangesPanel() {
   const found = useStore((state) => state.changes);
   const error = useStore((state) => state.changesError);
   const showChanges = useStore((state) => state.showChanges);
+  const [pushing, setPushing] = useState(false);
 
   if (repository === false) return <NoRepository />;
   const list = found?.changes ?? [];
@@ -91,9 +93,21 @@ export function ChangesPanel() {
   const removed = list.reduce((sum, change) => sum + change.removed, 0);
   return (
     <div className="search-panel changes-panel">
-      <div className="search-form">
+      <div className="search-form changes-actions">
         <BaseSwitch />
+        {repository && (
+          <button
+            type="button"
+            className="search-option"
+            title="Commit what changed and push it to GitHub"
+            onClick={() => setPushing(true)}
+          >
+            <RiUploadCloud2Line size={14} />
+            Push
+          </button>
+        )}
       </div>
+      {pushing && <PushDialog onClose={() => setPushing(false)} />}
       <p className={error ? 'search-summary search-error' : 'search-summary muted'}>
         {error ??
           (found === null

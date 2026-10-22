@@ -1,6 +1,7 @@
 import { RiArrowLeftLine, RiSettings3Line } from '@remixicon/react';
 import { useEffect, useState } from 'react';
 import { EnvEditor } from '@/shared/components/EnvEditor';
+import { GitHubSettings } from '@/settings/components/GitHubSettings';
 import { loadSettings, saveSettings, settingsChanged, type Settings } from '@/shared/lib/settings';
 
 // /settings on the apex: the user's settings for every project of this
@@ -82,6 +83,8 @@ export function SettingsPage() {
           {saved === 'saved' && <span className="muted">Saved.</span>}
           {saved === 'unsaved' && <span className="muted">Not saved yet.</span>}
         </div>
+
+        <GitHubSettings />
       </main>
     </div>
   );

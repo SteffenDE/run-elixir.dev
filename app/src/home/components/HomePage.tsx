@@ -7,6 +7,7 @@ import {
 } from '@remixicon/react';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { FolderImport } from '@/home/components/FolderImport';
+import { RepositoryImport } from '@/home/components/RepositoryImport';
 import { KindChip } from '@/shared/components/KindChip';
 import { moveAllFormerStores } from '@/shared/lib/migrate';
 import { listProjects, type Project } from '@/shared/lib/projects';
@@ -174,6 +175,7 @@ export function HomePage() {
           </NewProject>
         </div>
         <FolderImport />
+        <RepositoryImport />
         <h2>Projects</h2>
         {projects === null ? null : projects.length === 0 ? (
           <p className="muted">None yet.</p>
