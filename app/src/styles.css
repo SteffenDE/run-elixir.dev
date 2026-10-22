@@ -260,6 +260,18 @@ button {
   }
 }
 
+/* Pending.tsx: over a pane with nothing in it yet. */
+.pending {
+  position: absolute;
+  inset: 0;
+  /* Above xterm's own layers. */
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+  pointer-events: none;
+}
+
 /* Panels */
 
 .workspace {
@@ -312,6 +324,7 @@ button {
 }
 
 .side-pane {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -767,6 +780,7 @@ button {
 }
 
 .terminal-stack {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;

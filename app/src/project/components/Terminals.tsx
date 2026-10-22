@@ -11,6 +11,7 @@ import { FIRST_SESSION } from '@/project/lib/playground';
 import { workspace } from '@/project/lib/workspace';
 import { useStore } from '@/project/lib/store';
 import { disposeTerminal } from '@/project/lib/terminal-handle';
+import { Pending } from '@/shared/components/Pending';
 import { TerminalPanel } from './TerminalPanel';
 
 // The shells, in tabs: the first runs what the project starts with (the
@@ -31,6 +32,7 @@ export function Terminals({
   const active = useStore((state) => state.activeTerminal);
   const activate = useStore((state) => state.activateTerminal);
   const ready = useStore((state) => state.ready);
+  const startError = useStore((state) => state.startError);
 
   return (
     <Tabs.Root
@@ -90,6 +92,7 @@ export function Terminals({
         {terminals.map((id) => (
           <TerminalPanel key={id} id={id} visible={id === active} />
         ))}
+        {!terminals.length && !startError && <Pending label="Starting the shell" />}
       </div>
     </Tabs.Root>
   );

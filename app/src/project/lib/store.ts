@@ -55,6 +55,8 @@ interface State {
   serving: number[];
   // Paths below WORK, relative ("playground/mix.exs"; directories end in /).
   paths: string[];
+  // The tree has had its first listing (until then it shows a spinner).
+  listed: boolean;
   tabs: Tab[];
   active: string | null;
   previewPath: string;
@@ -138,6 +140,7 @@ export const useStore = create<State>((set) => ({
   ready: false,
   previewPort: null,
   paths: [],
+  listed: false,
   tabs: [],
   active: null,
   previewPath: '/',
@@ -170,7 +173,7 @@ export const useStore = create<State>((set) => ({
   setPreviewPort: (previewPort) => set({ previewPort }),
   serving: [],
   setServing: (serving) => set({ serving }),
-  setPaths: (paths) => set({ paths }),
+  setPaths: (paths) => set({ paths, listed: true }),
   open: (path, contents, line = 1) =>
     set((state) =>
       state.tabs.some((tab) => tab.path === path)

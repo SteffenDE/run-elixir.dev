@@ -3,6 +3,7 @@ import { RiFolder3Line, RiSearchLine } from '@remixicon/react';
 import { useEffect } from 'react';
 import { FileTreePanel } from '@/project/components/FileTreePanel';
 import { SearchPanel } from '@/project/components/SearchPanel';
+import { Pending } from '@/shared/components/Pending';
 import { useStore, type SideTab } from '@/project/lib/store';
 import { isModifierKeyPressed } from '@/shared/lib/keys';
 
@@ -12,6 +13,8 @@ import { isModifierKeyPressed } from '@/shared/lib/keys';
 export function SidePanel() {
   const tab = useStore((state) => state.sideTab);
   const setTab = useStore((state) => state.setSideTab);
+  const listed = useStore((state) => state.listed);
+  const startError = useStore((state) => state.startError);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -45,6 +48,7 @@ export function SidePanel() {
       </div>
       <Tabs.Panel value="files" keepMounted className="side-pane">
         <FileTreePanel />
+        {!listed && !startError && <Pending label="Loading the files" />}
       </Tabs.Panel>
       <Tabs.Panel value="search" keepMounted className="side-pane">
         <SearchPanel />
