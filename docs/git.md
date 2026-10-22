@@ -307,14 +307,14 @@ scrolls back (`GIT_PAGER=cat`, which git takes for none).
   GNU's sed, grep, diffutils and awk ([tools.md](tools.md)), each a process of the table as the playground runs them.
   The files are the host's at their own paths (`hostfs.ts`: the shared
   files' protocol over `node:fs`). What the playground lacks yet runs as
-  the host's own program: `perl`, `find`, `getconf`, …
+  the host's own program: `perl`, `getconf`, `gpg`, `ssh-keygen`, …
   (`Machine.hosted` counts them). Each script's TAP goes to
   `target/git/src/t/results/`, a summary to `target/git/t-results.json`.
   All of `t/` (1059 scripts) in 6 shards takes about 7 minutes.
 - **Playwright** for what is the browser's (JSPI in three engines, the
   files across workers, the proxy): `git.spec.ts`.
 
-**Where it stands** (2026-10-22, with GNU's sed, grep, diffutils and awk): 30,273 tests pass, 744 fail (97.6%),
+**Where it stands** (2026-10-22, with GNU's sed, grep, diffutils, awk and find, and the shell's chmod): 30,268 tests pass, 749 fail (97.6%),
 257 known breakages as git's own; 748 scripts pass whole, 164 skip
 themselves (their prerequisites: HTTP servers, iconv, gettext, …), 9
 error before a test (gettext, `git://`), 3 time out (completion,

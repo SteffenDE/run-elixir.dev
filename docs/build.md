@@ -64,11 +64,12 @@ rebar3), and builds the template with the host's Mix in
   33's image, about ten seconds: `wasi-compat/autoconf.py`,
   [tools.md](tools.md#building-them); cached as git's is); the site takes
   `target/sed/sed.wasm` (also `build.py app`).
-- **grep, diffutils, gawk:** `python3 -I grep/build.py`,
-  `python3 -I diffutils/build.py` and `python3 -I gawk/build.py` first
-  (GNU grep 3.12, diffutils 3.12 and gawk 5.4.1, as sed's); the site takes
-  `target/grep/grep.wasm`, `target/diffutils/{diff,cmp,diff3,sdiff}.wasm`
-  and `target/gawk/gawk.wasm` (also `build.py app`).
+- **grep, diffutils, gawk, findutils:** `python3 -I grep/build.py`,
+  `diffutils/build.py`, `gawk/build.py` and `findutils/build.py` first
+  (GNU grep 3.12, diffutils 3.12, gawk 5.4.1 and findutils 4.11.0, as
+  sed's); the site takes `target/grep/grep.wasm`,
+  `target/diffutils/{diff,cmp,diff3,sdiff}.wasm`, `target/gawk/gawk.wasm`
+  and `target/findutils/find.wasm` (also `build.py app`).
 - **TLS:** `python3 -I tls/build.py` first (a Node.js process's TLS
   client, rustls for `wasm32-wasip1`, Rust and clang in Docker, about a
   minute; cached until its image or the crate's files change); the site
@@ -106,6 +107,7 @@ target/site/
     diff.wasm, cmp.wasm,       GNU diffutils (diffutils/build.py): 646, 398, 406, 420 KB
       diff3.wasm, sdiff.wasm     (213, 131, 133, 138 KB gzipped)
     gawk.wasm                  GNU awk (gawk/build.py), 1.5 MB (415 KB gzipped)
+    find.wasm                  GNU find (findutils/build.py), 877 KB (278 KB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]

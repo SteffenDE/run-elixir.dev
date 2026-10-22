@@ -14,6 +14,7 @@ import {
   type Resolve,
 } from '@/runtime/processes';
 import { remoteHelper } from '@/runtime/git-remote';
+import { chmodProgram } from '@/runtime/utilities';
 import type { Descriptor } from '@/runtime/wasi/descriptors';
 import { CAPACITY, Pipe } from '@/runtime/wasi/pipe';
 import { Dir, File, devnull } from '@/runtime/wasi/fs';
@@ -380,6 +381,7 @@ const GNU_TOOLS: Record<string, string> = {
   cmp: 'diffutils/cmp.wasm',
   diff3: 'diffutils/diff3.wasm',
   awk: 'gawk/gawk.wasm',
+  find: 'findutils/find.wasm',
 };
 const built = Object.values(GNU_TOOLS).every((path) => existsSync(TARGET + path));
 describe.skipIf(!built)("GNU's tools as processes", () => {
@@ -417,6 +419,12 @@ describe.skipIf(!built)("GNU's tools as processes", () => {
     const name = program.split('/').pop()!;
     if (name === 'sh') return sh;
     if (name === 'echo') return echo;
+    // pwd as a program: where it was started.
+    if (name === 'pwd')
+      return async (_child, { cwd, stdio: [, out] }) => {
+        out.sink!(encode(`${cwd}\n`));
+        return 0;
+      };
     return name in GNU_TOOLS
       ? wasmProgram(processes, load(name), { root, fetch, shared: null })
       : null;
@@ -542,5 +550,99 @@ describe.skipIf(!built)("GNU's tools as processes", () => {
     expect((await tool('awk', '', 'BEGIN { exit 3 }')).status).toBe(3);
     expect((await tool('awk', '', 'BEGIN {')).status).toBe(1);
     expect(processes.table.size).toBe(0);
+  });
+  test('find: -name, -type, -maxdepth, -print0, -exec, -execdir and -delete', async () => {
+    root.put('work/f/a.txt', new File(encode('a')));
+    root.put('work/f/sub/b.txt', new File(encode('b')));
+    root.put('work/f/sub/c.md', new File(encode('c')));
+    const lines = (text: string) => text.split('\n').filter(Boolean).sort();
+    expect(lines((await tool('find', '', 'f', '-name', '*.txt')).text)).toEqual([
+      'f/a.txt',
+      'f/sub/b.txt',
+    ]);
+    expect(lines((await tool('find', '', 'f', '-type', 'd')).text)).toEqual(['f', 'f/sub']);
+    expect((await tool('find', '', 'f', '-maxdepth', '1', '-type', 'f')).text).toBe('f/a.txt\n');
+    expect((await tool('find', '', 'f/sub', '-name', 'c.md', '-print0')).text).toBe('f/sub/c.md\0');
+    expect(
+      lines(
+        (await tool('find', '', 'f', '-name', '*.txt', '-exec', 'echo', 'got', '{}', ';')).text,
+      ),
+    ).toEqual(['got f/a.txt', 'got f/sub/b.txt']);
+    expect(
+      (await tool('find', '', 'f', '-name', '*.txt', '-exec', 'echo', '{}', '+')).text
+        .trim()
+        .split(' ')
+        .sort(),
+    ).toEqual(['f/a.txt', 'f/sub/b.txt']);
+    expect((await tool('find', '', 'f', '-name', 'b.txt', '-execdir', 'pwd', ';')).text).toBe(
+      '/work/f/sub\n',
+    );
+    // As GNU's: -exec … ; of a missing program is false, -exec … + fails
+    // find; quoted as a UTF-8 locale quotes (wasi-libc's).
+    expect(await tool('find', '', 'f', '-name', 'a.txt', '-exec', 'nosuch', '{}', ';')).toEqual({
+      status: 0,
+      text: 'find: ‘nosuch’: No such file or directory\n',
+    });
+    expect(
+      (await tool('find', '', 'f', '-name', 'a.txt', '-exec', 'nosuch', '{}', '+')).status,
+    ).toBe(1);
+    expect(await tool('find', '', 'nope')).toEqual({
+      status: 1,
+      text: 'find: ‘nope’: No such file or directory\n',
+    });
+    // Modes as git's (wasi-compat/wrap.c): a file rw-r--r--, a directory rwxr-xr-x.
+    expect((await tool('find', '', 'f', '-perm', '644')).text).toMatch(/^(f\/\S+\n)+$/);
+    expect(lines((await tool('find', '', 'f', '-perm', '-u+x')).text)).toEqual(['f', 'f/sub']);
+    expect((await tool('find', '', 'f/a.txt', '-printf', '%m %M\\n')).text).toBe(
+      '644 -rw-r--r--\n',
+    );
+    expect((await tool('find', '', 'f', '-name', '*.md', '-delete')).status).toBe(0);
+    expect(lines((await tool('find', '', 'f', '-type', 'f')).text)).toEqual([
+      'f/a.txt',
+      'f/sub/b.txt',
+    ]);
+    expect(processes.table.size).toBe(0);
+  });
+});
+
+// chmod (utilities.ts): no modes to change on WASI; the mode's syntax and
+// the files' being there, as GNU's says them.
+describe('chmod', () => {
+  const files = new Set(['/work/run.sh', '/work/dir']);
+  const processes: Processes = new Processes((program) =>
+    program === 'chmod' ? chmodProgram(processes, (path) => files.has(path)) : null,
+  );
+  const chmod = async (...args: string[]) => {
+    const out = capture();
+    const status = await processes.run({
+      program: 'chmod',
+      args,
+      cwd: '/work',
+      env: {},
+      stdio: [inputPipe(new Uint8Array(0)), out.entry, out.entry],
+    });
+    return { status, text: out.text() };
+  };
+
+  test('takes octal and symbolic modes over files that are there', async () => {
+    expect(await chmod('+x', 'run.sh')).toEqual({ status: 0, text: '' });
+    expect(await chmod('-R', 'u=rwX,go-w', 'dir', '/work/run.sh')).toEqual({ status: 0, text: '' });
+    expect(await chmod('0755', 'run.sh')).toEqual({ status: 0, text: '' });
+    expect(await chmod('--reference=run.sh', 'dir')).toEqual({ status: 0, text: '' });
+  });
+
+  test("says what GNU's does of a missing file, a bad mode, no operand", async () => {
+    expect(await chmod('+x', 'run.sh', 'nope')).toEqual({
+      status: 1,
+      text: "chmod: cannot access 'nope': No such file or directory\n",
+    });
+    expect(await chmod('-f', '+x', 'nope')).toEqual({ status: 1, text: '' });
+    expect(await chmod('+q', 'run.sh')).toEqual({
+      status: 1,
+      text: "chmod: invalid mode: '+q'\n",
+    });
+    expect(await chmod('999', 'run.sh')).toMatchObject({ status: 1 });
+    expect(await chmod('+x')).toEqual({ status: 1, text: "chmod: missing operand after '+x'\n" });
+    expect(await chmod()).toEqual({ status: 1, text: 'chmod: missing operand\n' });
   });
 });

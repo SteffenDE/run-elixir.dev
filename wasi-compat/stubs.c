@@ -233,9 +233,18 @@ struct passwd *getpwuid(uid_t uid) {
 }
 struct passwd *getpwnam(const char *name) { return getpwuid(0); }
 struct group *getgrgid(gid_t gid) { return NULL; }
+struct group *getgrnam(const char *name) { return NULL; }
 int initgroups(const char *u, gid_t g) { return 0; }
+int getgroups(int n, gid_t *groups) { return 0; }
 int chown(const char *p, uid_t u, gid_t g) { return 0; }
 int fchown(int fd, uid_t u, gid_t g) { return 0; }
+
+/* No mount table to list (mntent.h): an empty one. */
+#include <mntent.h>
+FILE *setmntent(const char *path, const char *mode) { return fopen("/dev/null", "r"); }
+struct mntent *getmntent(FILE *file) { return NULL; }
+int endmntent(FILE *file) { if (file) fclose(file); return 1; }
+char *hasmntopt(const struct mntent *entry, const char *option) { return NULL; }
 
 /* No time zones: UTC. */
 void tzset(void) {}

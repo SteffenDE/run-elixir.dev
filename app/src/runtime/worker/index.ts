@@ -401,9 +401,13 @@ onmessage = async ({
               },
               // The site's WASI programs (git.wasm, sed.wasm, …) as processes
               // of the worker's table: they take the `processes` imports
-              // (git's transport and children, sed's `e`, gnulib's dup2).
+              // (git's transport and children, sed's `e`, gnulib's dup2);
+              // and the shell's own utilities (env, xargs, chmod).
               Object.fromEntries(
-                Object.keys(PROGRAMS).map((name) => [name, portProgram(processes, name)]),
+                [...Object.keys(PROGRAMS), ...Object.keys(UTILITIES)].map((name) => [
+                  name,
+                  portProgram(processes, name),
+                ]),
               ),
             ),
             tools,
@@ -602,7 +606,7 @@ onmessage = async ({
     const processes: Processes = new Processes((program, given, at, vars) => {
       if (isSh(program)) return (child, spawn) => shProgram(child, spawn);
       const utility = UTILITIES[program.split('/').pop()!];
-      if (utility) return utility(processes);
+      if (utility) return utility(processes, (path) => fs.stat(path));
       // git's transport for a remote (git.wasm starts it): HTTPS through
       // the site's proxy.
       if (program.split('/').pop() === 'git' && /^remote-https?$/.test(given[0] ?? ''))

@@ -33,8 +33,10 @@ CC = "/opt/wasi-sdk/bin/clang --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/sha
 # wasi-libc's emulations (signal, raise, clock, getpid, mmap), as git's.
 EMULATED = ("signal", "process-clocks", "getpid", "mman")
 CFLAGS = "-Oz -I/wasi/include " + " ".join(f"-D_WASI_EMULATED_{e.upper().replace('-', '_')}" for e in EMULATED)
-# fcntl.o wraps wasi-libc's fcntl (F_DUPFD by dup).
-LIBS = "/wasi/stubs.o /wasi/fcntl.o -Wl,--wrap=fcntl " + " ".join(f"-lwasi-emulated-{e}" for e in EMULATED)
+# wrap.o wraps wasi-libc's fcntl (F_DUPFD by dup) and stat's kin (modes).
+WRAPPED = ("fcntl", "stat", "lstat", "fstat", "fstatat")
+LIBS = ("/wasi/stubs.o /wasi/wrap.o " + " ".join(f"-Wl,--wrap={name}" for name in WRAPPED) + " "
+        + " ".join(f"-lwasi-emulated-{e}" for e in EMULATED))
 
 
 def fetch(source, sha256, path):
@@ -92,7 +94,7 @@ def build(here, name, release, programs, configure=()):
     sites = "/wasi/config.site" + (" /tool/config.site" if os.path.exists(os.path.join(here, "config.site")) else "")
     script = (
         f"{CC} {CFLAGS} -include /wasi/include/wasi-compat.h -c /wasi/stubs.c -o /wasi/stubs.o\n"
-        f"{CC} {CFLAGS} -c /wasi/fcntl.c -o /wasi/fcntl.o\n"
+        f"{CC} {CFLAGS} -c /wasi/wrap.c -o /wasi/wrap.o\n"
         "cd /src\n"
         f"CONFIG_SITE='{sites}' ./configure --host=wasm32-wasip1 --disable-nls {' '.join(configure)} "
         f"CC='{CC}' CFLAGS='{CFLAGS}' LIBS='{LIBS}' >configure.out 2>&1 "
@@ -106,9 +108,10 @@ def build(here, name, release, programs, configure=()):
         "printf 'built-sources: $(BUILT_SOURCES)\\n' > built-sources.mk\n"
         "make -s -j$(nproc) -f Makefile -f built-sources.mk built-sources >/dev/null\n"
         # A recursive tree (grep's, diffutils': lib/, src/) makes gnulib's
-        # lib/ (gawk's support/) first, then each program in its directory;
-        # a flat one (sed's) each from the top.
-        "for lib in lib support; do\n"
+        # lib/ (gawk's support/; findutils' gl/lib/, then its own lib/)
+        # first, then each program in its directory; a flat one (sed's)
+        # each from the top.
+        "for lib in gl/lib lib support; do\n"
         "  if [ -f $lib/Makefile ]; then make -s -j$(nproc) -C $lib >/dev/null; fi\n"
         "done\n"
         f"for program in {' '.join(programs.values())}; do\n"

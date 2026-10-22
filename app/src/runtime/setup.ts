@@ -5,6 +5,7 @@ import type { Programs } from './wasi/process';
 import { esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
 import { PROGRAMS, TOOLS } from './coreutils';
+import { UTILITIES } from './utilities';
 
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
 // Hex tool wrappers take their Linux paths; its architecture is its own
@@ -87,8 +88,7 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
     ...TOOLS,
     ...Object.keys(PROGRAMS),
     // The shell's own processes (utilities.ts UTILITIES).
-    'env',
-    'xargs',
+    ...Object.keys(UTILITIES),
     ...(inotifywait ? ['inotifywait'] : []),
   ])
     root.put(`usr/bin/${name}`, new File());

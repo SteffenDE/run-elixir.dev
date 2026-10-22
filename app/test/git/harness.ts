@@ -1,9 +1,10 @@
 // git's own tests (git's t/, test-lib.sh) against git.wasm, in Node: brush
 // is sh, git.wasm git (and its dashed programs), test-tool.wasm git's test
-// helper, coreutils.wasm coreutils' tools, GNU's sed, grep, diffutils and
-// awk (sed.wasm, …: GNU), each a process of the table (processes.ts) as the
-// playground runs them; what the playground lacks yet (find, perl, …) is
-// the host's own program. The files
+// helper, coreutils.wasm coreutils' tools, GNU's sed, grep, diffutils, awk
+// and find (sed.wasm, …: GNU), and the shell's utilities (env, xargs,
+// chmod), each a process of the table (processes.ts) as the playground runs
+// them; what the playground lacks (perl, getconf, gpg, …) is the host's own
+// program. The files
 // are the host's (hostfs.ts) at their own paths: the build's tree, where
 // test-lib.sh makes its trash directories, and a scratch directory.
 import { spawn as spawnHost } from 'node:child_process';
@@ -54,6 +55,7 @@ export function machine(scratch: string): Machine {
     sed: module('sed/sed.wasm'),
     grep: module('grep/grep.wasm'),
     awk: module('gawk/gawk.wasm'),
+    find: module('findutils/find.wasm'),
     ...Object.fromEntries(
       ['diff', 'cmp', 'diff3', 'sdiff'].map((name) => [name, module(`diffutils/${name}.wasm`)]),
     ),
@@ -196,7 +198,7 @@ export function machine(scratch: string): Machine {
     if (TOOLS.has(name))
       return wasmProgram(processes, coreutils, { root, fetch, shared, argv0: name });
     if (name in GNU) return wasmProgram(processes, GNU[name], { root, fetch, shared, argv0: name });
-    if (name in UTILITIES) return UTILITIES[name](processes);
+    if (name in UTILITIES) return UTILITIES[name](processes, existsSync);
     return hostProgram(name);
   });
 

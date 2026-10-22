@@ -9,13 +9,19 @@ ac_cv_func_fork=no
 ac_cv_func_fork_works=no
 ac_cv_func_vfork=no
 ac_cv_func_vfork_works=no
-for ac_func in getuid geteuid getgid getegid getppid getpgid getpgrp \
+for ac_func in getuid geteuid getgid getegid getgroups getppid getpgid getpgrp \
     setsid tcgetpgrp umask chmod fchmod chown fchown dup dup2 pipe kill alarm getdtablesize getpass \
     mkdtemp mkstemp popen pclose system sigaction sigemptyset sigfillset sigaddset sigdelset sigismember \
-    sigprocmask tzset; do
+    sigprocmask tzset setmntent getmntent endmntent hasmntopt; do
   eval "ac_cv_func_$ac_func=yes"
   eval "ac_cv_have_decl_$ac_func=yes"
 done
+# The mount table: mntent.h's (empty), as Linux's getmntent.
+ac_cv_header_mntent_h=yes
+fu_cv_sys_mounted_getmntent1=yes
+# getgroups: no supplementary groups (stubs.c), as gid_t.
+gl_cv_func_getgroups_works=yes
+ac_cv_type_getgroups=gid_t
 # Its sigset_t and struct sigaction (wasi-posix.h's), not wasi-libc's.
 gl_cv_type_sigset_t=yes
 ac_cv_type_sigset_t=yes

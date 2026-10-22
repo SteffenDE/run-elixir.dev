@@ -53,12 +53,18 @@ One pattern for all, as `git/build.py`'s:
   what it calls: wasm-ld drops the rest, and the imports with it
   (sed.wasm imports `pipe`, `spawn` and `wait`; grep.wasm `dup2`).
   `stubs.c` is built the same for every tool, with `wasi-compat.h` forced
-  in. `fcntl.c`, for the autoconf tools (`-Wl,--wrap=fcntl`), does
-  `F_DUPFD` and `F_DUPFD_CLOEXEC` by `dup`, which wasi-libc's `fcntl`
-  refuses and gnulib's `fts` (`grep -r`) needs.
+  in. It also has `getgroups` (none), `getgrnam` (no named groups) and
+  an empty mount table (`mntent.h`, for gnulib's mountlist: `find
+  -fstype`). `wrap.c`, for the autoconf tools (`-Wl,--wrap=NAME`), wraps
+  wasi-libc's own calls: `fcntl`'s `F_DUPFD` and `F_DUPFD_CLOEXEC` by
+  `dup`, which wasi-libc refuses and gnulib's `fts` (`grep -r`, `find`)
+  needs; and `stat`, `lstat`, `fstat`, `fstatat` with the permission bits
+  git's get (`rw-r--r--` for a file, `rwxr-xr-x` for a directory), so that
+  `find -perm 644` and `-printf %m` answer as git's modes say.
 - **Two headers:** `wasi-posix.h` declares what `stubs.c` defines
   (wasi-libc declares some, behind `__wasilibc_unmodified_upstream`, and
-  defines none). `wasi-compat.h` is git's: `wasi-posix.h`, then what git
+  defines none; and `qsort_r`, which wasi-libc has and declares only in
+  an `#ifdef` for `wait`). `wasi-compat.h` is git's: `wasi-posix.h`, then what git
   wants beyond it (`stat` with permission bits, timers, sockets),
   forced into every file by `config.mak`. A tool built with gnulib takes
   `wasi-posix.h` alone, appended to its `config.h` (`lib/config.h` for
@@ -84,7 +90,8 @@ One pattern for all, as `git/build.py`'s:
   WASI lacks a function; what it still misses (signals beyond WASI's
   emulated ones, `fcntl` locks, `fts` for findutils) is stubbed or
   patched. Only the programs are made: automake's `BUILT_SOURCES` first
-  (gnulib's generated headers), then `lib/` (gawk's `support/`) when the
+  (gnulib's generated headers), then `lib/` (gawk's `support/`,
+  findutils' `gl/lib/` before its own `lib/`) when the
   tree is recursive (grep's, diffutils', gawk's), then each program
   (`gnulib-tests/` does not build for WASI and is not needed).
 - **setjmp:** wasm has none without exception handling, so
@@ -105,8 +112,8 @@ One pattern for all, as `git/build.py`'s:
 
 `npm run test:git` (`app/test/git`, [git.md](git.md#tests)) runs git's own
 `t/` with what the playground lacks borrowed from the host, and counts
-it per script (`Machine.hosted`: perl, find,
-getconf). Each tool, once built, joins the harness's resolver (as
+it per script (`Machine.hosted`: perl, getconf, gpg, …). The host's
+`find` there was bfs, not GNU's. Each tool, once built, joins the harness's resolver (as
 `git.wasm` and `coreutils.wasm` do) and leaves that count, with the pass
 rate holding; a regression is the tool's, or the shared layer's. The
 browser's tests (Playwright) add a few lines at the shell for each.
@@ -117,6 +124,8 @@ browser's tests (Playwright) add a few lines at the shell for each.
 | `sed` | 22,049 | 29,451 / 744 (97.54%): no script fails a test it passed |
 | `grep`, `diff`, `cmp` | 13,976, 22,367, 304 | 30,269 / 748 (97.59%): `t0450-txt-doc-vs-help` runs whole (7 → 829 passed); `t7063-status-untracked-cache` swings by as many with the host's tools (48–55 passed) |
 | `awk` (gawk) | 435 | 30,273 / 744 (97.60%): no script fails a test it passed |
+| `chmod` (`utilities.ts`, no modes) | 1,014 | 30,271 / 746 (97.59%): only the two scripts that flip between runs (`t5200` 6, `t7063` 12) |
+| `find` | 144 | 30,268 / 749 (97.59%): `t5605-clone-local` 7 now fails: its `find -links 1` sees the shim's link count, always 1 (bfs saw the host's); `t7063` as ever |
 
 **sed** (4.10, `sed/build.py`): 626 KB (195 KB gzipped). Built as is, no
 patches. At the shell (`brush.spec.ts`): `-E` with back-references, `-i`
@@ -140,9 +149,28 @@ debugger's jumps. At the shell and in Node: fields, `gensub`, `asort`,
 both pipes, a `|&` coprocess with `close(cmd, "to")`, `system()`'s
 status, a node's awk.
 
+**find** (findutils 4.11.0, `findutils/build.py`, one patch): 877 KB.
+Not findutils' `xargs` (the shell's is `utilities.ts`'s) nor `locate`.
+It walks with gnulib's `fts` from descriptors (`FTS_CWDFD`), so it never
+changes directory; the patch makes `-exec` and `-execdir` (and `-ok`)
+spawn instead of forking, in find's own directory or, for `-execdir`, the
+file's by its path (WASI cannot name a descriptor's directory: the
+predicate passes the full path along); `run_in_dir` and the restore of
+the initial directory do nothing on WASI; and gnulib's
+`getlocalename_l-unsafe.c` takes wasi-libc for musl. gnulib's `fchdir`
+emulation (directory names kept by descriptor, as for MinGW) is in for
+what else calls it. As GNU's: `-exec … \;` of a missing program is false
+(status 0), `-exec … +` fails find (1); messages quoted `‘…’`, a UTF-8
+locale being wasi-libc's. `-executable` is always true (as the shell's
+`test -x`), `-user` any name, `-fstype` matches nothing.
+
+**chmod** is the shell's own (`utilities.ts`), not coreutils' (WASI has
+no modes): it checks the mode's syntax (octal, symbolic) and that each
+file is there, with GNU's messages and statuses, and changes nothing.
+
 ## Order
 
 1. **sed**: the pattern itself, and `git submodule` (done).
 2. **grep** and **diffutils**: the same autoconf and gnulib, in turn (done).
 3. **awk**: gawk, as the others are; its pipes, `|&` and `system()` over the layer (done).
-4. **findutils**: `fts` and `-exec`.
+4. **findutils**: `fts` and `-exec` (done); `chmod` beside it.

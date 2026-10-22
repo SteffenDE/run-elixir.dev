@@ -15,6 +15,7 @@ int execve(const char *, char *const [], char *const []);
 int execl(const char *, const char *, ...);
 int execlp(const char *, const char *, ...);
 uid_t getuid(void); uid_t geteuid(void); gid_t getgid(void); gid_t getegid(void);
+int getgroups(int, gid_t []);
 pid_t getppid(void);
 pid_t getpgid(pid_t);
 pid_t getpgrp(void);
@@ -72,3 +73,7 @@ void tzset(void);
    from here on. */
 #include <dirent.h>
 #define opendirat gnulib_opendirat
+
+/* wasi-libc has qsort_r (GNU's signature) and declares it only within its
+   `#ifdef` for wait, which WASI lacks. */
+void qsort_r(void *, size_t, size_t, int (*)(const void *, const void *, void *), void *);

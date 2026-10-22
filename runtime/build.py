@@ -424,12 +424,12 @@ def record(out, boot, snapshot):
 
 # The terminal's shell, brush, uutils coreutils (ls, cp, rm, … for the
 # shell and the nodes), ripgrep (rg), git (docs/git.md), GNU's text tools
-# (docs/tools.md: sed, grep, diff, cmp, diff3, sdiff, gawk), the Tailscale node (docs/tailscale.md) and a
+# (docs/tools.md: sed, grep, diff, cmp, diff3, sdiff, gawk, find), the Tailscale node (docs/tailscale.md) and a
 # Node.js process's TLS client (docs/nodejs.md), built to WebAssembly by
 # their own scripts.
 WASM = {"brush": "brush/build.py", "coreutils": "coreutils/build.py", "tailscale": "tailscale/build.py",
         "tls": "tls/build.py", "rg": "ripgrep/build.py", "git": "git/build.py", "sed": "sed/build.py",
-        "grep": "grep/build.py", "gawk": "gawk/build.py", **{f"diffutils/{name}": "diffutils/build.py" for name in ("diff", "cmp", "diff3", "sdiff")}}
+        "grep": "grep/build.py", "gawk": "gawk/build.py", "findutils/find": "findutils/build.py", **{f"diffutils/{name}": "diffutils/build.py" for name in ("diff", "cmp", "diff3", "sdiff")}}
 
 
 def prebuilt():
@@ -502,7 +502,7 @@ ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.h
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
                  "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm", "sed.wasm",
-                 "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm"}
+                 "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm", "find.wasm"}
 
 
 def unversion(out):

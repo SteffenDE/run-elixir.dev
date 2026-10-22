@@ -130,6 +130,52 @@ test('awk is gawk, its pipes and system() through sh', async ({ page }) => {
   ).toMatch(/^NODE$/m);
 });
 
+// GNU find (findutils/build.py): its tests over the tree, -exec through the
+// table (sh, coreutils), -execdir in the file's directory, xargs -0, and a
+// node's.
+test('find walks the tree and runs commands for what it finds', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(
+    page,
+    'mkdir -p f/sub && echo a > f/a.txt && echo b > f/sub/b.txt && echo c > f/sub/c.md',
+  );
+  expect(await run(page, `find f -name '*.txt' | sort`)).toMatch(/^f\/a\.txt\s+f\/sub\/b\.txt$/m);
+  expect(await run(page, 'find f -type d | sort')).toMatch(/^f\s+f\/sub$/m);
+  expect(await run(page, `find f -name '*.md' -exec sh -c 'echo "md: $1"' _ {} \\;`)).toContain(
+    'md: f/sub/c.md',
+  );
+  expect(await run(page, `find f -name b.txt -execdir pwd \\;`)).toMatch(/^\/work\/f\/sub$/m);
+  expect(await run(page, `find f -type f -print0 | xargs -0 cat | sort | tr -d '\\n'`)).toContain(
+    'abc',
+  );
+  expect(await run(page, `find nope; echo "status $?"`)).toMatch(
+    /find: .nope.: No such file or directory\s+status 1/,
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("find", ["f", "-name", "*.md"]); IO.write(out)'`,
+    ),
+  ).toMatch(/^f\/sub\/c\.md$/m);
+});
+
+// chmod (utilities.ts): WASI keeps no modes, so it changes nothing, but a
+// script's chmod +x passes and a missing file is said, as GNU's does.
+test('chmod passes over files that are there, and says which are not', async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await writeText(page, '/work/run.sh', '#!/bin/sh\necho ran\n');
+  expect(await run(page, 'chmod +x run.sh && ./run.sh')).toContain('ran');
+  expect(await run(page, 'chmod 644 run.sh nope; echo "status $?"')).toMatch(
+    /chmod: cannot access 'nope': No such file or directory\s+status 1/,
+  );
+  expect(await run(page, 'chmod +q run.sh; echo "status $?"')).toMatch(
+    /chmod: invalid mode: '\+q'\s+status 1/,
+  );
+});
+
 // Its line editor (reedline, over crossterm on the page's terminal): Tab
 // completes a path and a command, Up recalls a line, and a loop typed over
 // lines runs as one.

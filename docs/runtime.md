@@ -238,7 +238,8 @@ worker's processes run meanwhile.
 - **Finding a program:** a name without a slash is looked for on PATH as
   `execvp` would, for a script (`#!` naming sh, bash, node, escript);
   `env` and `xargs` are processes of the table (`utilities.ts`), which
-  start the table's programs.
+  start the table's programs, and so is `chmod` (WASI has no modes: it
+  checks the mode and the files, and changes nothing).
 - **Ctrl+C** while brush waits for a command stops every process but
   brush, a job in the background too (bash spares those).
 
@@ -342,14 +343,17 @@ instance of its own over the node's tree and the shared files (`wasi/`).
 
 **GNU's text tools** are not coreutils: each is a program of its own
 built from C for WASI ([tools.md](tools.md)), named in `PROGRAMS` beside
-`rg` and `git`: `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, and `awk`
-(gawk, as `gawk` too). They take the `processes` imports (sed's `e`,
-diff3's diff and awk's pipes start `sh -c` as a child), so a node's runs
-in the process table, as its `git` does (`portProgram`).
+`rg` and `git`: `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `awk`
+(gawk, as `gawk` too) and `find`. They take the `processes` imports
+(sed's `e`, diff3's diff, awk's pipes and find's `-exec` start children),
+so a node's runs in the process table, as its `git` does
+(`portProgram`), and so do the shell's utilities (`env`, `xargs`,
+`chmod`).
 
-Not yet: `os:cmd`'s `sh -s` (its line on standard input); `find`
-([tools.md](tools.md)); `grep -P`; file modes and owners,
-which WASI does not have (`chmod`, `ls -l`'s columns).
+Not yet: `os:cmd`'s `sh -s` (its line on standard input); `grep -P`;
+file modes and owners, which WASI does not have (`chmod` changes
+nothing, `ls -l`'s columns); a file's link count, which the shim gives
+as 1 though the tree has hard links (`find -links`).
 
 ## Page and node (`host/`, `worker/`)
 
