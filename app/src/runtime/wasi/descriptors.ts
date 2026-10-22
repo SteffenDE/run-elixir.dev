@@ -24,6 +24,9 @@ export interface Descriptor {
   // what is read comes from (`stdin`'s answers) and what is written goes,
   // and whether it is a terminal (else as the shim says, `tty`).
   source?: (max: number) => Uint8Array | null;
+  // For a source with nothing yet (null): when to try again, which a
+  // program run under JSPI waits for, suspended (else it is told EAGAIN).
+  ready?: () => Promise<unknown>;
   sink?: (bytes: Uint8Array) => void;
   tty?: boolean;
   node?: FsNode;
@@ -228,7 +231,7 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
       } else if (entry.stream && (entry.source || fd === 0)) {
         const want = wasi.iovecs(iovs, count).reduce((n, [, len]) => n + len, 0);
         const input = (entry.source ?? wasi.stdin)(want);
-        if (input === null) return E.AGAIN;
+        if (input === null) return entry.ready ? wasi.block(entry.ready()) : E.AGAIN;
         let at = 0;
         for (const [ptr, len] of wasi.iovecs(iovs, count)) {
           const part = input.subarray(at, at + len);

@@ -34,8 +34,6 @@ export interface BrushOptions {
   root: Dir;
   fetch: Fetch;
   shared: Shared | null;
-  // A line typed at the terminal (blocking); null when Ctrl+C dropped it.
-  line: () => string | null;
   // The terminal's output.
   out: (bytes: Uint8Array) => void;
   // The terminal as brush's line editor (reedline, over crossterm) has it:
@@ -61,23 +59,12 @@ export interface BrushOptions {
 export async function brush(options: BrushOptions): Promise<number> {
   let memory: WebAssembly.Memory | null = null;
   const view = (pointer: number, length: number) => new Uint8Array(memory!.buffer, pointer, length);
-  // The terminal's input, a line at a time.
-  let pending = new Uint8Array(0);
 
   const wasi = new WASI({
     args: ['brush', ...options.args],
     env: options.env,
     root: options.root,
-    stdin: (max) => {
-      if (!pending.length) {
-        const line = options.line();
-        if (line === null) options.out(new TextEncoder().encode('^C\n'));
-        pending = new TextEncoder().encode(`${line ?? ''}\n`);
-      }
-      const chunk = pending.subarray(0, max);
-      pending = pending.subarray(chunk.length);
-      return chunk;
-    },
+    stdin: () => new Uint8Array(0),
     stdout: (bytes) => options.out(bytes.slice()),
     stderr: (bytes) => options.out(bytes.slice()),
     sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
@@ -96,6 +83,11 @@ export async function brush(options: BrushOptions): Promise<number> {
   if (options.stdio) {
     options.stdio.forEach((entry, fd) => wasi.fds.set(fd, share(entry)));
     wasi.interrupt = self.woken;
+  } else {
+    // What brush reads itself (`read`): the terminal's typing, or a node's
+    // input, as it comes, suspended while none has (the worker's processes
+    // run meanwhile: a job's).
+    wasi.fds.set(0, { ...options.standard[0] });
   }
 
   // crossterm's WASI backend (brush/crossterm/patches).

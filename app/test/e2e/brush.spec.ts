@@ -126,4 +126,18 @@ test('a job in the background runs while the shell takes commands', async ({ pag
   expect(Date.now() - node).toBeLessThan(1500);
   await expect.poll(() => run(page, 'cat /work/node.txt'), { timeout: 15_000 }).toContain('done');
   expect(await run(page, 'wait; echo waited')).toContain('waited');
+  // A job's pid ($!) and kill: as file_system's sh -c line has them
+  // (inotifywait in the background, killed once its port's input ends).
+  expect(
+    await run(
+      page,
+      'sleep 30 & PID=$!; kill -KILL $PID; echo "pid $PID killed $?"; wait; echo over',
+    ),
+  ).toMatch(/pid \d+ killed 0\s+(?:.*\n)*over/);
+  expect(
+    await run(
+      page,
+      `elixir -e 'p = Port.open({:spawn, "sh -c \\"read a; echo eof > /work/port.txt\\""}, [:binary]); Process.sleep(500); Port.close(p); Process.sleep(3000)'; cat /work/port.txt`,
+    ),
+  ).toMatch(/^eof$/m);
 });

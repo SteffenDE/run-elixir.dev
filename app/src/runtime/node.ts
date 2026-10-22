@@ -20,6 +20,8 @@ import { beamArgs } from './beam/args';
 import { startBeam } from './beam/run';
 import { TreeFs } from './beam/treefs';
 import { vfs } from './vfs';
+import { GIT_DASHED } from './git-remote';
+import { Processes, portProgram, wasmProgram } from './processes';
 
 const [site, ...args] = process.argv.slice(2);
 // A versioned site's runtime (r/RID/: the BEAM, fs/, nif/; build.py), or
@@ -163,6 +165,23 @@ const env: Record<string, string> = {
       .map(([name, value]) => [name.slice(3), value ?? '']),
   ),
 };
+// git itself (git.wasm), as the worker has it: a process of a table of
+// its own, its dashed programs too (git-upload-pack).
+const gitModule = existsSync(`${dir}/git.wasm`)
+  ? new WebAssembly.Module(readFileSync(`${dir}/git.wasm`))
+  : null;
+const processes: Processes = new Processes((program) => {
+  const name = program.split('/').pop()!;
+  return gitModule && (name === 'git' || GIT_DASHED.has(name))
+    ? wasmProgram(processes, gitModule, {
+        root,
+        fetch: fetchFile,
+        shared: null,
+        argv0: name,
+        defaults: { GIT_PAGER: 'cat' },
+      })
+    : null;
+});
 const beam = startBeam({
   module: pathToFileURL(`${dir}/beam.mjs`).href,
   args: beamArgs(args, env.HOME),
@@ -171,10 +190,13 @@ const beam = startBeam({
   root,
   fs: new TreeFs(root, fetchFile),
   network,
-  programs: programs(vfs(root, fetchFile), (name, version) => {
-    const path = `${dir}/nif/${name}-${version}.tar`;
-    return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
-  }),
+  programs: Object.assign(
+    programs(vfs(root, fetchFile), (name, version) => {
+      const path = `${dir}/nif/${name}-${version}.tar`;
+      return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+    }),
+    { git: portProgram(processes, 'git') },
+  ),
   tty: !!process.env.TTY,
   size: [80, 24],
   onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,

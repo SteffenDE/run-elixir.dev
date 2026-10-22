@@ -13,6 +13,7 @@ import type { Descriptor } from './wasi/descriptors';
 import type { Dir, Fetch } from './wasi/fs';
 import { Device, File } from './wasi/fs';
 import { Pipe } from './wasi/pipe';
+import type { Program as PortProgram } from './wasi/process';
 import type { Shared } from './wasi/shared';
 import type { Run } from './worker/brush';
 import { OutputLimitError } from './worker/output';
@@ -580,5 +581,54 @@ export function processCalls(
       wasi.fds.set(to, share(entry));
       return E.SUCCESS;
     },
+  };
+}
+
+// A program of the table as one a node's port runs (wasi/process.ts: the
+// Emscripten BEAM's ports, System.cmd): `name` with pipes for its
+// streams, what the node writes its input, and both its outputs the
+// port's to read as they come, then its exit status. The port closing
+// ends it (SIGTERM) if it still runs.
+export function portProgram(processes: Processes, name: string): PortProgram {
+  return (process, { args, cwd, env }) => {
+    const [inRead, inWrite] = pipe();
+    const [outRead, outWrite] = pipe();
+    const child = processes.spawn({
+      program: name,
+      args,
+      cwd,
+      env,
+      stdio: [inRead, outWrite, outWrite],
+    });
+    release(inRead);
+    release(outWrite);
+    if (!child) {
+      release(inWrite);
+      release(outRead);
+      process.write(`${name}: not found\n`);
+      process.exit(127);
+      return;
+    }
+    let open = true;
+    process.oninput = (bytes) => void (open && inWrite.pipe!.write(bytes, false));
+    process.onclose = () => {
+      if (open) release(inWrite);
+      open = false;
+      if (child.status === null) child.kill(SIGTERM);
+    };
+    void (async () => {
+      const from = outRead.pipe!;
+      for (;;) {
+        const bytes = from.read(65536);
+        if (!bytes) await from.changed();
+        else if (!bytes.length) break;
+        else process.write(bytes);
+      }
+      release(outRead);
+      const status = await processes.wait(child.pid, 0);
+      if (open) release(inWrite);
+      open = false;
+      process.exit(status ?? 1);
+    })();
   };
 }

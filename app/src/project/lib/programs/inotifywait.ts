@@ -5,7 +5,8 @@
 // asked for), a directory that is there was created, one that is gone was
 // deleted. -e, --format, -m, -r, -q and --exclude/--include(i); without -m
 // it exits after the first event, else when it is killed (file_system's
-// port closing: programs/node.ts shProgram).
+// sh -c line runs it in the background, and kills it when its port's
+// input ends).
 import { path } from './modules';
 import type { Context, Process } from './tailwind';
 import { type Watcher, watchers } from './watch';

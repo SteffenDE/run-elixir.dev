@@ -166,6 +166,11 @@ commands as the terminal's shell does: pipes, `||`, `;`, variables,
 redirections; node commands in that worker, page programs, coreutils. A
 tool with neither a file nor a pipe reads the node's input, as on a
 real machine: an open-ended `System.shell("sort")` waits for its end.
+Reading it waits without holding the worker (`ready` on the input's
+descriptor), so a job in the background runs meanwhile, and the port's
+closing is the input's end. file_system's line, `inotifywait "$0" "$@" &
+PID=$!; read a; kill -KILL $PID`, runs as written: the page's
+`inotifywait` in the background until the port closes.
 `sh.ts`'s `commands()` remains only for the Node harness (no page).
 `System.shell("true")` takes some 70–220 ms, mostly the worker's start
 (it builds its tree from the boot tars the exec frame's worker has).

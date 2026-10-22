@@ -331,9 +331,20 @@ def app_files(app):
         if parts[0] in ("_build", "_build_rotp", "_build_otp", ".elixir_ls") and parts[0] != BUILD or (len(parts) > 2 and parts[0] == "deps" and parts[2] == ".git"):
             dirs[:] = []
             if len(parts) == 3 and parts[0] == "deps" and parts[2] == ".git":
-                for name in ("config", "HEAD"):
+                # A repository to git, without its objects: its config, HEAD
+                # and refs, and an empty objects/info/packs (git takes a
+                # directory with objects/ and refs/ for one; Mix's
+                # lock_status reads only the origin and HEAD).
+                for name in ("config", "HEAD", "packed-refs"):
                     if os.path.exists(os.path.join(directory, name)):
                         out.append((f"work/playground/{relative_dir}/{name}", os.path.join(directory, name)))
+                for refs, _, ref_names in os.walk(os.path.join(directory, "refs")):
+                    for name in sorted(ref_names):
+                        ref = os.path.relpath(os.path.join(refs, name), directory)
+                        out.append((f"work/playground/{relative_dir}/{ref}", os.path.join(refs, name)))
+                empty = os.path.join(CACHE, "empty")
+                open(empty, "w").close()
+                out.append((f"work/playground/{relative_dir}/objects/info/packs", empty))
             continue
         if parts[0] == BUILD and len(parts) == 1:
             dirs[:] = [d for d in dirs if d == "dev"]

@@ -26,8 +26,6 @@ export const TOOLS = new Set(
 // Programs of their own module (the site's NAME.wasm), by name.
 export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm', git: 'git.wasm' };
 
-// git's subcommands that reach a remote, which git.wasm cannot yet (it has
-// no processes, so no transport): the page's git (isomorphic-git) runs them.
 // A tool of coreutils' or a program of PROGRAMS'.
 export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;
 

@@ -8,29 +8,21 @@ last_updated: 2026-10-22
 
 A plan for git in a project (clone, history, a diff view, push) and for
 signing in, and what each needs from the site's origins to stay safe.
-Built so far: git itself built to WebAssembly for the shell, the
-processes it runs and fetching over HTTPS included
-([below](#gitwasm-git-itself)); isomorphic-git for what a node (Mix) asks
-of git. A project's history beyond git (every
+Built so far: git itself built to WebAssembly, the only git: the
+shell's and a node's (Mix's), the processes it runs and fetching over
+HTTPS included ([below](#gitwasm-git-itself)). A project's history beyond git (every
 change, the database too) is [history.md](history.md)'s.
 Mix's git dependencies are [architecture.md](architecture.md#git)'s.
 
 ## git in the shell
 
-Two engines, for now:
-
-- **git.wasm** ([below](#gitwasm-git-itself)): git 2.56 itself, for
-  every subcommand at the shell, clone, fetch and pull included. The
-  engine to grow: agents (Claude Code in the playground) and people
-  expect git's own output, `--porcelain` and all, and its whole porcelain
-  (stash, rebase, apply, blame, …), which a reimplementation would chase
-  forever.
-- **The page program** (`src/project/lib/programs/git.ts`, isomorphic-git
-  over the node's files), fetching through the site's proxy at
-  `/git/HOST/OWNER/REPO/` (GitHub, GitLab, Codeberg; `git-upload-pack`
-  only): all of what Mix asks of git for a dependency (a node's `git` is
-  always the page's; its ports run a program to its end, and git.wasm's
-  transport needs processes of the worker's).
+One engine, **git.wasm** ([below](#gitwasm-git-itself)): git 2.56 itself,
+for every subcommand at the shell and for what a node runs (Mix's git
+dependencies: `portProgram`, a process of the worker's table). Agents
+(Claude Code in the playground) and people expect git's own output,
+`--porcelain` and all, and its whole porcelain (stash, rebase, apply,
+blame, …), which a reimplementation would chase forever. isomorphic-git
+(the page's git until 2026-10-22) is gone.
 
 ### A baseline commit
 
@@ -59,7 +51,7 @@ every token through the site's server in the clear (Caddy ends TLS), which
 the relay's rule rules out: the server stays blind.
 
 **GitHub's REST API from the page.** `api.github.com` sends CORS headers:
-blobs for the new objects (isomorphic-git knows them), a tree over the
+blobs for the new objects (git.wasm knows them), a tree over the
 parent's, a commit, then the branch's ref. One request per blob, within
 5000 an hour: enough for a playground's pushes. GitLab and Codeberg have
 APIs of the same shape, later.
@@ -294,10 +286,6 @@ for a repository until `git init` again: the baseline commit
 tokens: the helper with the `push` capability, turning git's pack into
 the API's blobs, trees and commits.
 
-**Mix on git.wasm** would retire isomorphic-git: a node's `git` (its
-ports run a program to its end, synchronously) would have to become a
-process of the worker's for the transport.
-
 **The editor** is the IDE's: `GIT_EDITOR` names a page program that
 opens the file in a tab and exits when it is closed. No pager: xterm
 scrolls back (`GIT_PAGER=cat`, which git takes for none).
@@ -349,9 +337,8 @@ status, and a pipeline's compound commands ([runtime.md](runtime.md#the-shell-wo
   `ls-remote` from GitHub, GitLab and Codeberg through the proxy, SSH
   addresses as HTTPS; a host the proxy does not serve is refused by name,
   and push is refused. Progress as git prints it, as it is git's.
-- **The page's git** (isomorphic-git) for a node's `git` (Mix's
-  dependencies): `git clone` (`--depth`, `--branch`), `pull` as a
-  fast-forward, and what Mix runs.
+- **A node's git** is git.wasm too: Mix's git dependencies (`fetch
+  --depth`, sparse checkout, the lock's check).
 - **The shell runs the page's programs** (`tailwind`, `esbuild`, `node`,
   `rebar3`) as processes that stream ([runtime.md](runtime.md#processes-processests));
   Ctrl+C stops one.

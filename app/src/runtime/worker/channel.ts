@@ -235,31 +235,12 @@ export class Channel {
     this.signals = signals;
     postMessage({ kind: 'tty', raw, signals });
   }
-  // A line typed at the shell (blocking).
-  line(): string | null {
-    for (;;) {
-      this.pump();
-      if (this.interrupted) {
-        this.interrupted = false;
-        this.input = [];
-        return null;
-      }
-      const all = this.take(Infinity);
-      const newline = all.indexOf(10);
-      if (newline >= 0) {
-        if (newline + 1 < all.length) this.input.unshift(all.subarray(newline + 1));
-        return new TextDecoder().decode(all.subarray(0, newline));
-      }
-      if (all.length) this.input.unshift(all);
-      this.sleep(1000);
-    }
-  }
 }
 
 // A program the page runs (host/programs.ts): its output and exit come back
 // as frames; it is told when the node closes its port. Its input: bytes,
 // then their end; or (null) none that ends, as an open pipe's (the BEAM's
-// ports), unless the caller forwards some (runOnPage, the terminal's);
+// ports), unless the caller forwards some (pageProgram, the terminal's);
 // `tty`: whether its stdin and stdout are the terminal. started(id) hears
 // its id.
 let processes = 0;

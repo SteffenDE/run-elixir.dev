@@ -40,6 +40,7 @@ import {
   Processes,
   feed,
   hosted,
+  portProgram,
   wasmProgram,
   writeAll,
   type Program,
@@ -380,6 +381,8 @@ onmessage = async ({
       network.peers = channel.peers;
       channel.interrupted = false;
       channel.terminated = false;
+      // Ctrl+C is the node's while it runs (its break), not its processes'.
+      processes.hosting++;
       try {
         return await runBeam({
           module: runtime('beam.mjs').href,
@@ -391,10 +394,15 @@ onmessage = async ({
           shared: sharedFs,
           network,
           programs: withCoreutils(
-            {
-              ...programs(fs, nif),
-              ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
-            },
+            Object.assign(
+              {
+                ...programs(fs, nif),
+                ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
+              },
+              // git itself (git.wasm), a process of the worker's table, its
+              // transport and children too.
+              { git: portProgram(processes, 'git') },
+            ),
             tools,
           ),
           channel,
@@ -403,6 +411,7 @@ onmessage = async ({
           stdout,
         });
       } finally {
+        processes.hosting--;
         channel.interrupted = false;
         channel.terminated = false;
         channel.mode(false);
@@ -499,40 +508,19 @@ onmessage = async ({
 
     // The node's input for a tool that reads it (no pipe's): the
     // terminal's typing (Ctrl+D its end) or what its process writes it, as
-    // it comes; none after its end, or once Ctrl+C or a stop came.
-    const readInput = (max: number): Uint8Array => {
-      channel.reading = 0;
-      try {
-        for (;;) {
-          channel.pump();
-          if (channel.interrupted || channel.terminated) return new Uint8Array(0);
-          const bytes = channel.takeInput(max);
-          if (bytes) return bytes;
-          channel.sleep(1000);
-        }
-      } finally {
-        channel.reading = null;
-      }
+    // it comes; none after its end, or once Ctrl+C or a stop came. Null
+    // while nothing came: the reader waits for a frame (`ready`), and the
+    // worker's other processes run meanwhile.
+    const readInput = (max: number): Uint8Array | null => {
+      channel.pump();
+      if (channel.interrupted || channel.terminated) return new Uint8Array(0);
+      const bytes = channel.takeInput(max);
+      channel.reading = bytes ? null : 0;
+      return bytes;
     };
+    const inputReady = () => channel.rest(1000);
 
     say('status', 'running');
-    const sh = isSh(named?.[0]);
-    if (!shell && !sh) {
-      const cwd = env.PWD || start;
-      const argv = named
-        ? command(named[0], named.slice(1), (path) => fs.read(join(cwd, path)))
-        : erlArgs;
-      if (!argv) {
-        text(`${named![0]}: command not found\n`);
-        say('exit', 127);
-        return;
-      }
-      say('exit', await run(argv, cwd));
-      return;
-    }
-    // The terminal's shell, or a node's sh -c: brush (brush.ts), which the
-    // site has.
-    if (!brushModule) throw new Error('the site has no shell (brush.wasm: brush/build.py)');
     // What the shell runs for `program`: a node (its argv: a node command,
     // an escript), a page program (a
     // script for node, #!/usr/bin/env node, a package's bin in
@@ -645,10 +633,29 @@ onmessage = async ({
     // The standard streams of what the shell starts, where they are the
     // shell's own: the node's input (the terminal's typing) and output.
     const standard: [Descriptor, Descriptor, Descriptor] = [
-      { stream: true, source: readInput, tty: channel.tty[0] },
+      { stream: true, source: readInput, ready: inputReady, tty: channel.tty[0] },
       { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
       { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
     ];
+    // One node, not under a shell: its command, to its end (its git and
+    // the like are processes of the table above).
+    const sh = isSh(named?.[0]);
+    if (!shell && !sh) {
+      const cwd = env.PWD || start;
+      const argv = named
+        ? command(named[0], named.slice(1), (path) => fs.read(join(cwd, path)))
+        : erlArgs;
+      if (!argv) {
+        text(`${named![0]}: command not found\n`);
+        say('exit', 127);
+        return;
+      }
+      say('exit', await run(argv, cwd));
+      return;
+    }
+    // The terminal's shell, or a node's sh -c: brush (brush.ts), which the
+    // site has.
+    if (!brushModule) throw new Error('the site has no shell (brush.wasm: brush/build.py)');
     // The terminal as brush's line editor has it. Waiting for a key holds
     // nothing: the worker's processes (a job with `&`) run meanwhile.
     const terminal: BrushOptions['terminal'] = {
@@ -687,9 +694,6 @@ onmessage = async ({
       root,
       fetch: fetchFile,
       shared: sharedFs,
-      // A line for what reads the terminal while brush's line editor
-      // does not (`read`, as typed).
-      line: () => channel.line(),
       out: (bytes: Uint8Array) => say('out', bytes),
       terminal,
       processes,
@@ -721,15 +725,7 @@ onmessage = async ({
       if (flag !== '-c')
         return { message: 'sh: only sh -c LINE runs in the playground\n', status: 2 };
       return {
-        args: [
-          '--norc',
-          '--noprofile',
-          '-c',
-          `cd ${quote(cwd)} || exit 1\n${line}`,
-          // `--` only before a $0 that starts with `-` (brush would take it
-          // for its own option): then `--` is $0, as in bash.
-          ...(rest[0]?.startsWith('-') ? ['--', ...rest] : rest),
-        ],
+        args: ['--norc', '--noprofile', '-c', `cd ${quote(cwd)} || exit 1\n${line}`, ...rest],
       };
     };
     // sh (or bash) as a process of the table: brush with the streams it

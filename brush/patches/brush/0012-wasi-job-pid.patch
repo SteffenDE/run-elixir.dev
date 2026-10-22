@@ -1,0 +1,112 @@
+From f13f4a8439ede4ab7a0bef4e01dd41d4bc15b676 Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Thu, 22 Oct 2026 12:47:02 +0000
+Subject: [PATCH] brush-core: on WASI a job's pid is the process its task
+ started first: $! and kill have it
+
+---
+ brush-core/src/expansion.rs           |  2 +-
+ brush-core/src/interp.rs              | 18 +++++++++++++++---
+ brush-core/src/jobs.rs                |  8 +++++++-
+ brush-core/src/sys/wasm/playground.rs |  7 +++++++
+ 4 files changed, 30 insertions(+), 5 deletions(-)
+
+diff --git a/brush-core/src/expansion.rs b/brush-core/src/expansion.rs
+index abcd2d8..1de5bc3 100644
+--- a/brush-core/src/expansion.rs
++++ b/brush-core/src/expansion.rs
+@@ -1826,7 +1826,7 @@ impl<'a, SE: extensions::ShellExtensions> WordExpander<'a, SE> {
+             }
+             brush_parser::word::SpecialParameter::LastBackgroundProcessId => {
+                 if let Some(job) = self.shell.jobs().current_job()
+-                    && let Some(pid) = job.representative_pid()
++                    && let Some(pid) = job.process_group_id()
+                 {
+                     return Expansion::from(pid.to_string());
+                 }
+diff --git a/brush-core/src/interp.rs b/brush-core/src/interp.rs
+index 20b3941..e9ea91e 100644
+--- a/brush-core/src/interp.rs
++++ b/brush-core/src/interp.rs
+@@ -248,12 +248,24 @@ impl Execute for ast::CompoundList {
+             let run_async = matches!(sep, ast::SeparatorOperator::Async);
+ 
+             if run_async {
++                #[cfg(target_os = "wasi")]
++                crate::sys::platform::playground::LAST_SPAWNED.with(|last| last.set(None));
+                 let job = spawn_async_ao_list_in_task(ao_list, shell, params);
+-                let job_formatted = job.to_pid_style_string();
++                #[cfg_attr(target_os = "wasi", allow(unused_mut))]
++                let mut job_formatted = job.to_pid_style_string();
+ 
+-                // WASI: one thread; the job starts once this yields.
++                // WASI: one thread; the job starts once this yields. What it
++                // started first is its pid ($!, kill), as a process group's.
+                 #[cfg(target_os = "wasi")]
+-                tokio::task::yield_now().await;
++                {
++                    tokio::task::yield_now().await;
++                    if let Some(pid) = crate::sys::platform::playground::LAST_SPAWNED.with(|last| last.take())
++                        && let Some(job) = shell.jobs_mut().current_job_mut()
++                    {
++                        job.set_pgid(pid);
++                        job_formatted = job.to_pid_style_string();
++                    }
++                }
+ 
+                 if shell.options().interactive && !shell.is_subshell() {
+                     writeln!(params.stderr(shell), "{job_formatted}")?;
+diff --git a/brush-core/src/jobs.rs b/brush-core/src/jobs.rs
+index c989565..0b81705 100644
+--- a/brush-core/src/jobs.rs
++++ b/brush-core/src/jobs.rs
+@@ -311,7 +311,7 @@ impl Job {
+     /// Returns a pid-style string for the job.
+     pub fn to_pid_style_string(&self) -> String {
+         let display_pid = self
+-            .representative_pid()
++            .process_group_id()
+             .map_or_else(|| String::from("<pid unknown>"), |pid| pid.to_string());
+         std::format!("[{}]{}\t{}", self.id, self.annotation, display_pid)
+     }
+@@ -450,6 +450,12 @@ impl Job {
+         None
+     }
+ 
++    /// Sets the job's process group ID (on WASI, the pid of the process its
++    /// task started first).
++    pub(crate) const fn set_pgid(&mut self, pgid: sys::process::ProcessId) {
++        self.pgid = Some(pgid);
++    }
++
+     /// Tries to retrieve the process group ID (PGID) of the job.
+     pub fn process_group_id(&self) -> Option<sys::process::ProcessId> {
+         // TODO(jobs): Don't assume that the first PID is the PGID.
+diff --git a/brush-core/src/sys/wasm/playground.rs b/brush-core/src/sys/wasm/playground.rs
+index 0f414da..2532af1 100644
+--- a/brush-core/src/sys/wasm/playground.rs
++++ b/brush-core/src/sys/wasm/playground.rs
+@@ -46,6 +46,12 @@ unsafe extern "C" {
+ }
+ 
+ const EAGAIN: i32 = 6;
++
++thread_local! {
++    /// The pid of the process last started (a job's, for `$!` and `kill`:
++    /// interp.rs reads it once the job's task first yields).
++    pub static LAST_SPAWNED: std::cell::Cell<Option<i32>> = const { std::cell::Cell::new(None) };
++}
+ const ENOENT: i32 = 44;
+ 
+ /// A pipe of the host's: its read end and its write end.
+@@ -351,6 +357,7 @@ pub(crate) fn run_external(
+         return Err(std::io::Error::from_raw_os_error(error).into());
+     }
+ 
++    LAST_SPAWNED.with(|last| last.set(Some(pid)));
+     let child = process::Child { pid, feeds };
+     Ok(ExecutionSpawnResult::StartedProcess(ChildProcess::new(child, Some(pid), None)))
+ }
+-- 
+2.47.3
+

@@ -71,9 +71,6 @@ export function machine(scratch: string): Machine {
   };
   const hosted = new Map<string, number>();
 
-  // $0 and the rest after the line; `--` first only if $0 starts with `-`
-  // (brush would take it for an option of its own), and then it is $0.
-  const dashed = (rest: string[]) => (rest[0]?.startsWith('-') ? ['--', ...rest] : rest);
   const quote = (value: string) => `'${value.replace(/'/g, `'\\''`)}'`;
   // sh -c LINE [NAME ARGS…] or sh FILE [ARGS…], from `cwd` (brush starts in
   // /), as the worker's shArgs has them; options before them (-e, -x) are
@@ -95,18 +92,11 @@ export function machine(scratch: string): Machine {
     const set = options.length ? `set ${options.join(' ')}\n` : '';
     return brush({
       module: shell,
-      args: [
-        '--norc',
-        '--noprofile',
-        '-c',
-        `cd ${quote(cwd)} || exit 1\n${set}${line}`,
-        ...dashed(rest),
-      ],
+      args: ['--norc', '--noprofile', '-c', `cd ${quote(cwd)} || exit 1\n${set}${line}`, ...rest],
       env: { ...env, PWD: cwd },
       root,
       fetch,
       shared,
-      line: () => null,
       out: () => {},
       terminal: { raw: () => {}, size: () => [80, 24], read: async () => null },
       processes,
