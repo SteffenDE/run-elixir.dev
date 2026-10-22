@@ -270,7 +270,7 @@ project with `deps` and `_build` forced in (3.8k files): `add` 3.3 s
 | --- | --- |
 | A token, and push over GitHub's REST API ([below](#push)) | push to GitHub |
 | An editor | `commit` without `-m`, `rebase -i`, `add -p`'s editing |
-| `sed`, `grep`, `diff`, `awk` and `perl` in the playground (the suite borrows the host's) | git's scripts at the shell: `submodule`, `mergetool`, `filter-branch`, `request-pull` |
+| `sed`, `grep`, `diff`, `awk` in the playground ([tools.md](tools.md); the suite borrows the host's) | git's scripts at the shell: `submodule`, `mergetool`, `filter-branch`, `request-pull` |
 | Private repositories (credentials through the helper, not the proxy) | clone and fetch of those |
 
 Also: the Phoenix template's `.git` (phx.new's `git init`) lacks `refs/`

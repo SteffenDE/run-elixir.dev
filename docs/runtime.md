@@ -341,8 +341,9 @@ instance of its own over the node's tree and the shared files (`wasi/`).
   ([nodejs.md](nodejs.md#a-nodes-sh--c-is-brush)).
 
 Not yet: `os:cmd`'s `sh -s` (its line on standard input); `grep`, `sed`,
-`find` and `awk`, which are not coreutils; file modes and owners, which
-WASI does not have (`chmod`, `ls -l`'s columns).
+`diff`, `find` and `awk`, which are not coreutils (the plan:
+[tools.md](tools.md)); file modes and owners, which WASI does not have
+(`chmod`, `ls -l`'s columns).
 
 ## Page and node (`host/`, `worker/`)
 
