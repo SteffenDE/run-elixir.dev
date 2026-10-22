@@ -257,7 +257,8 @@ log, show, blame, grep, branch, switch, rebase (not `-i`), cherry-pick,
 revert, reset, tag, stash, format-patch, config; what runs other
 processes: a merge with local changes (`--autostash`), `worktree add`,
 `gc` (`pack-refs`, `repack`, `pack-objects` over pipes), `repack`,
-`fsck`, aliases with `!`, hooks; and over a transport: clone, fetch,
+`fsck`, aliases with `!`, hooks, `submodule` (a script of git's, with
+sed: [tools.md](tools.md)); and over a transport: clone, fetch,
 pull, ls-remote from GitHub (HTTPS and SSH addresses, `--depth`), and
 clone, fetch and push over `file://` (`--no-local`: `upload-pack` and
 `receive-pack` as processes). Per command: a few ms over a small repository. On a Phoenix
@@ -271,7 +272,7 @@ project with `deps` and `_build` forced in (3.8k files): `add` 3.3 s
 | --- | --- |
 | A token, and push over GitHub's REST API ([below](#push)) | push to GitHub |
 | An editor | `commit` without `-m`, `rebase -i`, `add -p`'s editing |
-| `sed`, `grep`, `diff`, `awk` in the playground ([tools.md](tools.md); the suite borrows the host's) | git's scripts at the shell: `submodule`, `mergetool`, `filter-branch`, `request-pull` |
+| `grep`, `diff`, `awk` in the playground ([tools.md](tools.md); the suite borrows the host's) | git's scripts at the shell beyond `submodule`: `mergetool`, `filter-branch`, `request-pull` |
 | Private repositories (credentials through the helper, not the proxy) | clone and fetch of those |
 
 Also: the Phoenix template's `.git` (phx.new's `git init`) lacks `refs/`
@@ -303,18 +304,18 @@ scrolls back (`GIT_PAGER=cat`, which git takes for none).
   `GIT_T_LIMIT` ends a script that hangs): `t/`'s scripts over
   `test-lib.sh`, in Node, with brush as sh, git.wasm as git (and its
   dashed programs and scripts), `test-tool.wasm` (`git/build.py` builds
-  it, `GIT-BUILD-OPTIONS` and `templates/blt` too) and coreutils.wasm,
-  each a process of the table as the playground runs them. The files are
-  the host's at their own paths (`hostfs.ts`: the shared files' protocol
-  over `node:fs`). What the playground lacks yet runs as the host's own
-  program: `sed`, `grep`, `diff`, `cmp`, `perl`, `find`, `getconf`
-  (`Machine.hosted` counts them). Each script's TAP goes to
+  it, `GIT-BUILD-OPTIONS` and `templates/blt` too), coreutils.wasm and
+  sed.wasm, each a process of the table as the playground runs them.
+  The files are the host's at their own paths (`hostfs.ts`: the shared
+  files' protocol over `node:fs`). What the playground lacks yet runs as
+  the host's own program: `grep`, `diff`, `cmp`, `awk`, `perl`, `find`,
+  `getconf` (`Machine.hosted` counts them). Each script's TAP goes to
   `target/git/src/t/results/`, a summary to `target/git/t-results.json`.
   All of `t/` (1059 scripts) in 6 shards takes about 7 minutes.
 - **Playwright** for what is the browser's (JSPI in three engines, the
   files across workers, the proxy): `git.spec.ts`.
 
-**Where it stands** (2026-10-22): 29,448 tests pass, 747 fail (97.5%),
+**Where it stands** (2026-10-22, with sed.wasm): 29,451 tests pass, 744 fail (97.5%),
 257 known breakages as git's own; 748 scripts pass whole, 164 skip
 themselves (their prerequisites: HTTP servers, iconv, gettext, …), 9
 error before a test (gettext, `git://`), 3 time out (completion,

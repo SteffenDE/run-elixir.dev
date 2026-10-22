@@ -17,4 +17,5 @@ python3 -I tailscale/build.py
 python3 -I ripgrep/build.py
 python3 -I tls/build.py
 python3 -I git/build.py
+python3 -I sed/build.py
 python3 -I runtime/build.py

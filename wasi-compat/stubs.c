@@ -1,7 +1,10 @@
-/* What WASI preview 1 lacks and git links against: processes, users,
-   modes, terminals and sockets. Processes are the playground's host's
-   (its `processes` imports: app/src/runtime/processes.ts); the rest says
-   so (ENOSYS) or answers as a single user would. */
+/* What WASI preview 1 lacks and the C tools (git, sed, …) link against:
+   processes, users, modes, terminals and sockets. Processes are the
+   playground's host's (its `processes` imports:
+   app/src/runtime/processes.ts); the rest says so (ENOSYS) or answers as
+   a single user would. Built with wasi-compat.h forced in, as git's files
+   are; a tool links what it uses (wasm-ld drops the rest, and with it
+   imports nothing calls). */
 #include <errno.h>
 #include <fcntl.h>
 #include <netdb.h>
@@ -123,6 +126,51 @@ pid_t wasi_spawn(const char **argv, char **env, const char *dir, int in, int out
   return answer(error) ? -1 : pid;
 }
 
+/* popen and system: `sh -c COMMAND` (the host's sh, brush), its output
+   or input a pipe of ours. */
+static struct { FILE *file; pid_t pid; } opened[16];
+FILE *popen(const char *command, const char *mode) {
+  int reading = mode[0] == 'r', fds[2], slot = 0;
+  while (slot < 16 && opened[slot].file) slot++;
+  if (slot == 16) { errno = EMFILE; return NULL; }
+  if ((mode[0] != 'r' && mode[0] != 'w') || pipe(fds)) {
+    if (mode[0] != 'r' && mode[0] != 'w') errno = EINVAL;
+    return NULL;
+  }
+  const char *argv[] = {"sh", "-c", command, NULL};
+  extern char **environ;
+  pid_t pid = reading ? wasi_spawn(argv, environ, NULL, 0, fds[1], 2)
+                      : wasi_spawn(argv, environ, NULL, fds[0], 1, 2);
+  close(fds[reading]);
+  FILE *file = pid < 0 ? NULL : fdopen(fds[!reading], mode);
+  if (!file) {
+    close(fds[!reading]);
+    if (pid >= 0) waitpid(pid, NULL, 0);
+    return NULL;
+  }
+  opened[slot].file = file;
+  opened[slot].pid = pid;
+  return file;
+}
+int pclose(FILE *file) {
+  int slot = 0, status;
+  while (slot < 16 && opened[slot].file != file) slot++;
+  if (slot == 16) { errno = ECHILD; return -1; }
+  pid_t pid = opened[slot].pid;
+  opened[slot].file = NULL;
+  fclose(file);
+  return waitpid(pid, &status, 0) < 0 ? -1 : status;
+}
+int system(const char *command) {
+  if (!command) return 1;
+  const char *argv[] = {"sh", "-c", command, NULL};
+  extern char **environ;
+  int status;
+  pid_t pid = wasi_spawn(argv, environ, NULL, 0, 1, 2);
+  if (pid < 0) return -1;
+  return waitpid(pid, &status, 0) < 0 ? -1 : status;
+}
+
 pid_t fork(void) NOSYS(-1)
 int execv(const char *p, char *const a[]) NOSYS(-1)
 int execvp(const char *p, char *const a[]) NOSYS(-1)
@@ -130,6 +178,8 @@ int execve(const char *p, char *const a[], char *const e[]) NOSYS(-1)
 int execl(const char *p, const char *a, ...) NOSYS(-1)
 int execlp(const char *p, const char *a, ...) NOSYS(-1)
 unsigned alarm(unsigned s) { return 0; }
+/* No rlimits: as many descriptors as a POSIX system's default. */
+int getdtablesize(void) { return 1024; }
 pid_t getppid(void) { return 1; }
 pid_t getpgid(pid_t p) NOSYS(-1)
 pid_t tcgetpgrp(int fd) NOSYS(-1)
@@ -162,6 +212,7 @@ struct passwd *getpwnam(const char *name) { return getpwuid(0); }
 struct group *getgrgid(gid_t gid) { return NULL; }
 int initgroups(const char *u, gid_t g) { return 0; }
 int chown(const char *p, uid_t u, gid_t g) { return 0; }
+int fchown(int fd, uid_t u, gid_t g) { return 0; }
 
 /* No umask (wasi-libc has chmod, which fails). */
 mode_t umask(mode_t m) { return 022; }

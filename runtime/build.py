@@ -423,18 +423,22 @@ def record(out, boot, snapshot):
 
 
 # The terminal's shell, brush, uutils coreutils (ls, cp, rm, … for the
-# shell and the nodes), ripgrep (rg), git (docs/git.md), the Tailscale node
-# (docs/tailscale.md) and a Node.js process's TLS client (docs/nodejs.md),
-# built to WebAssembly by their own scripts.
+# shell and the nodes), ripgrep (rg), git (docs/git.md), GNU's text tools
+# (docs/tools.md: sed), the Tailscale node (docs/tailscale.md) and a
+# Node.js process's TLS client (docs/nodejs.md), built to WebAssembly by
+# their own scripts.
 WASM = {"brush": "brush/build.py", "coreutils": "coreutils/build.py", "tailscale": "tailscale/build.py",
-        "tls": "tls/build.py", "rg": "ripgrep/build.py", "git": "git/build.py"}
+        "tls": "tls/build.py", "rg": "ripgrep/build.py", "git": "git/build.py", "sed": "sed/build.py"}
 
 
 def prebuilt():
-    """WASM's builds, {name: target/NAME/NAME.wasm}; the build stops
-    before it touches the site if any is missing."""
-    built = {name: os.path.join(ROOT, "target", name, f"{name}.wasm") for name in WASM}
-    missing = [f"{path}: missing (python3 -I {WASM[name]} first)"
+    """WASM's builds, {name: target/NAME/NAME.wasm}, or for a key DIR/NAME
+    (one build's several programs) {NAME: target/DIR/NAME.wasm}; the build
+    stops before it touches the site if any is missing."""
+    built = {key.split("/")[-1]: os.path.join(ROOT, "target", *key.split("/")[:1], f"{key.split('/')[-1]}.wasm")
+             for key in WASM}
+    scripts = {key.split("/")[-1]: script for key, script in WASM.items()}
+    missing = [f"{path}: missing (python3 -I {scripts[name]} first)"
                for name, path in built.items() if not os.path.exists(path)]
     if missing:
         raise SystemExit("\n".join(missing))
@@ -496,7 +500,7 @@ ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.h
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
-                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm"}
+                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm", "sed.wasm"}
 
 
 def unversion(out):

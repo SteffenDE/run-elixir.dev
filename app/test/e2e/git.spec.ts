@@ -148,8 +148,7 @@ test("git's remotes, aliases and hooks run as processes", async ({ page }) => {
   await run(page, 'rm .git/hooks/pre-commit');
 
   // A clone over file:// (--no-local): git-upload-pack, git.wasm as that
-  // name, through sh -c. (git submodule, a script of git's from
-  // /usr/libexec/git-core, wants sed, which the playground has not yet.)
+  // name, through sh -c.
   await run(
     page,
     'git init -q -b main /work/lib && git -C /work/lib -c user.name=Ada -c user.email=ada@example.com commit -q --allow-empty -m lib',
@@ -160,4 +159,22 @@ test("git's remotes, aliases and hooks run as processes", async ({ page }) => {
   );
   expect(cloned).toMatch(/^lib$/m);
   expect(cloned).not.toMatch(/fatal|error/);
+
+  // git submodule, a script of git's from /usr/libexec/git-core, and the
+  // sed it runs (sed/build.py); a local repository is file:// to it.
+  await run(page, 'git commit -q --allow-empty -m base');
+  const added = await run(
+    page,
+    'git -c protocol.file.allow=always submodule add -q /work/lib lib; echo "status $?"',
+  );
+  expect(added).toContain('status 0');
+  expect(added).not.toMatch(/fatal|error|not found/);
+  expect(await readText(page, '/work/repo/.gitmodules')).toBe(
+    '[submodule "lib"]\n\tpath = lib\n\turl = /work/lib\n',
+  );
+  expect(await run(page, 'git submodule status')).toMatch(/^ [0-9a-f]{40} lib \(heads\/main\)$/m);
+  await run(page, 'git commit -qm submodule');
+  expect(
+    await run(page, 'git -c protocol.file.allow=always submodule foreach git log --format=%s'),
+  ).toMatch(/Entering 'lib'\s+lib/);
 });

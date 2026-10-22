@@ -340,10 +340,15 @@ instance of its own over the node's tree and the shared files (`wasi/`).
   own, which runs the tools as the terminal's does
   ([nodejs.md](nodejs.md#a-nodes-sh--c-is-brush)).
 
-Not yet: `os:cmd`'s `sh -s` (its line on standard input); `grep`, `sed`,
-`diff`, `find` and `awk`, which are not coreutils (the plan:
-[tools.md](tools.md)); file modes and owners, which WASI does not have
-(`chmod`, `ls -l`'s columns).
+**GNU's text tools** are not coreutils: each is a program of its own
+built from C for WASI ([tools.md](tools.md)), named in `PROGRAMS` beside
+`rg` and `git`. `sed` (sed.wasm) is in; its `e` starts `sh -c` as a child
+process, so a node's `sed` runs in the process table, as its `git` does
+(`portProgram`).
+
+Not yet: `os:cmd`'s `sh -s` (its line on standard input); `grep`,
+`diff`, `find` and `awk` ([tools.md](tools.md)); file modes and owners,
+which WASI does not have (`chmod`, `ls -l`'s columns).
 
 ## Page and node (`host/`, `worker/`)
 

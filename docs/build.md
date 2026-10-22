@@ -59,6 +59,11 @@ rebar3), and builds the template with the host's Mix in
   minute; cached until its image, versions or the files of `git/` or
   `wasi-compat/` change; not its `.py` files); the
   site takes `target/git/git.wasm` (also `build.py app`).
+- **sed:** `python3 -I sed/build.py` first (GNU sed 4.10 for
+  `wasm32-wasip1` over `wasi-compat/`, its configure and make in wasi-sdk
+  33's image, about ten seconds: `wasi-compat/autoconf.py`,
+  [tools.md](tools.md#building-them); cached as git's is); the site takes
+  `target/sed/sed.wasm` (also `build.py app`).
 - **TLS:** `python3 -I tls/build.py` first (a Node.js process's TLS
   client, rustls for `wasm32-wasip1`, Rust and clang in Docker, about a
   minute; cached until its image or the crate's files change); the site
@@ -91,6 +96,7 @@ target/site/
     tls.wasm                   a Node.js process's TLS (tls/build.py), 0.71 MB (0.29 MB gzipped)
     rg.wasm                    ripgrep (ripgrep/build.py), 3.0 MB (1.0 MB gzipped)
     git.wasm                   git (git/build.py), 3.8 MB (1.5 MB gzipped)
+    sed.wasm                   GNU sed (sed/build.py), 626 KB (195 KB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]

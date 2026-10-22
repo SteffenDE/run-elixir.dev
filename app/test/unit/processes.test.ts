@@ -367,3 +367,77 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
     },
   );
 });
+
+// GNU sed (sed/build.py), when it is built: a program built for WASI over
+// the shared C layer (wasi-compat/), its `e` command through popen and sh.
+const SED = new URL('../../../target/sed/sed.wasm', import.meta.url).pathname;
+describe.skipIf(!existsSync(SED))('sed.wasm as a process', () => {
+  const module = existsSync(SED) ? new WebAssembly.Module(readFileSync(SED)) : null;
+  const root = new Dir();
+  root.put('dev/null', devnull());
+  root.mkdirs('tmp');
+  const fetch = () => {
+    throw new Error('no fetch');
+  };
+  // sh -c LINE as a simple command's words; echo as a program.
+  const sh: Program = async (_child, { args, cwd, env, stdio }) => {
+    const [program, ...rest] = words(args[1] ?? '');
+    const status = await processes.run({
+      program,
+      args: rest,
+      cwd,
+      env,
+      stdio: stdio.map((entry) => share(entry)) as typeof stdio,
+    });
+    return status ?? 127;
+  };
+  const echo: Program = async (_child, { args, stdio }) => {
+    stdio[1].pipe!.write(encode(`${args.join(' ')}\n`), false);
+    return 0;
+  };
+  const processes: Processes = new Processes((program) => {
+    const name = program.split('/').pop()!;
+    if (name === 'sh') return sh;
+    if (name === 'echo') return echo;
+    return name === 'sed' ? wasmProgram(processes, module!, { root, fetch, shared: null }) : null;
+  });
+  const sed = async (input: string, ...args: string[]) => {
+    const out = capture();
+    const status = await processes.run({
+      program: 'sed',
+      args,
+      cwd: '/work',
+      env: {},
+      stdio: [inputPipe(encode(input)), out.entry, out.entry],
+    });
+    return { status, text: out.text() };
+  };
+  root.mkdirs('work');
+  const read = (name: string) =>
+    decode((root.mkdirs('work').entries.get(name) as File | undefined)?.bytes ?? encode('-'));
+
+  test('substitutes, with GNU regex and -E, -n and -z', async () => {
+    expect(await sed('hello world\n', 's/o/0/g')).toEqual({ status: 0, text: 'hell0 w0rld\n' });
+    expect((await sed('a1b22\n', '-E', 's/([0-9])+/<\\1>/g')).text).toBe('a<1>b<2>\n');
+    expect((await sed('aa bb\n', 's/\\(a\\)\\1/x/')).text).toBe('x bb\n');
+    expect((await sed('1\n2\n3\n', '-n', '2p')).text).toBe('2\n');
+    expect((await sed('a\0b\0', '-z', 's/^/>/')).text).toBe('>a\0>b\0');
+    expect((await sed('', 's/(/')).status).toBe(1);
+  });
+
+  test('-i in place, without a suffix and with one', async () => {
+    root.put('work/f.txt', new File(encode('one\ntwo\n')));
+    expect((await sed('', '-i', 's/one/1/', 'f.txt')).status).toBe(0);
+    expect(read('f.txt')).toBe('1\ntwo\n');
+    expect((await sed('', '-i.bak', '2d', 'f.txt')).status).toBe(0);
+    expect(read('f.txt')).toBe('1\n');
+    expect(read('f.txt.bak')).toBe('1\ntwo\n');
+  });
+
+  test('e runs a command through sh, and s///e', async () => {
+    expect((await sed('x\n', 'e echo before')).text).toBe('before\nx\n');
+    expect((await sed('echo hi\n', 'e')).text).toBe('hi\n');
+    expect((await sed('x\n', 's/x/echo made/e')).text).toBe('made\n');
+    expect(processes.table.size).toBe(0);
+  });
+});

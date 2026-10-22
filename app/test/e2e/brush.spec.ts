@@ -33,6 +33,31 @@ test('brush runs pipelines, substitutions and redirections over the playground c
   expect(await run(page, 'ls a/b | xargs wc -c | tail -n 1')).toMatch(/0 total/);
 });
 
+// GNU sed (sed/build.py, its own module over wasi-compat/): in a pipeline,
+// in place, its `e` through sh (brush, a process of the worker's), and a
+// node's.
+test('sed edits streams and files, and runs commands through sh', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(await run(page, `printf 'one two\\n' | sed -E 's/(\\w+) (\\w+)/\\2 \\1/'`)).toContain(
+    'two one',
+  );
+  await writeText(page, '/work/s.txt', 'alpha\nbeta\n');
+  await run(page, "sed -i 's/^/- /; /beta/d' s.txt");
+  expect(await readText(page, '/work/s.txt')).toBe('- alpha\n');
+  expect(await run(page, `echo x | sed 'e echo from sh: $((6 * 7))'`)).toMatch(/from sh: 42\s+x/);
+  expect(await run(page, "sed -n '$=' s.txt; sed 's/(/' s.txt; echo \"status $?\"")).toMatch(
+    /^1\s+sed: -e expression #1, char 4: unterminated 's' command\s+status 1/m,
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("sed", ["s/a/A/g", "s.txt"]); IO.write(out)'`,
+    ),
+  ).toContain('- AlphA');
+});
+
 // Its line editor (reedline, over crossterm on the page's terminal): Tab
 // completes a path and a command, Up recalls a line, and a loop typed over
 // lines runs as one.

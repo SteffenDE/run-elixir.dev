@@ -400,8 +400,8 @@ onmessage = async ({
                 ...Object.fromEntries(pagePrograms.map((name) => [name, onPage(channel, name)])),
               },
               // git itself (git.wasm), a process of the worker's table, its
-              // transport and children too.
-              { git: portProgram(processes, 'git') },
+              // transport and children too; sed, whose `e` starts sh.
+              { git: portProgram(processes, 'git'), sed: portProgram(processes, 'sed') },
             ),
             tools,
           ),

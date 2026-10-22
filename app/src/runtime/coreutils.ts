@@ -4,7 +4,8 @@
 // own over the node's files (wasi/), run to its end on the caller's thread:
 // a node's port or the shell waits for it, as for a quick command. Other
 // programs built for WASI run the same way, each its own module
-// (PROGRAMS: ripgrep's rg, ripgrep/build.py; git, git/build.py).
+// (PROGRAMS: ripgrep's rg, ripgrep/build.py; git, git/build.py; GNU sed,
+// sed/build.py).
 import { WASI } from './wasi';
 import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';
@@ -24,7 +25,11 @@ export const TOOLS = new Set(
 );
 
 // Programs of their own module (the site's NAME.wasm), by name.
-export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm', git: 'git.wasm' };
+export const PROGRAMS: Record<string, string> = {
+  rg: 'rg.wasm',
+  git: 'git.wasm',
+  sed: 'sed.wasm',
+};
 
 // A tool of coreutils' or a program of PROGRAMS'.
 export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;

@@ -1,6 +1,6 @@
 ---
 kind: design
-status: plan
+status: in progress
 last_updated: 2026-10-22
 ---
 
@@ -35,41 +35,74 @@ One pattern for all, as `git/build.py`'s:
 
 - **The image:** wasi-sdk 33's (`nif/build.py`'s, pinned by digest); a
   release tarball by URL and SHA-256, `patches/` applied, the tool's own
-  `configure --host=wasm32-wasip1`, then `make`. What `configure` cannot
-  run when cross-compiling, a `config.site` answers.
-- **A shared C layer** for what WASI preview 1 lacks: `git/wasi/` today
-  (`wasi-compat.h`, `stubs.c`, the stub headers), moved where every C tool
-  links it: processes through the host (`wasi_spawn`, `pipe`, `dup`,
-  `dup2`, `waitpid`, `kill`: the `processes` imports), `stat`'s permission
-  bits (`wasi_stat`: WASI gives the type alone), one user (uid 0, `HOME`),
-  `mkstemp`, no-op `chmod`. What starts another program (sed's `e`,
-  awk's `system()` and pipes, `find -exec`) spawns through it; `popen`
-  and `system` are written over `wasi_spawn` and `sh -c` (brush, a
-  process of the table).
+  `configure --host=wasm32-wasip1`, then `make`, `-Oz`.
+  `wasi-compat/autoconf.py` does it for the GNU tools (sed's, grep's,
+  diffutils'); each `NAME/build.py` names its release, its configure
+  options and what to keep. It is loaded by path: `python3 -I` leaves
+  the script's directory off `sys.path`.
+- **A shared C layer**, `wasi-compat/` (git's `git/wasi/` until it moved),
+  for what WASI preview 1 lacks. `stubs.c`: processes through the host
+  (`wasi_spawn`, `pipe`, `dup`, `dup2`, `waitpid`, `kill`: the
+  `processes` imports), and `popen`, `pclose` and `system` over
+  `wasi_spawn` and `sh -c` (brush, a process of the table); one user
+  (uid 0, `HOME`), `mkstemp`, no-op `chown`, `getdtablesize`. A tool
+  links only what it calls: wasm-ld drops the rest, and the imports with
+  it (sed.wasm imports `pipe`, `spawn` and `wait`). `stubs.c` is built
+  the same for every tool, with `wasi-compat.h` forced in.
+- **Two headers:** `wasi-posix.h` declares what `stubs.c` defines
+  (wasi-libc declares some, behind `__wasilibc_unmodified_upstream`, and
+  defines none). `wasi-compat.h` is git's: `wasi-posix.h`, then what git
+  wants beyond it (`stat` with permission bits, signal masks, sockets),
+  forced into every file by `config.mak`. A tool built with gnulib takes
+  `wasi-posix.h` alone, appended to its `config.h`: gnulib's replacement
+  headers want `config.h` first and bring their own `signal.h`, so
+  `-include` before it fails.
+- **config.site:** configure's checks see neither header, so they would
+  take what `stubs.c` has for missing (gnulib then replaces it, or the
+  tool goes without: sed's `e` needs `HAVE_POPEN`).
+  `wasi-compat/config.site` says each is there and declared, except
+  `fork` and `exec`, which fail, so that a tool starts programs by
+  `popen` and `system`. Then the tool's own `config.site`, for what
+  configure cannot run when cross-compiling (sed's: gnulib's regex and
+  getopt, as Linux's sed has them). What configure guesses otherwise
+  ("guessing no") has gnulib's replacement built in, a little larger and
+  as correct.
 - **gnulib** (GNU's portability layer) brings its own replacements where
   WASI lacks a function; what it still misses (signals beyond WASI's
   emulated ones, `fcntl` locks, `fts` for findutils) is stubbed or
-  patched.
-- **Output:** `target/NAME/NAME.wasm`, `-Oz`, a few hundred KB each;
-  `runtime/build.py` ships them (its `WASM` and `RUNTIME_NAMES`, as
-  `git`), `coreutils.ts`'s `PROGRAMS` names them, and `setup.ts` puts a
-  stub for each on PATH (brush looks a command up itself).
+  patched. Only the program is made (`make sed/sed`): `gnulib-tests/`
+  does not build for WASI and is not needed.
+- **Output:** `target/NAME/NAME.wasm`; `runtime/build.py` ships it (its
+  `WASM` and `RUNTIME_NAMES`, as `git`), `coreutils.ts`'s `PROGRAMS`
+  names it, which puts a stub on PATH (`setup.ts`: brush looks a command
+  up itself), and `deploy/build-site.sh` builds it. A program that starts
+  others (sed's `e`) is a node's through the process table too
+  (`portProgram` in `worker/index.ts`, as `git`).
 
 ## Measured by git's suite
 
 `npm run test:git` (`app/test/git`, [git.md](git.md#tests)) runs git's own
 `t/` with what the playground lacks borrowed from the host, and counts
-it per script (`Machine.hosted`: sed, grep, diff, cmp, perl, find,
+it per script (`Machine.hosted`: grep, diff, cmp, awk, perl, find,
 getconf). Each tool, once built, joins the harness's resolver (as
 `git.wasm` and `coreutils.wasm` do) and leaves that count, with the pass
-rate (97.5%, 2026-10-22) holding; a regression is the tool's, or the
-shared layer's. The browser's tests (Playwright) add a few lines at the
-shell for each, and `git submodule add` from a local repository once
-`sed` is in.
+rate holding; a regression is the tool's, or the shared layer's. The
+browser's tests (Playwright) add a few lines at the shell for each.
+
+| Tool | Host runs it replaced | Suite (passed / failed) |
+| --- | --- | --- |
+| none (2026-10-22) | | 29,448 / 747 (97.53%) |
+| `sed` | 22,049 | 29,451 / 744 (97.54%): no script fails a test it passed |
+
+**sed** (4.10, `sed/build.py`): 626 KB (195 KB gzipped). Built as is, no
+patches. At the shell (`brush.spec.ts`): `-E` with back-references, `-i`
+without a suffix, `e` through sh, a node's `System.cmd("sed", …)`; and
+`git submodule add` of a local repository, `status` and `foreach`
+(`git.spec.ts`). In Node (`processes.test.ts`): `-z`, `-i.bak`, `s///e`.
 
 ## Order
 
-1. **sed**: the pattern itself, and `git submodule`.
+1. **sed**: the pattern itself, and `git submodule` (done).
 2. **grep** and **diffutils**: the same autoconf and gnulib, in turn.
 3. **awk**: plain C and a Makefile; `system()` and pipes over the layer.
 4. **findutils**: `fts` and `-exec`.

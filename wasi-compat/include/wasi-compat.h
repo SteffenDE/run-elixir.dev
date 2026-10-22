@@ -1,7 +1,11 @@
-/* What git asks of POSIX that WASI preview 1 lacks: declared here,
-   defined in stubs.c. */
+/* What git asks of POSIX that WASI preview 1 lacks, forced into each of
+   its files (config.mak's -include): wasi-posix.h's declarations, and
+   what git wants of stat, signals and sockets beyond them. A tool built
+   with autoconf and gnulib takes wasi-posix.h alone, after its config.h
+   (gnulib's replacement headers want config.h first, and bring their own
+   signals). */
 #pragma once
-#include <sys/types.h>
+#include "wasi-posix.h"
 /* stat, lstat and fstat with a mode's permission bits (stubs.c): WASI's
    have the type alone, and git takes a mode of S_IFDIR alone for a sparse
    index's directory, not a directory (a submodule's gitlink). Function-like,
@@ -13,19 +17,6 @@ int wasi_fstat(int, struct stat *);
 #define stat(path, st) wasi_stat(path, st)
 #define lstat(path, st) wasi_lstat(path, st)
 #define fstat(fd, st) wasi_fstat(fd, st)
-pid_t fork(void);
-int execv(const char *, char *const []);
-int execvp(const char *, char *const []);
-int execve(const char *, char *const [], char *const []);
-uid_t getuid(void); uid_t geteuid(void); gid_t getgid(void); gid_t getegid(void);
-pid_t getppid(void);
-mode_t umask(mode_t);
-int chmod(const char *, mode_t);
-int fchmod(int, mode_t);
-int dup(int); int dup2(int, int);
-int pipe(int [2]);
-/* The host's spawn (stubs.c; run-command.c's WASI branch). */
-pid_t wasi_spawn(const char **argv, char **env, const char *dir, int in, int out, int err);
 /* The host's coroutines for start_async (run-command.c's WASI branch):
    one runs wasi_run_async(async) on a stack of its own (*stack, for the
    caller to free once it waited for the pid); the async that runs now
@@ -33,17 +24,6 @@ pid_t wasi_spawn(const char **argv, char **env, const char *dir, int in, int out
 pid_t wasi_async_start(void *async, void **stack);
 void *wasi_async_current(void);
 _Noreturn void wasi_async_exit(int code);
-unsigned alarm(unsigned);
-int kill(pid_t, int);
-pid_t setsid(void);
-int chown(const char *, uid_t, gid_t);
-int execl(const char *, const char *, ...);
-int execlp(const char *, const char *, ...);
-pid_t getpgid(pid_t);
-pid_t tcgetpgrp(int);
-char *getpass(const char *);
-char *mkdtemp(char *);
-int mkstemp(char *);
 
 /* Signals: wasi-libc's emulation has signal() and raise(), no masks. */
 #include <signal.h>
