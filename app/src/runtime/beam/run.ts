@@ -67,9 +67,6 @@ export interface BeamNode {
 
 // prim_tty's buffer (patch 0011), which the host keeps from overflowing.
 const STDIN_CAPACITY = 64 * 1024;
-// How long the module's thread runs its mailbox before the worker's other
-// events (WebKit; startBeam).
-const SLICE = 8;
 const encoder = new TextEncoder();
 
 // Emscripten's instantiateWasm (beam/build.sh): the instance of a compiled
@@ -137,43 +134,10 @@ export function startBeam(options: BeamOptions): BeamNode {
     }
   };
   let size = options.size;
-  // Where Atomics.waitAsync wakes late (WebKit, some 60 ms: each of the
-  // node's file calls took that long), this thread runs what the node's
-  // threads proxied to it while the node runs: for SLICE ms at a time,
-  // waiting on its pthread's first word, which a thread notifies when it
-  // puts a call in the mailbox; then a tick lets the worker's other events
-  // in. A tick per check was some 170,000 a second, which kept the worker's
-  // timers from firing, and WebKit freed the MessageEvents late: the page
-  // passed 16 GB and was killed.
-  let polling = true;
-  let mailbox: Int32Array | null = null;
-  const ticks = new MessageChannel();
-  const poll = () => {
-    if (!polling) return;
-    mailbox ??= new Int32Array(memory.buffer, c('pthread_self'), 1);
-    const until = performance.now() + SLICE;
-    try {
-      for (;;) {
-        c('_emscripten_check_mailbox');
-        if (!polling || performance.now() >= until) break;
-        Atomics.wait(mailbox, 0, Atomics.load(mailbox, 0), 1);
-      }
-    } catch (error) {
-      // The node exited in a call it proxied: Emscripten unwinds by
-      // throwing (its ExitStatus, or 'unwind'); onExit has run.
-      const name = (error as Error)?.name;
-      if (name !== 'ExitStatus' && error !== 'unwind') throw error;
-      return;
-    }
-    ticks.port2.postMessage(null);
-  };
-  ticks.port1.onmessage = poll;
-
   const done = new Promise<number>((resolve, reject) => {
     const finish = (status: number) => {
       if (exited) return;
       exited = true;
-      polling = false;
       if (retry) clearTimeout(retry);
       resolve(status);
     };
@@ -269,10 +233,7 @@ export function startBeam(options: BeamOptions): BeamNode {
               step(`changing to ${options.cwd}`, () => FS.chdir(options.cwd));
             },
           ],
-        }).then(() => {
-          flush();
-          if (lateWaitAsync()) poll();
-        }),
+        }).then(() => flush()),
       )
       .catch(reject);
   });
@@ -409,11 +370,4 @@ function nifHost(options: BeamOptions) {
     },
     call: (id: number, request: Uint8Array) => get().call(id, request),
   };
-}
-
-// WebKit's Atomics.waitAsync, which Emscripten waits on for its threads'
-// calls, wakes late (Chromium's and Firefox's do not).
-function lateWaitAsync(): boolean {
-  const agent = globalThis.navigator?.userAgent ?? '';
-  return /AppleWebKit/.test(agent) && !/Chrom(e|ium)|Gecko\/\d/.test(agent);
 }

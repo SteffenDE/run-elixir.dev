@@ -55,8 +55,7 @@ child processes, a clock, random bytes and a terminal.
   4, 2 or 1 GiB, as can be had). The node's worker is the module's main
   thread: every file and network call the threads make is proxied to it,
   so it never blocks while the node runs. It takes the page's frames as
-  they come (`Atomics.waitAsync` on the ring's write count); where that
-  wakes late (WebKit), it runs the proxied calls in 8 ms slices.
+  they come (`Atomics.waitAsync` on the ring's write count).
 - **The shell.** A worker runs a small shell. `elixir`, `iex`, `mix` and `erl`
   each start a fresh node, as a Unix shell starts processes; `cd`, `ls`,
   `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are builtins. A line
