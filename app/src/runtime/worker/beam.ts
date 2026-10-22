@@ -1,8 +1,7 @@
 // A node on the Emscripten BEAM in this worker: beam/run.ts with the
 // page's frames. It runs in threads of its own, whose file and network
 // calls this worker serves, so the frames are taken here as they come
-// (Atomics.waitAsync on the ring's write count) and the worker never
-// blocks while the node runs.
+// (Channel.rest) and the worker never blocks while the node runs.
 import { beamArgs } from '../beam/args';
 import { startBeam } from '../beam/run';
 import { TreeFs } from '../beam/treefs';
@@ -46,18 +45,6 @@ export function sharedMemory(): WebAssembly.Memory | null {
 
 // How many schedulers a node runs.
 export const SCHEDULERS = Math.max(1, Math.min(4, navigator.hardwareConcurrency || 1));
-
-// Atomics.waitAsync (ES2024; not in the library this targets).
-const waitAsync = (
-  Atomics as unknown as {
-    waitAsync?: (
-      array: Int32Array,
-      index: number,
-      value: number,
-      timeout: number,
-    ) => { async: boolean; value: Promise<string> | string };
-  }
-).waitAsync;
 
 // Until the node halts (its status) or Ctrl+C stops it (130).
 export async function runBeam(run: BeamRun): Promise<number> {
@@ -107,17 +94,12 @@ export async function runBeam(run: BeamRun): Promise<number> {
       node.kill(130);
     }
   };
-  const control = channel.control;
   const watch = async () => {
     while (watching.on) {
       take();
-      // Until the write count passes what was read (Channel.sleep's wait):
-      // a frame written since take() wakes it at once.
-      const read = Atomics.load(control, 1);
-      if (waitAsync) {
-        const wait = waitAsync(control, 0, read, 1000);
-        if (wait.async) await wait.value;
-      } else await new Promise((resolve) => setTimeout(resolve, 10));
+      // Until the page writes a frame (one written since take() wakes it
+      // at once).
+      await channel.rest(1000);
     }
   };
   void watch();
@@ -126,6 +108,7 @@ export async function runBeam(run: BeamRun): Promise<number> {
     return status ?? exit;
   } finally {
     watching.on = false;
-    Atomics.notify(control, 0);
+    // The watch's rest ends at once.
+    Atomics.notify(channel.control, 0);
   }
 }
