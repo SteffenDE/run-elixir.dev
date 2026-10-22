@@ -1,0 +1,105 @@
+--- a/builtin.c
++++ b/builtin.c
+@@ -3381,7 +3381,8 @@
+ int
+ gawk_system(const char *command)
+ {
+-#if defined(VMS) || defined(__MINGW32__)
++	/* WASI has no fork: system() is the host's sh -c (wasi-compat/stubs.c). */
++#if defined(VMS) || defined(__MINGW32__) || defined(__wasi__)
+ 	return system(command);
+ #else /* ! (defined(VMS) || defined(__MINGW32__)) */
+ 	pid_t childpid;
+--- a/io.c
++++ b/io.c
+@@ -183,6 +183,22 @@
+ # endif
+ #endif
+ 
++#ifdef __wasi__
++/*
++ * WASI has no fork: the host starts sh -c CMD with IN and OUT as its
++ * standard input and output, and our standard error (wasi_spawn, the
++ * playground's wasi-compat/stubs.c).
++ */
++static int
++wasi_sh(const char *cmd, int in, int out)
++{
++	extern char **environ;
++	const char *argv[] = { "sh", "-c", cmd, NULL };
++
++	return wasi_spawn(argv, environ, NULL, in, out, 2);
++}
++#endif
++
+ #ifdef HAVE_MPFR
+ /* increment NR or FNR */
+ #define INCREMENT_REC(X)	(do_mpfr && X == (LONG_MAX - 1)) ? \
+@@ -2446,6 +2462,14 @@
+ 		return false;
+ 	}
+ 
++#elif defined(__wasi__)
++	if ((pid = wasi_sh(str, ptoc[0], ctop[1])) < 0) {
++		save_errno = errno;
++		close(ptoc[0]); close(ptoc[1]);
++		close(ctop[0]); close(ctop[1]);
++		errno = save_errno;
++		return false;
++	}
+ #else /* NOT __MINGW32__ */
+ 	if ((pid = fork()) < 0) {
+ 		save_errno = errno;
+@@ -2618,6 +2642,24 @@
+ 				break;
+ 			}
+ 	}
++#elif defined(__wasi__)
++	/*
++	 * The host waits for a child by its pid, not for any: the one of
++	 * interest, else each redirection's that has ended.
++	 */
++	if (interesting) {
++		if (waitpid(interesting, & status, 0) < 0)
++			status = 0;
++	} else {
++		for (redp = red_head; redp != NULL; redp = redp->next)
++			if (redp->pid > 0 && waitpid(redp->pid, & status, WNOHANG) == redp->pid) {
++				redp->pid = -1;
++				redp->status = sanitize_exit_status(status);
++			}
++		status = 0;
++	}
++	pid = interesting;
++	(void) pid;
+ #else /* ! __MINGW32__ */
+ 	for (;;) {
+ # if defined(HAVE_WAITPID) && defined(WNOHANG)
+@@ -2709,6 +2751,8 @@
+ 	}
+ 	close(save_stdout);
+ 
++#elif defined(__wasi__)
++	pid = wasi_sh(cmd, 0, p[1]);
+ #else /* NOT __MINGW32__ */
+ 	if ((pid = fork()) == 0) {
+ 		if (close(1) == -1)
+@@ -4722,6 +4766,10 @@
+ 		memset(open_pipes, 0, sizeof(write_pipe) * count);
+ 	}
+ 
++#ifdef __wasi__
++	childpid = wasi_sh(cmd, pipefds[0], 1);
++	if (childpid < 0) {
++#else
+ 	childpid = fork();
+ 	if (childpid == 0) {
+ 		// in the child
+@@ -4734,6 +4782,7 @@
+ 		execl("/bin/sh", "sh", "-c", cmd, NULL);
+ 		_exit(errno == ENOENT ? 127 : 126);
+ 	} else if (childpid < 0) {
++#endif
+ 		(void) close(pipefds[0]);
+ 		(void) close(pipefds[1]);
+ 		return NULL;

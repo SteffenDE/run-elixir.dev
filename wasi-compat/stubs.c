@@ -183,6 +183,8 @@ unsigned alarm(unsigned s) { return 0; }
 int getdtablesize(void) { return 1024; }
 pid_t getppid(void) { return 1; }
 pid_t getpgid(pid_t p) NOSYS(-1)
+/* One process group, init's. */
+pid_t getpgrp(void) { return 1; }
 pid_t tcgetpgrp(int fd) NOSYS(-1)
 pid_t setsid(void) NOSYS(-1)
 int tcgetattr(int fd, struct termios *t) { errno = ENOTTY; return -1; }

@@ -17,6 +17,7 @@ int execlp(const char *, const char *, ...);
 uid_t getuid(void); uid_t geteuid(void); gid_t getgid(void); gid_t getegid(void);
 pid_t getppid(void);
 pid_t getpgid(pid_t);
+pid_t getpgrp(void);
 pid_t setsid(void);
 pid_t tcgetpgrp(int);
 mode_t umask(mode_t);

@@ -368,10 +368,10 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
   );
 });
 
-// GNU's sed, grep and diffutils (sed/build.py, grep/build.py,
-// diffutils/build.py), when they are built: programs built for WASI over
-// the shared C layer (wasi-compat/), sed's `e` and diff3's diff through
-// popen and sh.
+// GNU's sed, grep, diffutils and awk (sed/build.py, grep/build.py,
+// diffutils/build.py, gawk/build.py), when they are built: programs built
+// for WASI over the shared C layer (wasi-compat/), sed's `e`, diff3's diff
+// and gawk's pipes through sh.
 const TARGET = new URL('../../../target/', import.meta.url).pathname;
 const GNU_TOOLS: Record<string, string> = {
   sed: 'sed/sed.wasm',
@@ -379,6 +379,7 @@ const GNU_TOOLS: Record<string, string> = {
   diff: 'diffutils/diff.wasm',
   cmp: 'diffutils/cmp.wasm',
   diff3: 'diffutils/diff3.wasm',
+  awk: 'gawk/gawk.wasm',
 };
 const built = Object.values(GNU_TOOLS).every((path) => existsSync(TARGET + path));
 describe.skipIf(!built)("GNU's tools as processes", () => {
@@ -406,8 +407,10 @@ describe.skipIf(!built)("GNU's tools as processes", () => {
     });
     return status ?? 127;
   };
-  const echo: Program = async (_child, { args, stdio }) => {
-    stdio[1].pipe!.write(encode(`${args.join(' ')}\n`), false);
+  const echo: Program = async (_child, { args, stdio: [, out] }) => {
+    const bytes = encode(`${args.join(' ')}\n`);
+    if (out.sink) out.sink(bytes);
+    else out.pipe!.write(bytes, false);
     return 0;
   };
   const processes: Processes = new Processes((program) => {
@@ -492,6 +495,52 @@ describe.skipIf(!built)("GNU's tools as processes", () => {
     );
     const merged = await tool('diff3', '', '-m', 'd/new.txt', 'd/old.txt', 'd/other.txt');
     expect(merged).toEqual({ status: 0, text: 'one\n2\nthree\nfour\n5\n' });
+    expect(processes.table.size).toBe(0);
+  });
+  test("awk: gawk's functions, its pipes both ways, |&, system() and statuses", async () => {
+    expect(await tool('awk', 'a b c\nd e f\n', '{ print $2, NF }')).toEqual({
+      status: 0,
+      text: 'b 3\ne 3\n',
+    });
+    expect(
+      (await tool('awk', '', 'BEGIN { print gensub(/(o+)/, "<\\\\1>", "g", "foo boo") }')).text,
+    ).toBe('f<oo> b<oo>\n');
+    expect(
+      (await tool('awk', '', 'BEGIN { n = split("c a b", x); asort(x); print x[1] x[2] x[3] }'))
+        .text,
+    ).toBe('abc\n');
+    expect(
+      (
+        await tool(
+          'awk',
+          '',
+          'BEGIN { while (("echo one two" | getline line) > 0) print "got", line }',
+        )
+      ).text,
+    ).toBe('got one two\n');
+    expect(
+      (
+        await tool(
+          'awk',
+          '',
+          'BEGIN { print "abc" | "sed s/b/B/"; close("sed s/b/B/"); print "after" }',
+        )
+      ).text,
+    ).toBe('aBc\nafter\n');
+    expect(
+      (
+        await tool(
+          'awk',
+          '',
+          'BEGIN { c = "sed s/x/y/"; print "x1" |& c; close(c, "to"); c |& getline r; print r }',
+        )
+      ).text,
+    ).toBe('y1\n');
+    expect(
+      (await tool('awk', '', 'BEGIN { s = system("echo from system"); print "status", s }')).text,
+    ).toBe('from system\nstatus 0\n');
+    expect((await tool('awk', '', 'BEGIN { exit 3 }')).status).toBe(3);
+    expect((await tool('awk', '', 'BEGIN {')).status).toBe(1);
     expect(processes.table.size).toBe(0);
   });
 });

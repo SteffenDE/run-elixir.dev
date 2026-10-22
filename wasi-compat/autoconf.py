@@ -106,9 +106,11 @@ def build(here, name, release, programs, configure=()):
         "printf 'built-sources: $(BUILT_SOURCES)\\n' > built-sources.mk\n"
         "make -s -j$(nproc) -f Makefile -f built-sources.mk built-sources >/dev/null\n"
         # A recursive tree (grep's, diffutils': lib/, src/) makes gnulib's
-        # lib/ first, then each program in its directory; a flat one
-        # (sed's) each from the top.
-        "if [ -f lib/Makefile ]; then make -s -j$(nproc) -C lib >/dev/null; fi\n"
+        # lib/ (gawk's support/) first, then each program in its directory;
+        # a flat one (sed's) each from the top.
+        "for lib in lib support; do\n"
+        "  if [ -f $lib/Makefile ]; then make -s -j$(nproc) -C $lib >/dev/null; fi\n"
+        "done\n"
         f"for program in {' '.join(programs.values())}; do\n"
         "  dir=${program%/*}\n"
         "  if [ -f $dir/Makefile ]; then make -s -j$(nproc) -C $dir ${program##*/} >/dev/null\n"

@@ -94,6 +94,42 @@ test('grep searches and diff compares, as GNU has them', async ({ page }) => {
   ).toMatch(/^3$/m);
 });
 
+// GNU awk (gawk/build.py), as awk and gawk: fields and gawk's own
+// functions, its pipes both ways and a coprocess through sh (brush), and a
+// node's.
+test('awk is gawk, its pipes and system() through sh', async ({ page }) => {
+  test.setTimeout(300_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  expect(
+    await run(page, `printf 'a 1\\nb 2\\nc 3\\n' | awk '{ s += $2 } END { print NR, s }'`),
+  ).toMatch(/^3 6$/m);
+  expect(
+    await run(page, `gawk 'BEGIN { print gensub(/(o+)/, "<\\\\1>", "g", "foo boo") }'`),
+  ).toContain('f<oo> b<oo>');
+  expect(
+    await run(
+      page,
+      `awk 'BEGIN { "echo $((6 * 7))" | getline n; print "n=" n; print "z\\ny" | "sort" }'`,
+    ),
+  ).toMatch(/n=42\s+y\s+z/);
+  expect(
+    await run(
+      page,
+      `awk 'BEGIN { c = "tr a-z A-Z"; print "co" |& c; close(c, "to"); c |& getline r; print r }'`,
+    ),
+  ).toMatch(/^CO$/m);
+  expect(await run(page, `awk 'BEGIN { exit system("exit 4") }'; echo "status $?"`)).toContain(
+    'status 4',
+  );
+  expect(
+    await run(
+      page,
+      `elixir -e '{out, 0} = System.cmd("awk", ["BEGIN { print toupper(\\"node\\") }"]); IO.write(out)'`,
+    ),
+  ).toMatch(/^NODE$/m);
+});
+
 // Its line editor (reedline, over crossterm on the page's terminal): Tab
 // completes a path and a command, Up recalls a line, and a loop typed over
 // lines runs as one.

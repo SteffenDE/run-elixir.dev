@@ -9,7 +9,7 @@ ac_cv_func_fork=no
 ac_cv_func_fork_works=no
 ac_cv_func_vfork=no
 ac_cv_func_vfork_works=no
-for ac_func in getuid geteuid getgid getegid getppid getpgid \
+for ac_func in getuid geteuid getgid getegid getppid getpgid getpgrp \
     setsid tcgetpgrp umask chmod fchmod chown fchown dup dup2 pipe kill alarm getdtablesize getpass \
     mkdtemp mkstemp popen pclose system sigaction sigemptyset sigfillset sigaddset sigdelset sigismember \
     sigprocmask tzset; do
@@ -20,3 +20,6 @@ done
 gl_cv_type_sigset_t=yes
 ac_cv_type_sigset_t=yes
 ac_cv_member_struct_sigaction_sa_sigaction=no
+# sys/wait.h's macros are wasi-compat/include's; configure's check also
+# calls wait(), which is not (the host waits for a pid).
+ac_cv_header_sys_wait_h=yes

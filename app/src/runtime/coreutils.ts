@@ -5,7 +5,8 @@
 // a node's port or the shell waits for it, as for a quick command. Other
 // programs built for WASI run the same way, each its own module
 // (PROGRAMS: ripgrep's rg, ripgrep/build.py; git, git/build.py; GNU's sed,
-// grep and diffutils, sed/build.py, grep/build.py, diffutils/build.py).
+// grep, diffutils and awk, sed/build.py, grep/build.py, diffutils/build.py,
+// gawk/build.py).
 import { WASI } from './wasi';
 import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';
@@ -34,6 +35,8 @@ export const PROGRAMS: Record<string, string> = {
   cmp: 'cmp.wasm',
   diff3: 'diff3.wasm',
   sdiff: 'sdiff.wasm',
+  awk: 'gawk.wasm',
+  gawk: 'gawk.wasm',
 };
 
 // A tool of coreutils' or a program of PROGRAMS'.

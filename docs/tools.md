@@ -20,7 +20,7 @@ table ([runtime.md](runtime.md#processes-processests)).
 | `sed` | GNU sed | What Linux has: `sed -i` without a suffix, `-E`, `-z`, GNU's regex |
 | `grep` | GNU grep | Back-references in basic regex, `-P` aside; ripgrep's engine has none |
 | `diff`, `cmp` | GNU diffutils | `diff -u` as git's tests compare (`test_cmp`), `cmp` |
-| `awk` | onetrue-awk (BWK's) | POSIX's reference, small, portable C; Debian and Ubuntu ship mawk, so no one expects gawk |
+| `awk`, `gawk` | GNU awk | What Fedora, Arch and most answers online assume: `gensub`, `asort`, `strftime`, `-i inplace`, arrays of arrays; built as the other GNU tools are (BWK's awk, planned first for being small and plain C, lacks them, and its size no longer matters: a program loads when first run) |
 | `find` | GNU findutils | `-exec`, `-print0`, as scripts use them (`xargs` is `utilities.ts`'s) |
 
 Not `perl`: none of git's scripts for the shell need it, only some of its
@@ -77,16 +77,21 @@ One pattern for all, as `git/build.py`'s:
   ("guessing no") has gnulib's replacement built in, a little larger and
   as correct.
 - **A tool's config.site** also answers what configure cannot run and
-  has no guess for (diffutils': `strcasecmp`).
+  has no guess for (diffutils': `strcasecmp`), and turns off what WASI
+  cannot do that configure would find (gawk's: `/inet` sockets, and ptys
+  for `|&`, so that a coprocess is two pipes).
 - **gnulib** (GNU's portability layer) brings its own replacements where
   WASI lacks a function; what it still misses (signals beyond WASI's
   emulated ones, `fcntl` locks, `fts` for findutils) is stubbed or
-  patched (diffutils' `diff -r` has its `setjmp` taken out: wasm has
-  none without exception handling, and wasi-libc's `strcoll` never fails,
-  so nothing jumps). Only the programs are made: automake's
-  `BUILT_SOURCES` first (gnulib's generated headers), then `lib/` when the
-  tree is recursive (grep's, diffutils'), then each program
+  patched. Only the programs are made: automake's `BUILT_SOURCES` first
+  (gnulib's generated headers), then `lib/` (gawk's `support/`) when the
+  tree is recursive (grep's, diffutils', gawk's), then each program
   (`gnulib-tests/` does not build for WASI and is not needed).
+- **setjmp:** wasm has none without exception handling, so
+  `wasi-compat/include/setjmp.h` stands in for wasi-libc's: `setjmp`
+  returns 0, a `longjmp` ends the program saying so. The tools jump only
+  where WASI never leads them: gawk's debugger (`gawk -D`), `diff -r`
+  when `strcoll` fails (wasi-libc's never does).
 - **Output:** `target/NAME/NAME.wasm`; `runtime/build.py` ships it (its
   `WASM` and `RUNTIME_NAMES`, as `git`), `coreutils.ts`'s `PROGRAMS`
   names it, which puts a stub on PATH (`setup.ts`: brush looks a command
@@ -100,7 +105,7 @@ One pattern for all, as `git/build.py`'s:
 
 `npm run test:git` (`app/test/git`, [git.md](git.md#tests)) runs git's own
 `t/` with what the playground lacks borrowed from the host, and counts
-it per script (`Machine.hosted`: grep, diff, cmp, awk, perl, find,
+it per script (`Machine.hosted`: perl, find,
 getconf). Each tool, once built, joins the harness's resolver (as
 `git.wasm` and `coreutils.wasm` do) and leaves that count, with the pass
 rate holding; a regression is the tool's, or the shared layer's. The
@@ -111,6 +116,7 @@ browser's tests (Playwright) add a few lines at the shell for each.
 | none (2026-10-22) | | 29,448 / 747 (97.53%) |
 | `sed` | 22,049 | 29,451 / 744 (97.54%): no script fails a test it passed |
 | `grep`, `diff`, `cmp` | 13,976, 22,367, 304 | 30,269 / 748 (97.59%): `t0450-txt-doc-vs-help` runs whole (7 → 829 passed); `t7063-status-untracked-cache` swings by as many with the host's tools (48–55 passed) |
+| `awk` (gawk) | 435 | 30,273 / 744 (97.60%): no script fails a test it passed |
 
 **sed** (4.10, `sed/build.py`): 626 KB (195 KB gzipped). Built as is, no
 patches. At the shell (`brush.spec.ts`): `-E` with back-references, `-i`
@@ -125,9 +131,18 @@ grep's back-references, `-r` over the tree, its error and statuses;
 `diff -u`, `cmp`, `diff3 -m` starting diff through sh; a node's grep. In
 Node: the same, and `-v`, `-q`, `-c`.
 
+**gawk** (5.4.1, `gawk/build.py`, one patch): 1.5 MB (415 KB gzipped),
+as `awk` and `gawk`. Its five places that fork (`cmd | getline`,
+`print | cmd`, `|&`, `system()`, and `wait_any`'s `waitpid(-1)`) take
+`__wasi__` branches beside MinGW's: `wasi_spawn` of `sh -c`, and waits
+for the pids it knows. Without `-M`, dynamic extensions, `/inet` and the
+debugger's jumps. At the shell and in Node: fields, `gensub`, `asort`,
+both pipes, a `|&` coprocess with `close(cmd, "to")`, `system()`'s
+status, a node's awk.
+
 ## Order
 
 1. **sed**: the pattern itself, and `git submodule` (done).
 2. **grep** and **diffutils**: the same autoconf and gnulib, in turn (done).
-3. **awk**: plain C and a Makefile; `system()` and pipes over the layer.
+3. **awk**: gawk, as the others are; its pipes, `|&` and `system()` over the layer (done).
 4. **findutils**: `fts` and `-exec`.
