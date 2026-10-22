@@ -63,7 +63,7 @@ the IDE's line discipline (`runtime/terminal.ts`):
 
 - **Lines:** cooked, the line discipline echoes and edits a line, and the
   process gets it at Enter; Ctrl+D on an empty line is the end of its
-  input. While the shell runs a page program (`runOnPage` in
+  input. While the shell runs a page program (`pageProgram` in
   `worker/index.ts`), the terminal's input goes to it (`stdin` messages to
   the page's `PageProcess.oninput`), not to the shell.
 - **Raw input:** `process.stdin.setRawMode(true)` asks for it (a `MODE`
@@ -390,10 +390,11 @@ site does not host Claude Code's files.
   and `/proc/self/fd/N` to run `rg`. `fs.ts` and `child.ts` resolve these
   paths to the paths used when opening the descriptors.
   A pipeline's commands run at once, as processes joined by pipes
-  ([runtime.md](runtime.md#processes-processests)). A node or a page
-  program among them takes its input whole and cannot wait for room in a
-  pipe: each way, 16 MiB at most ahead of the other end, so `yes | mix …`
-  fails with an error once 16 MiB came.
+  ([runtime.md](runtime.md#processes-processests)). `node` streams both
+  ways (`yes | node …`, `node … | head`); a node (`mix`, `elixir`) takes
+  its input whole and cannot wait for room in a pipe: each way, 16 MiB at
+  most ahead of the other end, so `yes | mix …` fails with an error once
+  16 MiB came.
 - **Search:** `claude` passes `--allowedTools=Glob,Grep` to enable the
   Glob and Grep tools, which use `rg`. Without this flag, the pinned build
   replaces them with bfs and ugrep, embedded in its executable and invoked

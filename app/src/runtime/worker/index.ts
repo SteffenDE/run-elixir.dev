@@ -33,7 +33,16 @@ import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
 import { PROGRAMS, TOOLS, wasmGit, withCoreutils, type CoreutilsOptions } from '../coreutils';
-import { Processes, hosted, inputPipe, wasmProgram } from '../processes';
+import {
+  HOSTED_LIMIT,
+  Processes,
+  feed,
+  hosted,
+  wasmProgram,
+  writeAll,
+  type Program,
+} from '../processes';
+import { OutputLimitError } from './output';
 import type { Descriptor } from '../wasi/descriptors';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
@@ -81,6 +90,8 @@ interface Start {
 
 // files.ts's SHARED (that module is files.js's worker, not one to import).
 const SHARED = ['/work', '/tmp', '/home', '/shared'];
+// What a page program may have been sent of its input and not yet taken.
+const INPUT_WINDOW = 1 << 20;
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
 // sh and bash (a stand-in for it, Claude Code's shell): brush's -c.
@@ -400,62 +411,85 @@ onmessage = async ({
       }
     };
 
-    // A page program (git, tailwind, node, …) the shell runs, until it
-    // exits or Ctrl+C stops it. Its input: a pipe's (`input`), else the
-    // terminal's as it is typed (Ctrl+D its end), as a node's own is; its
-    // output the pipe's or the terminal's. The terminal's mode, which it
-    // may set (Node's setRawMode), is the shell's again after it.
-    const runOnPage = (
-      name: string,
-      args: string[],
-      cwd: string,
-      vars: Record<string, string> = env,
-      out: ((bytes: Uint8Array) => void) | null = null,
-      input: Uint8Array | null = null,
-    ): number => {
-      const process = new Process();
-      const terminal = !input && channel.tty[0];
-      let id = 0;
-      onPage(channel, name, {
-        // A pipe's bytes and their end; the terminal's as forwarded below;
-        // else nothing, and no end (sh -c with no terminal: an open pipe).
-        input,
-        tty: [terminal, !out && channel.tty[1]],
-        started: (started) => (id = started),
-      })(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
-      const mode = [channel.raw, channel.signals] as const;
-      // Without a pipe, the node's input is the program's (the terminal's
-      // typing, or what a program's child_process writes to its child).
-      const forward = !input;
-      if (forward) channel.reading = id;
-      try {
-        for (;;) {
-          channel.pump();
-          for (const bytes of process.output.splice(0)) (out ?? ((b) => say('out', b)))(bytes);
-          if (process.ended) return process.status ?? 1;
-          if (channel.interrupted || channel.terminated) {
-            channel.interrupted = false;
-            channel.terminated = false;
-            channel.input = [];
-            process.onclose?.();
-            return 130;
+    // A page program (git, tailwind, node, …) as a process, until it exits
+    // or a signal stops it. Its input: a pipe's or a file's, as it comes;
+    // else the terminal's as it is typed (Ctrl+D its end), as a node's own
+    // is. Its output goes to its stdout as it comes, waiting while a pipe
+    // is full: once nothing reads it, the program stops (SIGPIPE's 141).
+    // The terminal's mode, which it may set (Node's setRawMode), is the
+    // shell's again after it.
+    const pageProgram =
+      (name: string, args: string[]): Program =>
+      async (child, { cwd, env: vars, stdio: [input, output] }) => {
+        const process = new Process();
+        let wake = () => {};
+        // What the input waits on: the program to take what it was sent.
+        let taken = () => {};
+        process.notify = () => {
+          wake();
+          taken();
+        };
+        // Without a pipe or a file, the node's input is the program's (the
+        // terminal's typing, or what a program's child_process writes to
+        // its child).
+        const forward = !!input.source;
+        let id = 0;
+        onPage(channel, name, {
+          input: null,
+          tty: [forward && channel.tty[0], !!output.tty],
+          started: (started) => (id = started),
+        })(process, { args, cwd, env: { ...ENV, ...vars, PWD: cwd }, root });
+        const mode = [channel.raw, channel.signals] as const;
+        let done = false;
+        let sent = 0;
+        const send = (bytes: Uint8Array | null) => {
+          sent += bytes?.length ?? 0;
+          postMessage(bytes ? { kind: 'stdin', id, bytes } : { kind: 'stdin', id, end: true });
+        };
+        // At most INPUT_WINDOW bytes on their way to it.
+        const room = async () => {
+          for (;;) {
+            if (done || sent - process.taken < INPUT_WINDOW) return;
+            await Promise.race([
+              new Promise<void>((resolve) => (taken = resolve)),
+              child.woken,
+              channel.rest(1000).then(() => channel.pump()),
+            ]);
           }
-          if (forward)
-            for (const bytes of channel.input.splice(0))
-              postMessage(
-                bytes === END ? { kind: 'stdin', id, end: true } : { kind: 'stdin', id, bytes },
-              );
-          channel.sleep(1000);
+        };
+        if (forward) channel.reading = id;
+        else void feed(input, send, room, () => done, sharedFs);
+        try {
+          for (;;) {
+            const changed = new Promise<void>((resolve) => (wake = resolve));
+            channel.pump();
+            if (forward)
+              for (const bytes of channel.input.splice(0)) send(bytes === END ? null : bytes);
+            // What it wrote ahead of a reader too slow for it (it cannot
+            // wait) is bounded.
+            if (process.output.reduce((size, bytes) => size + bytes.length, 0) > HOSTED_LIMIT)
+              throw new OutputLimitError();
+            for (const bytes of process.output.splice(0))
+              if (!(await writeAll(output, bytes, child, sharedFs))) {
+                process.onclose?.();
+                return child.signal === null ? 141 : 128 + child.signal;
+              }
+            if (process.ended) return process.status ?? 1;
+            if (child.signal !== null) {
+              process.onclose?.();
+              return 128 + child.signal;
+            }
+            await Promise.race([changed, child.woken, channel.rest(1000)]);
+          }
+        } finally {
+          done = true;
+          if (forward) {
+            channel.reading = null;
+            channel.input = [];
+          }
+          channel.mode(...mode);
         }
-      } catch (error) {
-        // A bounded pipe capture can stop a producer before it exits.
-        process.onclose?.();
-        throw error;
-      } finally {
-        if (forward) channel.reading = null;
-        channel.mode(...mode);
-      }
-    };
+      };
 
     // The node's input for a tool that reads it (no pipe's): the
     // terminal's typing (Ctrl+D its end) or what its process writes it, as
@@ -532,12 +566,14 @@ onmessage = async ({
       }
     };
     // What brush starts, and what that starts in turn (processes.ts):
-    // programs built for WASI as processes of their own, the rest as the
-    // shell has always run them (`external`), their input whole.
+    // programs built for WASI as processes of their own, page programs
+    // streaming to and from them, and nodes as the shell has always run
+    // them (`external`), their input whole.
     const processes: Processes = new Processes((program, given, at) => {
       const found = find(program, given, at);
       if (!found) return null;
-      if (!('wasm' in found)) return hosted(processes, external, sharedFs);
+      if ('page' in found) return pageProgram(found.page, found.args);
+      if ('node' in found) return hosted(processes, external, sharedFs);
       const argv0 = program.split('/').pop()!;
       return wasmProgram(processes, found.wasm, {
         root,
@@ -550,27 +586,13 @@ onmessage = async ({
         columns: () => channel.size[0],
       });
     }, check);
-    // A node or a page program, as `find` has it, to its end.
+    // A node, as `find` has it, to its end.
     const external: Run = async (program, given, at, vars, io) => {
       const found = find(program, given, at);
-      if (!found) return null;
-      if ('node' in found) {
-        const status = await run(found.node, at, vars, io.stdout ?? undefined);
-        if (status === 130) text('\n');
-        return status;
-      }
-      if ('page' in found) return runOnPage(found.page, found.args, at, vars, io.stdout, io.input);
-      return processes.run({
-        program,
-        args: given,
-        cwd: at,
-        env: vars,
-        stdio: [
-          io.input ? inputPipe(io.input) : { ...standard[0] },
-          io.stdout ? { stream: true, sink: io.stdout } : { ...standard[1] },
-          io.stderr ? { stream: true, sink: io.stderr } : { ...standard[2] },
-        ],
-      });
+      if (!found || !('node' in found)) return null;
+      const status = await run(found.node, at, vars, io.stdout ?? undefined);
+      if (status === 130) text('\n');
+      return status;
     };
     // The standard streams of what the shell starts, where they are the
     // shell's own: the node's input (the terminal's typing) and output.

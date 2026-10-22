@@ -35,6 +35,9 @@ export const FRAME = {
   // A page program set the terminal's input mode: raw (u8), signals (u8:
   // whether Ctrl+C still interrupts).
   MODE: 14,
+  // A page program took this many bytes (u32) of what the worker sent it
+  // (`stdin`): the worker sends more as it takes them.
+  TAKEN: 15,
 } as const;
 export const RING = 1 << 20;
 export const CHUNK = 1 << 16;

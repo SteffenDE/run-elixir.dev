@@ -73,6 +73,20 @@ test('pipelines stream between processes, page programs too', async ({ page }) =
   expect(large).toMatch(/^x\s*\/work \$ $/m);
   expect(large).not.toContain('exceeded');
   expect(await run(page, 'echo still-running')).toContain('still-running');
+  // A page program between two processes, its input and output streaming:
+  // through it, from what never ends, and into a reader that stops.
+  expect(
+    await run(page, `seq 1 200000 | node -e 'process.stdin.pipe(process.stdout)' | tail -n 1`),
+  ).toMatch(/^200000$/m);
+  await writeText(
+    page,
+    '/work/enough.cjs',
+    'let n = 0; process.stdin.on("data", (d) => { n += d.length; if (n > 1e6) { console.log("enough"); process.exit(0); } });',
+  );
+  expect(await run(page, 'yes | node enough.cjs')).toMatch(/^enough$/m);
+  expect(
+    await run(page, `node -e 'setInterval(() => console.log("tick"), 5)' | head -n 3`),
+  ).toMatch(/tick\s+tick\s+tick\s+\/work \$ $/);
 });
 
 // A command with & runs while the shell reads the next line.
@@ -85,5 +99,14 @@ test('a job in the background runs while the shell takes commands', async ({ pag
   expect(Date.now() - started).toBeLessThan(1500);
   expect(await run(page, 'echo now; ls /work')).not.toContain('bg.txt');
   await expect.poll(() => run(page, 'cat /work/bg.txt'), { timeout: 15_000 }).toContain('late');
+  expect(await run(page, 'wait; echo waited')).toContain('waited');
+  // A page program too.
+  const node = Date.now();
+  await run(
+    page,
+    `node -e 'setTimeout(() => require("fs").writeFileSync("/work/node.txt", "done"), 1500)' &`,
+  );
+  expect(Date.now() - node).toBeLessThan(1500);
+  await expect.poll(() => run(page, 'cat /work/node.txt'), { timeout: 15_000 }).toContain('done');
   expect(await run(page, 'wait; echo waited')).toContain('waited');
 });

@@ -14,6 +14,8 @@ export class Process {
   declare status: number | null;
   declare input: Uint8Array[];
   declare closed: boolean;
+  // How much of what was sent it the page's program took (TAKEN frames).
+  declare taken: number;
   // The node closed its port.
   declare onclose?: () => void;
   // What the node sends the program, as it comes; without it, `input`
@@ -29,6 +31,7 @@ export class Process {
     this.status = null;
     this.input = [];
     this.closed = false;
+    this.taken = 0;
   }
   write(bytes: string | Uint8Array): void {
     this.output.push(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes);

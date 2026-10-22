@@ -266,21 +266,30 @@ Firefox and WebKit have JSPI (`WebAssembly.Suspending`, `promising`).
   three of its descriptors), `wait` (until, not at all, or a little),
   `kill`, `dup` and `dup2`. Its children are found as the shell finds
   commands, by name (`Resolve`).
-- **A host's program** (a node, a page program: `hosted`) takes its input
-  whole first, unless it is the terminal's (or a node's) own, which it
-  reads as it comes, and then runs to its end. It cannot wait for room in
-  a pipe: it writes up to 16 MiB ahead of its reader (`HOSTED_LIMIT`),
-  and drops what it writes once the reader is gone.
+- **A page program** (`pageProgram` in `worker/index.ts`) streams. Its
+  input goes to the page as it comes (`feed`), at most 1 MiB ahead of what
+  the program took (`TAKEN` frames from the page, sent as its `oninput`
+  takes bytes; what comes before it sets `oninput` waits). Its output goes
+  to its stdout as it comes (`writeAll`), waiting while a pipe is full;
+  once nothing reads it, the program is stopped (141, SIGPIPE's). It
+  cannot be paused itself: what it writes ahead of a slow reader is bounded
+  at 16 MiB (`HOSTED_LIMIT`).
+- **A node** (`hosted`) takes its input whole first, unless it is the
+  terminal's (or a node's) own, which it reads as it comes, and then runs
+  to its end, holding the worker. It cannot wait for room in a pipe: it
+  writes up to 16 MiB ahead of its reader, and drops what it writes once
+  the reader is gone.
 - **Signals:** `kill` marks a process and wakes it if it waits; its next
   call ends it (128 + the signal). A parent's `wait` takes in Ctrl+C
   (`idle`, the channel), which stops every process but the shell.
 - **brush** is an adopted process of the table (`adopt`), so what it
   starts are its children.
 
-What git runs is [git.md](git.md#processes)'s. Not yet: a page program or a
-node as a child streams neither its input nor, while it runs, the
-others' (`runOnPage` holds the worker); and a program built for WASI that
-reads the terminal holds it too (`readInput`).
+What git runs is [git.md](git.md#processes)'s. Not yet: a node as a child
+streams neither its input nor, while it runs, the others' (the BEAM holds
+the worker); a program built for WASI that reads the terminal holds it too
+(`readInput`); and a page program in the background (`&`) that reads the
+terminal takes the shell's typing.
 
 ## coreutils (`coreutils.ts`)
 

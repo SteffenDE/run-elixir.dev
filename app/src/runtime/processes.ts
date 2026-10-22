@@ -5,8 +5,8 @@
 // imports (pipe, spawn, wait, kill, dup, dup2; git/wasi/stubs.c), and
 // whatever would wait (a pipe empty or full, a child still running)
 // suspends it, so the others run meanwhile. The host's own programs (a
-// node, a page program: `hosted`) take their input whole and run to their
-// end, as the shell has always run them.
+// node: `hosted`) takes its input whole and runs to its end, as the shell
+// has always run it; a page program streams (`writeAll`, `feed`).
 import { Exit, WASI } from './wasi';
 import { E } from './wasi/abi';
 import type { Descriptor } from './wasi/descriptors';
@@ -278,7 +278,61 @@ async function readAll(entry: Descriptor, shared: Shared | null): Promise<Uint8A
   return out;
 }
 
-// A host's program (brush's Run: a node, a page program) as a process:
+// Writes `bytes` to `entry` for a host's program, as a process would:
+// waiting while a pipe is full. False once nothing reads it (EPIPE) or
+// `child` has a signal to end it.
+export async function writeAll(
+  entry: Descriptor,
+  bytes: Uint8Array,
+  child: Child,
+  shared: Shared | null,
+): Promise<boolean> {
+  const between = entry.pipe;
+  if (!between) {
+    (entry.tty && entry.sink ? entry.sink : sinkOf(entry, shared))?.(bytes);
+    return true;
+  }
+  let at = 0;
+  while (at < bytes.length) {
+    if (child.signal !== null) return false;
+    const took = between.write(bytes.subarray(at));
+    if (took === -1) return false;
+    if (took === null) await Promise.race([between.changed(), child.woken]);
+    else at += took;
+  }
+  return true;
+}
+
+// Gives what `entry` has for a host's program to `send` as it comes, then
+// null at its end; a pipe's as it is written (once `room()` says the
+// program took enough of what it was sent), anything else's whole. Stops
+// early once `done()`.
+export async function feed(
+  entry: Descriptor,
+  send: (bytes: Uint8Array | null) => void,
+  room: () => Promise<void>,
+  done: () => boolean,
+  shared: Shared | null,
+): Promise<void> {
+  const between = entry.pipe;
+  if (between)
+    for (;;) {
+      await room();
+      if (done()) return;
+      const bytes = between.read(65536);
+      if (!bytes) await between.changed();
+      else if (!bytes.length) break;
+      else send(bytes);
+    }
+  else {
+    const bytes = await readAll(entry, shared);
+    if (done()) return;
+    if (bytes?.length) send(bytes);
+  }
+  send(null);
+}
+
+// A host's program that cannot wait (brush's Run: a node) as a process:
 // its input whole first, then to its end.
 export function hosted(processes: Processes, run: Run, shared: Shared | null): Program {
   return async (_child, { program, args, cwd, env, stdio }) => {
