@@ -55,8 +55,9 @@ rebar3), and builds the template with the host's Mix in
   cached until its image, version or patches change); the site takes
   `target/rg/rg.wasm` (also `build.py app`).
 - **git:** `python3 -I git/build.py` first (git 2.56.0 and zlib for
-  `wasm32-wasip1` with wasi-sdk 33 and `git/wasi/`, in Docker, under a
-  minute; cached until its image, versions or `git/`'s files change); the
+  `wasm32-wasip1` with wasi-sdk 33 and `wasi-compat/`, in Docker, under a
+  minute; cached until its image, versions or the files of `git/` or
+  `wasi-compat/` change; not its `.py` files); the
   site takes `target/git/git.wasm` (also `build.py app`).
 - **TLS:** `python3 -I tls/build.py` first (a Node.js process's TLS
   client, rustls for `wasm32-wasip1`, Rust and clang in Docker, about a

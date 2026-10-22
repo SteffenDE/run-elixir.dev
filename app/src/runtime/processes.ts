@@ -2,7 +2,7 @@
 // descriptors of its own, some of them its parent's (pipes, files, the
 // terminal), running at once with the others as coroutines under JSPI. A
 // program built for WASI asks for processes through the `processes`
-// imports (pipe, spawn, wait, kill, dup, dup2; git/wasi/stubs.c), and
+// imports (pipe, spawn, wait, kill, dup, dup2; wasi-compat/stubs.c), and
 // whatever would wait (a pipe empty or full, a child still running)
 // suspends it, so the others run meanwhile. The host's own programs (a
 // node: `hosted`) takes its input whole and runs to its end, as the shell

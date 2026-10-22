@@ -199,7 +199,8 @@ and the shared files.
 
 **The build:** git's own, with a `config.mak` that turns off what WASI
 lacks (threads, curl, iconv, gettext, Rust, sockets, mmap and regex,
-which git has fallbacks for), and `git/wasi/`: headers WASI does not have
+which git has fallbacks for), and `wasi-compat/` (every C tool's,
+[tools.md](tools.md#building-them)): headers WASI does not have
 (`pwd.h`, `sys/wait.h`, `termios.h`, …) and `stubs.c`, which answers as
 one user would (uid 0 owns everything, `chmod` does nothing, `PWD` is
 the working directory). git's Makefile reads `uname` before

@@ -1,6 +1,6 @@
 # git's build for wasm32-wasip1 (git/build.py copies this into the source
 # as config.mak). WASI preview 1 has no processes, threads, users, modes,
-# terminals or sockets: what git would ask of them, wasi/ declares and
+# terminals or sockets: what git would ask of them, wasi-compat/ declares and
 # stubs; what has a compat fallback in git (regex, mmap, poll) uses it.
 CC = /opt/wasi-sdk/bin/clang --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/share/wasi-sysroot
 AR = /opt/wasi-sdk/bin/llvm-ar

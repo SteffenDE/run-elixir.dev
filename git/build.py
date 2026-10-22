@@ -5,10 +5,11 @@ shell and the nodes (docs/git.md).
 
 git's release with patches/ applied, and zlib, built with wasi-sdk in
 Docker (nif/build.py's image). WASI preview 1 lacks processes, users,
-modes, terminals and sockets: wasi/ declares what git asks of them and
-stubs it (stubs.c), its processes the playground's host's (the
-`processes` imports, app/src/runtime/processes.ts: run-command.c spawns
-instead of forking), and config.mak turns off the rest.
+modes, terminals and sockets: wasi-compat/ (every C tool's) declares what
+git asks of them and stubs it (stubs.c), its processes the playground's
+host's (the `processes` imports, app/src/runtime/processes.ts:
+run-command.c spawns instead of forking), and config.mak turns off the
+rest.
 """
 
 import hashlib
@@ -20,6 +21,8 @@ import urllib.request
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))
+# What WASI lacks, for every C tool (wasi-compat.h, stubs.c).
+COMPAT = os.path.join(ROOT, "wasi-compat")
 OUT = os.path.join(ROOT, "target", "git")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 # wasi-sdk 33 (clang 23), as nif/build.py's.
@@ -46,13 +49,14 @@ def fetch(source, sha256, path):
 def stamp():
     """What the build is made from: the image, the sources, our files."""
     hashed = hashlib.sha256(f"{IMAGE}\0{GIT[2]}\0{ZLIB[2]}\0".encode())
-    for directory, _, names in sorted(os.walk(HERE)):
-        for name in sorted(names):
-            if name.endswith(".py"):
-                continue
-            path = os.path.join(directory, name)
-            with open(path, "rb") as f:
-                hashed.update(os.path.relpath(path, HERE).encode() + b"\0" + f.read())
+    for top in (HERE, COMPAT):
+        for directory, _, names in sorted(os.walk(top)):
+            for name in sorted(names):
+                if name.endswith(".py"):
+                    continue
+                path = os.path.join(directory, name)
+                with open(path, "rb") as f:
+                    hashed.update(os.path.relpath(path, ROOT).encode() + b"\0" + f.read())
     return hashed.hexdigest()
 
 
@@ -93,7 +97,7 @@ def main():
     shutil.copy(os.path.join(HERE, "config.mak"), os.path.join(src, "config.mak"))
     wasi = os.path.join(OUT, "wasi")
     shutil.rmtree(wasi, ignore_errors=True)
-    shutil.copytree(os.path.join(HERE, "wasi"), wasi)
+    shutil.copytree(COMPAT, wasi)
     cc = "/opt/wasi-sdk/bin/clang --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/share/wasi-sysroot"
     script = (
         # zlib's configure runs what it builds: its files by hand instead.

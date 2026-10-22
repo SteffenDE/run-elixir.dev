@@ -9,7 +9,7 @@ index 99e18d2..37d909b 100644
 +#ifdef __wasi__
 +/*
 + * WASI: an async function runs beside git as a coroutine of the host's,
-+ * on a stack of its own (wasi_async_start, git/wasi/stubs.c). It shares
++ * on a stack of its own (wasi_async_start, wasi-compat/stubs.c). It shares
 + * git's descriptors and memory as a thread would; the host says which
 + * runs, and ends one that dies.
 + */
