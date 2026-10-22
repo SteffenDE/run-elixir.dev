@@ -1,7 +1,7 @@
 import { defineConfig, type UserConfig } from 'vite';
 
 // The runtime's scripts that load by URL, bundled: the node's worker, the
-// shared files' worker, Node.js's (`node`, nodejs/) and the apex's
+// shared files' worker, the IDE's git (git.ts), Node.js's (`node`, nodejs/) and the apex's
 // Tailscale worker (src/tailscale), which go into the build (b/ID/,
 // runtime/build.py) under their names, and the service worker, which
 // stays at the site's root (its scope is /). The page's own parts of the
@@ -52,6 +52,7 @@ export default defineConfig(({ mode }): UserConfig =>
             input: {
               worker: runtime('worker/index.ts'),
               files: runtime('files.ts'),
+              git: runtime('git.ts'),
               nodejs: runtime('nodejs/index.ts'),
               sw: runtime('sw.ts'),
               tailscale: new URL('./src/tailscale/worker.ts', import.meta.url).pathname,

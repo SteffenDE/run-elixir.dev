@@ -19,6 +19,7 @@ import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import type { ExecEvents, ExecStart } from '@/exec/host';
 import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
 import type { Connection, NifBuild } from '@/runtime/host/node';
+import type { GitOptions, GitOutput } from '@/runtime/host/git';
 import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
 import { PortConnection } from '@/runtime/portConnection';
 import { postgres } from '@/runtime/postgres';
@@ -45,6 +46,8 @@ import {
 } from '@/project/lib/previewChannel';
 import { disposeTerminals } from '@/project/lib/terminal-handle';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
+import { baseline } from '@/project/lib/git';
+import { filesChanged as changesHeard, watchChanges } from '@/project/lib/review';
 import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
 import type { KeptRecord } from '@/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
@@ -134,6 +137,11 @@ const files = {
   flush: () => (exec ? exec.call<void>('flush') : Promise.resolve()),
 };
 
+// git for the IDE itself (runtime/git.ts): a command's status and output,
+// one command at a time.
+export const git = (args: string[], options: GitOptions = {}) =>
+  running().call<GitOutput>('git', [args, options]);
+
 // A terminal's output; what came before it subscribed is replayed.
 export function onOutput(id: number, listener: Output): () => void {
   const session = sessions.get(id);
@@ -178,9 +186,13 @@ export const live: {
 } = {};
 
 let refreshing: ReturnType<typeof setTimeout> | null = null;
+// The changes view's watch (review.ts), while the project runs here.
+let unwatchChanges = () => {};
 
 // What the nodes changed: the tree, and open tabs without edits.
 async function changed(paths: string[]): Promise<void> {
+  // The changes view hears of .git's too (a commit at the shell).
+  changesHeard(paths);
   const visible = paths.filter((path) => path.startsWith(WORK) && !hidden(path));
   if (!visible.length) return;
   refreshing ??= setTimeout(() => {
@@ -557,6 +569,8 @@ export async function shutdown(): Promise<void> {
   exec = null;
   if (refreshing) clearTimeout(refreshing);
   refreshing = null;
+  unwatchChanges();
+  unwatchChanges = () => {};
   sharedHidden = false;
   await rpc?.call('shutdown').catch(() => {});
   sharedPeers?.close();
@@ -772,6 +786,18 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     );
     if (signal.aborted) return false;
     sharing();
+    // A repository from the start (docs/git.md): the files as they came
+    // are its baseline. A template's are, before a link's changes go over
+    // them; an imported folder's (a link's over the empty template) are,
+    // once they are there.
+    const repository = async () => {
+      if (!id) return;
+      await baseline(git, files.stat, (path) => files.list(path)).catch((error) =>
+        console.warn('playground: no baseline commit', error),
+      );
+    };
+    await repository();
+    if (signal.aborted) return false;
     // A project from a link: its changes, before anything runs.
     const seed = id ? await takeSeed(id) : null;
     if (signal.aborted) return false;
@@ -780,6 +806,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       await rpc.call('applyShared', [seed]);
       if (signal.aborted) return false;
       await seedTaken(id);
+      if (signal.aborted) return false;
+      await repository();
       if (signal.aborted) return false;
     }
     // The tree before start returns: a live session resumed next welcomes
@@ -800,11 +828,13 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       if (signal.aborted) return false;
     }
     openTerminal(first);
+    if (id) unwatchChanges = watchChanges(git, files.stat);
     // For tests and the curious.
     Object.assign(window, {
       playground: {
         database,
         files,
+        git,
         sessions,
         get node() {
           return sessions.get(FIRST_SESSION)?.node;

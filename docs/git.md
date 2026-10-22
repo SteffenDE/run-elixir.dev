@@ -26,23 +26,62 @@ blame, …), which a reimplementation would chase forever. isomorphic-git
 
 ### A baseline commit
 
-Each project starts as a repository, so a diff always has a base:
+Each project with files starts as a repository, so a diff always has a
+base: on its first start (and on the first start of a project from
+before there was git), the IDE runs `git init -b main`, `git add -A`
+and commits the files as they came, **Baseline**, by "Playground"; the
+ref `refs/playground/baseline` keeps it for "All changes".
 
-- **Empty project:** `git init` with no commit; the first diff is against
-  the empty tree. `git clone URL .` takes over a `.git` with no commits.
-- **Phoenix project:** a first commit holding the template. The build can
-  ship its objects with the template, so nothing is hashed when a project
-  starts.
+- **Phoenix project:** the template's files, before a link's changes go
+  over them (the app's own `.gitignore` leaves out `deps/` and
+  `_build/`). Hashing them on the page is quick (some dozens of files),
+  so the build ships no objects.
+- **A folder opened as a project:** its files, once they are there (a
+  link's changes over the empty template).
+- **Empty project:** no repository. `git clone URL .` takes an empty
+  directory only, so `git init` (or the changes view's *Initialize*) is
+  the user's.
 
 This is also what a share could become: the commits over the baseline
 instead of whole changed files ([projects.md](projects.md#sharing)).
 
+### The IDE's git
+
+The page's own commands (the baseline, the changes view) run in a worker
+of their own (`runtime/git.ts`, started by the exec frame on the first
+`git` call): git.wasm over the project's files (files.js), with no node,
+no shell and no BEAM, one command at a time, its output whole
+(`playground.git(args, {cwd, env, stdin})`). One at a time, the IDE's
+commands never race each other for `index.lock`.
+
 ## A diff view for review
 
-`@pierre/diffs` (by the makers of `@pierre/trees`, which the tree uses;
-also ~/ts/tc's): the changes since the baseline (*all changes*), or since
-HEAD (*uncommitted*), which are the same until the first commit. A file's
-diff opens from the view and from the tree's marks.
+`@pierre/diffs` (by the makers of `@pierre/trees`, which the tree uses):
+the changes since the baseline (*All changes*), or since HEAD
+(*Uncommitted*), which are the same until the first commit
+([ide.md](ide.md) has the panel and the tab). `project/lib/changes.ts`
+makes them with the IDE's git:
+
+- **A snapshot** of the files as they are: `git add -A` and `git
+  write-tree` with an index of the IDE's own (`GIT_INDEX_FILE` =
+  `.git/playground-index`). The user's `.git/index` stays theirs, an
+  untracked file is a new file, and what `.gitignore` leaves out is
+  not there; the index's stat cache hashes only what changed since.
+- **One diff**, base to snapshot: `git diff --raw --numstat --patch -z
+  --full-index --find-renames`; the raw records give each file's change
+  (renames as such), numstat its counts (`-`: binary).
+- **Both files whole** (`git cat-file --batch`, by byte size) under each
+  file's hunks (`processFile`), so the view expands a hunk to the rest of
+  the file. Binary files, pure renames, mode changes and files past
+  1 MiB show no lines.
+- **Kept by what they compare** (both sides' object ids, modes and
+  paths): a file unchanged since the last time is the same object, which
+  the view does not render again.
+
+`project/lib/review.ts` makes them again 300 ms after the files change
+(files.js's `changed`, which includes `.git`'s: a commit or checkout at
+the shell), but not for builds and dependencies or for the snapshot's own
+writes (the IDE's index, `.git/objects`), one refresh at a time.
 
 ## Push
 
@@ -338,6 +377,9 @@ status, and a pipeline's compound commands ([runtime.md](runtime.md#the-shell-wo
   `ls-remote` from GitHub, GitLab and Codeberg through the proxy, SSH
   addresses as HTTPS; a host the proxy does not serve is refused by name,
   and push is refused. Progress as git prints it, as it is git's.
+- **A baseline commit** for each project with files, and **the IDE's
+  git** (a worker of its own) to run git for the page
+  ([above](#the-ides-git)).
 - **A node's git** is git.wasm too: Mix's git dependencies (`fetch
   --depth`, sparse checkout, the lock's check).
 - **The shell runs the page's programs** (`tailwind`, `esbuild`, `node`,

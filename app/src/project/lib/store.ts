@@ -1,6 +1,7 @@
 import type { NifBuild } from '@/runtime/host/node';
 import { create } from 'zustand';
 import { newId } from '@/shared/lib/ids';
+import type { Base, Changes } from '@/project/lib/changes';
 
 // The project's files, in the node's filesystem.
 export const WORK = '/work';
@@ -8,8 +9,11 @@ export const WORK = '/work';
 export const HIDDEN = ['_build', 'deps', '.mix', '.hex', 'node_modules', '.git', '.elixir_ls'];
 
 export type Pane = 'files' | 'editor' | 'terminal' | 'preview';
-// What the side panel shows: the tree, or the search of the files.
-export type SideTab = 'files' | 'search';
+// What the side panel shows: the tree, the search of the files, or what
+// changed (git).
+export type SideTab = 'files' | 'search' | 'changes';
+// The changes view's tab (ChangesView), among the files' (not a path).
+export const CHANGES = 'changes:';
 
 export interface Tab {
   // This opening of the tab: the editor keeps its session (text, undo) by
@@ -76,6 +80,20 @@ interface State {
   searchFocus: number;
   setSideTab(tab: SideTab): void;
   focusSearch(): void;
+  // The project as a repository (changes.ts): whether it is one (null
+  // until known), its changes since `base`, or why there are none.
+  repository: boolean | null;
+  changes: Changes | null;
+  changesError: string | null;
+  base: Base;
+  diffStyle: 'split' | 'unified';
+  // The file the changes view goes to, and a count bumped to go again.
+  changesTarget: { path: string | null; jump: number };
+  setChanges(changes: { repository: boolean; changes: Changes | null; error: string | null }): void;
+  setBase(base: Base): void;
+  setDiffStyle(style: 'split' | 'unified'): void;
+  // The changes view's tab, at `path`'s diff (relative to WORK) if given.
+  showChanges(path?: string): void;
   // What this page may do: change files (the tree and the editor), and
   // type into terminals (and open them, restart the server). Only a live
   // session's guest may not.
@@ -159,6 +177,37 @@ export const useStore = create<State>((set) => ({
       filesShown: true,
       pane: 'files',
       searchFocus: state.searchFocus + 1,
+    })),
+  repository: null,
+  changes: null,
+  changesError: null,
+  base: 'all',
+  diffStyle: 'split',
+  changesTarget: { path: null, jump: 0 },
+  setChanges: ({ repository, changes, error }) => set({ repository, changes, changesError: error }),
+  setBase: (base) => set({ base }),
+  setDiffStyle: (diffStyle) => set({ diffStyle }),
+  showChanges: (path) =>
+    set((state) => ({
+      tabs: state.tabs.some((tab) => tab.path === CHANGES)
+        ? state.tabs
+        : [
+            ...state.tabs,
+            {
+              id: newId(),
+              path: CHANGES,
+              contents: '',
+              version: 0,
+              draft: '',
+              saved: '',
+              line: 1,
+              jump: 0,
+            },
+          ],
+      active: CHANGES,
+      pane: 'editor',
+      filesShown: true,
+      changesTarget: { path: path ?? null, jump: state.changesTarget.jump + 1 },
     })),
   access: { edit: true, terminal: true },
   remote: false,

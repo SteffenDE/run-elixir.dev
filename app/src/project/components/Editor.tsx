@@ -6,7 +6,8 @@ import { RiCloseLine, RiSave3Line } from '@remixicon/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { workspace } from '@/project/lib/workspace';
 import '@/project/lib/languages';
-import { WORK, useStore, type Tab } from '@/project/lib/store';
+import { CHANGES, WORK, useStore, type Tab } from '@/project/lib/store';
+import { ChangesView } from '@/project/components/ChangesView';
 import { followed, resumeFollowing, showFollowed } from '@/live/lib/follow';
 import { publishCursor } from '@/live/lib/presence';
 import { FollowNotice } from '@/live/components/FollowNotice';
@@ -227,14 +228,15 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
       <div className="bar tab-bar">
         <Tabs.List className="tab-list">
           {tabs.map((tab) => {
-            const name = tab.path.slice(tab.path.lastIndexOf('/') + 1);
+            const changes = tab.path === CHANGES;
+            const name = changes ? 'Changes' : tab.path.slice(tab.path.lastIndexOf('/') + 1);
             const dirty = tab.draft !== tab.saved;
             return (
               <Tabs.Tab
                 key={tab.path}
                 value={tab.path}
-                className="tab"
-                title={tab.path.slice(WORK.length + 1)}
+                className={changes ? 'tab changes-tab' : 'tab'}
+                title={changes ? 'What changed in the project' : tab.path.slice(WORK.length + 1)}
               >
                 <span className="tab-name">{name}</span>
                 <span
@@ -267,7 +269,7 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
       <EditProvider createEditor={createEditor}>
         {tabs.map((tab) => (
           <Tabs.Panel key={tab.path} value={tab.path} className="tab-panel" keepMounted={false}>
-            <TabEditor tab={tab} />
+            {tab.path === CHANGES ? <ChangesView /> : <TabEditor tab={tab} />}
           </Tabs.Panel>
         ))}
       </EditProvider>

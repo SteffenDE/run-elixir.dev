@@ -14,6 +14,7 @@ import { Bridge } from '@/runtime/bridge';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
+import { Git, type GitOptions } from '@/runtime/host/git';
 import { ENV } from '@/runtime/setup';
 import {
   Node,
@@ -112,6 +113,8 @@ const COOKIE = Array.from(crypto.getRandomValues(new Uint8Array(15)), (byte) =>
 // The IDE's port, which the frame's page hands over first.
 let rpc: Rpc = null!;
 let files: Files | null = null;
+// The IDE's git (its changes view), once it first asks.
+let git: Git | null = null;
 let setup: Setup = setupOf('empty');
 let start: ExecStart | null = null;
 let bridge: Bridge | null = null;
@@ -573,6 +576,13 @@ const handlers = {
   // The shared files, for the IDE (the tree, the editor, search, tests).
   list: (path: string, skip: string[]) => running().list(path, skip),
   stat: (path: string) => (files ? files.stat(path) : null),
+  // git for the IDE itself (runtime/git.ts), not a node's: its output whole.
+  async git(args: string[], options: GitOptions = {}) {
+    if (!files || !start) throw new Error('no project');
+    git ??= new Git({ base: start.build, runtime: start.runtime, files });
+    const result = await git.run(args, options);
+    return transfer(result, [result.stdout.buffer, result.stderr.buffer]);
+  },
   async read(path: string) {
     const bytes = await running().read(path);
     return transfer(bytes, [bytes.buffer]);
@@ -683,6 +693,8 @@ const handlers = {
     scripts.clear();
     scriptUdp.clear();
     shells.clear();
+    git?.stop();
+    git = null;
     files?.worker.terminate();
     files = null;
     serveNames = serveEpmd(new EpmdRegistry());

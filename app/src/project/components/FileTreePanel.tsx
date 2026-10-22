@@ -1,11 +1,27 @@
-import type { ContextMenuItem, ContextMenuOpenContext } from '@pierre/trees';
+import type { ContextMenuItem, ContextMenuOpenContext, GitStatus } from '@pierre/trees';
+import type { Change } from '@/project/lib/changes';
 import { FileTree, useFileTree } from '@pierre/trees/react';
-import { RiDeleteBinLine, RiEditLine, RiFileAddLine, RiFolderAddLine } from '@remixicon/react';
+import {
+  RiDeleteBinLine,
+  RiEditLine,
+  RiFileAddLine,
+  RiFolderAddLine,
+  RiGitBranchLine,
+} from '@remixicon/react';
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { workspace } from '@/project/lib/workspace';
 import { WORK, useStore } from '@/project/lib/store';
 
 // Elixir's files get a drop (the built-in icon sets have none for them).
+// A change's mark in the tree.
+const STATUS: Record<Change['type'], GitStatus> = {
+  new: 'added',
+  change: 'modified',
+  deleted: 'deleted',
+  'rename-pure': 'renamed',
+  'rename-changed': 'renamed',
+};
+
 const ICONS = {
   set: 'complete' as const,
   spriteSheet: `<svg xmlns="http://www.w3.org/2000/svg" style="display: none"><symbol id="playground-elixir" viewBox="0 0 16 16">
@@ -164,6 +180,23 @@ export function FileTreePanel() {
     [model],
   );
 
+  // What changed since the changes view's base (git): a mark on its row.
+  const found = useStore((state) => state.changes);
+  useEffect(() => {
+    model.setGitStatus(
+      (found?.changes ?? []).flatMap((change) =>
+        change.after
+          ? [
+              {
+                path: change.after.path,
+                status: STATUS[change.type],
+              },
+            ]
+          : [],
+      ),
+    );
+  }, [model, found]);
+
   // The tree follows the node: added and removed paths, the rest as it is.
   useEffect(() => {
     if (!paths.length) return;
@@ -242,6 +275,11 @@ export function FileTreePanel() {
                 folder,
               );
             }}
+            changed={found?.changes.some((change) => change.after?.path === item.path) ?? false}
+            onChanges={() => {
+              context.close();
+              useStore.getState().showChanges(item.path);
+            }}
             onRename={() => {
               context.close({ restoreFocus: false });
               model.startRenaming(item.path);
@@ -271,12 +309,16 @@ export function FileTreePanel() {
 function TreeMenu({
   item,
   context,
+  changed,
+  onChanges,
   onCreate,
   onRename,
   onDelete,
 }: {
   item: ContextMenuItem;
   context: ContextMenuOpenContext;
+  changed: boolean;
+  onChanges(): void;
   onCreate(folder: boolean): void;
   onRename(): void;
   onDelete(): void;
@@ -305,6 +347,11 @@ function TreeMenu({
       popover="manual"
       data-file-tree-context-menu-root="true"
     >
+      {changed && (
+        <button type="button" role="menuitem" onClick={onChanges}>
+          <RiGitBranchLine size={14} /> Show changes
+        </button>
+      )}
       <button type="button" role="menuitem" onClick={() => onCreate(false)}>
         <RiFileAddLine size={14} /> New file
       </button>
