@@ -1,0 +1,6 @@
+# findutils' configure for wasm32-wasip1 (after tools/wasi-compat/config.site),
+# which cannot run what it builds: gnulib's regex and getopt, GNU's own,
+# rather than wasi-libc's (musl's), so that -regex and the options are as
+# Linux's find has them.
+gl_cv_func_re_compile_pattern_working=no
+gl_cv_func_getopt_gnu=no

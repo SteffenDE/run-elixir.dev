@@ -1,12 +1,12 @@
-// uutils coreutils built to WebAssembly (coreutils/build.py): ls, cp, rm,
+// uutils coreutils built to WebAssembly (tools/coreutils/build.py): ls, cp, rm,
 // … for the shell and the nodes, as an OS has them. One module holds them
 // all; its first argument names the tool. Each run is an instance of its
 // own over the node's files (wasi/), run to its end on the caller's thread:
 // a node's port or the shell waits for it, as for a quick command. Other
 // programs built for WASI run the same way, each its own module
-// (PROGRAMS: ripgrep's rg, ripgrep/build.py; git, git/build.py; GNU's sed,
-// grep, diffutils, awk and find, sed/build.py, grep/build.py,
-// diffutils/build.py, gawk/build.py, findutils/build.py).
+// (PROGRAMS: ripgrep's rg, tools/ripgrep/build.py; git, tools/git/build.py; GNU's sed,
+// grep, diffutils, awk and find, tools/sed/build.py, tools/grep/build.py,
+// tools/diffutils/build.py, tools/gawk/build.py, tools/findutils/build.py).
 import { WASI } from './wasi';
 import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';

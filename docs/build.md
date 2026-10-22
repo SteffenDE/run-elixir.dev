@@ -41,7 +41,7 @@ rebar3), and builds the template with the host's Mix in
   crossterm and fd-lock, each with `brush/patches/NAME/`, in Docker, about
   a minute; cached until its image, commits or patches change); the site
   takes `target/brush/brush.wasm` (also `build.py app`).
-- **coreutils:** `python3 -I coreutils/build.py` first (uutils
+- **coreutils:** `python3 -I tools/coreutils/build.py` first (uutils
   coreutils for WASI, in Docker, about a minute; cached until its image,
   version or patches change); the site takes
   `target/coreutils/coreutils.wasm` (also `build.py app`).
@@ -50,22 +50,22 @@ rebar3), and builds the template with the host's Mix in
   its module cache in `target/tailscale/gomod`; cached until its image,
   tags or sources change); the site takes
   `target/tailscale/tailscale.wasm` (also `build.py app`).
-- **ripgrep:** `python3 -I ripgrep/build.py` first (ripgrep 15.2.0 for
-  `wasm32-wasip1` with `ripgrep/patches/`, in Docker, about a minute;
+- **ripgrep:** `python3 -I tools/ripgrep/build.py` first (ripgrep 15.2.0 for
+  `wasm32-wasip1` with `tools/ripgrep/patches/`, in Docker, about a minute;
   cached until its image, version or patches change); the site takes
   `target/rg/rg.wasm` (also `build.py app`).
-- **git:** `python3 -I git/build.py` first (git 2.56.0 and zlib for
-  `wasm32-wasip1` with wasi-sdk 33 and `wasi-compat/`, in Docker, under a
-  minute; cached until its image, versions or the files of `git/` or
-  `wasi-compat/` change; not its `.py` files); the
+- **git:** `python3 -I tools/git/build.py` first (git 2.56.0 and zlib for
+  `wasm32-wasip1` with wasi-sdk 33 and `tools/wasi-compat/`, in Docker, under a
+  minute; cached until its image, versions or the files of `tools/git/` or
+  `tools/wasi-compat/` change; not its `.py` files); the
   site takes `target/git/git.wasm` (also `build.py app`).
-- **sed:** `python3 -I sed/build.py` first (GNU sed 4.10 for
-  `wasm32-wasip1` over `wasi-compat/`, its configure and make in wasi-sdk
-  33's image, about ten seconds: `wasi-compat/autoconf.py`,
+- **sed:** `python3 -I tools/sed/build.py` first (GNU sed 4.10 for
+  `wasm32-wasip1` over `tools/wasi-compat/`, its configure and make in wasi-sdk
+  33's image, about ten seconds: `tools/wasi-compat/autoconf.py`,
   [tools.md](tools.md#building-them); cached as git's is); the site takes
   `target/sed/sed.wasm` (also `build.py app`).
-- **grep, diffutils, gawk, findutils:** `python3 -I grep/build.py`,
-  `diffutils/build.py`, `gawk/build.py` and `findutils/build.py` first
+- **grep, diffutils, gawk, findutils:** `python3 -I tools/grep/build.py`,
+  `tools/diffutils/build.py`, `tools/gawk/build.py` and `tools/findutils/build.py` first
   (GNU grep 3.12, diffutils 3.12, gawk 5.4.1 and findutils 4.11.0, as
   sed's); the site takes `target/grep/grep.wasm`,
   `target/diffutils/{diff,cmp,diff3,sdiff}.wasm`, `target/gawk/gawk.wasm`
@@ -97,17 +97,17 @@ target/site/
     beam.mjs, beam.emu.mjs     the emulator's loader and its threads'
     beam.wasm                  the emulator, 4.9 MB
     brush.wasm                 the terminal's shell (brush, patched), 3.4 MB (1.2 MB gzipped)
-    coreutils.wasm             ls, cp, rm, … (coreutils/build.py), 7.8 MB (3.0 MB gzipped)
+    coreutils.wasm             ls, cp, rm, … (tools/coreutils/build.py), 7.8 MB (3.0 MB gzipped)
     tailscale.wasm             the Tailscale node (tailscale/build.py), 29.3 MB (6.8 MB gzipped)
     tls.wasm                   a Node.js process's TLS (tls/build.py), 0.71 MB (0.29 MB gzipped)
-    rg.wasm                    ripgrep (ripgrep/build.py), 3.0 MB (1.0 MB gzipped)
-    git.wasm                   git (git/build.py), 3.8 MB (1.5 MB gzipped)
-    sed.wasm                   GNU sed (sed/build.py), 627 KB (195 KB gzipped)
-    grep.wasm                  GNU grep (grep/build.py), 665 KB (210 KB gzipped)
-    diff.wasm, cmp.wasm,       GNU diffutils (diffutils/build.py): 646, 398, 406, 420 KB
+    rg.wasm                    ripgrep (tools/ripgrep/build.py), 3.0 MB (1.0 MB gzipped)
+    git.wasm                   git (tools/git/build.py), 3.8 MB (1.5 MB gzipped)
+    sed.wasm                   GNU sed (tools/sed/build.py), 627 KB (195 KB gzipped)
+    grep.wasm                  GNU grep (tools/grep/build.py), 665 KB (210 KB gzipped)
+    diff.wasm, cmp.wasm,       GNU diffutils (tools/diffutils/build.py): 646, 398, 406, 420 KB
       diff3.wasm, sdiff.wasm     (213, 131, 133, 138 KB gzipped)
-    gawk.wasm                  GNU awk (gawk/build.py), 1.5 MB (415 KB gzipped)
-    find.wasm                  GNU find (findutils/build.py), 877 KB (278 KB gzipped)
+    gawk.wasm                  GNU awk (tools/gawk/build.py), 1.5 MB (415 KB gzipped)
+    find.wasm                  GNU find (tools/findutils/build.py), 877 KB (278 KB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]

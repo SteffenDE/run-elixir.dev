@@ -194,7 +194,7 @@ describe('Processes', () => {
   });
 });
 
-// git itself (git/build.py), when it is built: what it runs as processes.
+// git itself (tools/git/build.py), when it is built: what it runs as processes.
 const GIT = new URL('../../../target/git/git.wasm', import.meta.url).pathname;
 describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
   // A repository at /work/repo with one commit, and git(cwd, ...args).
@@ -369,9 +369,9 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
   );
 });
 
-// GNU's sed, grep, diffutils and awk (sed/build.py, grep/build.py,
-// diffutils/build.py, gawk/build.py), when they are built: programs built
-// for WASI over the shared C layer (wasi-compat/), sed's `e`, diff3's diff
+// GNU's sed, grep, diffutils and awk (tools/sed/build.py, tools/grep/build.py,
+// tools/diffutils/build.py, tools/gawk/build.py), when they are built: programs built
+// for WASI over the shared C layer (tools/wasi-compat/), sed's `e`, diff3's diff
 // and gawk's pipes through sh.
 const TARGET = new URL('../../../target/', import.meta.url).pathname;
 const GNU_TOOLS: Record<string, string> = {
@@ -590,7 +590,7 @@ describe.skipIf(!built)("GNU's tools as processes", () => {
       status: 1,
       text: 'find: ‘nope’: No such file or directory\n',
     });
-    // Modes as git's (wasi-compat/wrap.c): a file rw-r--r--, a directory rwxr-xr-x.
+    // Modes as git's (tools/wasi-compat/wrap.c): a file rw-r--r--, a directory rwxr-xr-x.
     expect((await tool('find', '', 'f', '-perm', '644')).text).toMatch(/^(f\/\S+\n)+$/);
     expect(lines((await tool('find', '', 'f', '-perm', '-u+x')).text)).toEqual(['f', 'f/sub']);
     expect((await tool('find', '', 'f/a.txt', '-printf', '%m %M\\n')).text).toBe(

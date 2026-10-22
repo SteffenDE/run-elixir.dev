@@ -427,9 +427,11 @@ def record(out, boot, snapshot):
 # (docs/tools.md: sed, grep, diff, cmp, diff3, sdiff, gawk, find), the Tailscale node (docs/tailscale.md) and a
 # Node.js process's TLS client (docs/nodejs.md), built to WebAssembly by
 # their own scripts.
-WASM = {"brush": "brush/build.py", "coreutils": "coreutils/build.py", "tailscale": "tailscale/build.py",
-        "tls": "tls/build.py", "rg": "ripgrep/build.py", "git": "git/build.py", "sed": "sed/build.py",
-        "grep": "grep/build.py", "gawk": "gawk/build.py", "findutils/find": "findutils/build.py", **{f"diffutils/{name}": "diffutils/build.py" for name in ("diff", "cmp", "diff3", "sdiff")}}
+WASM = {"brush": "brush/build.py", "tailscale": "tailscale/build.py", "tls": "tls/build.py",
+        "coreutils": "tools/coreutils/build.py", "rg": "tools/ripgrep/build.py", "git": "tools/git/build.py",
+        "sed": "tools/sed/build.py", "grep": "tools/grep/build.py", "gawk": "tools/gawk/build.py",
+        "findutils/find": "tools/findutils/build.py",
+        **{f"diffutils/{name}": "tools/diffutils/build.py" for name in ("diff", "cmp", "diff3", "sdiff")}}
 
 
 def prebuilt():
@@ -582,7 +584,7 @@ def main():
     # editing needs it.
     files.append(("usr/share/terminfo/x/xterm-256color",
                   os.path.join(ROOT, "runtime", "terminfo", "x", "xterm-256color")))
-    # git's commands that are shell scripts (git/build.py), at git.wasm's
+    # git's commands that are shell scripts (tools/git/build.py), at git.wasm's
     # exec path (its prefix is /usr).
     libexec = os.path.join(ROOT, "target", "git", "libexec")
     for name in sorted(os.listdir(libexec)):

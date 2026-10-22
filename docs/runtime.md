@@ -320,7 +320,7 @@ terminal takes the shell's typing.
 
 uutils coreutils 0.12.0, Rust's rewrite of GNU's (Ubuntu's since 25.10),
 built for `wasm32-wasip1` with its own WASI feature set
-(`coreutils/build.py`): one module, 89 tools, its first argument naming the
+(`tools/coreutils/build.py`): one module, 89 tools, its first argument naming the
 tool, as BusyBox does. BusyBox itself needs `fork`, which WASI lacks. The
 one patch has it change to `$PWD` first, as WASI has no working directory.
 

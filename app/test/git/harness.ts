@@ -50,7 +50,7 @@ export function machine(scratch: string): Machine {
   const git = module('git/git.wasm');
   const testTool = module('git/test-tool.wasm');
   const coreutils = module('coreutils/coreutils.wasm');
-  // GNU's tools (sed/build.py, grep/build.py, diffutils/build.py), by name.
+  // GNU's tools (tools/sed/build.py, tools/grep/build.py, tools/diffutils/build.py), by name.
   const GNU: Record<string, WebAssembly.Module> = {
     sed: module('sed/sed.wasm'),
     grep: module('grep/grep.wasm'),

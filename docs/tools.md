@@ -31,16 +31,19 @@ the source to offer.
 
 ## Building them
 
-One pattern for all, as `git/build.py`'s:
+One pattern for all, as `tools/git/build.py`'s. Each tool is a directory
+of `tools/` (`build.py`, `patches/`, `config.site`), beside
+`tools/coreutils/`, `tools/ripgrep/` and the shared C layer,
+`tools/wasi-compat/`; what each builds goes to `target/NAME/`.
 
 - **The image:** wasi-sdk 33's (`nif/build.py`'s, pinned by digest); a
   release tarball by URL and SHA-256, `patches/` applied, the tool's own
   `configure --host=wasm32-wasip1`, then `make`, `-Oz`.
-  `wasi-compat/autoconf.py` does it for the GNU tools (sed's, grep's,
-  diffutils'); each `NAME/build.py` names its release, its configure
+  `tools/wasi-compat/autoconf.py` does it for the GNU tools (sed's, grep's,
+  diffutils'); each `tools/NAME/build.py` names its release, its configure
   options and what to keep. It is loaded by path: `python3 -I` leaves
   the script's directory off `sys.path`.
-- **A shared C layer**, `wasi-compat/` (git's `git/wasi/` until it moved),
+- **A shared C layer**, `tools/wasi-compat/` (once git's `git/wasi/`),
   for what WASI preview 1 lacks. `stubs.c`: processes through the host
   (`wasi_spawn`, `pipe`, `dup`, `dup2`, `waitpid`, `kill`: the
   `processes` imports), and `popen`, `pclose` and `system` over
@@ -75,7 +78,7 @@ One pattern for all, as `git/build.py`'s:
 - **config.site:** configure's checks see neither header, so they would
   take what `stubs.c` has for missing (gnulib then replaces it, or the
   tool goes without: sed's `e` needs `HAVE_POPEN`).
-  `wasi-compat/config.site` says each is there and declared, except
+  `tools/wasi-compat/config.site` says each is there and declared, except
   `fork` and `exec`, which fail, so that a tool starts programs by
   `popen` and `system`. Then the tool's own `config.site`, for what
   configure cannot run when cross-compiling (sed's: gnulib's regex and
@@ -95,7 +98,7 @@ One pattern for all, as `git/build.py`'s:
   tree is recursive (grep's, diffutils', gawk's), then each program
   (`gnulib-tests/` does not build for WASI and is not needed).
 - **setjmp:** wasm has none without exception handling, so
-  `wasi-compat/include/setjmp.h` stands in for wasi-libc's: `setjmp`
+  `tools/wasi-compat/include/setjmp.h` stands in for wasi-libc's: `setjmp`
   returns 0, a `longjmp` ends the program saying so. The tools jump only
   where WASI never leads them: gawk's debugger (`gawk -D`), `diff -r`
   when `strcoll` fails (wasi-libc's never does).
@@ -127,20 +130,20 @@ browser's tests (Playwright) add a few lines at the shell for each.
 | `chmod` (`utilities.ts`, no modes) | 1,014 | 30,271 / 746 (97.59%): only the two scripts that flip between runs (`t5200` 6, `t7063` 12) |
 | `find` | 144 | 30,268 / 749 (97.59%): `t5605-clone-local` 7 now fails: its `find -links 1` sees the shim's link count, always 1 (bfs saw the host's); `t7063` as ever |
 
-**sed** (4.10, `sed/build.py`): 626 KB (195 KB gzipped). Built as is, no
+**sed** (4.10, `tools/sed/build.py`): 626 KB (195 KB gzipped). Built as is, no
 patches. At the shell (`brush.spec.ts`): `-E` with back-references, `-i`
 without a suffix, `e` through sh, a node's `System.cmd("sed", …)`; and
 `git submodule add` of a local repository, `status` and `foreach`
 (`git.spec.ts`). In Node (`processes.test.ts`): `-z`, `-i.bak`, `s///e`.
 
-**grep** (3.12, `grep/build.py`): 665 KB (210 KB gzipped), without `-P`.
-**diffutils** (3.12, `diffutils/build.py`, one patch): `diff` 646 KB,
+**grep** (3.12, `tools/grep/build.py`): 665 KB (210 KB gzipped), without `-P`.
+**diffutils** (3.12, `tools/diffutils/build.py`, one patch): `diff` 646 KB,
 `cmp` 398, `diff3` 406, `sdiff` 420. At the shell (`brush.spec.ts`):
 grep's back-references, `-r` over the tree, its error and statuses;
 `diff -u`, `cmp`, `diff3 -m` starting diff through sh; a node's grep. In
 Node: the same, and `-v`, `-q`, `-c`.
 
-**gawk** (5.4.1, `gawk/build.py`, one patch): 1.5 MB (415 KB gzipped),
+**gawk** (5.4.1, `tools/gawk/build.py`, one patch): 1.5 MB (415 KB gzipped),
 as `awk` and `gawk`. Its five places that fork (`cmd | getline`,
 `print | cmd`, `|&`, `system()`, and `wait_any`'s `waitpid(-1)`) take
 `__wasi__` branches beside MinGW's: `wasi_spawn` of `sh -c`, and waits
@@ -149,7 +152,7 @@ debugger's jumps. At the shell and in Node: fields, `gensub`, `asort`,
 both pipes, a `|&` coprocess with `close(cmd, "to")`, `system()`'s
 status, a node's awk.
 
-**find** (findutils 4.11.0, `findutils/build.py`, one patch): 877 KB.
+**find** (findutils 4.11.0, `tools/findutils/build.py`, one patch): 877 KB.
 Not findutils' `xargs` (the shell's is `utilities.ts`'s) nor `locate`.
 It walks with gnulib's `fts` from descriptors (`FTS_CWDFD`), so it never
 changes directory; the patch makes `-exec` and `-execdir` (and `-ok`)

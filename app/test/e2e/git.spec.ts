@@ -70,7 +70,7 @@ test('git clones a repository into the shell and pulls it forward', async ({ pag
   );
 });
 
-// git itself (git.wasm, git/build.py) at the shell: what it does in its own
+// git itself (git.wasm, tools/git/build.py) at the shell: what it does in its own
 // process.
 test("the shell's git is git's own: commits, diffs, branches and a rebase", async ({ page }) => {
   await newProject(page, 'empty');
@@ -161,7 +161,7 @@ test("git's remotes, aliases and hooks run as processes", async ({ page }) => {
   expect(cloned).not.toMatch(/fatal|error/);
 
   // git submodule, a script of git's from /usr/libexec/git-core, and the
-  // sed it runs (sed/build.py); a local repository is file:// to it.
+  // sed it runs (tools/sed/build.py); a local repository is file:// to it.
   await run(page, 'git commit -q --allow-empty -m base');
   const added = await run(
     page,

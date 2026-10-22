@@ -33,7 +33,7 @@ test('brush runs pipelines, substitutions and redirections over the playground c
   expect(await run(page, 'ls a/b | xargs wc -c | tail -n 1')).toMatch(/0 total/);
 });
 
-// GNU sed (sed/build.py, its own module over wasi-compat/): in a pipeline,
+// GNU sed (tools/sed/build.py, its own module over tools/wasi-compat/): in a pipeline,
 // in place, its `e` through sh (brush, a process of the worker's), and a
 // node's.
 test('sed edits streams and files, and runs commands through sh', async ({ page }) => {
@@ -58,7 +58,7 @@ test('sed edits streams and files, and runs commands through sh', async ({ page 
   ).toContain('- AlphA');
 });
 
-// GNU grep and diffutils (grep/build.py, diffutils/build.py): grep's basic
+// GNU grep and diffutils (tools/grep/build.py, tools/diffutils/build.py): grep's basic
 // regex with back-references and -r over the tree, diff -u and cmp's
 // statuses, diff3 starting diff through sh, and a node's grep.
 test('grep searches and diff compares, as GNU has them', async ({ page }) => {
@@ -94,7 +94,7 @@ test('grep searches and diff compares, as GNU has them', async ({ page }) => {
   ).toMatch(/^3$/m);
 });
 
-// GNU awk (gawk/build.py), as awk and gawk: fields and gawk's own
+// GNU awk (tools/gawk/build.py), as awk and gawk: fields and gawk's own
 // functions, its pipes both ways and a coprocess through sh (brush), and a
 // node's.
 test('awk is gawk, its pipes and system() through sh', async ({ page }) => {
@@ -130,7 +130,7 @@ test('awk is gawk, its pipes and system() through sh', async ({ page }) => {
   ).toMatch(/^NODE$/m);
 });
 
-// GNU find (findutils/build.py): its tests over the tree, -exec through the
+// GNU find (tools/findutils/build.py): its tests over the tree, -exec through the
 // table (sh, coreutils), -execdir in the file's directory, xargs -0, and a
 // node's.
 test('find walks the tree and runs commands for what it finds', async ({ page }) => {

@@ -190,7 +190,7 @@ project list.
 
 ## git.wasm: git itself
 
-`git/build.py` builds git 2.56.0 (with `git/patches/`) and zlib with
+`tools/git/build.py` builds git 2.56.0 (with `tools/git/patches/`) and zlib with
 wasi-sdk 33 in Docker (`nif/build.py`'s image) for `wasm32-wasip1`:
 `target/git/git.wasm`, 3.8 MB (1.5 MB gzipped, `-Oz`). The site serves it
 beside `rg.wasm`; the shell runs it as a process of the worker's
@@ -199,7 +199,7 @@ and the shared files.
 
 **The build:** git's own, with a `config.mak` that turns off what WASI
 lacks (threads, curl, iconv, gettext, Rust, sockets, mmap and regex,
-which git has fallbacks for), and `wasi-compat/` (every C tool's,
+which git has fallbacks for), and `tools/wasi-compat/` (every C tool's,
 [tools.md](tools.md#building-them)): headers WASI does not have
 (`pwd.h`, `sys/wait.h`, `termios.h`, …) and `stubs.c`, which answers as
 one user would (uid 0 owns everything, `chmod` does nothing, `PWD` is
@@ -302,7 +302,7 @@ scrolls back (`GIT_PAGER=cat`, which git takes for none).
   scripts, `t*` for all, `GIT_T_SHARD=I/N` splits them among runs,
   `GIT_T_LIMIT` ends a script that hangs): `t/`'s scripts over
   `test-lib.sh`, in Node, with brush as sh, git.wasm as git (and its
-  dashed programs and scripts), `test-tool.wasm` (`git/build.py` builds
+  dashed programs and scripts), `test-tool.wasm` (`tools/git/build.py` builds
   it, `GIT-BUILD-OPTIONS` and `templates/blt` too), coreutils.wasm and
   GNU's sed, grep, diffutils and awk ([tools.md](tools.md)), each a process of the table as the playground runs them.
   The files are the host's at their own paths (`hostfs.ts`: the shared
@@ -324,7 +324,7 @@ error before a test (gettext, `git://`), 3 time out (completion,
 reftable's. Known causes: no file modes (`POSIXPERM` passes in
 `test-lib.sh`, `test -x` is always true), no signals but the table's,
 uid 0 (`SANITY`'s tests skip). What the suite found and fixed: git's
-script commands (`git-submodule`, …, `git/build.py` SCRIPTS, at
+script commands (`git-submodule`, …, `tools/git/build.py` SCRIPTS, at
 `/usr/libexec/git-core` on the site); a directory's `st_mode` without
 permission bits (git took it for a sparse index's: `stubs.c` adds them);
 brush's `exec`, `trap`, `kill` and `.` on WASI, `set -x`'s assignment

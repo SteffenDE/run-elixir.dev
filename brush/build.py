@@ -27,7 +27,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(ROOT, "target", "brush")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# rust:1.99-slim, as coreutils/build.py.
+# rust:1.99-slim, as tools/coreutils/build.py.
 IMAGE = "rust@sha256:4df2ae8cfdfebdfc13a65da7f253b73d68983dc0339f2719bc17a279c913b13d"
 # The sources, as brush's workspace finds them (../crossterm, ../fd-lock).
 SOURCES = ["brush", "crossterm", "fd-lock"]
