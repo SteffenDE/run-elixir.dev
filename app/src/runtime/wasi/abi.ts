@@ -29,6 +29,7 @@ export const E = {
   PIPE: 64,
   SPIPE: 70,
   SRCH: 71,
+  XDEV: 75,
 };
 export const FILETYPE = { CHAR: 2, DIR: 3, REG: 4, SYMLINK: 7 };
 // path_open's and path_filestat_get's dirflags: follow a last symbolic link.

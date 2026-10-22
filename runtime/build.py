@@ -565,6 +565,11 @@ def main():
     # editing needs it.
     files.append(("usr/share/terminfo/x/xterm-256color",
                   os.path.join(ROOT, "runtime", "terminfo", "x", "xterm-256color")))
+    # git's commands that are shell scripts (git/build.py), at git.wasm's
+    # exec path (its prefix is /usr).
+    libexec = os.path.join(ROOT, "target", "git", "libexec")
+    for name in sorted(os.listdir(libexec)):
+        files.append(("usr/libexec/git-core/" + name, os.path.join(libexec, name)))
     files += app_files(phoenix_app())
 
     # Everything lazy first, to record what each boot image's command

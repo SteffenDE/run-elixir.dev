@@ -278,6 +278,7 @@ project with `deps` and `_build` forced in (3.8k files): `add` 3.3 s
 | --- | --- |
 | A token, and push over GitHub's REST API ([below](#push)) | push to GitHub |
 | An editor | `commit` without `-m`, `rebase -i`, `add -p`'s editing |
+| `sed`, `grep`, `diff`, `awk` and `perl` in the playground (the suite borrows the host's) | git's scripts at the shell: `submodule`, `mergetool`, `filter-branch`, `request-pull` |
 | Private repositories (credentials through the helper, not the proxy) | clone and fetch of those |
 
 Also: the Phoenix template's `.git` (phx.new's `git init`) lacks `refs/`
@@ -303,19 +304,43 @@ scrolls back (`GIT_PAGER=cat`, which git takes for none).
 
 ### Tests
 
-The architecture is still to settle; what there is, and the options:
-
 - **vitest over a built git.wasm** (`test/unit/processes.test.ts`,
   skipped without `target/git/git.wasm`): git over the shim and the
-  process table in Node, in milliseconds. The place for our own cases
-  (the shim's calls, processes, the helper).
-- **git's own suite** (`t/`, shell scripts over `test-lib.sh`): it needs
-  a POSIX shell, `sed`, `grep`, `awk` and processes everywhere: brush and
-  the process table have most of that now, in a worker (or the Node
-  harness, with brush and coreutils). The prize: thousands of cases
-  written by git, run against our shim.
+  process table in Node, in milliseconds: our own cases (processes,
+  `start_async`, `file://`, the HTTPS helper against git's own
+  `upload-pack --stateless-rpc`).
+- **git's own suite** (`test/git/`, `npm run test:git`; `GIT_T` names the
+  scripts, `t*` for all, `GIT_T_SHARD=I/N` splits them among runs,
+  `GIT_T_LIMIT` ends a script that hangs): `t/`'s scripts over
+  `test-lib.sh`, in Node, with brush as sh, git.wasm as git (and its
+  dashed programs and scripts), `test-tool.wasm` (`git/build.py` builds
+  it, `GIT-BUILD-OPTIONS` and `templates/blt` too) and coreutils.wasm,
+  each a process of the table as the playground runs them. The files are
+  the host's at their own paths (`hostfs.ts`: the shared files' protocol
+  over `node:fs`). What the playground lacks yet runs as the host's own
+  program: `sed`, `grep`, `diff`, `cmp`, `perl`, `find`, `getconf`
+  (`Machine.hosted` counts them). Each script's TAP goes to
+  `target/git/src/t/results/`, a summary to `target/git/t-results.json`.
+  All of `t/` (1059 scripts) in 6 shards takes about 7 minutes.
 - **Playwright** for what is the browser's (JSPI in three engines, the
-  files across workers, the IDE as editor): a few, as `git.spec.ts` has.
+  files across workers, the proxy): `git.spec.ts`.
+
+**Where it stands** (2026-10-22): 29,448 tests pass, 747 fail (97.5%),
+257 known breakages as git's own; 748 scripts pass whole, 164 skip
+themselves (their prerequisites: HTTP servers, iconv, gettext, …), 9
+error before a test (gettext, `git://`), 3 time out (completion,
+`refs migrate`, an archive's corner cases). Most failures by script:
+`t5601-clone` (54, no ssh or `git://`), `t7610-mergetool` (28),
+`t5318-commit-graph` (27), the notes' (`t3321`, `t3301`), `t1050-large`,
+reftable's. Known causes: no file modes (`POSIXPERM` passes in
+`test-lib.sh`, `test -x` is always true), no signals but the table's,
+uid 0 (`SANITY`'s tests skip). What the suite found and fixed: git's
+script commands (`git-submodule`, …, `git/build.py` SCRIPTS, at
+`/usr/libexec/git-core` on the site); a directory's `st_mode` without
+permission bits (git took it for a sparse index's: `stubs.c` adds them);
+brush's `exec`, `trap`, `kill` and `.` on WASI, `set -x`'s assignment
+status, and a pipeline's compound commands ([runtime.md](runtime.md#the-shell-workerbrushts));
+`env`, `xargs`, a script on PATH, `$0` of `sh -c`.
 
 ## Built
 

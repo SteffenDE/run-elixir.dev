@@ -220,8 +220,8 @@ describe.skipIf(!existsSync(GIT))('git.wasm as processes', () => {
       });
       return status ?? 127;
     };
-    const processes: Processes = new Processes((program, args, cwd) => {
-      const found = other(program, args, cwd);
+    const processes: Processes = new Processes((program, args, cwd, env) => {
+      const found = other(program, args, cwd, env);
       if (found) return found;
       const name = program.split('/').pop()!;
       if (name === 'sh') return sh;

@@ -25,6 +25,12 @@ test('brush runs pipelines, substitutions and redirections over the playground c
   expect(await run(page, `elixir -e 'IO.puts(:from_node)' | tr a-z A-Z`)).toContain('FROM_NODE');
   expect(await run(page, 'ls nope 2>/dev/null || echo missing')).toContain('missing');
   expect(await run(page, 'nosuch; echo "status $?"')).toContain('status 127');
+  // What starts other programs: env, xargs, sh (its $0 and arguments).
+  expect(await run(page, `env GREETING=hi sh -c 'echo "$GREETING from $0 $1"' me there`)).toContain(
+    'hi from me there',
+  );
+  expect(await run(page, 'printf "a b\\nc\\n" | xargs -n 2 echo got')).toMatch(/got a b\s+got c/);
+  expect(await run(page, 'ls a/b | xargs wc -c | tail -n 1')).toMatch(/0 total/);
 });
 
 // Its line editor (reedline, over crossterm on the page's terminal): Tab
@@ -68,6 +74,10 @@ test('pipelines stream between processes, page programs too', async ({ page }) =
   expect(await run(page, 'yes | head -n 3')).toMatch(/y\s+y\s+y\s+\/work \$ $/);
   expect(await run(page, 'seq 1 3000000 | head -n 1')).toMatch(/^1$/m);
   expect(await run(page, 'seq 1 3000000 | tail -n 1')).toMatch(/^3000000$/m);
+  // A compound command before the last runs beside it (more than a pipe
+  // holds, from a program it starts).
+  expect(await run(page, '{ seq 1 100000; echo end; } | tail -n 1')).toMatch(/^end$/m);
+  expect(await run(page, 'for n in 1 2; do seq 1 50000; done | wc -l')).toMatch(/^\s*100000$/m);
   await writeText(page, '/work/large.cjs', 'process.stdout.write("x".repeat(17 * 1024 * 1024));');
   const large = await run(page, 'node large.cjs | head -c 1');
   expect(large).toMatch(/^x\s*\/work \$ $/m);
@@ -84,6 +94,13 @@ test('pipelines stream between processes, page programs too', async ({ page }) =
     'let n = 0; process.stdin.on("data", (d) => { n += d.length; if (n > 1e6) { console.log("enough"); process.exit(0); } });',
   );
   expect(await run(page, 'yes | node enough.cjs')).toMatch(/^enough$/m);
+  // All of what it wrote, up to its end, while its reader is slower.
+  await writeText(
+    page,
+    '/work/lines.cjs',
+    'for (let i = 1; i <= 200000; i++) process.stdout.write(i + "\\n");',
+  );
+  expect(await run(page, 'node lines.cjs | wc -c')).toMatch(/^\s*1288895$/m);
   expect(
     await run(page, `node -e 'setInterval(() => console.log("tick"), 5)' | head -n 3`),
   ).toMatch(/tick\s+tick\s+tick\s+\/work \$ $/);

@@ -8,7 +8,8 @@
     "format": "oxfmt src test",
     "format:check": "oxfmt --check src test",
     "test": "vitest run",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:git": "vitest run -c vitest.git.config.ts"
   },
   "dependencies": {
     "@base-ui/react": "1.9.0",

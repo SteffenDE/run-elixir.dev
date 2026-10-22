@@ -2,6 +2,17 @@
    defined in stubs.c. */
 #pragma once
 #include <sys/types.h>
+/* stat, lstat and fstat with a mode's permission bits (stubs.c): WASI's
+   have the type alone, and git takes a mode of S_IFDIR alone for a sparse
+   index's directory, not a directory (a submodule's gitlink). Function-like,
+   so that `struct stat` stays itself. */
+struct stat;
+int wasi_stat(const char *, struct stat *);
+int wasi_lstat(const char *, struct stat *);
+int wasi_fstat(int, struct stat *);
+#define stat(path, st) wasi_stat(path, st)
+#define lstat(path, st) wasi_lstat(path, st)
+#define fstat(fd, st) wasi_fstat(fd, st)
 pid_t fork(void);
 int execv(const char *, char *const []);
 int execvp(const char *, char *const []);

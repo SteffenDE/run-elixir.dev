@@ -42,8 +42,14 @@ export interface Spawn {
 // A program as the process table runs it: its exit status, 128 + the
 // signal's number when one ended it.
 export type Program = (child: Child, spawn: Spawn) => Promise<number>;
-// The program a name runs, or null when there is none (ENOENT).
-export type Resolve = (program: string, args: string[], cwd: string) => Program | null;
+// The program a name runs, or null when there is none (ENOENT); `env`: its
+// environment (its PATH, for a name without a slash).
+export type Resolve = (
+  program: string,
+  args: string[],
+  cwd: string,
+  env: Record<string, string>,
+) => Program | null;
 
 export class Child {
   declare pid: number;
@@ -118,7 +124,7 @@ export class Processes {
   // Starts `spawn.program` (the caller's own references to its streams
   // stay its own); null when there is no such program.
   spawn(spawn: Spawn, parent = 0): Child | null {
-    const program = this.resolve(spawn.program, spawn.args, spawn.cwd);
+    const program = this.resolve(spawn.program, spawn.args, spawn.cwd, spawn.env);
     if (!program) return null;
     for (const entry of spawn.stdio) share(entry);
     const child = new Child(this.next++, parent);

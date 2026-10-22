@@ -1,0 +1,42 @@
+From 230bf187c36b8b45de2dd9b0ec74cb37f651796d Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Thu, 22 Oct 2026 10:58:54 +0000
+Subject: [PATCH] brush-builtins: . NAME looks for NAME on PATH first, as
+ bash's sourcepath has it
+
+---
+ brush-builtins/src/dot.rs | 15 ++++++++++-----
+ 1 file changed, 10 insertions(+), 5 deletions(-)
+
+diff --git a/brush-builtins/src/dot.rs b/brush-builtins/src/dot.rs
+index 7bf5a4b..dfa58d3 100644
+--- a/brush-builtins/src/dot.rs
++++ b/brush-builtins/src/dot.rs
+@@ -21,14 +21,19 @@ impl builtins::Command for DotCommand {
+         &self,
+         context: brush_core::ExecutionContext<'_, SE>,
+     ) -> Result<brush_core::ExecutionResult, Self::Error> {
++        // A name without a slash is looked for on PATH first (bash's
++        // `sourcepath`, on by default), then here.
++        let mut path = Path::new(&self.script_path).to_path_buf();
++        if !self.script_path.contains('/') && context.shell.options().source_builtin_searches_path {
++            if let Some(found) = context.shell.find_first_executable_in_path(&self.script_path) {
++                path = found;
++            }
++        }
++
+         // TODO(dot): Handle trap inheritance.
+         context
+             .shell
+-            .source_script(
+-                Path::new(&self.script_path),
+-                self.script_args.iter(),
+-                &context.params,
+-            )
++            .source_script(path.as_path(), self.script_args.iter(), &context.params)
+             .await
+     }
+ }
+-- 
+2.47.3
+

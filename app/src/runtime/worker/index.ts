@@ -33,7 +33,8 @@ import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
 import { PROGRAMS, TOOLS, withCoreutils, type CoreutilsOptions } from '../coreutils';
-import { GIT_CONFIG, remoteHelper, throughProxy } from '../git-remote';
+import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
+import { UTILITIES } from '../utilities';
 import {
   HOSTED_LIMIT,
   Processes,
@@ -470,12 +471,16 @@ onmessage = async ({
             // wait) is bounded.
             if (process.output.reduce((size, bytes) => size + bytes.length, 0) > HOSTED_LIMIT)
               throw new OutputLimitError();
+            // Whether it had ended before what it wrote is taken: more may
+            // come while a pipe is full (other processes take in frames),
+            // and its end after all it wrote.
+            const ended = process.ended;
             for (const bytes of process.output.splice(0))
               if (!(await writeAll(output, bytes, child, sharedFs))) {
                 process.onclose?.();
                 return child.signal === null ? 141 : 128 + child.signal;
               }
-            if (process.ended) return process.status ?? 1;
+            if (ended) return process.status ?? 1;
             if (child.signal !== null) {
               process.onclose?.();
               return 128 + child.signal;
@@ -538,15 +543,26 @@ onmessage = async ({
       | { page: string; args: string[] }
       | { script: string[] }
       | { wasm: WebAssembly.Module };
-    const find = (program: string, given: string[], at: string): Found | null => {
+    const find = (
+      program: string,
+      given: string[],
+      at: string,
+      vars: Record<string, string> = env,
+    ): Found | null => {
       const name = program.split('/').pop()!;
       const read = (path: string) => fs.read(join(at, path));
-      // A path's first bytes (a relative one's from `at`: git's hooks).
+      // A path's first bytes (a relative one's from `at`: git's hooks; a
+      // name's, a script's on PATH, as execvp finds it: ~/bin's, the
+      // stubs are empty).
       const path = program.startsWith('/')
         ? program
         : program.includes('/')
           ? join(at, program)
-          : null;
+          : ((vars.PATH ?? '')
+              .split(':')
+              .filter(Boolean)
+              .map((dir) => join(at, `${dir}/${program}`))
+              .find((candidate) => (fs.read(candidate)?.length ?? 0) > 2) ?? null);
       const head = path ? fs.read(path)?.subarray(0, 64) : null;
       const shebang = head ? new TextDecoder().decode(head) : '';
       const argv =
@@ -555,6 +571,18 @@ onmessage = async ({
       if (argv) return { node: argv };
       // A script for sh (a git hook, #!/bin/sh or #!/usr/bin/env bash).
       if (/^#!.*\b(sh|bash)\b/.test(shebang)) return { script: [path!, ...given] };
+      // git's dashed commands (git starts them by name): its scripts from its
+      // exec path (git-submodule), and git.wasm as a transport's other end
+      // (git-upload-pack); another git-NAME is none (an alias's, then).
+      if (name.startsWith('git-')) {
+        const exec = path ?? `/usr/libexec/git-core/${name}`;
+        const script = fs.read(exec)?.subarray(0, 64);
+        if (script && /^#!.*\b(sh|bash)\b/.test(new TextDecoder().decode(script)))
+          return { script: [exec, ...given] };
+        const git = GIT_DASHED.has(name) ? load(PROGRAMS.git) : null;
+        if (git) return { wasm: git };
+        return null;
+      }
       const own = name in PROGRAMS ? load(PROGRAMS[name]) : null;
       if (own) return { wasm: own };
       if (pagePrograms.includes(name)) return { page: name, args: given };
@@ -580,13 +608,15 @@ onmessage = async ({
     // them (`external`), their input whole.
     // sh as a process (below: it needs the shell's options).
     let shProgram: Program = async () => 127;
-    const processes: Processes = new Processes((program, given, at) => {
+    const processes: Processes = new Processes((program, given, at, vars) => {
       if (isSh(program)) return (child, spawn) => shProgram(child, spawn);
+      const utility = UTILITIES[program.split('/').pop()!];
+      if (utility) return utility(processes);
       // git's transport for a remote (git.wasm starts it): HTTPS through
       // the site's proxy.
       if (program.split('/').pop() === 'git' && /^remote-https?$/.test(given[0] ?? ''))
         return remoteHelper(throughProxy(location.origin));
-      const found = find(program, given, at);
+      const found = find(program, given, at, vars);
       if (!found) return null;
       if ('page' in found) return pageProgram(found.page, found.args);
       if ('script' in found)
@@ -600,7 +630,7 @@ onmessage = async ({
         argv0,
         pump: check,
         // git's pager would be another process; `cat` is none to git.
-        defaults: argv0 === 'git' ? { GIT_PAGER: 'cat', ...GIT_CONFIG } : {},
+        defaults: /^git(-|$)/.test(argv0) ? { GIT_PAGER: 'cat', ...GIT_CONFIG } : {},
         columns: () => channel.size[0],
       });
     }, check);
@@ -670,8 +700,7 @@ onmessage = async ({
     // or rc files, from `cwd` (WASI has none: brush starts in /); else
     // what sh says instead, and its status. bash -c -l LINE (Claude
     // Code's) is sh -c LINE: brush has no profile to log in with. The rest
-    // are $0, $1, … as sh's: after `--`, or brush's options take one that
-    // starts with `-` (file_system's `inotifywait` wrapper passes -e …).
+    // are $0, $1, … as sh's.
     const shArgs = (
       given: string[],
       cwd: string,
@@ -697,7 +726,9 @@ onmessage = async ({
           '--noprofile',
           '-c',
           `cd ${quote(cwd)} || exit 1\n${line}`,
-          ...(rest.length ? ['--', ...rest] : []),
+          // `--` only before a $0 that starts with `-` (brush would take it
+          // for its own option): then `--` is $0, as in bash.
+          ...(rest[0]?.startsWith('-') ? ['--', ...rest] : rest),
         ],
       };
     };

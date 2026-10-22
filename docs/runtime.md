@@ -225,6 +225,20 @@ worker's processes run meanwhile.
   it reads back itself, a command substitution's output or a here-string,
   stays in its memory; a process's output is fed to it while brush waits.
   Files are shared between their clones (no `dup`).
+- **A compound command before a pipeline's last** (a subshell, `{ }`, a
+  loop, a function) runs in a task of its own, a clone of the shell, as a
+  forked subshell would (`0009`): inline, it ran to its end before its
+  reader started, and a program it started waited on a full pipe for
+  good.
+- **Built-ins WASI lacked:** `exec` (redirections as on unix; a command
+  runs as a child, then the shell exits with its status), `trap` and
+  `kill` with POSIX's signals, numbered as Linux's (`kill` through the
+  table's), and `. NAME` looks on PATH first (`0007`, `0010`). With
+  `set -x`, an assignment's status is 0 again (`0008`, brush's own bug).
+- **Finding a program:** a name without a slash is looked for on PATH as
+  `execvp` would, for a script (`#!` naming sh, bash, node, escript);
+  `env` and `xargs` are processes of the table (`utilities.ts`), which
+  start the table's programs.
 - **Ctrl+C** while brush waits for a command stops every process but
   brush, a job in the background too (bash spares those).
 

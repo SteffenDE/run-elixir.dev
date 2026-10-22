@@ -86,9 +86,17 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
     // coreutils.wasm's, and the site's other WASI programs (coreutils.ts).
     ...TOOLS,
     ...Object.keys(PROGRAMS),
+    // The shell's own processes (utilities.ts UTILITIES).
+    'env',
+    'xargs',
     ...(inotifywait ? ['inotifywait'] : []),
   ])
     root.put(`usr/bin/${name}`, new File());
+  // What git starts by name from its exec path (on PATH when it runs sh):
+  // git.wasm as a transport's other end (git-remote.ts GIT_DASHED); its
+  // scripts are the site's files there.
+  for (const name of ['git-upload-pack', 'git-receive-pack', 'git-upload-archive'])
+    root.put(`usr/libexec/git-core/${name}`, new File());
 }
 
 // fs: the node's files (vfs.ts); nif(name, version): a package's NIF

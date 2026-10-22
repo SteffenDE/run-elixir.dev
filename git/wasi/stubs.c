@@ -17,6 +17,26 @@
 
 #define NOSYS(...) { errno = ENOSYS; return __VA_ARGS__; }
 
+/* The calls themselves (wasi-compat.h renames them), and the permission
+   bits a POSIX system would have given. */
+#undef stat
+#undef lstat
+#undef fstat
+int stat(const char *, struct stat *);
+int lstat(const char *, struct stat *);
+int fstat(int, struct stat *);
+static int moded(int result, struct stat *st) {
+  if (result == 0) {
+    if (S_ISDIR(st->st_mode)) st->st_mode |= 0755;
+    else if (S_ISLNK(st->st_mode)) st->st_mode |= 0777;
+    else st->st_mode |= 0644;
+  }
+  return result;
+}
+int wasi_stat(const char *path, struct stat *st) { return moded(stat(path, st), st); }
+int wasi_lstat(const char *path, struct stat *st) { return moded(lstat(path, st), st); }
+int wasi_fstat(int fd, struct stat *st) { return moded(fstat(fd, st), st); }
+
 #define HOST(name) __attribute__((import_module("processes"), import_name(#name)))
 HOST(pipe) int host_pipe(int *fds);
 HOST(spawn) int host_spawn(const char *request, size_t length, int in, int out, int err, int *pid);

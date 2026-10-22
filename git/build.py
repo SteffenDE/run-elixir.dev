@@ -63,6 +63,15 @@ def unpack(archive, name, into):
     os.rename(os.path.join(OUT, name), into)
 
 
+# git's commands that are shell scripts (its SCRIPT_SH and SCRIPT_LIB), which
+# the playground's sh runs from git's exec path.
+SCRIPTS = [
+    "git-difftool--helper", "git-filter-branch", "git-merge-octopus", "git-merge-one-file",
+    "git-merge-resolve", "git-mergetool", "git-quiltimport", "git-request-pull", "git-submodule",
+    "git-web--browse", "git-mergetool--lib", "git-sh-i18n", "git-sh-setup",
+]
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     built = os.path.join(OUT, "stamp")
@@ -95,7 +104,10 @@ def main():
         "/opt/wasi-sdk/bin/llvm-ar rcs /zlib/lib/libz.a *.o\n"
         "cp zlib.h zconf.h /zlib/include/\n"
         "cd /src\n"
-        f"make -s -j$(nproc) {UNAME} git >/dev/null\n"
+        # test-tool, GIT-BUILD-OPTIONS and templates/blt: for git's own tests
+        # (app/test/git).
+        f"make -s -j$(nproc) {UNAME} git {' '.join(SCRIPTS)} t/helper/test-tool GIT-BUILD-OPTIONS >/dev/null\n"
+        "make -s -C templates >/dev/null\n"
         f"chown -R {os.getuid()}:{os.getgid()} /src /zlib-src /zlib /wasi\n"
     )
     zlib_out = os.path.join(OUT, "zlib")
@@ -105,6 +117,19 @@ def main():
         "-v", f"{wasi}:/wasi", IMAGE, "sh", "-ec", script,
     ], check=True)
     shutil.copy(os.path.join(src, "git"), os.path.join(OUT, "git.wasm"))
+    shutil.copy(os.path.join(src, "t", "helper", "test-tool"), os.path.join(OUT, "test-tool.wasm"))
+    # The scripts, for the site's /usr/libexec/git-core (runtime/build.py).
+    libexec = os.path.join(OUT, "libexec")
+    shutil.rmtree(libexec, ignore_errors=True)
+    os.makedirs(libexec)
+    for name in SCRIPTS:
+        shutil.copy(os.path.join(src, name), os.path.join(libexec, name))
+    # The build's paths, as the tests on the host see them (not Docker's /src).
+    options = os.path.join(src, "GIT-BUILD-OPTIONS")
+    with open(options) as f:
+        text = f.read().replace("='/src", f"='{src}")
+    with open(options, "w") as f:
+        f.write(text)
     with open(built, "w") as f:
         f.write(stamp())
     print(f"{OUT}/git.wasm: {os.path.getsize(os.path.join(OUT, 'git.wasm')) / 1e6:.1f} MB")

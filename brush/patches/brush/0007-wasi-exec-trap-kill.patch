@@ -1,0 +1,428 @@
+From 170bc300b2d3ec61a71ff922e3c28b44903beea3 Mon Sep 17 00:00:00 2001
+From: Steffen Deusch <steffen@deusch.me>
+Date: Thu, 22 Oct 2026 10:21:00 +0000
+Subject: [PATCH] brush: exec, trap and kill on WASI
+
+exec applies its redirections as on unix; a command runs as a child, then
+the shell exits with its status. Signals are POSIX's, numbered as Linux's,
+for trap and kill; kill sends one through the host's processes.
+---
+ brush-builtins/src/exec.rs        |  75 ++++++----
+ brush-builtins/src/factory.rs     |   4 +-
+ brush-builtins/src/kill.rs        |   3 +
+ brush-builtins/src/lib.rs         |   4 +-
+ brush-core/src/sys/wasm/mod.rs    |   3 +
+ brush-core/src/sys/wasm/signal.rs | 223 ++++++++++++++++++++++++++++++
+ 6 files changed, 282 insertions(+), 30 deletions(-)
+ create mode 100644 brush-core/src/sys/wasm/signal.rs
+
+diff --git a/brush-builtins/src/exec.rs b/brush-builtins/src/exec.rs
+index d3ade04..44419b5 100644
+--- a/brush-builtins/src/exec.rs
++++ b/brush-builtins/src/exec.rs
+@@ -1,7 +1,10 @@
+ use clap::Parser;
++#[cfg(unix)]
+ use std::{borrow::Cow, os::unix::process::CommandExt};
+ 
+-use brush_core::{ErrorKind, ExecutionExitCode, ExecutionResult, builtins, commands};
++#[cfg(unix)]
++use brush_core::{ErrorKind, ExecutionExitCode, commands};
++use brush_core::{ExecutionResult, builtins};
+ 
+ /// Exec the provided command.
+ #[derive(Parser)]
+@@ -41,43 +44,63 @@ impl builtins::Command for ExecCommand {
+             return Ok(ExecutionResult::success());
+         }
+ 
+-        // If we know we're already running in a subshell, then `exec`ing is actually
+-        // unsafe, since it would also replace the *parent* shell instance. We instead
+-        // delegate to the `command` builtin to perform the execution, with an expectation
+-        // of returning.
+-        if context.shell.is_subshell() {
++        // WASI has no exec: the command runs as a child, and the shell then exits
++        // with its status, as the command would have (the playground's
++        // processes).
++        #[cfg(target_os = "wasi")]
++        {
+             if self.empty_environment || self.exec_as_login || self.name_for_argv0.is_some() {
+-                return brush_core::error::unimp("exec with options in subshell not yet supported");
++                return brush_core::error::unimp("exec with options not yet supported on WASI");
+             }
+-
+             let cmd_cmd = crate::command::CommandCommand {
+                 command_and_args: self.args.clone(),
+                 ..Default::default()
+             };
+-
+-            return cmd_cmd.execute(context).await;
++            let mut result = cmd_cmd.execute(context).await?;
++            result.next_control_flow = brush_core::ExecutionControlFlow::ExitShell;
++            return Ok(result);
+         }
+ 
+-        let mut argv0 = Cow::Borrowed(self.name_for_argv0.as_ref().unwrap_or(&self.args[0]));
++        #[cfg(unix)]
++        {
++            // If we know we're already running in a subshell, then `exec`ing is actually
++            // unsafe, since it would also replace the *parent* shell instance. We instead
++            // delegate to the `command` builtin to perform the execution, with an expectation
++            // of returning.
++            if context.shell.is_subshell() {
++                if self.empty_environment || self.exec_as_login || self.name_for_argv0.is_some() {
++                    return brush_core::error::unimp("exec with options in subshell not yet supported");
++                }
++
++                let cmd_cmd = crate::command::CommandCommand {
++                    command_and_args: self.args.clone(),
++                    ..Default::default()
++                };
++
++                return cmd_cmd.execute(context).await;
++            }
+ 
+-        if self.exec_as_login {
+-            argv0 = Cow::Owned(std::format!("-{argv0}"));
+-        }
++            let mut argv0 = Cow::Borrowed(self.name_for_argv0.as_ref().unwrap_or(&self.args[0]));
+ 
+-        let mut cmd = commands::compose_std_command(
+-            &context,
+-            &self.args[0],
+-            argv0.as_str(),
+-            &self.args[1..],
+-            self.empty_environment,
+-        )?;
++            if self.exec_as_login {
++                argv0 = Cow::Owned(std::format!("-{argv0}"));
++            }
++
++            let mut cmd = commands::compose_std_command(
++                &context,
++                &self.args[0],
++                argv0.as_str(),
++                &self.args[1..],
++                self.empty_environment,
++            )?;
+ 
+-        let exec_error = cmd.exec();
++            let exec_error = cmd.exec();
+ 
+-        if exec_error.kind() == std::io::ErrorKind::NotFound {
+-            Ok(ExecutionExitCode::NotFound.into())
+-        } else {
+-            Err(ErrorKind::from(exec_error).into())
++            if exec_error.kind() == std::io::ErrorKind::NotFound {
++                Ok(ExecutionExitCode::NotFound.into())
++            } else {
++                Err(ErrorKind::from(exec_error).into())
++            }
+         }
+     }
+ }
+diff --git a/brush-builtins/src/factory.rs b/brush-builtins/src/factory.rs
+index 99eeb8e..1380d13 100644
+--- a/brush-builtins/src/factory.rs
++++ b/brush-builtins/src/factory.rs
+@@ -52,7 +52,7 @@ pub fn default_builtins<SE: brush_core::ShellExtensions>(
+     m.insert(".".into(), builtin::<dot::DotCommand, SE>().special());
+     #[cfg(feature = "builtin.eval")]
+     m.insert("eval".into(), builtin::<eval::EvalCommand, SE>().special());
+-    #[cfg(all(feature = "builtin.exec", unix))]
++    #[cfg(all(feature = "builtin.exec", any(unix, target_os = "wasi")))]
+     m.insert("exec".into(), builtin::<exec::ExecCommand, SE>().special());
+     #[cfg(feature = "builtin.exit")]
+     m.insert("exit".into(), builtin::<exit::ExitCommand, SE>().special());
+@@ -116,7 +116,7 @@ pub fn default_builtins<SE: brush_core::ShellExtensions>(
+     m.insert("help".into(), builtin::<help::HelpCommand, SE>());
+     #[cfg(feature = "builtin.jobs")]
+     m.insert("jobs".into(), builtin::<jobs::JobsCommand, SE>());
+-    #[cfg(all(feature = "builtin.kill", unix))]
++    #[cfg(all(feature = "builtin.kill", any(unix, target_os = "wasi")))]
+     m.insert("kill".into(), builtin::<kill::KillCommand, SE>());
+     #[cfg(feature = "builtin.declare")]
+     m.insert(
+diff --git a/brush-builtins/src/kill.rs b/brush-builtins/src/kill.rs
+index 78b1a0a..a1ee760 100644
+--- a/brush-builtins/src/kill.rs
++++ b/brush-builtins/src/kill.rs
+@@ -34,7 +34,10 @@ impl builtins::Command for KillCommand {
+         context: brush_core::ExecutionContext<'_, SE>,
+     ) -> Result<brush_core::ExecutionResult, Self::Error> {
+         // Default signal is SIGKILL.
++        #[cfg(unix)]
+         let mut trap_signal = TrapSignal::Signal(nix::sys::signal::Signal::SIGKILL);
++        #[cfg(target_os = "wasi")]
++        let mut trap_signal = TrapSignal::Signal(brush_core::sys::signal::Signal::SIGKILL);
+ 
+         // Try parsing the signal name (if specified).
+         if let Some(signal_name) = &self.signal_name {
+diff --git a/brush-builtins/src/lib.rs b/brush-builtins/src/lib.rs
+index fa3d79a..aa85dc9 100644
+--- a/brush-builtins/src/lib.rs
++++ b/brush-builtins/src/lib.rs
+@@ -38,7 +38,7 @@ mod echo;
+ mod enable;
+ #[cfg(feature = "builtin.eval")]
+ mod eval;
+-#[cfg(all(feature = "builtin.exec", unix))]
++#[cfg(all(feature = "builtin.exec", any(unix, target_os = "wasi")))]
+ mod exec;
+ #[cfg(feature = "builtin.exit")]
+ mod exit;
+@@ -60,7 +60,7 @@ mod help;
+ mod history;
+ #[cfg(feature = "builtin.jobs")]
+ mod jobs;
+-#[cfg(all(feature = "builtin.kill", unix))]
++#[cfg(all(feature = "builtin.kill", any(unix, target_os = "wasi")))]
+ mod kill;
+ #[cfg(feature = "builtin.let")]
+ mod let_;
+diff --git a/brush-core/src/sys/wasm/mod.rs b/brush-core/src/sys/wasm/mod.rs
+index d14d388..b89614b 100644
+--- a/brush-core/src/sys/wasm/mod.rs
++++ b/brush-core/src/sys/wasm/mod.rs
+@@ -14,6 +14,9 @@ pub use playground::process;
+ #[cfg(not(target_os = "wasi"))]
+ pub use crate::sys::stubs::process;
+ pub use crate::sys::stubs::resource;
++#[cfg(target_os = "wasi")]
++pub mod signal;
++#[cfg(not(target_os = "wasi"))]
+ pub use crate::sys::stubs::signal;
+ pub use crate::sys::stubs::terminal;
+ pub(crate) use crate::sys::stubs::users;
+diff --git a/brush-core/src/sys/wasm/signal.rs b/brush-core/src/sys/wasm/signal.rs
+new file mode 100644
+index 0000000..d9e1046
+--- /dev/null
++++ b/brush-core/src/sys/wasm/signal.rs
+@@ -0,0 +1,223 @@
++//! Signal processing utilities
++
++use crate::{error, sys, traps};
++
++/// The signals of the playground's processes (processes.ts), numbered as
++/// Linux's: what `trap` and `kill` name. The host delivers none to the shell
++/// but its own Ctrl+C; `kill` sends one to a process of the table.
++#[allow(clippy::upper_case_acronyms, missing_docs)]
++#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
++#[repr(i32)]
++pub enum Signal {
++    SIGHUP = 1,
++    SIGINT = 2,
++    SIGQUIT = 3,
++    SIGILL = 4,
++    SIGTRAP = 5,
++    SIGABRT = 6,
++    SIGBUS = 7,
++    SIGFPE = 8,
++    SIGKILL = 9,
++    SIGUSR1 = 10,
++    SIGSEGV = 11,
++    SIGUSR2 = 12,
++    SIGPIPE = 13,
++    SIGALRM = 14,
++    SIGTERM = 15,
++    SIGCHLD = 17,
++    SIGCONT = 18,
++    SIGSTOP = 19,
++    SIGTSTP = 20,
++    SIGTTIN = 21,
++    SIGTTOU = 22,
++    SIGURG = 23,
++    SIGXCPU = 24,
++    SIGXFSZ = 25,
++    SIGVTALRM = 26,
++    SIGPROF = 27,
++    SIGWINCH = 28,
++    SIGIO = 29,
++    SIGPWR = 30,
++    SIGSYS = 31,
++}
++
++impl Signal {
++    /// Returns an iterator over all possible signals.
++    pub fn iterator() -> impl Iterator<Item = Self> {
++        [Self::SIGHUP, Self::SIGINT, Self::SIGQUIT, Self::SIGILL, Self::SIGTRAP, Self::SIGABRT, Self::SIGBUS, Self::SIGFPE, Self::SIGKILL, Self::SIGUSR1, Self::SIGSEGV, Self::SIGUSR2, Self::SIGPIPE, Self::SIGALRM, Self::SIGTERM, Self::SIGCHLD, Self::SIGCONT, Self::SIGSTOP, Self::SIGTSTP, Self::SIGTTIN, Self::SIGTTOU, Self::SIGURG, Self::SIGXCPU, Self::SIGXFSZ, Self::SIGVTALRM, Self::SIGPROF, Self::SIGWINCH, Self::SIGIO, Self::SIGPWR, Self::SIGSYS].into_iter()
++    }
++
++    /// Converts the signal into its corresponding name as a `&'static str`.
++    pub const fn as_str(self) -> &'static str {
++        match self {
++            Self::SIGHUP => "SIGHUP",
++            Self::SIGINT => "SIGINT",
++            Self::SIGQUIT => "SIGQUIT",
++            Self::SIGILL => "SIGILL",
++            Self::SIGTRAP => "SIGTRAP",
++            Self::SIGABRT => "SIGABRT",
++            Self::SIGBUS => "SIGBUS",
++            Self::SIGFPE => "SIGFPE",
++            Self::SIGKILL => "SIGKILL",
++            Self::SIGUSR1 => "SIGUSR1",
++            Self::SIGSEGV => "SIGSEGV",
++            Self::SIGUSR2 => "SIGUSR2",
++            Self::SIGPIPE => "SIGPIPE",
++            Self::SIGALRM => "SIGALRM",
++            Self::SIGTERM => "SIGTERM",
++            Self::SIGCHLD => "SIGCHLD",
++            Self::SIGCONT => "SIGCONT",
++            Self::SIGSTOP => "SIGSTOP",
++            Self::SIGTSTP => "SIGTSTP",
++            Self::SIGTTIN => "SIGTTIN",
++            Self::SIGTTOU => "SIGTTOU",
++            Self::SIGURG => "SIGURG",
++            Self::SIGXCPU => "SIGXCPU",
++            Self::SIGXFSZ => "SIGXFSZ",
++            Self::SIGVTALRM => "SIGVTALRM",
++            Self::SIGPROF => "SIGPROF",
++            Self::SIGWINCH => "SIGWINCH",
++            Self::SIGIO => "SIGIO",
++            Self::SIGPWR => "SIGPWR",
++            Self::SIGSYS => "SIGSYS",
++        }
++    }
++
++    /// Creates a `Signal` from a string representation.
++    pub fn from_str(s: &str) -> Result<Self, error::Error> {
++        Ok(match s {
++            "SIGHUP" => Self::SIGHUP,
++            "SIGINT" => Self::SIGINT,
++            "SIGQUIT" => Self::SIGQUIT,
++            "SIGILL" => Self::SIGILL,
++            "SIGTRAP" => Self::SIGTRAP,
++            "SIGABRT" => Self::SIGABRT,
++            "SIGBUS" => Self::SIGBUS,
++            "SIGFPE" => Self::SIGFPE,
++            "SIGKILL" => Self::SIGKILL,
++            "SIGUSR1" => Self::SIGUSR1,
++            "SIGSEGV" => Self::SIGSEGV,
++            "SIGUSR2" => Self::SIGUSR2,
++            "SIGPIPE" => Self::SIGPIPE,
++            "SIGALRM" => Self::SIGALRM,
++            "SIGTERM" => Self::SIGTERM,
++            "SIGCHLD" => Self::SIGCHLD,
++            "SIGCONT" => Self::SIGCONT,
++            "SIGSTOP" => Self::SIGSTOP,
++            "SIGTSTP" => Self::SIGTSTP,
++            "SIGTTIN" => Self::SIGTTIN,
++            "SIGTTOU" => Self::SIGTTOU,
++            "SIGURG" => Self::SIGURG,
++            "SIGXCPU" => Self::SIGXCPU,
++            "SIGXFSZ" => Self::SIGXFSZ,
++            "SIGVTALRM" => Self::SIGVTALRM,
++            "SIGPROF" => Self::SIGPROF,
++            "SIGWINCH" => Self::SIGWINCH,
++            "SIGIO" => Self::SIGIO,
++            "SIGPWR" => Self::SIGPWR,
++            "SIGSYS" => Self::SIGSYS,
++            _ => return Err(error::ErrorKind::InvalidSignal(s.into()).into()),
++        })
++    }
++}
++
++impl TryFrom<i32> for Signal {
++    type Error = error::Error;
++
++    fn try_from(value: i32) -> Result<Self, Self::Error> {
++        Ok(match value {
++            1 => Self::SIGHUP,
++            2 => Self::SIGINT,
++            3 => Self::SIGQUIT,
++            4 => Self::SIGILL,
++            5 => Self::SIGTRAP,
++            6 => Self::SIGABRT,
++            7 => Self::SIGBUS,
++            8 => Self::SIGFPE,
++            9 => Self::SIGKILL,
++            10 => Self::SIGUSR1,
++            11 => Self::SIGSEGV,
++            12 => Self::SIGUSR2,
++            13 => Self::SIGPIPE,
++            14 => Self::SIGALRM,
++            15 => Self::SIGTERM,
++            17 => Self::SIGCHLD,
++            18 => Self::SIGCONT,
++            19 => Self::SIGSTOP,
++            20 => Self::SIGTSTP,
++            21 => Self::SIGTTIN,
++            22 => Self::SIGTTOU,
++            23 => Self::SIGURG,
++            24 => Self::SIGXCPU,
++            25 => Self::SIGXFSZ,
++            26 => Self::SIGVTALRM,
++            27 => Self::SIGPROF,
++            28 => Self::SIGWINCH,
++            29 => Self::SIGIO,
++            30 => Self::SIGPWR,
++            31 => Self::SIGSYS,
++            _ => return Err(error::ErrorKind::InvalidSignal(std::format!("{value}")).into()),
++        })
++    }
++}
++
++#[link(wasm_import_module = "processes")]
++unsafe extern "C" {
++    /// Sends `signal` to process `pid` of the table. An errno.
++    #[link_name = "kill"]
++    fn host_kill(pid: i32, signal: i32) -> i32;
++}
++
++pub(crate) fn continue_process(_pid: sys::process::ProcessId) -> Result<(), error::Error> {
++    Err(error::ErrorKind::NotSupportedOnThisPlatform("continuing process").into())
++}
++
++/// Sends a signal to a specific process (the host's `kill`).
++pub fn kill_process(
++    pid: sys::process::ProcessId,
++    signal: traps::TrapSignal,
++) -> Result<(), error::Error> {
++    let number = i32::try_from(signal).unwrap_or(0);
++    // SAFETY: an import of the host's, plain integers.
++    match unsafe { host_kill(pid, number) } {
++        0 => Ok(()),
++        _ => Err(error::ErrorKind::NotSupportedOnThisPlatform("killing that process").into()),
++    }
++}
++
++pub(crate) fn lead_new_process_group() -> Result<(), error::Error> {
++    Ok(())
++}
++
++pub(crate) struct FakeSignal {}
++
++impl FakeSignal {
++    fn new() -> Self {
++        Self {}
++    }
++
++    pub async fn recv(&self) {
++        futures::future::pending::<()>().await;
++    }
++}
++
++pub(crate) fn tstp_signal_listener() -> Result<FakeSignal, error::Error> {
++    Ok(FakeSignal::new())
++}
++
++pub(crate) fn chld_signal_listener() -> Result<FakeSignal, error::Error> {
++    Ok(FakeSignal::new())
++}
++
++pub(crate) async fn await_ctrl_c() -> std::io::Result<()> {
++    FakeSignal::new().recv().await;
++    Ok(())
++}
++
++pub(crate) fn mask_sigttou() -> Result<(), error::Error> {
++    Ok(())
++}
++
++pub(crate) fn poll_for_stopped_children() -> Result<bool, error::Error> {
++    Ok(false)
++}
+-- 
+2.47.3
+

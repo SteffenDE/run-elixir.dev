@@ -145,4 +145,19 @@ test("git's remotes, aliases and hooks run as processes", async ({ page }) => {
   const refused = await run(page, 'git commit -q --allow-empty -m nope; echo "status $?"');
   expect(refused).toContain('refused');
   expect(refused).toContain('status 1');
+  await run(page, 'rm .git/hooks/pre-commit');
+
+  // A clone over file:// (--no-local): git-upload-pack, git.wasm as that
+  // name, through sh -c. (git submodule, a script of git's from
+  // /usr/libexec/git-core, wants sed, which the playground has not yet.)
+  await run(
+    page,
+    'git init -q -b main /work/lib && git -C /work/lib -c user.name=Ada -c user.email=ada@example.com commit -q --allow-empty -m lib',
+  );
+  const cloned = await run(
+    page,
+    'git clone -q --no-local /work/lib /work/copy && git -C /work/copy log --format=%s',
+  );
+  expect(cloned).toMatch(/^lib$/m);
+  expect(cloned).not.toMatch(/fatal|error/);
 });

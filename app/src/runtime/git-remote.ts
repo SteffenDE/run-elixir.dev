@@ -19,6 +19,10 @@ const decoder = new TextDecoder();
 // The site's proxy at /git/HOST/OWNER/REPO (serve.py, Caddy: docs/deploy.md).
 const PROXIED = ['github.com', 'gitlab.com', 'codeberg.org'];
 
+// What git starts by a dashed name that is git.wasm itself: a transport's
+// other end (over file://, through sh).
+export const GIT_DASHED = new Set(['git-upload-pack', 'git-receive-pack', 'git-upload-archive']);
+
 // git's configuration for the playground's remotes (GIT_CONFIG_COUNT and
 // its pairs): their SSH addresses (git@HOST:OWNER/REPO, ssh://) as HTTPS,
 // which the helper fetches; there is no ssh.
