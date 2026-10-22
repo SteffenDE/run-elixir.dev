@@ -20,6 +20,16 @@ export const FRAME = {
   MODE: 14,
 };
 export const RING = 1 << 20;
+// Atomics.waitAsync, which not every browser has.
+const waitAsync = (
+  Atomics as unknown as {
+    waitAsync?: (
+      array: Int32Array,
+      index: number,
+      value: number,
+    ) => { async: boolean; value: Promise<string> };
+  }
+).waitAsync;
 // INPUT frames' ids: the terminal's typing (Ctrl+D on an empty line its
 // end), or a process's input (programs/node.ts): its bytes as they are, and
 // their end.
@@ -59,6 +69,8 @@ export class Channel {
   declare processes: Map<number, Process>;
   // The ports the project's other nodes listen on (PEERS frames).
   declare peers: Set<number>;
+  // The wait for the page's next frame that rest races (null: none yet).
+  declare next: Promise<unknown> | null;
 
   constructor(shared: SharedArrayBuffer) {
     this.control = new Int32Array(shared, 0, 2);
@@ -77,6 +89,7 @@ export class Channel {
     // Programs the page runs (host/programs.ts), by id.
     this.processes = new Map();
     this.peers = new Set();
+    this.next = null;
   }
   bytes(from: number, count: number): Uint8Array {
     const out = new Uint8Array(count);
@@ -151,11 +164,22 @@ export class Channel {
     Atomics.wait(this.control, 0, Atomics.load(this.control, 1), ms);
   }
   // sleep, without holding the thread: the worker's processes
-  // (processes.ts) run meanwhile; 10 ms at most, as frames are not
-  // waited for (with Atomics.waitAsync on the ring, WebKit's shell took
-  // no keys).
+  // (processes.ts) run meanwhile. One wait with no timeout, which every
+  // rest shares, ends with the page's notify; a timer ends a rest before
+  // it. (In WebKit a waitAsync that times out never settles, and no notify
+  // finds it again.) Without waitAsync, 10 ms at most.
   rest(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, Math.min(ms, 10)));
+    if (!waitAsync) return new Promise((resolve) => setTimeout(resolve, Math.min(ms, 10)));
+    if (!this.next) {
+      const waiting = waitAsync(this.control, 0, Atomics.load(this.control, 1));
+      if (!waiting.async) return Promise.resolve();
+      this.next = waiting.value.then(() => (this.next = null));
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    return Promise.race([
+      this.next,
+      new Promise((resolve) => (timer = setTimeout(resolve, ms))),
+    ]).then(() => clearTimeout(timer));
   }
   // Up to `max` bytes of the input (past its ends: what reads this has none).
   take(max: number): Uint8Array {
