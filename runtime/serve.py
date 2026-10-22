@@ -195,8 +195,29 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             # A project's origin and the apex frame each other (the same site).
             self.send_header("Cross-Origin-Resource-Policy", "same-site")
+        node = NODE_SCRIPT.match(self.path.split("?")[0])
+        if node:
+            self.send_header("Content-Security-Policy",
+                             node_policy("http://" + (self.headers.get("Host") or ""), node.group(1)))
         self.send_header("Cache-Control", "no-cache")
         super().end_headers()
+
+
+# A Node.js process's worker (nodejs.js) and the chunks it imports.
+NODE_SCRIPT = re.compile(r"^/b/([^/]+)/(?:nodejs\.js|chunks/[^/]+\.js)$")
+
+
+def node_policy(origin, build):
+    """A Node.js process's worker's policy (docs/nodejs.md, The worker's
+    policy), as Caddy sends it: its own scripts (a module worker's imports
+    are worker scripts too) and the runtime's files (/r/: tls.wasm,
+    roots.pem), eval and WebAssembly, and threads from blobs, which inherit
+    it. No other network: a script reaches other hosts only by the
+    process's messages. Its chunks carry it too, so a worker started from
+    one of them is held the same."""
+    scripts = f"{origin}/b/{build}/nodejs.js {origin}/b/{build}/chunks/"
+    return (f"default-src 'none'; script-src {scripts} 'unsafe-eval' 'wasm-unsafe-eval'; "
+            f"worker-src {scripts} blob:; connect-src {origin}/r/ data: blob:")
 
 
 directory = os.path.join(ROOT, "target", "site")

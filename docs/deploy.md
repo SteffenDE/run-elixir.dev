@@ -29,7 +29,8 @@ Forgejo runner and makes it live on the server as a new release
    then `current` is pointed at it in one rename. The site is checked as
    served (the isolation headers, the page naming this build, the pages
    and `sw.js` no-cache, its runtime's `beam.wasm` as WebAssembly and
-   immutable, and with a usercontent domain an exec frame's headers there);
+   immutable, and with a usercontent domain an exec frame's headers there
+   and its Node.js worker's `Content-Security-Policy`);
    if that fails, the previous release is live again and the deploy fails.
    Then Cloudflare drops its copies of the apex's pages (if configured), and
    releases beyond `KEEP_RELEASES` go.
@@ -221,6 +222,11 @@ starts no project: its pages say so.
 		Cross-Origin-Embedder-Policy require-corp
 		Cross-Origin-Resource-Policy cross-origin
 	}
+	# A Node.js process's worker and its chunks (nodejs.md, The worker's
+	# policy): its own scripts and the runtime's files, no other network.
+	# serve.py sends the same.
+	@nodejs path_regexp nodejs ^/b/([^/]+)/(nodejs\.js|chunks/[^/]+\.js)$
+	header @nodejs Content-Security-Policy "default-src 'none'; script-src https://{host}/b/{re.nodejs.1}/nodejs.js https://{host}/b/{re.nodejs.1}/chunks/ 'unsafe-eval' 'wasm-unsafe-eval'; worker-src https://{host}/b/{re.nodejs.1}/nodejs.js https://{host}/b/{re.nodejs.1}/chunks/ blob:; connect-src https://{host}/r/ data: blob:"
 }
 
 (playground) {

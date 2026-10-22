@@ -67,7 +67,9 @@ worker runs what the IDE's page ran before:
 - the page programs: Tailwind (the project's plugins run here, nowhere
   else), esbuild, git, `sh`, `rebar3`, `mix` and friends, and on the
   `worktree-node` branch `node`, `npm` and `npx`, whose processes are
-  workers of this one ([nodejs.md](nodejs.md));
+  workers of this one, held by a `Content-Security-Policy` of their own to
+  no network but this worker's messages
+  ([nodejs.md](nodejs.md#the-workers-policy));
 - epmd, HTTPS by fetch (from this origin: no cookie of the apex goes
   along), and the bridge to the app for the preview, whose relays send
   their requests straight to it on ports the IDE hands over.

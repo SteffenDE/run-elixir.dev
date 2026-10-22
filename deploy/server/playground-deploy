@@ -93,7 +93,7 @@ prepare() {
 
 # The site as served: the pages' isolation headers, this build named, its
 # runtime's WebAssembly and immutable, the pages and the service worker
-# revalidated, and the usercontent domain's frame.
+# revalidated, and the usercontent domain's frame and Node.js worker.
 check() {
   local build=$1 runtime=$2 base page headers
   [ -n "$DOMAIN" ] && [ -n "$CHECK_RESOLVE" ] || return 0
@@ -132,6 +132,11 @@ check() {
       { echo "check: $exec_host is not CORP cross-origin" >&2; return 1; }
     grep -qi '^cache-control: no-cache' <<<"$headers" ||
       { echo "check: $exec_host/exec.html is not no-cache" >&2; return 1; }
+    # A Node.js process's worker: its policy, the site's files alone.
+    headers=$(curl -fsS --max-time 30 --resolve "$exec_host:443:$CHECK_RESOLVE" -D - -o /dev/null \
+      "https://$exec_host/b/$build/nodejs.js") || { echo "check: $exec_host/b/$build/nodejs.js failed" >&2; return 1; }
+    grep -qi "^content-security-policy: default-src 'none';.*worker-src https://$exec_host/b/$build/nodejs.js .*connect-src https://$exec_host/r/ " <<<"$headers" ||
+      { echo "check: $exec_host/b/$build/nodejs.js has no Content-Security-Policy (docs/deploy.md)" >&2; return 1; }
   fi
 }
 

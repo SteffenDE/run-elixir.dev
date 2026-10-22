@@ -12,9 +12,15 @@
 // Its UDP ports are the exec frame's too (`ports.udp()`), as a node's are.
 // What changes in the files goes to it too, for fs.watch. Its children
 // (child_process) are command lines the page program sh runs.
+//
+// Its worker starts from nodejs.js's own URL, not a blob (host/worker.ts):
+// a worker from a URL keeps the Content-Security-Policy its script was
+// served with (serve.py, Caddy), which reaches only the site's files, and
+// the threads it starts from blobs inherit it. So the process's code has
+// no network but this one's messages, whatever browser API it calls
+// (docs/nodejs.md, The worker's policy).
 import type { Files } from '@/runtime/host/files';
 import type { CloseReason, Link, Served } from '@/runtime/host/node';
-import { worker } from '@/runtime/host/worker';
 import type { Context, Process } from './tailwind';
 import { watchers, type Watcher } from './watch';
 
@@ -129,7 +135,9 @@ export const nodeProgram =
       return process.exit(1);
     }
     const channel = shared.connect();
-    const thread = worker('nodejs.js', base);
+    const thread = new Worker(new URL('nodejs.js', new URL(base, location.href)), {
+      type: 'module',
+    });
     const connections = new Map<number, ScriptConnection>();
     const forget = (id: number) => connections.delete(id);
     let next = 1;

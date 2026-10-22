@@ -56,6 +56,45 @@ without the runtime's own frames.
 `zlib`, ciphers and keys in `crypto`, HTTP/2 (its constants are there,
 which clients read as they load). There is no REPL (`node` alone).
 
+## The worker's policy
+
+A script runs on the browser's own engine, so it can reach for the
+browser's APIs as well as Node's: `self.fetch` behind Node's, `XMLHttpRequest`,
+`WebSocket`, `EventSource`, `import()` of a URL, `caches.add`, a `Worker`.
+Those would bypass the process's messages, through which all of its other
+network goes (the gateway, the tailnet's gates). The process's worker
+therefore starts from `nodejs.js`'s URL, not a blob (`programs/nodejs.ts`).
+A worker from a URL takes the `Content-Security-Policy` its script was
+served with, and `serve.py` and Caddy ([deploy.md](deploy.md#caddy))
+answer `/b/ID/nodejs.js` and `/b/ID/chunks/*.js` with:
+
+```
+default-src 'none';
+script-src  ORIGIN/b/ID/nodejs.js ORIGIN/b/ID/chunks/ 'unsafe-eval' 'wasm-unsafe-eval';
+worker-src  ORIGIN/b/ID/nodejs.js ORIGIN/b/ID/chunks/ blob:;
+connect-src ORIGIN/r/ data: blob:
+```
+
+- **Its own scripts in `worker-src` too:** a module worker's imports are
+  fetched as worker scripts, so `worker-src blob:` alone refuses its
+  chunks. Only those paths, not `/b/`: the build's other workers
+  (`worker.js`, `files.js`, `git.js`) carry no policy, and a script that
+  started one from its URL would have their network. A worker started
+  from `nodejs.js` or a chunk takes the same policy from its own response.
+- **Threads** (`threads.ts`) start from blobs, which inherit the policy.
+- **`connect-src`:** the runtime's files (`tls.wasm`, `roots.pem`), and
+  `data:` and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec
+  origin also serves `/git/`, `/hex/` and `/api/nif/`.
+- **`'unsafe-eval'`** for the loader's CommonJS wrapper, and
+  **`'wasm-unsafe-eval'`** for tls.wasm and `node:wasi`.
+
+`nodepolicy.spec.ts` tries each API against something that would succeed
+without the policy (the exec origin's `/exec.html`, a `data:` module,
+`worker.js`) and expects each to be refused, in all three browsers.
+Without the header (a server that does not send it) the process still
+runs, unconfined: the deploy's check fails a release whose exec origin
+does not send it ([deploy.md](deploy.md)).
+
 ## Standard input and the terminal
 
 A process reads what is typed at the terminal, as a node does, through
@@ -282,7 +321,8 @@ drop them), and an abort rejects, or errors the body, with the signal's
 reason. It holds the loop from its call until
 its body is read to its end, cancelled, or a body method (`text()`, …) has
 settled (the browser's settle a task or more after the last bytes). `data:` and `blob:` URLs, and a worker thread's `fetch`, are
-the browser's.
+the browser's, which [the worker's policy](#the-workers-policy) lets
+reach only the site's runtime files.
 
 ### Other hosts: the tailnet ([tailscale.md](tailscale.md))
 
@@ -476,6 +516,12 @@ the browser can report unhandled promise rejections.
 - `child.spec.ts`: `execSync`'s output, `input` into a Node.js child,
   `spawnSync`'s status, `execSync` throwing, `ENOENT`, an asynchronous
   child's stdin, and `kill()`.
+- `nodepolicy.spec.ts`: a script's ways around the process's messages,
+  each refused ([the worker's policy](#the-workers-policy)): the
+  browser's `fetch`, a synchronous `XMLHttpRequest`, `import()` of a
+  `data:` module, `WebSocket`, `EventSource`, a `Worker` from the build's
+  `worker.js` (which WebKit refuses even without the policy), `caches.add`,
+  and a thread's `XMLHttpRequest`; `tls.rootCertificates` still read.
 - `coreutils.spec.ts`: `System.shell` with pipes, `||`, variables,
   redirections and `node`; `rg` at the shell (an `.ignore`d directory
   left out), in a pipe, from `execSync` and from `System.cmd`.
@@ -492,7 +538,11 @@ the browser can report unhandled promise rejections.
 3. A Phoenix project whose assets are a Vite app.
 4. A REPL (`node` alone); a page program's own stderr (a third
    stream); a test of a resize and of a TUI (Ink).
-5. `fs.watch` in a worker thread (only a process hears the changes).
+5. `fs.watch` in a worker thread (only a process hears the changes); a
+   worker thread's `fetch` of an `http(s)` URL is the browser's, which
+   the policy now refuses and which, without it, did not settle (the
+   exec origin's own page, Firefox in 20 s, Chromium in 3 s): Node's
+   instead, over the process's messages.
 6. TLS's rest: a certificate's dates and fingerprints, session
    resumption, `tls.createServer`; tls.wasm compiled once by the exec
    frame (as `beam.wasm` is) rather than once per process.
