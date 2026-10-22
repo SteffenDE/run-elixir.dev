@@ -1,26 +1,14 @@
 // The shell as brush (brush/build.py): a bash-compatible shell built to
 // WebAssembly, on the terminal. It parses and runs command lines; what it
-// runs that is not its own (mix, git, ls, …) is the host's: `run`, as the
-// playground's own shell ran it. brush waits for it through JSPI
-// (WebAssembly.Suspending), so a node runs in this worker, on the
-// terminal, while brush is suspended. Its pipes and redirections are in
-// its memory: a command's input is what the one before it wrote, and its
-// output brush's unless it is the terminal's (brush-core's
-// sys/wasm/playground.rs).
+// runs that is not its own (mix, git, ls, …) is a process of the worker's
+// (processes.ts), which runs while brush goes on: a pipeline's commands at
+// once, connected by pipes, and a command with `&` while brush reads the
+// next line (brush-core's sys/wasm/playground.rs). brush runs under JSPI:
+// what would wait (a child, a pipe, the terminal's next key) suspends it,
+// and the worker's processes run meanwhile.
 import { Exit, WASI } from '../wasi';
-import { BufferedOutput, OutputLimitError } from './output';
-
-// JSPI, which TypeScript's DOM library does not have yet.
-declare global {
-  // oxlint-disable-next-line typescript/no-namespace -- extends the global WebAssembly.
-  namespace WebAssembly {
-    // oxlint-disable-next-line typescript/no-extraneous-class -- JSPI's wrapper for an import.
-    class Suspending {
-      constructor(f: (...args: never[]) => Promise<unknown>);
-    }
-    function promising<A extends unknown[], R>(f: (...args: A) => R): (...args: A) => Promise<R>;
-  }
-}
+import { processCalls, type Processes } from '../processes';
+import type { Descriptor } from '../wasi/descriptors';
 import type { Dir, Fetch } from '../wasi/fs';
 import type { Shared } from '../wasi/shared';
 
@@ -56,9 +44,12 @@ export interface BrushOptions {
   terminal: {
     raw(on: boolean): void;
     size(): number[];
-    read(max: number, timeout: number): Uint8Array | null;
+    read(max: number, timeout: number): Promise<Uint8Array | null>;
   };
-  run: Run;
+  // The worker's processes, and the standard streams of what brush starts
+  // where it has the terminal's: its input and output.
+  processes: Processes;
+  standard: [Descriptor, Descriptor, Descriptor];
 }
 
 // brush until it exits: its exit status.
@@ -67,8 +58,6 @@ export async function brush(options: BrushOptions): Promise<number> {
   const view = (pointer: number, length: number) => new Uint8Array(memory!.buffer, pointer, length);
   // The terminal's input, a line at a time.
   let pending = new Uint8Array(0);
-  // What the last command wrote that was not the terminal's.
-  let captured = new BufferedOutput();
 
   const wasi = new WASI({
     args: ['brush', ...options.args],
@@ -90,47 +79,11 @@ export async function brush(options: BrushOptions): Promise<number> {
     tty: true,
     fetch: options.fetch,
     shared: options.shared,
+    suspending: true,
+    // A pipeline's input, which brush writes before its reader starts.
+    bounded: false,
   });
-
-  const spawn = new WebAssembly.Suspending(
-    async (
-      request: number,
-      requestLength: number,
-      input: number,
-      inputLength: number,
-      flags: number,
-    ) => {
-      const fields = new TextDecoder().decode(view(request, requestLength)).split('\0');
-      const [program, cwd] = fields;
-      const argc = Number(fields[2]);
-      const args = fields.slice(3, 3 + argc);
-      const envc = Number(fields[3 + argc]);
-      const env = Object.fromEntries(
-        fields.slice(4 + argc, 4 + argc + envc).map((v) => {
-          const at = v.indexOf('=');
-          return [v.slice(0, at), v.slice(at + 1)];
-        }),
-      );
-      captured = new BufferedOutput();
-      const keep = (stream: number) => (bytes: Uint8Array) => captured.write(stream, bytes);
-      try {
-        const status = await options.run(program, args, cwd, env, {
-          input: flags & 1 ? null : view(input, inputLength).slice(),
-          stdout: flags & 2 ? null : keep(1),
-          stderr: flags & 4 ? null : keep(2),
-        });
-        return status ?? -1;
-      } catch (error) {
-        if (!(error instanceof OutputLimitError)) throw error;
-        captured = new BufferedOutput();
-        options.out(new TextEncoder().encode(`${error.message}\n`));
-        return 125;
-      }
-    },
-  );
-  const output = (stream: number, buffer: number, max: number) => {
-    return captured.read(stream, view(buffer, max));
-  };
+  const self = options.processes.adopt();
 
   // crossterm's WASI backend (brush/crossterm/patches).
   const crossterm = {
@@ -145,18 +98,18 @@ export async function brush(options: BrushOptions): Promise<number> {
       data.setUint16(rows, height, true);
       return 0;
     },
-    read: (buffer: number, max: number, timeout: number) => {
-      const bytes = options.terminal.read(max, timeout);
+    read: new WebAssembly.Suspending(async (buffer: number, max: number, timeout: number) => {
+      const bytes = await options.terminal.read(max, timeout);
       if (!bytes) return -1;
       view(buffer, bytes.length).set(bytes);
       return bytes.length;
-    },
+    }),
   };
   const instance = new WebAssembly.Instance(options.module, {
     ...wasi.imports,
-    playground: { spawn: spawn as unknown as WebAssembly.ImportValue, output },
+    processes: processCalls(wasi, options.processes, self, options.standard),
     crossterm,
-  });
+  } as unknown as WebAssembly.Imports);
   memory = instance.exports.memory as WebAssembly.Memory;
   wasi.memory = memory;
   // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a program's start.
@@ -167,5 +120,7 @@ export async function brush(options: BrushOptions): Promise<number> {
   } catch (error) {
     if (error instanceof Exit) return error.code;
     throw error;
+  } finally {
+    options.processes.forget(self);
   }
 }

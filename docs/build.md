@@ -54,6 +54,10 @@ rebar3), and builds the template with the host's Mix in
   `wasm32-wasip1` with `ripgrep/patches/`, in Docker, about a minute;
   cached until its image, version or patches change); the site takes
   `target/rg/rg.wasm` (also `build.py app`).
+- **git:** `python3 -I git/build.py` first (git 2.56.0 and zlib for
+  `wasm32-wasip1` with wasi-sdk 33 and `git/wasi/`, in Docker, under a
+  minute; cached until its image, versions or `git/`'s files change); the
+  site takes `target/git/git.wasm` (also `build.py app`).
 - **TLS:** `python3 -I tls/build.py` first (a Node.js process's TLS
   client, rustls for `wasm32-wasip1`, Rust and clang in Docker, about a
   minute; cached until its image or the crate's files change); the site
@@ -85,6 +89,7 @@ target/site/
     tailscale.wasm             the Tailscale node (tailscale/build.py), 29.3 MB (6.8 MB gzipped)
     tls.wasm                   a Node.js process's TLS (tls/build.py), 0.71 MB (0.29 MB gzipped)
     rg.wasm                    ripgrep (ripgrep/build.py), 3.0 MB (1.0 MB gzipped)
+    git.wasm                   git (git/build.py), 3.8 MB (1.5 MB gzipped)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]

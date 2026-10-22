@@ -32,7 +32,9 @@ import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
-import { TOOLS, coreutils, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { PROGRAMS, TOOLS, wasmGit, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { Processes, hosted, inputPipe, wasmProgram } from '../processes';
+import type { Descriptor } from '../wasi/descriptors';
 import { runtime, setRuntime } from './site';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
@@ -491,59 +493,98 @@ onmessage = async ({
     // The terminal's shell, or a node's sh -c: brush (brush.ts), which the
     // site has.
     if (!brushModule) throw new Error('the site has no shell (brush.wasm: brush/build.py)');
-    // What brush runs (brush.ts): a node command (or an escript), a page
-    // program, or a coreutils tool.
-    const external: Run = async (program, given, at, vars, io) => {
+    // What the shell runs for `program`: a node (its argv: a node command,
+    // an escript), a page program (git but for git.wasm's: wasmGit; a
+    // script for node, #!/usr/bin/env node, a package's bin in
+    // node_modules/.bin), a program built for WASI (coreutils' tools, the
+    // site's PROGRAMS), or nothing.
+    type Found =
+      | { node: string[] }
+      | { page: string; args: string[] }
+      | { wasm: WebAssembly.Module };
+    const find = (program: string, given: string[], at: string): Found | null => {
       const name = program.split('/').pop()!;
       const read = (path: string) => fs.read(join(at, path));
       const head = program.startsWith('/') ? fs.read(program)?.subarray(0, 64) : null;
+      const shebang = head ? new TextDecoder().decode(head) : '';
       const argv =
         command(name, given, read) ??
-        (head && /^#!.*\bescript\b/.test(new TextDecoder().decode(head))
-          ? command('escript', [program, ...given], read)
-          : null);
-      if (argv) {
-        const status = await run(argv, at, vars, io.stdout ?? undefined);
+        (/^#!.*\bescript\b/.test(shebang) ? command('escript', [program, ...given], read) : null);
+      if (argv) return { node: argv };
+      const own =
+        name in PROGRAMS && (name !== 'git' || wasmGit(given)) ? load(PROGRAMS[name]) : null;
+      if (own) return { wasm: own };
+      if (pagePrograms.includes(name)) return { page: name, args: given };
+      if (/^#!.*\bnode\b/.test(shebang) && pagePrograms.includes('node'))
+        return { page: 'node', args: [program, ...given] };
+      const tool = TOOLS.has(name) ? module() : null;
+      return tool ? { wasm: tool } : null;
+    };
+    // Ctrl+C for the processes: the channel takes in the page's frames.
+    // While a node or a page program runs, it is theirs.
+    const check = () => {
+      channel.pump();
+      if (processes.hosting) return;
+      if (channel.interrupted || channel.terminated) {
+        channel.interrupted = false;
+        channel.terminated = false;
+        processes.interrupt();
+      }
+    };
+    // What brush starts, and what that starts in turn (processes.ts):
+    // programs built for WASI as processes of their own, the rest as the
+    // shell has always run them (`external`), their input whole.
+    const processes: Processes = new Processes((program, given, at) => {
+      const found = find(program, given, at);
+      if (!found) return null;
+      if (!('wasm' in found)) return hosted(processes, external, sharedFs);
+      const argv0 = program.split('/').pop()!;
+      return wasmProgram(processes, found.wasm, {
+        root,
+        fetch: fetchFile,
+        shared: sharedFs,
+        argv0,
+        pump: check,
+        // git's pager would be another process; `cat` is none to git.
+        defaults: argv0 === 'git' ? { GIT_PAGER: 'cat' } : {},
+        columns: () => channel.size[0],
+      });
+    }, check);
+    // A node or a page program, as `find` has it, to its end.
+    const external: Run = async (program, given, at, vars, io) => {
+      const found = find(program, given, at);
+      if (!found) return null;
+      if ('node' in found) {
+        const status = await run(found.node, at, vars, io.stdout ?? undefined);
         if (status === 130) text('\n');
         return status;
       }
-      if (pagePrograms.includes(name)) return runOnPage(name, given, at, vars, io.stdout, io.input);
-      // A script for node (#!/usr/bin/env node: a package's bin in
-      // node_modules/.bin): the page's node runs it.
-      if (
-        head &&
-        /^#!.*\bnode\b/.test(new TextDecoder().decode(head)) &&
-        pagePrograms.includes('node')
-      )
-        return runOnPage('node', [program, ...given], at, vars, io.stdout, io.input);
-      if (isTool(name) && (!TOOLS.has(name) || module())) {
-        const tool = coreutils(
-          {
-            ...tools,
-            terminal: io.stdout ? undefined : () => channel.size,
-            stderr: io.stderr ?? undefined,
-            read: io.input ? undefined : readInput,
-          },
-          name,
-        )!;
-        const process = new Process();
-        // Coreutils runs synchronously. Send output to its sink as it is
-        // written so the pipe's bound applies during execution, not after.
-        process.write = (bytes) =>
-          (io.stdout ?? ((b) => say('out', b)))(
-            typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes,
-          );
-        if (io.input) process.input.push(io.input);
-        tool(process, { args: given, cwd: at, env: vars, root });
-        return process.status ?? 1;
-      }
-      return null;
+      if ('page' in found) return runOnPage(found.page, found.args, at, vars, io.stdout, io.input);
+      return processes.run({
+        program,
+        args: given,
+        cwd: at,
+        env: vars,
+        stdio: [
+          io.input ? inputPipe(io.input) : { ...standard[0] },
+          io.stdout ? { stream: true, sink: io.stdout } : { ...standard[1] },
+          io.stderr ? { stream: true, sink: io.stderr } : { ...standard[2] },
+        ],
+      });
     };
-    // The terminal as brush's line editor has it.
+    // The standard streams of what the shell starts, where they are the
+    // shell's own: the node's input (the terminal's typing) and output.
+    const standard: [Descriptor, Descriptor, Descriptor] = [
+      { stream: true, source: readInput, tty: channel.tty[0] },
+      { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
+      { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
+    ];
+    // The terminal as brush's line editor has it. Waiting for a key holds
+    // nothing: the worker's processes (a job with `&`) run meanwhile.
     const terminal: BrushOptions['terminal'] = {
       raw: (on) => channel.mode(on),
       size: () => channel.size,
-      read: (max, timeout) => {
+      read: async (max, timeout) => {
         // The page's first commands, as if typed.
         const first = initial.shift();
         if (first !== undefined) return new TextEncoder().encode(`${first}\r`);
@@ -565,7 +606,7 @@ onmessage = async ({
           if (bytes.length) return bytes.map((byte) => (byte === 10 ? 13 : byte));
           const left = deadline - performance.now();
           if (left <= 0) return new Uint8Array(0);
-          channel.sleep(Math.min(left, 1000));
+          await channel.rest(Math.min(left, 1000));
         }
       },
     };
@@ -581,7 +622,8 @@ onmessage = async ({
       line: () => channel.line(),
       out: (bytes: Uint8Array) => say('out', bytes),
       terminal,
-      run: external,
+      processes,
+      standard,
     });
 
     // sh -c LINE [NAME ARGS…], as a node's sh runs it (System.shell,

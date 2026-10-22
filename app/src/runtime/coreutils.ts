@@ -4,7 +4,7 @@
 // own over the node's files (wasi/), run to its end on the caller's thread:
 // a node's port or the shell waits for it, as for a quick command. Other
 // programs built for WASI run the same way, each its own module
-// (PROGRAMS: ripgrep's rg, ripgrep/build.py).
+// (PROGRAMS: ripgrep's rg, ripgrep/build.py; git, git/build.py).
 import { WASI } from './wasi';
 import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';
@@ -24,7 +24,22 @@ export const TOOLS = new Set(
 );
 
 // Programs of their own module (the site's NAME.wasm), by name.
-export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm' };
+export const PROGRAMS: Record<string, string> = { rg: 'rg.wasm', git: 'git.wasm' };
+
+// git's subcommands that reach a remote, which git.wasm cannot yet (it has
+// no processes, so no transport): the page's git (isomorphic-git) runs them.
+const REMOTE = new Set(['clone', 'fetch', 'pull', 'push', 'ls-remote', 'remote']);
+
+// Whether git.wasm runs `git ARGS` (else the page's git): not for a remote,
+// the subcommand being the first argument that is not an option (-C DIR
+// and -c NAME=VALUE take the next).
+export function wasmGit(args: string[]): boolean {
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '-C' || args[i] === '-c') i++;
+    else if (!args[i].startsWith('-')) return !REMOTE.has(args[i]);
+  }
+  return true;
+}
 
 // A tool of coreutils' or a program of PROGRAMS'.
 export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;
@@ -64,7 +79,13 @@ export function coreutils(options: CoreutilsOptions, name: string): Program | un
     let ended = !options.read;
     const wasi = new WASI({
       args: [name, ...args],
-      env: { ...env, PWD: cwd, ...(size ? { COLUMNS: String(size[0]) } : {}) },
+      env: {
+        // git's pager would be another process; `cat` is none to git.
+        ...(name === 'git' ? { GIT_PAGER: 'cat' } : {}),
+        ...env,
+        PWD: cwd,
+        ...(size ? { COLUMNS: String(size[0]) } : {}),
+      },
       root,
       stdin: (max) => {
         const chunk = input[0];

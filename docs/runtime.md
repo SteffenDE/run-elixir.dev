@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-22
 ---
 
 # The runtime (`app/src/runtime`)
@@ -24,15 +24,16 @@ JavaScript.
 
 | File | Runs in | Role |
 | --- | --- | --- |
-| `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`; `net.ts`: TCP and UDP (`Network`); `process.ts`: programs and the terminal; `abi.ts`: errnos, flags and the calls' signatures. |
+| `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`, `/dev/null`; `net.ts`: TCP and UDP (`Network`); `process.ts`: programs and the terminal; `pipe.ts`: pipes between processes; `jspi.d.ts`: JSPI's types; `abi.ts`: errnos, flags and the calls' signatures. |
 | `worker/` (`worker.js`) | worker | A node. `index.ts` builds the node's tree from the boot images (the page's tars, else fetched) and runs one command or the shell, each node through `beam.ts`; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's). |
 | `files.ts` (`files.js`) | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
 | `overlay.ts` | worker | A project's kept changes in IndexedDB. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation (`/etc/hosts`; `/etc/resolv.conf` when the page serves DNS), programs. |
-| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. The site's other WASI programs run the same way, each of its own module (`PROGRAMS`: ripgrep's `rg`, `rg.wasm`). |
+| `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. The site's other WASI programs run the same way, each of its own module (`PROGRAMS`: ripgrep's `rg`, `rg.wasm`; git's `git`, `git.wasm`, the shell's `git` but for a remote: [git.md](git.md#gitwasm-git-itself)); the shell runs them as processes (`processes.ts`). |
 | `nodejs/` (`nodejs.js`) | worker | A Node.js process or worker thread: Node's modules over the shared files ([nodejs.md](nodejs.md)). |
 | `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
+| `processes.ts` | worker, Node | A worker's processes: programs built for WASI (and the host's) running at once as coroutines under JSPI, their descriptors shared, pipes between them ([below](#processes-processests)). |
 | `sh.ts` | worker, page | Command lines split into words; `&&`-joined commands for the Node harness's `sh -c` (with a page, `sh -c` is brush). |
 | `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
@@ -53,8 +54,9 @@ The Emscripten BEAM mounts the node's tree through PROXYFS
 (`beam/treefs.ts` over `fs.ts`) and the shared directories through
 `beam/sharedfs.ts` ([../beam/README.md](../beam/README.md#in-the-playground)).
 NIF libraries ([nif.md](nif.md)) get WASI preview 1 over the same tree:
-`new WASI({...}).imports` provides it but `fd_renumber`, `sock_recv` and
-`sock_send` (a library importing one gets ENOSYS from `nif.ts`), with
+`new WASI({...}).imports` provides it but `sock_recv` and `sock_send` (a
+library importing one gets ENOSYS from `nif.ts`), with `fd_renumber` (as
+dup2, then the first closed; not for the standard streams),
 `fd_pread`, `fd_pwrite` and `fd_tell` on top of the descriptor's
 position (kept by the call; a write at an offset does not append),
 `fd_allocate`, `clock_res_get` (1 µs), `proc_raise` (the program ends,
@@ -91,7 +93,8 @@ nothing.
   other files wait in memory until they are opened.
 - **mtimes.** Untarred and mounted files keep their modification times, so
   Mix sees sources older than its manifests.
-- **`/dev/urandom`** is a `Device` over `crypto.getRandomValues`.
+- **`/dev/urandom`** is a `Device` over `crypto.getRandomValues`;
+  **`/dev/null`** one that reads nothing and drops what is written.
 
 ### TCP and UDP (`net.ts`)
 
@@ -197,23 +200,32 @@ prompt, the directory to start in, since WASI has none, and `help`, the
 playground's, with brush's `help NAME` for a built-in). A site without
 `brush.wasm` does not build (`runtime/build.py`).
 
-brush on WASI has no processes, pipes or `dup`. Our patches to it
-(`brush/patches/brush/`; brush-core's `sys/wasm/playground.rs`) give it:
+brush on WASI has no processes, pipes or `dup`: the worker's process
+table has them ([below](#processes-processests)). Our patches to brush
+(`brush/patches/brush/`; brush-core's `sys/wasm/playground.rs`) make its
+external commands processes of the table's, through the `processes`
+imports, and brush runs under JSPI: what would wait suspends it, and the
+worker's processes run meanwhile.
 
-- **External commands through the host:** one import,
-  `playground.spawn(request, input, flags)`, runs a command to its end and
-  answers its status (or -1: not found). The host makes it suspending with
-  JSPI (`WebAssembly.Suspending`; Chromium, Firefox and WebKit have it), so
-  a node runs in the worker, terminal and all,
-  while brush waits. `playground.output` answers what it wrote that was
-  not the terminal's. `run` in `worker/index.ts`: node commands (and
-  escripts), the page's programs, coreutils' tools.
-- **Pipes and files in memory:** a pipe holds what is written until it is
-  read; files are shared between their clones.
-- **One command after another:** a pipeline's commands run in order, each
-  to its end, with all that the one before wrote; built-ins in a pipeline
-  run inline (no threads), and `$(…)` runs, then its output is read. So a
-  command that never ends feeding a pipe (`yes | head`) does not end.
+- **External commands** start with three of brush's descriptors as their
+  standard streams (brush's own 0, 1 and 2 are the terminal) and run while
+  brush goes on. A pipeline's commands run at once, joined by the table's
+  pipes, so `yes | head` ends when `head` does. `find` in
+  `worker/index.ts` names what runs: a node command (or an escript), a
+  page program, a program built for WASI (coreutils' tools, `rg`, `git`).
+- **Waiting:** brush's own flow waits for a command suspended in the
+  host's `wait`. A job (`&`, a tokio task of brush's) waits 10 ms at a time
+  and yields, so brush reads the next line meanwhile, and its line editor's
+  `crossterm.read` waits without holding the worker (`Channel.rest`). The
+  runtime looks at brush's own flow after every task (`event_interval(1)`):
+  on WASI, std's thread parking does nothing.
+- **Pipes and files:** brush writes to a pipe without waiting (a
+  pipeline's input, before its reader starts: WASI's `bounded` off). What
+  it reads back itself, a command substitution's output or a here-string,
+  stays in its memory; a process's output is fed to it while brush waits.
+  Files are shared between their clones (no `dup`).
+- **Ctrl+C** while brush waits for a command stops every process but
+  brush, a job in the background too (bash spares those).
 
 **Its line editor** is reedline, as brush has it natively: Tab completes
 (paths, commands, with bash's `complete`), Up and Down go through the
@@ -232,6 +244,44 @@ on WASI, outside tokio's cooperative budget: with one thread, a budget
 spent would never be renewed. reedline's history file locks with fd-lock,
 whose WASI locks are always granted (`brush/patches/fd-lock/`).
 
+## Processes (`processes.ts`)
+
+One worker's processes, as an OS has them: each a program with
+descriptors of its own, some of them its parent's, running at once with
+the others on the worker's thread as coroutines under JSPI. Chromium,
+Firefox and WebKit have JSPI (`WebAssembly.Suspending`, `promising`).
+
+- **Descriptors are shared, as open file descriptions are:** a child's
+  standard streams are the same objects as its parent's descriptors, with
+  `shares` counting the tables beyond the first. A pipe's end
+  (`wasi/pipe.ts`) closes with its last reference: the reader then sees
+  its end, the writer EPIPE.
+- **A pipe** holds 64 KiB. A program run with `suspending` (its start
+  under `WebAssembly.promising`) that reads an empty one or writes a full
+  one is suspended until it changes (`WASI.block`); so is its
+  `poll_oneoff`, which knows pipes, and its sleep. The shim's other
+  callers (a node's ports) get EAGAIN, as before.
+- **A program built for WASI** (`wasmProgram`) gets the `processes`
+  imports: `pipe`, `spawn` (a NUL-separated request, as brush's was, and
+  three of its descriptors), `wait` (until, not at all, or a little),
+  `kill`, `dup` and `dup2`. Its children are found as the shell finds
+  commands, by name (`Resolve`).
+- **A host's program** (a node, a page program: `hosted`) takes its input
+  whole first, unless it is the terminal's (or a node's) own, which it
+  reads as it comes, and then runs to its end. It cannot wait for room in
+  a pipe: it writes up to 16 MiB ahead of its reader (`HOSTED_LIMIT`),
+  and drops what it writes once the reader is gone.
+- **Signals:** `kill` marks a process and wakes it if it waits; its next
+  call ends it (128 + the signal). A parent's `wait` takes in Ctrl+C
+  (`idle`, the channel), which stops every process but the shell.
+- **brush** is an adopted process of the table (`adopt`), so what it
+  starts are its children.
+
+What git runs is [git.md](git.md#processes)'s. Not yet: a page program or a
+node as a child streams neither its input nor, while it runs, the
+others' (`runOnPage` holds the worker); and a program built for WASI that
+reads the terminal holds it too (`readInput`).
+
 ## coreutils (`coreutils.ts`)
 
 uutils coreutils 0.12.0, Rust's rewrite of GNU's (Ubuntu's since 25.10),
@@ -242,16 +292,17 @@ one patch has it change to `$PWD` first, as WASI has no working directory.
 
 A worker fetches and compiles it when a tool first runs (140 ms in
 Chromium, 200 in WebKit, 470 in Firefox, from the HTTP cache after that). Each run is an
-instance of its own over the node's tree and the shared files (`wasi/`),
-run to its end on the caller's thread: the shell's, or the node's for a
-port, which waits for it, as for any quick command. So a tool gets the
-input that is there when it starts and then its end, and runs nothing
-that waits for more (`tail -f`, an interactive `sort`).
+instance of its own over the node's tree and the shared files (`wasi/`).
 
 - **The shell** (brush) runs a tool for a command it does not have as a
-  built-in (`ls`, `cp`, `sort`, …; `echo`, `pwd`, `test` are brush's).
+  built-in (`ls`, `cp`, `sort`, …; `echo`, `pwd`, `test` are brush's): a
+  process ([above](#processes-processests)), at once with the rest of its
+  pipeline.
 - **A node** finds the tools on `PATH` (`/usr/bin`) and spawns them by
-  name: `System.cmd("rm", ["-rf", "c"])`.
+  name: `System.cmd("rm", ["-rf", "c"])`. Run to its end on the node's
+  thread, which waits for it, as for any quick command: a tool gets the
+  input that is there when it starts and then its end, and runs nothing
+  that waits for more (`tail -f`, an interactive `sort`).
 - **`sh -c LINE`** from a node is the page's `sh`: brush in a worker of its
   own, which runs the tools as the terminal's does
   ([nodejs.md](nodejs.md#a-nodes-sh--c-is-brush)).

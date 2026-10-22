@@ -150,6 +150,13 @@ export class Channel {
   sleep(ms: number): void {
     Atomics.wait(this.control, 0, Atomics.load(this.control, 1), ms);
   }
+  // sleep, without holding the thread: the worker's processes
+  // (processes.ts) run meanwhile; 10 ms at most, as frames are not
+  // waited for (with Atomics.waitAsync on the ring, WebKit's shell took
+  // no keys).
+  rest(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, Math.min(ms, 10)));
+  }
   // Up to `max` bytes of the input (past its ends: what reads this has none).
   take(max: number): Uint8Array {
     const out: Uint8Array[] = [];

@@ -412,11 +412,11 @@ def record(out, boot, snapshot):
 
 
 # The terminal's shell, brush, uutils coreutils (ls, cp, rm, … for the
-# shell and the nodes), ripgrep (rg), the Tailscale node (docs/tailscale.md)
-# and a Node.js process's TLS client (docs/nodejs.md), built to WebAssembly
-# by their own scripts.
+# shell and the nodes), ripgrep (rg), git (docs/git.md), the Tailscale node
+# (docs/tailscale.md) and a Node.js process's TLS client (docs/nodejs.md),
+# built to WebAssembly by their own scripts.
 WASM = {"brush": "brush/build.py", "coreutils": "coreutils/build.py", "tailscale": "tailscale/build.py",
-        "tls": "tls/build.py", "rg": "ripgrep/build.py"}
+        "tls": "tls/build.py", "rg": "ripgrep/build.py", "git": "git/build.py"}
 
 
 def prebuilt():
@@ -485,7 +485,7 @@ ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.h
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
-                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm"}
+                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm"}
 
 
 def unversion(out):

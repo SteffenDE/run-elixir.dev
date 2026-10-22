@@ -69,3 +69,42 @@ test('git clones a repository into the shell and pulls it forward', async ({ pag
     'fatal: the playground clones only from github.com, gitlab.com, codeberg.org',
   );
 });
+
+// git itself (git.wasm, git/build.py) at the shell: what it does in its own
+// process. A remote's subcommands stay the page's (coreutils.ts wasmGit).
+test("the shell's git is git's own: commits, diffs, branches and a rebase", async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  await run(page, 'mkdir repo && cd repo');
+  expect(await run(page, 'git --version')).toContain('git version 2.56.0');
+  await run(page, 'git init -q -b main');
+  await run(page, 'git config user.name Ada && git config user.email ada@example.com');
+  await writeText(page, '/work/repo/a.txt', 'one\n');
+  await run(page, 'git add a.txt');
+  await run(page, 'git commit -qm first');
+  await writeText(page, '/work/repo/a.txt', 'one\ntwo\n');
+  expect(await run(page, 'git status --porcelain')).toContain(' M a.txt');
+  expect(await run(page, 'git diff')).toContain('+two');
+  await run(page, 'git commit -qam second');
+  await run(page, 'git switch -qc feature HEAD~1');
+  await writeText(page, '/work/repo/b.txt', 'b\n');
+  await run(page, 'git add b.txt && git commit -qm feature');
+  await run(page, 'git rebase -q main');
+  expect(await run(page, 'git log --format=%s')).toMatch(/feature\s+second\s+first/);
+  expect(await readText(page, '/work/repo/a.txt')).toBe('one\ntwo\n');
+  expect(await run(page, 'git status --short --branch')).toContain('## feature');
+
+  // What git runs as processes of its own (processes.ts): a merge's
+  // autostash, a worktree's branch, gc's pack-refs and pack-objects.
+  await run(page, 'git switch -q main');
+  await writeText(page, '/work/repo/a.txt', 'one\ntwo\nlocal\n');
+  const merged = await run(page, 'git merge --autostash --no-edit feature');
+  expect(merged).toContain('Applied autostash.');
+  expect(await readText(page, '/work/repo/a.txt')).toBe('one\ntwo\nlocal\n');
+  await run(page, 'git worktree add -q ../wt');
+  expect(await run(page, 'git worktree list')).toMatch(/\/work\/wt\s+\w+ \[wt\]/);
+  const gc = await run(page, 'git gc -q; git count-objects -v');
+  expect(gc).toContain('count: 0');
+  expect(gc).not.toMatch(/cannot run|error/);
+  expect(await run(page, 'git log --format=%s | head -n 1')).toMatch(/^feature$/m);
+});

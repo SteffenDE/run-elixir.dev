@@ -5,13 +5,27 @@ import { E, FDFLAGS, FILETYPE, LOOKUP_SYMLINKS, OFLAGS, type Basic, type Local }
 import { Device, Dir, File, Symlink, fileType, load, now, type FsNode } from './fs';
 import type { Endpoint, Waiting } from './net';
 import { spawn, type Process } from './process';
+import type { Pipe } from './pipe';
 import type { SharedFile } from './shared';
 import type { WASI } from '.';
 
 // An open descriptor: a node of the tree, a standard stream, a shared file,
-// or one of the host's files (/.proc/spawn, /.tty, /.nif, /.net), by what
-// it holds.
+// a pipe's end, or one of the host's files (/.proc/spawn, /.tty, /.nif,
+// /.net), by what it holds. A process's descriptors may be its parent's
+// (processes.ts): the same object, in both tables, as a Unix process's
+// open file descriptions are; `shares` counts the tables beyond the
+// first, and closing it there only lets that one go.
 export interface Descriptor {
+  shares?: number;
+  // A pipe's end: its read end, or else its write end.
+  pipe?: Pipe;
+  reads?: boolean;
+  // A stream of its own (else the shim's stdin, stdout and stderr): where
+  // what is read comes from (`stdin`'s answers) and what is written goes,
+  // and whether it is a terminal (else as the shim says, `tty`).
+  source?: (max: number) => Uint8Array | null;
+  sink?: (bytes: Uint8Array) => void;
+  tty?: boolean;
   node?: FsNode;
   position?: number;
   append?: boolean;
@@ -58,11 +72,11 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
         : entry.node instanceof Dir
           ? FILETYPE.DIR
           : FILETYPE.REG;
-      v.setUint8(ptr, type);
+      v.setUint8(ptr, entry.pipe ? FILETYPE.CHAR : type);
       v.setUint16(ptr + 2, entry.append ? FDFLAGS.APPEND : 0, true);
       // wasi-libc's isatty: a character device that cannot seek or tell.
-      const rights =
-        entry.stream && wasi.tty ? ~(4n | 32n) & 0xffffffffffffffffn : 0xffffffffffffffffn;
+      const tty = entry.stream && (entry.tty ?? wasi.tty);
+      const rights = tty ? ~(4n | 32n) & 0xffffffffffffffffn : 0xffffffffffffffffn;
       v.setBigUint64(ptr + 8, rights, true);
       v.setBigUint64(ptr + 16, rights, true);
       return ok;
@@ -108,7 +122,7 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
         wasi.filestat(ptr, { ino: 0n, size: entry.port!, mtime: now() });
         return ok;
       }
-      wasi.filestat(ptr, entry.stream ? null : entry.node);
+      wasi.filestat(ptr, entry.stream || entry.pipe ? null : entry.node);
       return ok;
     },
     fd_filestat_set_size(fd, size) {
@@ -147,7 +161,17 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
       wasi.pump();
       let total = 0;
       const net = entry.endpoint || entry.listener;
-      if (entry.nif) {
+      if (entry.pipe) {
+        if (!entry.reads) return E.BADF;
+        const want = wasi.iovecs(iovs, count).reduce((n, [, len]) => n + len, 0);
+        const bytes = entry.pipe.read(want);
+        if (!bytes) return wasi.block(entry.pipe.changed());
+        for (const [ptr, len] of wasi.iovecs(iovs, count)) {
+          const part = bytes.subarray(total, total + len);
+          wasi.bytes(ptr, part.length).set(part);
+          total += part.length;
+        }
+      } else if (entry.nif) {
         // A NIF library's answer (nif.ts), once the request is in.
         if (!entry.answer) {
           const request = new Uint8Array(entry.request!.reduce((n, part) => n + part.length, 0));
@@ -196,12 +220,14 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
         total = Math.min(len, bytes.length);
       } else if (entry.node instanceof Device) {
         for (const [ptr, len] of wasi.iovecs(iovs, count)) {
-          wasi.bytes(ptr, len).set(entry.node.read(len));
-          total += len;
+          const read = entry.node.read(len);
+          wasi.bytes(ptr, read.length).set(read);
+          total += read.length;
+          if (read.length < len) break;
         }
-      } else if (fd === 0) {
+      } else if (entry.stream && (entry.source || fd === 0)) {
         const want = wasi.iovecs(iovs, count).reduce((n, [, len]) => n + len, 0);
-        const input = wasi.stdin(want);
+        const input = (entry.source ?? wasi.stdin)(want);
         if (input === null) return E.AGAIN;
         let at = 0;
         for (const [ptr, len] of wasi.iovecs(iovs, count)) {
@@ -228,6 +254,20 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
       const entry = wasi.fds.get(fd);
       if (!entry) return E.BADF;
       let total = 0;
+      // A pipe takes what it has room for; with none, the writer waits.
+      if (entry.pipe) {
+        if (entry.reads) return E.BADF;
+        for (const [ptr, len] of wasi.iovecs(iovs, count)) {
+          const took = entry.pipe.write(wasi.bytes(ptr, len), wasi.suspending && wasi.bounded);
+          if (took === -1 && !total) return E.PIPE;
+          if (took === null && !total) return wasi.block(entry.pipe.changed());
+          if (took === null || took === -1) break;
+          total += took;
+          if (took < len) break;
+        }
+        wasi.view().setUint32(nwrittenPtr, total, true);
+        return ok;
+      }
       for (const [ptr, len] of wasi.iovecs(iovs, count)) {
         const bytes = wasi.bytes(ptr, len);
         if (entry.nif) {
@@ -242,8 +282,10 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
         } else if (entry.endpoint) {
           entry.endpoint.peer.send(bytes.slice());
         } else if (entry.stream) {
-          const sink = wasi.out[fd];
+          const sink = entry.sink ?? wasi.out[fd];
           if (sink) sink(bytes.slice());
+        } else if (entry.node instanceof Device) {
+          // A device takes what is written and keeps none of it (/dev/null).
         } else {
           const file = entry.node;
           if (!(file instanceof File)) return E.ISDIR;
@@ -265,7 +307,7 @@ export function descriptors(wasi: WASI): Omit<Local, Basic> {
     fd_seek(fd, offset, whence, ptr) {
       const entry = wasi.fds.get(fd);
       if (!entry) return E.BADF;
-      if (entry.stream) return E.SPIPE;
+      if (entry.stream || entry.pipe) return E.SPIPE;
       const size = entry.node instanceof File ? entry.node.size : 0;
       const base = [0, entry.position, size][whence];
       if (base === undefined) return E.INVAL;

@@ -14,6 +14,7 @@ export const E = {
   AGAIN: 6,
   CONNREFUSED: 14,
   BADF: 8,
+  CHILD: 12,
   EXIST: 20,
   INVAL: 28,
   IO: 29,
@@ -25,7 +26,9 @@ export const E = {
   NOTEMPTY: 55,
   NOTSUP: 58,
   PERM: 63,
+  PIPE: 64,
   SPIPE: 70,
+  SRCH: 71,
 };
 export const FILETYPE = { CHAR: 2, DIR: 3, REG: 4, SYMLINK: 7 };
 // path_open's and path_filestat_get's dirflags: follow a last symbolic link.

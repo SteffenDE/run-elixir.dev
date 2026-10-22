@@ -56,17 +56,34 @@ test("brush's line editor completes, recalls and continues lines", async ({ page
   await expect.poll(() => output(page)).toMatch(/n1\s+n2\s+\/work \$ $/);
 });
 
-test('oversized external output fails within a bounded pipe and leaves the shell usable', async ({
-  page,
-}) => {
+// A pipeline's commands run at once (processes.ts): a producer that never
+// ends stops when its reader does, and what flows through a pipe is
+// bounded by the pipe, not by what one end holds. A page program cannot
+// wait for room: what it writes ahead of its reader is bounded (16 MiB),
+// and once its reader is gone, dropped.
+test('pipelines stream between processes, page programs too', async ({ page }) => {
   test.setTimeout(60_000);
   await newProject(page, 'empty');
   await prompted(page, 1);
-  // Finite producers keep this regression safe even if the bound breaks.
-  expect(await run(page, 'seq 1 3000000 | head -n 1')).toContain('buffered output exceeded 16 MiB');
+  expect(await run(page, 'yes | head -n 3')).toMatch(/y\s+y\s+y\s+\/work \$ $/);
+  expect(await run(page, 'seq 1 3000000 | head -n 1')).toMatch(/^1$/m);
+  expect(await run(page, 'seq 1 3000000 | tail -n 1')).toMatch(/^3000000$/m);
   await writeText(page, '/work/large.cjs', 'process.stdout.write("x".repeat(17 * 1024 * 1024));');
-  expect(await run(page, 'node large.cjs | head -c 1')).toContain(
-    'buffered output exceeded 16 MiB',
-  );
+  const large = await run(page, 'node large.cjs | head -c 1');
+  expect(large).toMatch(/^x\s*\/work \$ $/m);
+  expect(large).not.toContain('exceeded');
   expect(await run(page, 'echo still-running')).toContain('still-running');
+});
+
+// A command with & runs while the shell reads the next line.
+test('a job in the background runs while the shell takes commands', async ({ page }) => {
+  test.setTimeout(60_000);
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const started = Date.now();
+  await run(page, 'sleep 2 && echo late > /work/bg.txt &');
+  expect(Date.now() - started).toBeLessThan(1500);
+  expect(await run(page, 'echo now; ls /work')).not.toContain('bg.txt');
+  await expect.poll(() => run(page, 'cat /work/bg.txt'), { timeout: 15_000 }).toContain('late');
+  expect(await run(page, 'wait; echo waited')).toContain('waited');
 });

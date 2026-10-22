@@ -1,7 +1,7 @@
 ---
 kind: index
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-21
 ---
 
 # Playground documentation
@@ -48,7 +48,8 @@ beamos checkout (`BEAMOS`, or `../beamos`).
 | [frames.md](frames.md) | The apex as the one trusted origin; previews (and next, the project's runtime) in frames of the usercontent domain; measurements. |
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
 | [collaboration.md](collaboration.md) | Plan: *Share* as a link or a live session; the encrypted relay, permissions, editing with Yjs, terminals and preview for guests. |
-| [git.md](git.md) | Plan: git in a project (clone, a diff view, push and its tokens), signing in, and the origins that keep a project's code from the account. |
+| [git.md](git.md) | git in a project: git itself built to WebAssembly (git.wasm) and what it still needs (processes, a transport); plans for a diff view, push and its tokens, signing in, and the origins that keep a project's code from the account. |
+| [history.md](history.md) | Plan: every moment of a project's files and database, content-addressed in git's format; churn from `_build`, `deps` and `node_modules`; restoring at once. |
 | [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
 | [../beam/README.md](../beam/README.md) | The runtime: OTP's own emulator built with Emscripten, its patches, build, benchmarks, how it runs in the playground. |
 | [tailscale.md](tailscale.md) | Prototype: the node's HTTPS, TCP, UDP and names through the user's tailnet and an exit node; one Tailscale device per browser on the apex, its tag and policy, each project asked first, a project's servers shared in the tailnet, the setup hint shown once. |

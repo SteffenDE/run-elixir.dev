@@ -389,11 +389,11 @@ site does not host Claude Code's files.
   Claude Code also uses `/proc/self/fd/N/…` to write into an open directory
   and `/proc/self/fd/N` to run `rg`. `fs.ts` and `child.ts` resolve these
   paths to the paths used when opening the descriptors.
-  External commands in pipelines currently run one after another, with
-  output buffered between them. Captured stdout and stderr, including
-  output redirected to files, are limited to 16 MiB per command; exceeding
-  the limit stops the producer and prints an error. Streaming pipelines
-  such as `yes | mix ...` are not supported.
+  A pipeline's commands run at once, as processes joined by pipes
+  ([runtime.md](runtime.md#processes-processests)). A node or a page
+  program among them takes its input whole and cannot wait for room in a
+  pipe: each way, 16 MiB at most ahead of the other end, so `yes | mix …`
+  fails with an error once 16 MiB came.
 - **Search:** `claude` passes `--allowedTools=Glob,Grep` to enable the
   Glob and Grep tools, which use `rg`. Without this flag, the pinned build
   replaces them with bfs and ugrep, embedded in its executable and invoked

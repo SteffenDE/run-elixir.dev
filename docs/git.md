@@ -1,30 +1,36 @@
 ---
 kind: design
 status: plan
-last_updated: 2026-10-19
+last_updated: 2026-10-22
 ---
 
 # git, review, and accounts
 
 A plan for git in a project (clone, history, a diff view, push) and for
 signing in, and what each needs from the site's origins to stay safe.
-Built so far: `git clone` and `git pull` in the shell ([below](#built)).
+Built so far: `git clone` and `git pull` in the shell over isomorphic-git,
+and git itself built to WebAssembly for everything local, the processes
+it runs included ([below](#gitwasm-git-itself)). A project's history beyond git (every
+change, the database too) is [history.md](history.md)'s.
 Mix's git dependencies are [architecture.md](architecture.md#git)'s.
 
 ## git in the shell
 
-The shell's `git` is the page program Mix already uses
-(`src/project/lib/programs/git.ts`, isomorphic-git over the node's files),
-fetching through the site's proxy at `/git/HOST/OWNER/REPO/` (GitHub,
-GitLab, Codeberg; `git-upload-pack` only). A curated subset, not all of
-git:
+Two engines, for now:
 
-1. **Now:** `clone` and `pull` (fast-forward only).
-2. **Next:** `status`, `log`, `add`, `commit`, `branch`, `checkout` of a
-   branch, `diff` (isomorphic-git has no diff: a diff library over its
-   `walk`).
-3. **Later:** `pull` with merges, `push` ([below](#push)), and the
-   tree's marks for changed files (`statusMatrix`).
+- **git.wasm** ([below](#gitwasm-git-itself)): git 2.56 itself, for
+  every local subcommand at the shell. The engine to grow: agents (Claude
+  Code in the playground) and people expect git's own output,
+  `--porcelain` and all, and its whole porcelain (stash, rebase, apply,
+  blame, …), which a reimplementation would chase forever.
+- **The page program** (`src/project/lib/programs/git.ts`, isomorphic-git
+  over the node's files), fetching through the site's proxy at
+  `/git/HOST/OWNER/REPO/` (GitHub, GitLab, Codeberg; `git-upload-pack`
+  only): the shell's `clone`, `fetch`, `pull`, `push`, `ls-remote` and
+  `remote` (`wasmGit` in `coreutils.ts`), and all of what Mix asks of git
+  for a dependency (a node's `git` is always the page's). It stays Mix's
+  until git.wasm has a transport; maybe for good, as Mix's few commands
+  work.
 
 ### A baseline commit
 
@@ -190,6 +196,100 @@ A separate account domain and a same-site preview origin give the same
 protection without that. Worth asking again once the server holds the
 project list.
 
+## git.wasm: git itself
+
+`git/build.py` builds git 2.56.0 (with `git/patches/`) and zlib with
+wasi-sdk 33 in Docker (`nif/build.py`'s image) for `wasm32-wasip1`:
+`target/git/git.wasm`, 3.8 MB (1.5 MB gzipped, `-Oz`). The site serves it
+beside `rg.wasm`; the shell runs it as a process of the worker's
+([runtime.md](runtime.md#processes-processests)), over the node's tree
+and the shared files.
+
+**The build:** git's own, with a `config.mak` that turns off what WASI
+lacks (threads, curl, iconv, gettext, Rust, sockets, mmap and regex,
+which git has fallbacks for), and `git/wasi/`: headers WASI does not have
+(`pwd.h`, `sys/wait.h`, `termios.h`, …) and `stubs.c`, which answers as
+one user would (uid 0 owns everything, `chmod` does nothing, `PWD` is
+the working directory). git's Makefile reads `uname` before
+`config.mak`, so the build names WASI on make's command line.
+
+### Processes
+
+git starts every process in `run-command.c`'s `start_command`. Under
+`__wasi__` it spawns instead of forking, as its Windows build does
+(`patches/0001-wasi-spawn.patch`): `wasi_spawn` (`stubs.c`) hands the
+host the program, arguments, environment, directory and three of git's
+descriptors, and `pipe`, `dup`, `dup2`, `waitpid` and `kill` are the
+host's too (the `processes` imports). A child that is git is another
+instance of git.wasm, its own memory and so fresh globals; it runs at
+once with its parent, and either waits, suspended, on a pipe or the
+other.
+
+**Works** (in Chromium, Firefox and WebKit; `git.spec.ts`, and
+`processes.test.ts` in Node): init, add, commit (with `-m`, and its
+maintenance after), status (`--porcelain`, `--short --branch`), diff,
+log, show, blame, grep, branch, switch, rebase (not `-i`), cherry-pick,
+revert, reset, tag, stash, format-patch, config; and what runs other
+processes: a merge with local changes (`--autostash`), `worktree add`,
+`gc` (`pack-refs`, `repack`, `pack-objects` over pipes), `repack`,
+`fsck`. Per command: a few ms over a small repository. On a Phoenix
+project with `deps` and `_build` forced in (3.8k files): `add` 3.3 s
+(fetching the template's lazy files included), `status` 0.2 s, `commit`
+0.5 s.
+
+**Not yet:**
+
+| Needs | For |
+| --- | --- |
+| A transport: `git-remote-https`, a conversation with git both ways | clone, fetch, pull, push (the page's git has them meanwhile) |
+| `start_async`, which forks without threads (`fetch-pack`'s and `send-pack`'s demultiplexer, `convert.c`'s filters) | fetch and push; a filter driver |
+| An editor; hooks through `sh` | `commit` without `-m`, `rebase -i`, `add -p`'s editing; hooks |
+
+Also: the Phoenix template's `.git` (phx.new's `git init`) lacks `refs/`
+(the template keeps no empty directories), so git.wasm does not take it
+for a repository until `git init` again: the baseline commit
+([above](#a-baseline-commit)) fixes it. `count-objects` sizes are 0 (no
+`st_blocks`). git 3.0 makes Rust required: its parts build for
+`wasm32-wasip1` too.
+
+### Next
+
+**The transport** is a remote helper written for the page (in
+TypeScript, a page program): `git-remote-https` speaking protocol v2's
+`stateless-connect`, which only carries pkt-lines between git and a
+POST to the proxy's `/git/…/git-upload-pack`. A few hundred lines; no
+curl, no `http.c`. As a child it must stream both ways while git runs,
+which a page program does not yet (it takes its input whole): it wants
+the process table's pipes on the page's side, or to be built for WASI.
+Push stays the REST API ([below](#push)), as the proxy must not see
+tokens: a helper with the `push` capability, or a page program after
+`git bundle`.
+
+**`start_async`** runs a function of git's beside git: a second stack in
+the same instance under JSPI (`WebAssembly.promising` of an exported
+trampoline, with a C stack of its own), or, simpler, the demultiplexer
+inline where git allows it.
+
+**The editor** is the IDE's: `GIT_EDITOR` names a page program that
+opens the file in a tab and exits when it is closed. No pager: xterm
+scrolls back (`GIT_PAGER=cat`, which git takes for none).
+
+### Tests
+
+The architecture is still to settle; what there is, and the options:
+
+- **vitest over a built git.wasm** (`test/unit/processes.test.ts`,
+  skipped without `target/git/git.wasm`): git over the shim and the
+  process table in Node, in milliseconds. The place for our own cases
+  (the shim's calls, processes, the helper).
+- **git's own suite** (`t/`, shell scripts over `test-lib.sh`): it needs
+  a POSIX shell, `sed`, `grep`, `awk` and processes everywhere: brush and
+  the process table have most of that now, in a worker (or the Node
+  harness, with brush and coreutils). The prize: thousands of cases
+  written by git, run against our shim.
+- **Playwright** for what is the browser's (JSPI in three engines, the
+  files across workers, the IDE as editor): a few, as `git.spec.ts` has.
+
 ## Built
 
 - **`git clone URL [DIR]`** (`--depth N`, `--branch NAME`, `-b`): into
@@ -203,3 +303,4 @@ project list.
   detached HEAD too.
 - **The shell runs the page's programs** (`git`, `tailwind`, `esbuild`,
   `sh`, `rebar3`) as it runs a node's commands; Ctrl+C stops one.
+- **git.wasm** for the shell's local subcommands ([above](#gitwasm-git-itself)).

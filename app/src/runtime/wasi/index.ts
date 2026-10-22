@@ -15,6 +15,7 @@ import { E, FILETYPE, type Imports, type Local, type Syscall } from './abi';
 import { descriptors, type Descriptor } from './descriptors';
 import { Dir, fileType, lookup, now, type Fetch, type Found } from './fs';
 import { Network } from './net';
+import { CAPACITY } from './pipe';
 import { positioned } from './positioned';
 import type { Programs, Terminal } from './process';
 import { sharedCalls, type Shared } from './shared';
@@ -59,6 +60,8 @@ export interface WasiOptions {
   programs?: Programs;
   onchange?: (path: string) => void;
   shared?: Shared | null;
+  suspending?: boolean;
+  bounded?: boolean;
 }
 
 export class WASI {
@@ -82,6 +85,19 @@ export class WASI {
   declare memory: WebAssembly.Memory | null;
   declare nifs: Nifs;
   declare imports: Imports;
+  // The calls as the instance makes them, before JSPI's wrappers.
+  declare io: Record<string, Syscall>;
+  // Run under JSPI (processes.ts): a call that would wait (a pipe empty to
+  // read or full to write, poll_oneoff) suspends the program instead,
+  // until what it waits for changes (`blocked`), and is made again.
+  declare suspending: boolean;
+  // Whether its writes to a pipe wait for room (else they never wait: the
+  // shell, which writes a pipeline's input before its reader starts).
+  declare bounded: boolean;
+  declare blocked: Promise<unknown> | null;
+  // Settles when the process is told to stop (a signal): a wait ends,
+  // and `pump` sees why.
+  declare interrupt: Promise<unknown> | null;
 
   // { args, env, root: Dir, stdin(), stdout(bytes), stderr(bytes),
   // sleep(ms), tty }: with tty, the standard streams are terminals.
@@ -96,6 +112,8 @@ export class WASI {
   // holds, reached with call(request, bytes) (sharedClient).
   // terminal: { mode('raw' | 'cooked'), size(): [columns, rows] }, the
   // terminal the node may set to raw input (/.tty, tty.rs).
+  // suspending: the instance's start is WebAssembly.promising's (JSPI), so
+  // that a call that would wait suspends it.
   constructor({
     args,
     env,
@@ -112,7 +130,13 @@ export class WASI {
     programs = {},
     onchange = () => {},
     shared = null,
+    suspending = false,
+    bounded = true,
   }: WasiOptions) {
+    this.suspending = suspending;
+    this.bounded = bounded;
+    this.blocked = null;
+    this.interrupt = null;
     this.shared = shared;
     this.terminal = terminal;
     this.onchange = onchange;
@@ -139,7 +163,155 @@ export class WASI {
     this.nifs = new Nifs(this);
     const functions = this.functions();
     const io = shared ? { ...functions, ...sharedCalls(this, functions) } : functions;
-    this.imports = { wasi_snapshot_preview1: unsigned({ ...io, ...positioned(this, io) }) };
+    this.io = io as unknown as Record<string, Syscall>;
+    const calls = unsigned({
+      ...io,
+      ...positioned(this, io),
+      fd_close: (fd: number) => this.close(fd),
+      fd_renumber: (from: number, to: number) => this.renumber(from, to),
+    });
+    this.imports = { wasi_snapshot_preview1: suspending ? this.suspend(calls) : calls };
+  }
+
+  // A call that would wait: under JSPI, the instance waits for `changed`
+  // and makes it again; else it is told to try again (EAGAIN).
+  block(changed: Promise<unknown>): number {
+    if (this.suspending) this.blocked = changed;
+    return E.AGAIN;
+  }
+
+  // The calls that may wait, wrapped for JSPI: one that does not wait
+  // answers at once, without suspending.
+  suspend(calls: Record<string, Syscall>): Record<string, Syscall> {
+    const out = { ...calls };
+    const retry = async (call: Syscall, args: (number | bigint)[]) => {
+      let result: number = E.AGAIN;
+      while (this.blocked) {
+        const blocked = this.blocked;
+        this.blocked = null;
+        await (this.interrupt ? Promise.race([blocked, this.interrupt]) : blocked);
+        this.pump();
+        result = call(...args);
+      }
+      return result;
+    };
+    for (const name of ['fd_read', 'fd_write']) {
+      const call = calls[name];
+      out[name] = new WebAssembly.Suspending((...args: (number | bigint)[]) => {
+        const result = call(...args);
+        return this.blocked ? retry(call, args) : result;
+      }) as unknown as Syscall;
+    }
+    out.poll_oneoff = new WebAssembly.Suspending((...args: number[]) =>
+      this.poll(...(args.map((a) => a >>> 0) as [number, number, number, number])),
+    ) as unknown as Syscall;
+    return out;
+  }
+
+  // poll_oneoff under JSPI: what is ready, else (suspended) until a pipe
+  // it asks about changes or its time comes. Descriptors other than
+  // pipes are always ready, as the shim's own poll_oneoff has them.
+  async poll(inPtr: number, outPtr: number, count: number, eventsPtr: number): Promise<number> {
+    const subscriptions = [];
+    for (let i = 0; i < count; i++) {
+      const v = this.view();
+      const sub = inPtr + 48 * i;
+      const tag = v.getUint8(sub + 8);
+      const userdata = v.getBigUint64(sub, true);
+      if (tag === 0) {
+        const timeout = v.getBigUint64(sub + 24, true);
+        const absolute = v.getUint16(sub + 40, true) & 1;
+        subscriptions.push({ tag, userdata, fd: -1, at: absolute ? timeout : now() + timeout });
+      } else subscriptions.push({ tag, userdata, fd: v.getUint32(sub + 16, true), at: 0n });
+    }
+    for (;;) {
+      this.pump();
+      const time = now();
+      const ready = subscriptions.filter(({ tag, fd, at }) => {
+        if (tag === 0) return time >= at;
+        const pipe = this.fds.get(fd)?.pipe;
+        if (!pipe) return true;
+        return tag === 1 ? pipe.size > 0 || !pipe.writers : pipe.size < CAPACITY || !pipe.readers;
+      });
+      if (ready.length) {
+        const v = this.view();
+        ready.forEach(({ tag, userdata, fd }, i) => {
+          const out = outPtr + 32 * i;
+          v.setBigUint64(out, userdata, true);
+          v.setUint16(out + 8, tag && !this.fds.has(fd) ? E.BADF : 0, true);
+          v.setUint8(out + 10, tag);
+          const pipe = this.fds.get(fd)?.pipe;
+          v.setBigUint64(
+            out + 16,
+            BigInt(pipe ? (tag === 1 ? pipe.size : CAPACITY - pipe.size) : 0),
+            true,
+          );
+          const hangup = pipe && (tag === 1 ? !pipe.writers : !pipe.readers);
+          v.setUint16(out + 24, hangup ? 1 : 0, true);
+        });
+        v.setUint32(eventsPtr, ready.length, true);
+        return E.SUCCESS;
+      }
+      const waits: Promise<unknown>[] = subscriptions
+        .map(({ fd }) => this.fds.get(fd)?.pipe?.changed())
+        .filter((wait) => wait !== undefined);
+      const soonest = subscriptions.reduce(
+        (soon, { tag, at }) => (tag === 0 && (soon === null || at < soon) ? at : soon),
+        null as bigint | null,
+      );
+      if (soonest !== null)
+        waits.push(new Promise((resolve) => setTimeout(resolve, Number(soonest - time) / 1e6)));
+      if (this.interrupt) waits.push(this.interrupt);
+      await Promise.race(waits);
+    }
+  }
+
+  // fd_close: a descriptor another table shares stays open for it; a
+  // pipe's end closes (its last), and the rest as the calls close them.
+  close(fd: number): number {
+    const entry = this.fds.get(fd);
+    if (!entry) return E.BADF;
+    if (entry.shares) {
+      entry.shares--;
+      this.fds.delete(fd);
+      return E.SUCCESS;
+    }
+    if (entry.pipe) {
+      entry.pipe.close(!!entry.reads);
+      this.fds.delete(fd);
+      return E.SUCCESS;
+    }
+    return this.io.fd_close(fd);
+  }
+
+  // Every descriptor closed, the standard streams too: the process ended.
+  release(): void {
+    for (const fd of [...this.fds.keys()]) {
+      this.close(fd);
+      this.fds.delete(fd);
+    }
+  }
+
+  // A second descriptor for what `fd` is (dup); null when it is not open.
+  dup(fd: number): number | null {
+    const entry = this.fds.get(fd);
+    if (!entry) return null;
+    entry.shares = (entry.shares ?? 0) + 1;
+    const opened = this.next++;
+    this.fds.set(opened, entry);
+    return opened;
+  }
+
+  // fd_renumber: `to` becomes what `from` was (closed first, as dup2 would),
+  // and `from` is gone.
+  renumber(from: number, to: number): number {
+    const entry = this.fds.get(from);
+    if (!entry) return E.BADF;
+    if (from === to) return E.SUCCESS;
+    if (this.fds.has(to)) this.close(to);
+    this.fds.set(to, entry);
+    this.fds.delete(from);
+    return E.SUCCESS;
   }
 
   start(instance: WebAssembly.Instance): number {

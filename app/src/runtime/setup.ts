@@ -1,6 +1,6 @@
 // What every playground node gets, in the browser and under node.ts: its
 // environment, the files around the installation, and its programs.
-import { File, urandom, type Dir } from './wasi/fs';
+import { File, devnull, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
 import { git, esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
@@ -45,6 +45,7 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
   root.mkdirs('home/user');
   root.mkdirs('shared');
   root.put('dev/urandom', urandom());
+  root.put('dev/null', devnull());
   // Names from the hosts file, then the page's DNS (the Emscripten BEAM's
   // inet, with ERL_INETRC; it has no inet_gethost).
   const text = (string: string) => new File(new TextEncoder().encode(string));
