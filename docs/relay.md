@@ -53,7 +53,10 @@ answer:
 
 The answer is the apex's (`playground-relay-projects` in its storage, by
 project id; `iex` for the temporary IEx); the project's settings (top
-bar, *Network*) turn the relay on or off later. The setup hint
+bar, *Network*) turn the relay on or off later. `/relay` on the apex
+(`RelayPage`, linked from the settings' question mark and the dialog)
+explains it to the user: how it works, its hosts (from the list), its
+limits, Tailscale instead. The setup hint
 (TailscaleDialog) does not show for a relayed host: the dialog asked.
 The exec frame could open `/relay` without asking (its origin may): the
 question is the user's say over their project, not a boundary; the list

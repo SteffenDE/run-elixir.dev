@@ -45,7 +45,12 @@ export function RelayDialog({ name }: { name: string }) {
         the relay sees which host, and how many bytes pass, not what they say. Or connect the
         playground to your own Tailscale exit node, for any host.
       </p>
-      <p className="nif-build-meta">The project's settings change this later.</p>
+      <p className="nif-build-meta">
+        The project's settings change this later.{' '}
+        <a href={apexUrl('/relay')} target="_blank" rel="noopener">
+          More about the relay
+        </a>
+      </p>
       <div className="start-error-actions">
         <button type="button" className="button" onClick={() => decideRelay('deny')}>
           Don't allow

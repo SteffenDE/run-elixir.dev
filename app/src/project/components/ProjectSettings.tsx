@@ -1,4 +1,4 @@
-import { RiArrowRightLine, RiSettings3Line } from '@remixicon/react';
+import { RiArrowRightLine, RiQuestionLine, RiSettings3Line } from '@remixicon/react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { refreshSettings } from '@/project/lib/playground';
 import { relayConsents, setRelayConsent } from '@/relay/client';
@@ -89,18 +89,29 @@ export function ProjectSettings({ project }: { project: Project }) {
             onChange={(env) => change({ env })}
           />
           <h3>Network</h3>
-          <label className="live-check">
-            <input
-              type="checkbox"
-              checked={relay === true}
-              onChange={(event) => {
-                setRelay(event.target.checked);
-                setSaved(false);
-              }}
-            />
-            Use the playground's relay for hosts that block browsers (GitHub, GitLab, Codeberg,
-            Anthropic's API), when Tailscale does not connect them
-          </label>
+          <div className="relay-setting">
+            <label className="live-check">
+              <input
+                type="checkbox"
+                checked={relay === true}
+                onChange={(event) => {
+                  setRelay(event.target.checked);
+                  setSaved(false);
+                }}
+              />
+              Use the playground's relay
+            </label>
+            <a
+              className="icon-button"
+              href={apexUrl('/relay')}
+              target="_blank"
+              rel="noopener"
+              title="What the relay is"
+              aria-label="What the relay is"
+            >
+              <RiQuestionLine size={16} />
+            </a>
+          </div>
           {current.origin && (
             <label className="live-check">
               <input
