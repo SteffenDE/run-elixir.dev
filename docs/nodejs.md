@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 ---
 
 # Node.js in the playground
@@ -162,7 +162,12 @@ initializer's package, `create-NAME`, `@scope/create`, by npx), and
   run (npm says which packages had one).
 - **`npm run`** runs a script with the page program `sh` (brush, below), with
   `node_modules/.bin` on `PATH` and npm's `npm_*` variables; `npx` runs a
-  project's bin, or installs the package into `~/.npm/_npx` first.
+  project's bin, or installs the package into `~/.npm/_npx/NAME@SPEC`
+  first (a scope's `/` as `+`). An exact version already installed
+  there, with its bin, runs as it is, without the registry (as npm's npx
+  reuses its cache); a range, a tag or `latest` installs again, which the
+  lock makes cheap (the tree, above). An embedder may run that bin itself once it is
+  there ([embed.md](embed.md)).
 
 ## child_process (`child.ts`)
 

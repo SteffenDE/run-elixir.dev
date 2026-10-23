@@ -1,6 +1,12 @@
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, test, vi } from 'vitest';
-import { npmProgram, splitRequest, unpackBatches } from '@/project/lib/programs/npm';
+import {
+  forgetPackuments,
+  npmProgram,
+  npxProgram,
+  splitRequest,
+  unpackBatches,
+} from '@/project/lib/programs/npm';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -74,7 +80,10 @@ function registry(pkgs: Pkg[]) {
     tars[url] = tarOf(files);
   }
   vi.stubGlobal('caches', { open: () => Promise.reject(new Error('none')) });
+  // Every request, the registry's metadata and tarballs both.
+  const requests: string[] = [];
   vi.stubGlobal('fetch', async (url: string) => {
+    requests.push(url);
     if (!url.startsWith('https://registry.npmjs.org/')) return new Response(tars[url]);
     const doc = docs[decodeURIComponent(url.slice(27))];
     return doc ? new Response(JSON.stringify(doc)) : new Response('', { status: 404 });
@@ -90,7 +99,12 @@ function registry(pkgs: Pkg[]) {
     },
     write: async (path: string, data: string | Uint8Array) =>
       void files.set(path, typeof data === 'string' ? new TextEncoder().encode(data) : data),
-    stat: async (path: string) => (files.has(path) ? 'file' : dirs.has(path) ? 'dir' : null),
+    // (A link as what it names.)
+    stat: async (path: string) => {
+      const target = links.get(path);
+      if (target) path = new URL(target, `file://${path}`).pathname;
+      return files.has(path) ? 'file' : dirs.has(path) ? 'dir' : null;
+    },
     mkdir: async (path: string) => void dirs.add(path),
     remove: async (path: string) => {
       for (const key of [...files.keys()])
@@ -99,13 +113,37 @@ function registry(pkgs: Pkg[]) {
     unlink: async (path: string) => void links.delete(path),
     symlink: async (target: string, path: string) => void links.set(path, target),
   };
-  return { fs, links };
+  return { fs, links, requests };
 }
 
 type Fs = ReturnType<typeof registry>['fs'];
 
 async function npm(fs: Fs, pkg: object, ...args: string[]) {
   await fs.write('/p/package.json', JSON.stringify(pkg));
+  return runIn(
+    fs,
+    npmProgram(() => ({})),
+    args,
+  );
+}
+
+// npx, with a node that says what it would run.
+function npx(fs: Fs, ...args: string[]) {
+  const node = (
+    process: { write(text: string): void; exit(code: number): void },
+    context: { args: string[] },
+  ) => {
+    process.write(`node ${context.args.join(' ')}\n`);
+    process.exit(0);
+  };
+  return runIn(
+    fs,
+    npxProgram(() => ({ node }) as never),
+    args,
+  );
+}
+
+async function runIn(fs: Fs, program: (process: never, context: never) => unknown, args: string[]) {
   let out = '';
   const code = await new Promise<number>((resolve) => {
     const process = {
@@ -114,7 +152,7 @@ async function npm(fs: Fs, pkg: object, ...args: string[]) {
       exit: (status = 0) => resolve(status),
       onkill: null,
     };
-    void npmProgram(() => ({}))(process, { args, cwd: '/p', env: {}, fs } as never);
+    void program(process as never, { args, cwd: '/p', env: { HOME: '/h' }, fs } as never);
   });
   return { out, code };
 }
@@ -215,5 +253,21 @@ describe('npm install', () => {
     expect(splitRequest('@s/a@1.2')).toEqual(['@s/a', '1.2']);
     expect(splitRequest('@s/a')).toEqual(['@s/a', 'latest']);
     expect(splitRequest('ts5@npm:@s/ts@5')).toEqual(['ts5', 'npm:@s/ts@5']);
+  });
+});
+
+describe('npx', () => {
+  test('an exact version it installed before runs again without the registry', async () => {
+    const { fs, requests } = registry([
+      { name: '@n1/tool', version: '1.2.3', bin: { tool: 'bin/tool.js' } },
+    ]);
+    const first = await npx(fs, '-y', '@n1/tool@1.2.3', 'hi');
+    expect(first.out).toBe('node /h/.npm/_npx/@n1+tool@1.2.3/node_modules/.bin/tool hi\n');
+    expect(requests.length).toBe(2);
+    requests.length = 0;
+    forgetPackuments();
+    const again = await npx(fs, '-y', '@n1/tool@1.2.3', 'again');
+    expect(again.out).toBe('node /h/.npm/_npx/@n1+tool@1.2.3/node_modules/.bin/tool again\n');
+    expect(requests).toEqual([]);
   });
 });

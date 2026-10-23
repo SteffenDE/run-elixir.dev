@@ -102,6 +102,8 @@ function packument(name: string): Promise<Packument> {
   }
   return found;
 }
+// (Tests: what a reload forgets.)
+export const forgetPackuments = () => packuments.clear();
 
 // A dependency's spec: its package (an alias's own: npm:other@range) and
 // its range, or what the playground cannot install.
@@ -871,6 +873,20 @@ export function initializer(name: string): string {
   return `create-${bare}${version}`;
 }
 
+// What npx runs of `name` installed in `dir`: its version, its bin's link
+// (null if it has no bin to run) and the bins it has.
+async function npxBin(fs: Files, dir: string, name: string) {
+  const json = await readJson<PackageJson>(fs, `${dir}/node_modules/${name}/package.json`);
+  const found = Object.keys(bins(name, json?.bin));
+  const short = name.split('/').pop()!;
+  const chosen = found.includes(short) ? short : found.length === 1 ? found[0] : null;
+  return {
+    version: json?.version,
+    bin: chosen ? `${dir}/node_modules/.bin/${chosen}` : null,
+    found,
+  };
+}
+
 async function npx(
   programs: () => Record<string, Program>,
   process: Process,
@@ -890,23 +906,26 @@ async function npx(
     const dir = `${home}/.npm/_npx/${name.replace('/', '+')}@${spec}`;
     await fs.mkdir(dir);
     if (!(await fs.stat(`${dir}/package.json`))) await fs.write(`${dir}/package.json`, '{}\n');
-    const quiet = (_text: string) => {};
-    await install(fs, dir, [`${name}@${spec}`], { dev: false, exact: true, save: true }, quiet);
-    const json = await readJson<PackageJson>(fs, `${dir}/node_modules/${name}/package.json`);
-    const found = bins(name, json?.bin);
-    const short = name.split('/').pop()!;
-    const chosen = found[short]
-      ? short
-      : Object.keys(found).length === 1
-        ? Object.keys(found)[0]
-        : null;
-    if (!chosen) {
+    // An exact version installed there before runs as it is, as npm's npx
+    // reuses its cache's directory: no registry, no install.
+    let there = await npxBin(fs, dir, name);
+    const reuse =
+      valid(spec) &&
+      there.version === valid(spec) &&
+      there.bin &&
+      (await fs.stat(there.bin)) === 'file';
+    if (!reuse) {
+      const quiet = (_text: string) => {};
+      await install(fs, dir, [`${name}@${spec}`], { dev: false, exact: true, save: true }, quiet);
+      there = await npxBin(fs, dir, name);
+    }
+    if (!there.bin) {
       err(
-        `npx: ${name} has no bin to run${Object.keys(found).length ? ` (it has ${Object.keys(found).join(', ')})` : ''}\n`,
+        `npx: ${name} has no bin to run${there.found.length ? ` (it has ${there.found.join(', ')})` : ''}\n`,
       );
       return 1;
     }
-    bin = `${dir}/node_modules/.bin/${chosen}`;
+    bin = there.bin;
   }
   return runProgram(programs().node, process, {
     ...context,
