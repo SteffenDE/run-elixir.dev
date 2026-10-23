@@ -143,12 +143,7 @@ export interface NifBuild {
   error: string | null;
 }
 
-// `fetch`: the request is known to go by fetch() (a Node.js process's, to
-// a path that sends CORS headers), not by the site's relay.
-export type Https = (
-  connection: Served,
-  target: { host: string; port: number; fetch?: boolean },
-) => void;
+export type Https = (connection: Served, target: { host: string; port: number }) => void;
 // A connection the node opens to another host: the page dials it, and
 // says so (connection.dialed(), or refuse(errno)).
 export type Outbound = (connection: Connection, target: { address: string; port: number }) => void;

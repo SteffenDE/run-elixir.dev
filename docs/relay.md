@@ -50,19 +50,16 @@ a way without opening the socket:
 A host goes one way for all its paths: over the relay the TLS is the
 page's own, so neither the gateway nor the relay sees a request's path,
 and an HTTP client reuses one connection for all of them. So
-`api.anthropic.com` takes the relay: its Messages API sends CORS headers
-(with `anthropic-dangerous-direct-browser-access`, which the gateway's
+`api.anthropic.com` takes the relay, every path and every request: its
+Messages API sends CORS headers (with
+`anthropic-dangerous-direct-browser-access`, which the gateway's
 `fetch()` adds), but Claude Code's `/api/claude_code/settings` there
-does not. Without the relay (no backend), it is `fetch()` as before, and
-only the Messages API answers.
-
-A Node.js process's `https.request` (and its `fetch`, built on it) opens
-a connection per request and knows the path first: `http.ts` asks the
-gateway for `fetch()` for a path in the list's `fetch_paths`
-(`api.anthropic.com`'s `/v1/messages`, `/v1/messages/count_tokens`,
-`/v1/models`: they send CORS headers), sparing the relay the bulk of
-Claude Code's traffic. A node's `ssl:connect` and a bundled undici's
-`tls.connect` know only the host, and take the relay.
+does not, and with a subscription's OAuth token the Messages API too
+answers `401 CORS requests are not allowed for this Organization because
+of its settings`. Not even a Node.js process's request, whose path its
+`https.request` knows, goes by `fetch()` (tried, then dropped,
+2026-10-23). Without the relay (no backend), it is `fetch()` as before:
+the Messages API with an API key only.
 
 No setup hint for a relayed host, and no consent asked: nothing a
 `fetch()` could not reach but for CORS. Not `gen_tcp` to an address, nor
@@ -139,7 +136,8 @@ the listed hosts, with TLS it does itself.
 - **A Node.js process's `net.connect` to a listed host**, and a node's
   `gen_tcp`: they resolve the name first, which needs the tailnet's DNS.
 - **A Node.js process's request to `api.anthropic.com` through the
-  relay** gets its answer, but the process does not exit (the
-  `fixme` in `relay.spec.ts`): a connection apparently kept open.
+  relay** gets its answer, but the process did not exit in a browser
+  test (`node -e "fetch(…/api/claude_code/settings)…"`, 2026-10-23): a
+  connection apparently kept open; a node's `:httpc` there finishes.
 - **git over the relay** (git.wasm would need TLS of its own); `/git/`
   serves clones and fetches.

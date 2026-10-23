@@ -9,7 +9,6 @@
 import { Buffer } from './buffer';
 import type { Net } from './net';
 import type { TlsOptions } from './tls';
-import { fetchable } from '../relayList';
 import * as streams from 'readable-stream';
 
 const { Readable, Writable } = streams as typeof import('node:stream');
@@ -483,15 +482,7 @@ export function createHttp(net: Net) {
       const port = Number(options.port ?? standard);
       const socket = options.createConnection
         ? options.createConnection({ host, port })
-        : (new net.Socket().connect({
-            port,
-            host,
-            https,
-            tls: tlsOf(options),
-            // A path of a relayed host's that sends CORS headers: the
-            // gateway's fetch(), sparing the relay (docs/relay.md).
-            fetch: https && fetchable(host, options.path ?? '/'),
-          }) as Socket);
+        : (new net.Socket().connect({ port, host, https, tls: tlsOf(options) }) as Socket);
       super(socket, false);
       this.method = (options.method ?? 'GET').toUpperCase();
       this.path = options.path ?? '/';

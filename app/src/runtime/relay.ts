@@ -10,9 +10,8 @@
 // (PlaygroundWeb.RelaySocket). It opens with the first connection and
 // closes LINGER after its last. Either side sends at most WINDOW bytes the
 // other has not acknowledged; the page acknowledges what it hands on.
+import list from '../../../backend/priv/relay/hosts.json';
 import type { Tunnel } from './https';
-
-export { relayed } from './relayList';
 
 const OPEN = 1;
 const OPENED = 2;
@@ -30,6 +29,19 @@ const LINGER = 30_000;
 
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
+
+const listed = (host: string, names: string[]) => {
+  host = host.toLowerCase().replace(/\.$/, '');
+  return names.some((name) =>
+    name.startsWith('*.') ? host.endsWith(name.slice(1)) : host === name,
+  );
+};
+
+// Whether a connection to host:port goes through the relay: a listed host
+// on its port that sends no CORS headers (those that do, the gateway's
+// fetch() reaches from the user's own address, sparing the relay).
+export const relayed = (host: string, port: number): boolean =>
+  port === list.port && listed(host, list.hosts) && !listed(host, list.fetch);
 
 // The errno a refusal reads as (https.ts's error line).
 function code(reason: string): string {

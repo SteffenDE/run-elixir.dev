@@ -213,9 +213,8 @@ const scriptPorts: Ports = {
   },
   // A process's connection: to the services, as a node's goes, or to what
   // listens on the port; with a host, HTTPS by the gateway.
-  route(port, host, byFetch) {
-    if (host !== undefined)
-      return (connection) => httpsGateway(connection, { host, port, fetch: byFetch });
+  route(port, host) {
+    if (host !== undefined) return (connection) => httpsGateway(connection, { host, port });
     if (remote.has(port)) return apex(`port:${port}`);
     const service = services()[port];
     if (service) return service;
@@ -322,11 +321,9 @@ const tailnetWays = () => (ways ??= tailnet(rpc));
 // over its TCP (a process's: tls.ts); else fetch().
 let gateway: Https | null = null;
 let relayTunnel: ReturnType<typeof relay> | null = null;
-// `byFetch`: a request known to go by fetch() (a Node.js process's to a
-// path that sends CORS headers), which spares the relay, not the tailnet.
-const tunnel = (host: string, port: number, byFetch: boolean): Promise<Tunnel | null> => {
+const tunnel = (host: string, port: number): Promise<Tunnel | null> => {
   const tailnetTunnel = tailnetWays().tunnel(host, port);
-  if (byFetch || !relayed(host, port)) return tailnetTunnel;
+  if (!relayed(host, port)) return tailnetTunnel;
   return tailnetTunnel.then((opened) => opened ?? (relayTunnel ??= relay())(host, port));
 };
 const httpsGateway: Https = (connection, target) =>

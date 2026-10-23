@@ -9,7 +9,7 @@
 // a connection comes as { op: 'open', id, port } (odd ids). The process
 // connects with { op: 'connect', id, port } (even ids); { op: 'connect',
 // id, port, host, via: 'tcp' } to another host's address, through the
-// tailnet; or { ..., via: 'https' (, fetch: true) } for http.ts's HTTPS by the gateway
+// tailnet; or { ..., via: 'https' } for http.ts's HTTPS by the gateway
 // (https.ts), as a node's goes: its first line says how, "fetch" (plain
 // HTTP on the connection, answered by fetch()), "tcp" (a TCP connection to
 // the host through the tailnet, over which the socket does TLS itself,
@@ -181,9 +181,6 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
         // The gateway, with TLS the caller's (tls.ts): raw TCP on "tcp",
         // plain HTTP for its fetch() on "fetch" ('gateway' says which).
         gateway?: boolean;
-        // For https: the request goes by the gateway's fetch() even where
-        // the site's relay takes its host (http.ts, docs/relay.md).
-        fetch?: boolean;
       };
       if (listener) this.once('connect', listener);
       if (options.timeout) this.setTimeout(options.timeout);
@@ -213,8 +210,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
       sockets.set(this.id, this);
       if (https) {
         this.gateway = '';
-        const byFetch = options.fetch ? { fetch: true } : {};
-        post({ kind: 'net', op: 'connect', id: this.id, port, host, via: 'https', ...byFetch });
+        post({ kind: 'net', op: 'connect', id: this.id, port, host, via: 'https' });
       } else if (isLocal(host)) post({ kind: 'net', op: 'connect', id: this.id, port });
       else {
         // Another host: its address first (as Node looks a name up), then

@@ -1,5 +1,5 @@
 {
-  "comment": "The TCP relay's hosts (docs/relay.md): the backend's /relay connects only to these, on port 443, for a TLS client that names the same host. The page reads it too: `fetch` lists the hosts it reaches by its own fetch() (they send CORS headers), not by the relay. A host goes one way for all its paths (the TLS is the page's own, so the relay never sees them): api.anthropic.com's Messages API sends CORS headers, but Claude Code's /api/claude_code/settings there does not. A Node.js process's https.request and fetch know the path before they connect: `fetch_paths` lists those (exactly, without the query) that go by fetch() all the same.",
+  "comment": "The TCP relay's hosts (docs/relay.md): the backend's /relay connects only to these, on port 443, for a TLS client that names the same host. The page reads it too: `fetch` lists the hosts it reaches by its own fetch() (they send CORS headers), not by the relay. A host goes one way for all its paths (the TLS is the page's own, so the relay never sees them): api.anthropic.com's Messages API sends CORS headers, but Claude Code's /api/claude_code/settings there does not, nor the Messages API for a subscription's OAuth token.",
   "port": 443,
   "hosts": [
     "github.com",
@@ -11,8 +11,5 @@
     "api.anthropic.com",
     "platform.anthropic.com"
   ],
-  "fetch": ["api.github.com", "raw.githubusercontent.com"],
-  "fetch_paths": {
-    "api.anthropic.com": ["/v1/messages", "/v1/messages/count_tokens", "/v1/models"]
-  }
+  "fetch": ["api.github.com", "raw.githubusercontent.com"]
 }

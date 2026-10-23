@@ -187,18 +187,18 @@ export interface Tunnel {
 const say = (connection: Served, text: string) => connection.write(encoder.encode(`${text}\n`));
 
 // (connection, { host, port }): a handler for host/node.ts's `https` option.
-// `tunnel(host, port, byFetch)` gives a tunnel there (or, resolving null, fetch()
+// `tunnel(host, port)` gives a tunnel there (or, resolving null, fetch()
 // after all), or null for fetch(); one that fails says why in its error's
 // `code` (a POSIX name). onblocked(url) hears of a fetch() the browser
 // would not make.
 export function httpsByFetch({
   onrequest = (_method: string, _url: string) => {},
-  tunnel = (_host: string, _port: number, _byFetch: boolean): Promise<Tunnel | null> | null => null,
+  tunnel = (_host: string, _port: number): Promise<Tunnel | null> | null => null,
   onblocked = (_url: string) => {},
 } = {}): Https {
   const fetched = byFetch(onrequest, onblocked);
   return (connection, target) => {
-    const tunneled = tunnel(target.host, target.port, target.fetch ?? false);
+    const tunneled = tunnel(target.host, target.port);
     if (!tunneled) return fetched(connection, target);
     // The node writes nothing before the page's line.
     let closed = false;
