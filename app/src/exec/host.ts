@@ -316,15 +316,18 @@ let ways: ReturnType<typeof tailnet> | null = null;
 const tailnetWays = () => (ways ??= tailnet(rpc));
 
 // HTTPS to a host, for the nodes and the Node.js processes, by the
-// gateway (https.ts): through the tailnet where it takes it, else the
-// site's relay for the hosts it carries (relay.ts), with their own TLS
-// over its TCP (a process's: tls.ts); else fetch().
+// gateway (https.ts): through the tailnet where it takes it; for one of
+// the site's relay's hosts (relay.ts), as the IDE's page says (the
+// tailnet, the relay once the user allowed it, or neither: relay/client.ts);
+// with their own TLS over its TCP (a process's: tls.ts); else fetch().
 let gateway: Https | null = null;
 let relayTunnel: ReturnType<typeof relay> | null = null;
-const tunnel = (host: string, port: number): Promise<Tunnel | null> => {
-  const tailnetTunnel = tailnetWays().tunnel(host, port);
-  if (!relayed(host, port)) return tailnetTunnel;
-  return tailnetTunnel.then((opened) => opened ?? (relayTunnel ??= relay())(host, port));
+const tunnel = async (host: string, port: number): Promise<Tunnel | null> => {
+  if (!relayed(host, port)) return tailnetWays().tunnel(host, port);
+  const way = await rpc.call<'tailnet' | 'relay' | 'none'>('relayWay', [host]).catch(() => 'none');
+  if (way === 'tailnet') return tailnetWays().tunnel(host, port);
+  if (way === 'relay') return (relayTunnel ??= relay())(host, port);
+  return null;
 };
 const httpsGateway: Https = (connection, target) =>
   (gateway ??= httpsByFetch({ tunnel, onblocked: tailnetWays().blocked }))(connection, target);

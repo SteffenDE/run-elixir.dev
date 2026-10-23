@@ -180,7 +180,7 @@ chunks; the same memory.
   prototype, [tailscale.md](tailscale.md)), HTTPS, TCP, UDP and DNS go
   through the user's tailnet and exit node, to any host; tried against
   Headscale only. Without a tailnet, a few hosts that send no CORS
-  headers (GitHub, GitLab, Codeberg, Anthropic's console) are reached
+  headers (GitHub, GitLab, Codeberg, Anthropic's API) are reached
   through the site's TCP relay ([relay.md](relay.md), a prototype),
   HTTPS only.
 - **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run

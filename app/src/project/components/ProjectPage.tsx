@@ -22,6 +22,7 @@ import { ShareButton } from '@/project/components/ShareButton';
 import { ProjectSettings } from '@/project/components/ProjectSettings';
 import { TrustDialog } from '@/project/components/TrustDialog';
 import { ConsentDialog } from '@/tailscale/components/ConsentDialog';
+import { RelayDialog } from '@/relay/components/RelayDialog';
 import { TailscaleDialog } from '@/tailscale/components/TailscaleDialog';
 import { TailscaleMenu } from '@/tailscale/components/TailscaleMenu';
 import { NifBuildDialog } from '@/project/components/NifBuildDialog';
@@ -204,6 +205,7 @@ export function ProjectPage({ project, guest }: { project: Project | null; guest
       <NifBuildDialog />
       <TailscaleDialog />
       <ConsentDialog name={project?.name ?? 'this temporary IEx'} />
+      <RelayDialog name={project?.name ?? 'this temporary IEx'} />
       <TrustDialog />
       <QuickOpen />
       {narrow ? (

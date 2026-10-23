@@ -292,3 +292,18 @@ export async function userSettings(page: Page, value: object): Promise<void> {
     value,
   );
 }
+
+// A command whose connection to one of the relay's hosts the project's
+// question holds (RelayDialog, docs/relay.md): `answer` given, then its
+// output.
+export async function runAnswering(
+  page: Page,
+  command: string,
+  answer: 'Enable relay' | "Don't allow",
+) {
+  const ran = run(page, command);
+  const dialog = page.getByRole('dialog', { name: /^Let .* connect to / });
+  await dialog.getByRole('button', { name: answer }).click();
+  await expect(dialog).toBeHidden();
+  return ran;
+}

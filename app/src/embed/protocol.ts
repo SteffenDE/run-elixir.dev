@@ -40,6 +40,10 @@ export interface CreateOptions {
   persist?: boolean;
   // Every command's environment, under each spawn's own.
   env?: Record<string, string>;
+  // Let the project's code reach the site's TCP relay's hosts (GitHub,
+  // GitLab, Codeberg, Anthropic's API: docs/relay.md), which send no CORS
+  // headers. Off by default: no dialog asks here.
+  relay?: boolean;
 }
 
 export interface Created {

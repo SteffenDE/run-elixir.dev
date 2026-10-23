@@ -8,7 +8,7 @@ last_updated: 2026-10-23
 
 Without Tailscale, a node reaches HTTPS sites only by the page's
 `fetch()` (`https.ts`), which reads only sites that send CORS headers.
-GitHub's pages and downloads, GitLab, Codeberg and Anthropic's console
+GitHub's pages and downloads, GitLab, Codeberg and Anthropic's API
 send none. For a short list of such hosts, the backend makes the TCP
 connection instead, and the node (or Node.js process) does TLS over it
 itself, as it does through the tailnet. The backend sees the host, the
@@ -21,7 +21,9 @@ connection, the ClientHello check) and
 `app/src/runtime/relay.ts` (the page's side) and `exec/host.ts` (its
 place in the gateway). Tests: `backend/test/playground/relay*`,
 `backend/test/playground_web/relay_socket_test.exs`,
-`app/test/unit/relay.test.ts`, `app/test/e2e/relay.spec.ts` (with the
+`app/src/relay/` (the project's choice and its dialog, on the IDE's
+page). Tests: `app/test/unit/relay.test.ts`,
+`app/test/unit/relay-consent.test.ts`, `app/test/e2e/relay.spec.ts` (with the
 backend at `BACKEND`, `http://localhost:4000` by default; skipped
 without).
 
@@ -29,14 +31,37 @@ without).
 
 The HTTPS gateway (`https.ts`) carries a node's `ssl:connect` to a host
 name and a Node.js process's `tls.connect`, `https` and `fetch` to port
-443. `exec/host.ts`'s `tunnel(host, port)` decides:
+443. `exec/host.ts`'s `tunnel(host, port)` decides. A host off the relay's
+list goes through the tailnet where it takes it, else by `fetch()`, as
+before. For a host on it, on 443, that sends no CORS headers
+(`relayed()`), the exec frame asks the IDE's page (`relayWay`,
+`relay/client.ts`), which runs no project code and keeps each project's
+answer:
 
-1. **The tailnet**, where it takes the connection (Tailscale set up and
-   the project allowed: [tailscale.md](tailscale.md)).
-2. **The relay**, for a host on its list, on 443, that sends no CORS
-   headers (`relayed()`).
-3. **`fetch()`** otherwise; also when the relay cannot be reached (a
-   local build without a backend).
+1. **Tailscale runs with an exit node** (and the project did not refuse
+   the tailnet): the tailnet, whose own question
+   ([tailscale.md](tailscale.md)) still comes first if the project was
+   never asked.
+2. **The project allowed the relay:** the relay.
+3. **It refused it:** `fetch()`, which the host refuses (502), and no
+   question again.
+4. **Not asked yet:** the dialog (`RelayDialog`), the connection waiting
+   for its answer: *Enable relay*; *Allow Tailscale* (running with an
+   exit node, the project having refused it) or *Set up Tailscale* (the
+   Tailscale page, in a new tab; nothing kept, the next connection asks
+   again); *Don't allow*. Closing it says no.
+
+The answer is the apex's (`playground-relay-projects` in its storage, by
+project id; `iex` for the temporary IEx); the project's settings (top
+bar, *Network*) turn the relay on or off later. The setup hint
+(TailscaleDialog) does not show for a relayed host: the dialog asked.
+The exec frame could open `/relay` without asking (its origin may): the
+question is the user's say over their project, not a boundary; the list
+is that. `fetch()` also when the relay cannot be reached (a local build
+without a backend).
+
+**Embedded** ([embed.md](embed.md)), no dialog asks: `create({ relay:
+true })` lets the project use the relay, else it is off.
 
 **The list** is one file, `backend/priv/relay/hosts.json`, which the
 backend reads when it compiles and the page imports, so the page picks
@@ -44,7 +69,7 @@ a way without opening the socket:
 
 | Hosts | Way |
 | --- | --- |
-| `github.com`, `*.github.com`, `*.githubusercontent.com`, `gitlab.com`, `codeberg.org`, `pushin.eu`, `api.anthropic.com`, `platform.anthropic.com` | The relay. |
+| `github.com`, `*.github.com`, `*.githubusercontent.com`, `gitlab.com`, `codeberg.org`, `pushin.eu`, `api.anthropic.com`, `platform.claude.com` | The relay. |
 | `api.github.com`, `raw.githubusercontent.com` (its `fetch` list) | `fetch()`, from the user's own address: they send CORS headers on every path, so they spare the relay's bandwidth. The relay allows them too. |
 
 A host goes one way for all its paths: over the relay the TLS is the
@@ -61,8 +86,7 @@ of its settings`. Not even a Node.js process's request, whose path its
 2026-10-23). Without the relay (no backend), it is `fetch()` as before:
 the Messages API with an API key only.
 
-No setup hint for a relayed host, and no consent asked: nothing a
-`fetch()` could not reach but for CORS. Not `gen_tcp` to an address, nor
+Not `gen_tcp` to an address, nor
 names (DNS): those stay the tailnet's. git.wasm's HTTPS helper
 (`git-remote.ts`, no TLS of its own) keeps `/git/`.
 

@@ -46,6 +46,7 @@ const sandbox = await create({
   // project.id: the embedder's own name for it; the same name is the same project
   persist: true,          // keep /work, /home (~/.claude, ~/.npm) and Postgres
   env: { ANTHROPIC_API_KEY: '…' },                // every command's
+  relay: true,            // the site's TCP relay for GitHub, Anthropic's API, … (relay.md); off by default
   container: document.body,                       // where the 1px frame goes
   onProgress: ({ phase, text }) => {},
 });

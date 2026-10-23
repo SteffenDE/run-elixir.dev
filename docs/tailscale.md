@@ -362,6 +362,6 @@ refused dial).
 ## Without a tailnet: the site's relay
 
 For a few hosts that send no CORS headers (GitHub's pages and downloads,
-GitLab, Codeberg, Anthropic's console), the gateway's `tcp` line comes
+GitLab, Codeberg, Anthropic's API), the gateway's `tcp` line comes
 from the backend's TCP relay when the tailnet does not take the
 connection: [relay.md](relay.md).

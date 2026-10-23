@@ -26,6 +26,8 @@ import {
   tailscaleBlocked,
 } from '@/tailscale/client';
 import { claudePort } from '@/project/lib/programs/claude/frame';
+import { relayWay, setRelayProject } from '@/relay/client';
+import { relayed } from '@/runtime/relay';
 import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
 import {
   closePopup,
@@ -414,10 +416,14 @@ function listen(rpc: Rpc): void {
   on('changed', (paths) => void changed(paths));
   on('warning', (message) => useStore.getState().setStatus(message));
   on('nif', (build: NifBuild) => useStore.getState().setNifBuild(build));
-  on('blocked', tailscaleBlocked);
+  // Not for the relay's hosts: the project already chose how (RelayDialog).
+  on('blocked', (what: string) => {
+    const host = URL.canParse(what) ? new URL(what).hostname : '';
+    if (!relayed(host, 443)) tailscaleBlocked(what);
+  });
   // The apex's services, and the tailnet as this page lets the project
   // use it (docs/tailscale.md).
-  rpc.handle({ connect, tailnetDial, tailnetResolve, claudePort });
+  rpc.handle({ connect, tailnetDial, tailnetResolve, relayWay, claudePort });
 }
 
 // Unsaved edits: the browser asks before the page goes.
@@ -540,6 +546,7 @@ export async function shutdown(): Promise<void> {
   sharedPeers = null;
   rpc?.close();
   setTailnetProject(null);
+  setRelayProject(null);
   frame?.remove();
   frame = null;
   forgetRelays();
@@ -617,8 +624,10 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     );
     return false;
   }
-  // The tailnet, for this project as the user lets it (docs/tailscale.md).
+  // The tailnet and the relay, for this project as the user lets it
+  // (docs/tailscale.md, docs/relay.md).
   setTailnetProject(id ?? IEX);
+  setRelayProject(id ?? IEX);
   connectTailscale();
   store.setStatus('Starting the files…');
   // The user's settings, as this project takes them (settings.ts): one

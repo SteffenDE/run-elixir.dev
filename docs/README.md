@@ -55,7 +55,7 @@ beamos checkout (`BEAMOS`, or `../beamos`).
 | [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
 | [../beam/README.md](../beam/README.md) | The runtime: OTP's own emulator built with Emscripten, its patches, build, benchmarks, how it runs in the playground. |
 | [tailscale.md](tailscale.md) | Prototype: the node's HTTPS, TCP, UDP and names through the user's tailnet and an exit node; one Tailscale device per browser on the apex, its tag and policy, each project asked first, a project's servers shared in the tailnet, the setup hint shown once. |
-| [relay.md](relay.md) | Prototype: the backend's TCP relay for a few hosts without CORS headers (GitHub, GitLab, Codeberg, Anthropic's console) without a tailnet; its list, its socket's frames, the ClientHello check and its limits. |
+| [relay.md](relay.md) | Prototype: the backend's TCP relay for a few hosts without CORS headers (GitHub, GitLab, Codeberg, Anthropic's API) without a tailnet, which each project allows first; its list, its socket's frames, the ClientHello check and its limits. |
 | [distribution.md](distribution.md) | Plan: Erlang distribution between a project's nodes, and Livebook; the proof of concept and an estimate. |
 | [nif.md](nif.md) | NIF libraries as WebAssembly: the erl_nif layer, building packages' native code. |
 | [nodejs.md](nodejs.md) | Experiment: Node.js, npm and npx on the page's engine, worker threads and WASI, a node's `sh -c` in brush, Vite. |

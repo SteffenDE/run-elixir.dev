@@ -1,17 +1,21 @@
 import { RiArrowRightLine, RiSettings3Line } from '@remixicon/react';
 import { useLayoutEffect, useRef, useState } from 'react';
 import { refreshSettings } from '@/project/lib/playground';
+import { relayConsents, setRelayConsent } from '@/relay/client';
 import { EnvEditor } from '@/shared/components/EnvEditor';
 import { getProject, updateProject, type Project } from '@/shared/lib/projects';
 import { apexUrl } from '@/shared/lib/site';
 
 // The top bar's settings for this project, in a popover: what its first
-// shell runs at each start, its environment over the user's, and (one from
-// a link or a fork) whether it takes the user's settings.
+// shell runs at each start, its environment over the user's, whether it
+// may use the site's relay (docs/relay.md), and (one from a link or a
+// fork) whether it takes the user's settings.
 export function ProjectSettings({ project }: { project: Project }) {
   const [open, setOpen] = useState(false);
   const [current, setCurrent] = useState<Project | null>(null);
   const [saved, setSaved] = useState(false);
+  // Whether it may use the relay: null while not asked (RelayDialog asks).
+  const [relay, setRelay] = useState<boolean | null>(null);
   const button = useRef<HTMLButtonElement>(null);
   const panel = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -26,6 +30,7 @@ export function ProjectSettings({ project }: { project: Project }) {
   const toggle = async () => {
     if (open) return setOpen(false);
     setCurrent((await getProject(project.id)) ?? project);
+    setRelay(relayConsents()[project.id] ?? null);
     setSaved(false);
     setOpen(true);
   };
@@ -36,6 +41,7 @@ export function ProjectSettings({ project }: { project: Project }) {
   const save = async () => {
     const { startup, env, trust } = current!;
     await updateProject(project.id, { startup, env, trust });
+    if (relay !== null) setRelayConsent(project.id, relay);
     await refreshSettings();
     setSaved(true);
   };
@@ -82,6 +88,19 @@ export function ProjectSettings({ project }: { project: Project }) {
             env={current.env ?? {}}
             onChange={(env) => change({ env })}
           />
+          <h3>Network</h3>
+          <label className="live-check">
+            <input
+              type="checkbox"
+              checked={relay === true}
+              onChange={(event) => {
+                setRelay(event.target.checked);
+                setSaved(false);
+              }}
+            />
+            Use the playground's relay for hosts that block browsers (GitHub, GitLab, Codeberg,
+            Anthropic's API), when Tailscale does not connect them
+          </label>
           {current.origin && (
             <label className="live-check">
               <input
