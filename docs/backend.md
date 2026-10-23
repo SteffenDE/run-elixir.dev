@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-23
 ---
 
 # The backend (`backend`)
@@ -105,6 +105,16 @@ What each message and command does, the limits and what the relay sees:
 origins may open the socket: `PLAYGROUND_ORIGINS` (comma-separated, as
 `check_origin` takes them; `//run-elixir.dev` by default: every page is
 the apex's, and no page of the usercontent domain opens it).
+
+## The TCP relay
+
+`/relay` (`PlaygroundWeb.RelaySocket`) carries projects' TLS connections
+to a few listed hosts on port 443, for pages without a tailnet; each
+connection a process (`Playground.Relay.Connection`). Its list
+(`priv/relay/hosts.json`), frames, checks and limits:
+[relay.md](relay.md). The limits are `config :playground,
+Playground.Relay`; only `PLAYGROUND_RELAY_ORIGINS` may open it
+(`*.run-elixir-usercontent.org` by default: projects' exec frames).
 
 ## The sandbox
 

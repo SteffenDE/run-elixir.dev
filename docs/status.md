@@ -1,7 +1,7 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Status
@@ -179,8 +179,10 @@ chunks; the same memory.
   of reach (`enetunreach`, `nxdomain`). With Tailscale set up (a
   prototype, [tailscale.md](tailscale.md)), HTTPS, TCP, UDP and DNS go
   through the user's tailnet and exit node, to any host; tried against
-  Headscale only. A relay through the site (an allow-listed TCP relay)
-  stays the plan for those without a tailnet.
+  Headscale only. Without a tailnet, a few hosts that send no CORS
+  headers (GitHub, GitLab, Codeberg, Anthropic's console) are reached
+  through the site's TCP relay ([relay.md](relay.md), a prototype),
+  HTTPS only.
 - **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run
   in brush (on the `worktree-node` branch; on `main`, only `mix`,
   `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`); `os:cmd`
@@ -236,9 +238,8 @@ chunks; the same memory.
 5. A gate job for the playground tests; a persistent browser context per
    test worker.
 6. Zip export and import of a project ([projects.md](projects.md#plans)).
-7. A TCP relay through the site for the node's other connections, for
-   those without a tailnet (allow-listed hosts, TLS in the node), as an
-   API-only Phoenix app the collaboration relay can grow from.
+7. The TCP relay ([relay.md](relay.md#not-built-yet)): a budget per
+   client address, counts for the admin.
 8. Live sessions: what is left
    ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
    elixir-playground.steffend.me too.

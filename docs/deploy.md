@@ -358,8 +358,9 @@ run-elixir.dev, *.run-elixir.dev {
 	handle /embed.html {
 		respond 404
 	}
-	# NIF builds, which the exec frame's nodes fetch from their origin.
-	@backend path /api/nif/*
+	# NIF builds, which the exec frame's nodes fetch from their origin,
+	# and the TCP relay its gateway opens (relay.md).
+	@backend path /api/nif/* /relay
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000
 	}

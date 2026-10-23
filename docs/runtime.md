@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # The runtime (`app/src/runtime`)
@@ -41,7 +41,8 @@ JavaScript.
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT); raw without signals while a page program asks (Node's setRawMode): Ctrl+C is a key too. Ctrl+D on an empty line is the end of input, for a page program reading the terminal. |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
-| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's, over which the node does TLS: [tailscale.md](tailscale.md)). |
+| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's or the site's relay's, over which the node does TLS: [tailscale.md](tailscale.md), [relay.md](relay.md)). |
+| `relay.ts` | page | The site's TCP relay ([relay.md](relay.md)): for the gateway's `tcp`, a TCP connection to a listed host on 443 made by the backend, over one WebSocket for all of them; `relayed(host, port)`, which connections go there. |
 | `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: Tailscale's, else no such name). |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
