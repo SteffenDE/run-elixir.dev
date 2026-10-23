@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { Duplex } from 'node:stream';
+import { createHttp } from '@/runtime/nodejs/http';
 import { relay, relayed } from '@/runtime/relay';
+import { fetchable } from '@/runtime/relayList';
 
 const OPEN = 1;
 const OPENED = 2;
@@ -67,6 +71,46 @@ describe('which connections go through the relay', () => {
     expect(relayed('github.com', 22)).toBe(false);
     expect(relayed('github.com.evil.example', 443)).toBe(false);
     expect(relayed('example.com', 443)).toBe(false);
+  });
+});
+
+describe('which requests go by fetch() all the same', () => {
+  test("Anthropic's Messages API and models, not its other paths", () => {
+    expect(fetchable('api.anthropic.com', '/v1/messages')).toBe(true);
+    expect(fetchable('api.anthropic.com', '/v1/messages?beta=true')).toBe(true);
+    expect(fetchable('api.anthropic.com', '/v1/messages/count_tokens')).toBe(true);
+    expect(fetchable('api.anthropic.com', '/v1/models')).toBe(true);
+    expect(fetchable('api.anthropic.com', '/v1/messages/batches')).toBe(false);
+    expect(fetchable('api.anthropic.com', '/api/claude_code/settings')).toBe(false);
+    expect(fetchable('api.anthropic.com', '/api/hello')).toBe(false);
+    expect(fetchable('github.com', '/v1/messages')).toBe(false);
+  });
+
+  // What https.request asks the socket for.
+  function connectOptions(url: string) {
+    let options: Record<string, unknown> = {};
+    class Socket extends Duplex {
+      _read() {}
+      connect(given: Record<string, unknown>) {
+        options = given;
+        return this;
+      }
+    }
+    const { https } = createHttp({ Server: EventEmitter, Socket } as never);
+    https.request(url).destroy();
+    return options;
+  }
+
+  test("a Node.js process's https.request says so as it connects", () => {
+    expect(connectOptions('https://api.anthropic.com/v1/messages?beta=true')).toMatchObject({
+      host: 'api.anthropic.com',
+      https: true,
+      fetch: true,
+    });
+    expect(connectOptions('https://api.anthropic.com/api/claude_code/settings')).toMatchObject({
+      fetch: false,
+    });
+    expect(connectOptions('https://github.com/v1/messages')).toMatchObject({ fetch: false });
   });
 });
 

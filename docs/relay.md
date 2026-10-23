@@ -56,6 +56,14 @@ and an HTTP client reuses one connection for all of them. So
 does not. Without the relay (no backend), it is `fetch()` as before, and
 only the Messages API answers.
 
+A Node.js process's `https.request` (and its `fetch`, built on it) opens
+a connection per request and knows the path first: `http.ts` asks the
+gateway for `fetch()` for a path in the list's `fetch_paths`
+(`api.anthropic.com`'s `/v1/messages`, `/v1/messages/count_tokens`,
+`/v1/models`: they send CORS headers), sparing the relay the bulk of
+Claude Code's traffic. A node's `ssl:connect` and a bundled undici's
+`tls.connect` know only the host, and take the relay.
+
 No setup hint for a relayed host, and no consent asked: nothing a
 `fetch()` could not reach but for CORS. Not `gen_tcp` to an address, nor
 names (DNS): those stay the tailnet's. git.wasm's HTTPS helper
@@ -130,5 +138,8 @@ the listed hosts, with TLS it does itself.
 - **Counts** of connections and bytes for the admin.
 - **A Node.js process's `net.connect` to a listed host**, and a node's
   `gen_tcp`: they resolve the name first, which needs the tailnet's DNS.
+- **A Node.js process's request to `api.anthropic.com` through the
+  relay** gets its answer, but the process does not exit (the
+  `fixme` in `relay.spec.ts`): a connection apparently kept open.
 - **git over the relay** (git.wasm would need TLS of its own); `/git/`
   serves clones and fetches.

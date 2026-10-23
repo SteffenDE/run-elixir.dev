@@ -40,7 +40,7 @@ export interface Listener {
 export interface Ports {
   listen(port: number, listener: Listener): number | null;
   unlisten(port: number, listener: Listener): void;
-  route(port: number, host?: string): ((connection: Served) => void) | null;
+  route(port: number, host?: string, byFetch?: boolean): ((connection: Served) => void) | null;
   dial(
     connection: Served & { reset(): void },
     address: string,
@@ -109,7 +109,15 @@ class ScriptConnection implements Served {
 type NetMessage =
   | { kind: 'net'; op: 'listen'; ref: number; port: number }
   | { kind: 'net'; op: 'unlisten'; port: number }
-  | { kind: 'net'; op: 'connect'; id: number; port: number; host?: string; via?: 'tcp' | 'https' }
+  | {
+      kind: 'net';
+      op: 'connect';
+      id: number;
+      port: number;
+      host?: string;
+      via?: 'tcp' | 'https';
+      fetch?: boolean;
+    }
   | { kind: 'net'; op: 'dns'; ref: number; query: Uint8Array }
   | { kind: 'net'; op: 'data'; id: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'end' | 'close'; id: number }
@@ -188,7 +196,7 @@ export const nodeProgram =
           (error: Error & { code?: string }) => refused(error.code ?? 'EHOSTUNREACH'),
         );
       } else if (message.op === 'connect') {
-        const take = ports?.route(message.port, message.host) ?? null;
+        const take = ports?.route(message.port, message.host, message.fetch) ?? null;
         thread.postMessage({ kind: 'net', op: take ? 'connected' : 'refused', id: message.id });
         if (!take) return;
         const connection = new ScriptConnection(thread, message.id, forget, listener);
