@@ -56,7 +56,7 @@ describe('which connections go through the relay', () => {
     expect(relayed('gitlab.com', 443)).toBe(true);
     expect(relayed('codeberg.org', 443)).toBe(true);
     expect(relayed('pushin.eu', 443)).toBe(true);
-    expect(relayed('platform.anthropic.com', 443)).toBe(true);
+    expect(relayed('platform.claude.com', 443)).toBe(true);
     // Its Messages API sends CORS headers, Claude Code's settings there not.
     expect(relayed('api.anthropic.com', 443)).toBe(true);
   });

@@ -453,7 +453,7 @@ site does not host Claude Code's files.
   brush nor Node can run these embedded programs. The playground does
   not yet provide `find` or `grep` commands in the shell.
 - **Network access:** without the tailnet, `api.anthropic.com` and
-  `platform.anthropic.com` go through the site's TCP relay
+  `platform.claude.com` go through the site's TCP relay
   ([relay.md](relay.md)), with the process's own TLS: the settings
   endpoint (`/api/claude_code/settings`) and the OAuth host's
   `/api/hello` send no CORS headers, only the Messages API does. Without

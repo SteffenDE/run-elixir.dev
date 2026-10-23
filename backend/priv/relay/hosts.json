@@ -9,7 +9,7 @@
     "codeberg.org",
     "pushin.eu",
     "api.anthropic.com",
-    "platform.anthropic.com"
+    "platform.claude.com"
   ],
   "fetch": ["api.github.com", "raw.githubusercontent.com"]
 }

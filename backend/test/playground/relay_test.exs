@@ -5,7 +5,7 @@ defmodule Playground.RelayTest do
 
   test "the list's hosts on 443 only" do
     for host <- ~w(github.com codeload.github.com objects.githubusercontent.com gitlab.com
-                   codeberg.org pushin.eu api.anthropic.com platform.anthropic.com) do
+                   codeberg.org pushin.eu api.anthropic.com platform.claude.com) do
       assert Playground.Relay.allowed?(host, 443), host
       refute Playground.Relay.allowed?(host, 80), host
     end
