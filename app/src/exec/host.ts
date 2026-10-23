@@ -27,7 +27,8 @@ import {
   type NifBuild,
   type Served,
 } from '@/runtime/host/node';
-import { httpsByFetch } from '@/runtime/https';
+import { httpsByFetch, type Tunnel } from '@/runtime/https';
+import { relay, relayed } from '@/runtime/relay';
 import { dnsTcp, dnsUdp } from '@/runtime/dns';
 import { carry } from '@/runtime/portConnection';
 import { tailnet } from '@/tailscale/tailnet';
@@ -315,14 +316,18 @@ let ways: ReturnType<typeof tailnet> | null = null;
 const tailnetWays = () => (ways ??= tailnet(rpc));
 
 // HTTPS to a host, for the nodes and the Node.js processes, by the
-// gateway (https.ts): through the tailnet where it takes it, with their
-// own TLS over its TCP (a process's: tls.ts); else fetch().
+// gateway (https.ts): through the tailnet where it takes it, else the
+// site's relay for the hosts it carries (relay.ts), with their own TLS
+// over its TCP (a process's: tls.ts); else fetch().
 let gateway: Https | null = null;
+let relayTunnel: ReturnType<typeof relay> | null = null;
+const tunnel = (host: string, port: number): Promise<Tunnel | null> => {
+  const tailnetTunnel = tailnetWays().tunnel(host, port);
+  if (!relayed(host, port)) return tailnetTunnel;
+  return tailnetTunnel.then((opened) => opened ?? (relayTunnel ??= relay())(host, port));
+};
 const httpsGateway: Https = (connection, target) =>
-  (gateway ??= httpsByFetch({
-    tunnel: tailnetWays().tunnel,
-    onblocked: tailnetWays().blocked,
-  }))(connection, target);
+  (gateway ??= httpsByFetch({ tunnel, onblocked: tailnetWays().blocked }))(connection, target);
 
 // What answers on the project's ports for every node and process, made
 // once (each keeps what a connection needs with the connection).

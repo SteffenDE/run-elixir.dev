@@ -32,6 +32,8 @@ export default defineConfig({
       },
     },
   },
+  // The relay's host list is the backend's (runtime/relay.ts).
+  server: { fs: { allow: ['.', '../backend/priv/relay/hosts.json'] } },
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
   worker: { format: 'es' },
 });
