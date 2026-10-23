@@ -8,7 +8,7 @@ type Listener = (data: never) => void;
 
 type Message =
   | { call: number; method: string; args: unknown[] }
-  | { reply: number; value?: unknown; error?: string }
+  | { reply: number; value?: unknown; error?: string; code?: string }
   | { event: string; data: unknown };
 
 // A value to send with what it hands over (a result's buffers, say).
@@ -68,7 +68,8 @@ export class Rpc {
     if ('reply' in message) {
       const waiting = this.waiting.get(message.reply);
       this.waiting.delete(message.reply);
-      if (message.error !== undefined) waiting?.reject(new Error(message.error));
+      if (message.error !== undefined)
+        waiting?.reject(Object.assign(new Error(message.error), { code: message.code }));
       else waiting?.resolve(message.value);
     } else if ('call' in message) {
       try {
@@ -79,9 +80,12 @@ export class Rpc {
           result instanceof Transfer ? [result.value, result.transfer] : [result, []];
         this.port.postMessage({ reply: message.call, value } satisfies Message, list);
       } catch (error) {
+        // An error's code too (ENOENT, …), as Node's errors carry it.
+        const code = (error as { code?: unknown } | null)?.code;
         this.port.postMessage({
           reply: message.call,
           error: error instanceof Error ? error.message : String(error),
+          ...(typeof code === 'string' ? { code } : {}),
         } satisfies Message);
       }
     } else {

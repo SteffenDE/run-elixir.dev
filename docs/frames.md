@@ -130,6 +130,13 @@ A live session's guest has no exec frame: its page's bridge answers the
 relays of its own preview origins, its connections tunnelled to the
 host ([collaboration.md](collaboration.md#the-preview)).
 
+## Embedded by another site
+
+`embed.html` is the apex's part of a project without the IDE, framed by
+another site (an embedder the site names) that drives it from
+`embed.js`; it frames the same exec, claude and relay frames, which
+still answer the apex alone ([embed.md](embed.md)).
+
 ## Measurements (2026-10-19)
 
 A spike, in Playwright's Chromium (with site isolation on: the frame in a

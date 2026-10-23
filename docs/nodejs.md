@@ -177,12 +177,18 @@ end) and `{ op: 'kill', id }`, and hears `out` and `exit`; a child holds
 the loop until its `'close'`, and goes with the process. A command `sh`
 did not find (127, and sh's message for the program itself, nothing else)
 is spawn's `ENOENT`; another 127 keeps its status and output
-(`spawnSync` with `inherit` cannot tell). `kill()` stops the child's node
+(`spawnSync` with `inherit` cannot tell; sh's message comes on stderr,
+and both streams are read for it). `kill()` stops the child's node
 (which a closed port alone leaves running, as a node's port's program
 does), its status a SIGTERM's (143), its `signalCode` the signal
 `kill()` was given.
 
-- A page program has one output: a child's stderr comes on its stdout.
+- **stderr is its own stream:** a child's `child.stderr` (and exec's
+  callback's, spawnSync's) is what it wrote to fd 2: brush's own errors,
+  its children's, a node's `standard_error`, a page program's
+  (`writeError`, `OUTPUT_ERR` frames to its process's fd 2: runtime.md),
+  npm's and npx's warnings and errors, claude's progress. `stdio` `[…, …,
+  1]` is `2>&1`. A terminal still shows both as one.
 - What the program writes to `child.stdin` is the child's input, and
   `end()` its end (its `sh -c` node passes it on, byte for byte, to what
   it runs: a page program, a coreutils tool, rg).
@@ -190,8 +196,8 @@ does), its status a SIGTERM's (143), its `signalCode` the signal
   does on a TTY): the child's output goes there.
 - **`spawnSync`, `execSync`, `execFileSync`:** the spawn carries a
   SharedArrayBuffer of `maxBuffer`'s size (Node's 1 MiB; more is
-  `ENOBUFS`), which the exec frame fills with the child's output and then
-  its status, and the process waits on it (`Atomics.wait`), standing
+  `ENOBUFS`, for each stream), which the exec frame fills with the
+  child's stdout and stderr and then its status, and the process waits on it (`Atomics.wait`), standing
   still meanwhile as Node's does. `input` is the child's stdin and then
   its end; `timeout` stops it (`ETIMEDOUT`); with `stdio: 'inherit'` its
   output is the process's own as it comes. `execSync` throws on a failure,
@@ -530,14 +536,13 @@ the browser can report unhandled promise rejections.
 
 1. A pool of kept connections for `http.Agent({ keepAlive })` (and
    `fetch`'s); `fd` in WebAssembly beside `rg` (its walker's threads).
-2. `child_process`'s rest: a child's own stderr, the terminal for one
-   that inherits stdin, fork's IPC; brotli in
+2. `child_process`'s rest: the terminal for one that inherits stdin,
+   fork's IPC; brotli in
    `zlib`; more entries in npm's `STAND_INS` as projects need them
    (`@swc/core` → `@swc/wasm`, `rollup` → `@rollup/wasm-node`,
    `sass-embedded` → `sass`), each checked by hand.
 3. A Phoenix project whose assets are a Vite app.
-4. A REPL (`node` alone); a page program's own stderr (a third
-   stream); a test of a resize and of a TUI (Ink).
+4. A REPL (`node` alone); a test of a resize and of a TUI (Ink).
 5. `fs.watch` in a worker thread (only a process hears the changes); a
    worker thread's `fetch` of an `http(s)` URL is the browser's, which
    the policy now refuses and which, without it, did not settle (the

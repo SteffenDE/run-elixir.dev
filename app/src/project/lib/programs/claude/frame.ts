@@ -4,6 +4,7 @@
 // none of Claude Code, and runs none of it.
 import { transfer, type Transfer } from '@/shared/lib/rpc';
 import { claudeOrigin } from '@/shared/lib/site';
+import { unseen } from '@/shared/lib/execFrame';
 
 let loading: Promise<{ element: HTMLIFrameElement; origin: string }> | null = null;
 
@@ -14,12 +15,9 @@ function frame(): Promise<{ element: HTMLIFrameElement; origin: string }> {
       reject(new Error('this site names no usercontent domain (docs/frames.md)'));
       return;
     }
-    const element = document.createElement('iframe');
-    element.src = `${origin}/claude.html`;
     // Unseen, as the exec frame (a hidden frame's workers are slowed in WebKit).
-    element.className = 'exec-frame';
-    element.setAttribute('aria-hidden', 'true');
-    element.tabIndex = -1;
+    const element = unseen(document.createElement('iframe'));
+    element.src = `${origin}/claude.html`;
     const timer = setTimeout(() => {
       removeEventListener('message', loaded);
       element.remove();

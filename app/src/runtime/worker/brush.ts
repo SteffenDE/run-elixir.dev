@@ -34,8 +34,9 @@ export interface BrushOptions {
   root: Dir;
   fetch: Fetch;
   shared: Shared | null;
-  // The terminal's output.
+  // The terminal's output, and brush's own errors (default: the output).
   out: (bytes: Uint8Array) => void;
+  err?: (bytes: Uint8Array) => void;
   // The terminal as brush's line editor (reedline, over crossterm) has it:
   // raw input on or off, its size, and up to `max` bytes of its input
   // within `timeout` ms (-1: until some come); null when it was resized.
@@ -66,7 +67,7 @@ export async function brush(options: BrushOptions): Promise<number> {
     root: options.root,
     stdin: () => new Uint8Array(0),
     stdout: (bytes) => options.out(bytes.slice()),
-    stderr: (bytes) => options.out(bytes.slice()),
+    stderr: (bytes) => (options.err ?? options.out)(bytes.slice()),
     sleep: (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms),
     tty: !options.stdio,
     fetch: options.fetch,

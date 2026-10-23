@@ -26,6 +26,8 @@ export interface BeamRun {
   // beam.wasm compiled on the page, if it was.
   wasm?: WebAssembly.Module;
   stdout: (bytes: Uint8Array) => void;
+  // Its standard error (default: stdout).
+  stderr?: (bytes: Uint8Array) => void;
 }
 
 // The node's memory: shared, and as large as it may grow here (a shared
@@ -65,7 +67,7 @@ export async function runBeam(run: BeamRun): Promise<number> {
     size: [channel.size[0], channel.size[1]],
     onMode: (raw) => channel.mode(raw),
     stdout: run.stdout,
-    stderr: run.stdout,
+    stderr: run.stderr ?? run.stdout,
     memory: run.memory ?? undefined,
     wasm: run.wasm,
   });

@@ -97,6 +97,9 @@ const SHARED = ['/work', '/tmp', '/home', '/shared'];
 const INPUT_WINDOW = 1 << 20;
 const say = (kind: string, payload: unknown) => postMessage({ kind, payload });
 const text = (string: string) => say('out', new TextEncoder().encode(string));
+// The node's standard error, apart from its output (the page may merge
+// them: a terminal's).
+const errorText = (string: string) => say('err', new TextEncoder().encode(string));
 // sh and bash (a stand-in for it, Claude Code's shell): brush's -c.
 const isSh = (name?: string) =>
   name !== undefined && /^(sh|bash)$/.test(name.slice(name.lastIndexOf('/') + 1));
@@ -351,12 +354,14 @@ onmessage = async ({
 
     // One node, until it halts or is interrupted.
     // extra: a command line's NAME=value assignments, for it alone.
-    // stdout: where its output goes, the terminal's by default.
+    // stdout, stderr: where its output and errors go, the node's own by
+    // default.
     const run = async (
       argv: string[],
       cwd: string,
       extra: Record<string, string> = {},
       stdout: (bytes: Uint8Array) => void = (bytes) => say('out', bytes),
+      stderr: (bytes: Uint8Array) => void = (bytes) => say('err', bytes),
     ): Promise<number> => {
       const vars = { ...env, ...extra };
       const network = new Network({
@@ -416,6 +421,7 @@ onmessage = async ({
           memory: sharedMemory(),
           wasm: beamModule,
           stdout,
+          stderr,
         });
       } finally {
         processes.hosting--;
@@ -438,8 +444,10 @@ onmessage = async ({
     // shell's again after it.
     const pageProgram =
       (name: string, args: string[]): Program =>
-      async (child, { cwd, env: vars, stdio: [input, output] }) => {
+      async (child, { cwd, env: vars, stdio: [input, output, errors] }) => {
         const process = new Process();
+        // Its standard error to the process's own (a pipe's, the node's).
+        process.errors = [];
         let wake = () => {};
         // What the input waits on: the program to take what it was sent.
         let taken = () => {};
@@ -491,6 +499,9 @@ onmessage = async ({
             // come while a pipe is full (other processes take in frames),
             // and its end after all it wrote.
             const ended = process.ended;
+            // What reads its errors may be gone: they are dropped then.
+            for (const bytes of process.errors.splice(0))
+              await writeAll(errors, bytes, child, sharedFs);
             for (const bytes of process.output.splice(0))
               if (!(await writeAll(output, bytes, child, sharedFs))) {
                 process.onclose?.();
@@ -633,7 +644,13 @@ onmessage = async ({
     const external: Run = async (program, given, at, vars, io) => {
       const found = find(program, given, at);
       if (!found || !('node' in found)) return null;
-      const status = await run(found.node, at, vars, io.stdout ?? undefined);
+      const status = await run(
+        found.node,
+        at,
+        vars,
+        io.stdout ?? undefined,
+        io.stderr ?? undefined,
+      );
       if (status === 130) text('\n');
       return status;
     };
@@ -642,7 +659,7 @@ onmessage = async ({
     const standard: [Descriptor, Descriptor, Descriptor] = [
       { stream: true, source: readInput, ready: inputReady, tty: channel.tty[0] },
       { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
-      { stream: true, sink: (bytes) => say('out', bytes), tty: channel.tty[1] },
+      { stream: true, sink: (bytes) => say('err', bytes), tty: channel.tty[1] },
     ];
     // One node, not under a shell: its command, to its end (its git and
     // the like are processes of the table above).
@@ -653,7 +670,7 @@ onmessage = async ({
         ? command(named[0], named.slice(1), (path) => fs.read(join(cwd, path)))
         : erlArgs;
       if (!argv) {
-        text(`${named![0]}: command not found\n`);
+        errorText(`${named![0]}: command not found\n`);
         say('exit', 127);
         return;
       }
@@ -702,6 +719,7 @@ onmessage = async ({
       fetch: fetchFile,
       shared: sharedFs,
       out: (bytes: Uint8Array) => say('out', bytes),
+      err: (bytes: Uint8Array) => say('err', bytes),
       terminal,
       processes,
       standard,
@@ -761,7 +779,7 @@ onmessage = async ({
       const cwd = env.PWD || start;
       const parsed = shArgs(named!.slice(1), cwd);
       if ('message' in parsed) {
-        text(parsed.message);
+        (parsed.status ? errorText : text)(parsed.message);
         say('exit', parsed.status);
         return;
       }

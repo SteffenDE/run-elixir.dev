@@ -27,6 +27,7 @@ export default defineConfig({
         relay: 'relay.html',
         exec: 'exec.html',
         claude: 'claude.html',
+        embed: 'embed.html',
         storage: 'storage.html',
       },
     },

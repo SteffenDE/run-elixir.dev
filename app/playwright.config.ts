@@ -6,6 +6,11 @@ import { defineConfig, devices } from '@playwright/test';
 const port = Number(process.env.PORT || 8081);
 const domains = (on: number) =>
   `--domain playground.localhost:${on} --usercontent usercontent.localhost:${on}`;
+// A test embedder (docs/embed.md), a site of its own on the same port,
+// which the site lets embed it.
+const embedder = (on: number) =>
+  `--embedders http://embedder.localhost:${on} --embedder-host embedder.localhost:${on} ` +
+  `--embedder-root test/embed`;
 const DEVICES: Record<string, string> = {
   chromium: 'Desktop Chrome',
   firefox: 'Desktop Firefox',
@@ -38,7 +43,7 @@ export default defineConfig({
   // to this machine).
   webServer: [
     {
-      command: `python3 -I ../runtime/serve.py ${port} ${domains(port)}`,
+      command: `python3 -I ../runtime/serve.py ${port} ${domains(port)} ${embedder(port)}`,
       url: `http://localhost:${port}/`,
       reuseExistingServer: true,
       stderr: 'ignore',

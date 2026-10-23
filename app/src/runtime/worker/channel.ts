@@ -19,6 +19,7 @@ export const FRAME = {
   DATAGRAM: 13,
   MODE: 14,
   TAKEN: 15,
+  OUTPUT_ERR: 16,
 };
 export const RING = 1 << 20;
 // Atomics.waitAsync, which not every browser has.
@@ -132,6 +133,7 @@ export class Channel {
           this.peers.add((payload[at] << 8) | payload[at + 1]);
         if (net) net.peers = this.peers;
       } else if (kind === FRAME.OUTPUT) this.processes.get(id)?.write(payload);
+      else if (kind === FRAME.OUTPUT_ERR) this.processes.get(id)?.writeError(payload);
       else if (kind === FRAME.TAKEN) {
         const process = this.processes.get(id);
         if (process) {

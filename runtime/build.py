@@ -27,7 +27,10 @@ rebar3) and the Phoenix template, a phx.new app, at /work/playground.
   version they were made over.
 - playground.json: the apex and the usercontent domain,
   PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
-  (app/src/shared/lib/site.ts, docs/frames.md).
+  (app/src/shared/lib/site.ts, docs/frames.md), and the origins that may
+  frame embed.html, PLAYGROUND_EMBEDDERS (docs/embed.md);
+- runtime.json: the OTP and Elixir versions the runtime is, which an
+  embedder's natively compiled .beam files must match (docs/embed.md).
 
 Built flat, the site is then versioned: what keeps its name across builds
 but the pages, the service worker, playground.json and app/public's files
@@ -479,8 +482,14 @@ def page(out, wasm):
     # And the domain whose subdomains run what a project's code does
     # (PLAYGROUND_USERCONTENT, another site; docs/frames.md).
     usercontent = os.environ.get("PLAYGROUND_USERCONTENT") or None
+    # The origins that may frame embed.html and drive it (docs/embed.md),
+    # space-separated.
+    embedders = (os.environ.get("PLAYGROUND_EMBEDDERS") or EMBEDDERS).split()
     with open(os.path.join(out, "playground.json"), "w") as f:
-        json.dump({"domain": domain, "usercontent": usercontent}, f)
+        json.dump({"domain": domain, "usercontent": usercontent, "embedders": embedders}, f)
+    # The runtime's OTP and Elixir, the embedders' contract (docs/embed.md).
+    with open(os.path.join(out, "runtime.json"), "w") as f:
+        json.dump(runtime_versions(), f)
     # Link previews want an absolute og:image; a site without a domain
     # keeps the path (most fetchers resolve it against the page).
     if domain:
@@ -493,18 +502,34 @@ def page(out, wasm):
             f.write(text.replace(image, f'<meta property="og:image" content="https://{domain}/og.png"'))
 
 
+# The origins that may embed the site by default (docs/embed.md).
+EMBEDDERS = "https://tidewave.ai https://tidewave.steffend.me http://localhost:4000"
+
+
+def runtime_versions():
+    """The installation's OTP and Elixir versions: {otp, elixir}."""
+    releases = os.path.join(INSTALL, "releases")
+    with open(os.path.join(releases, os.listdir(releases)[0], "OTP_VERSION")) as f:
+        otp = f.read().strip()
+    with open(os.path.join(INSTALL, "lib", "elixir", "ebin", "elixir.app")) as f:
+        elixir = re.search(r'\{vsn,\s*"([^"]+)"\}', f.read()).group(1)
+    return {"otp": otp, "elixir": elixir}
+
+
 # What stays at the site's root, by name: the pages, the service worker
 # (its scope is /), the site's configuration, the content-hashed Vite
 # assets, the builds and the runtimes; and what Vite copies from
 # app/public (the icons, the manifest, og.png), which the pages name there.
 ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.html", "storage.html", "sw.js",
+              "embed.html", "embed.js",
               "playground.json", "_playground", "b", "r",
               *os.listdir(os.path.join(ROOT, "app", "public"))}
 # What goes to r/RID/: the BEAM and what it reads, which the JavaScript
 # does not change.
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
                  "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm", "sed.wasm",
-                 "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm", "find.wasm"}
+                 "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm", "find.wasm",
+                 "runtime.json"}
 
 
 def unversion(out):

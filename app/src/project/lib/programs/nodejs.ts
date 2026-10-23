@@ -208,9 +208,10 @@ export const nodeProgram =
     // The process's children: each a sh -c line, its output and status
     // back to the process.
     // A synchronous one (spawnSync, execSync) writes into `shared`, whose
-    // first three ints are [done, status, length] (length -1: more than
-    // it holds, ENOBUFS), the bytes after; the process waits on done. With
-    // `inherit`, its output is the process's own, as it comes.
+    // first four ints are [done, status, stdout's length, stderr's] (a
+    // length -1: more than it holds, ENOBUFS), then room for each, alike;
+    // the process waits on done. With `inherit`, its output is the
+    // process's own, as it comes.
     const children = new Map<number, Process>();
     const spawned = (message: {
       id: number;
@@ -222,31 +223,42 @@ export const nodeProgram =
       inherit?: boolean;
     }) => {
       const { id, shared: result } = message;
-      const header = result ? new Int32Array(result, 0, 3) : null;
-      const room = result ? new Uint8Array(result, 12) : null;
-      let length = 0;
+      const header = result ? new Int32Array(result, 0, 4) : null;
+      const size = result ? (result.byteLength - 16) / 2 : 0;
+      const rooms = result
+        ? [new Uint8Array(result, 16, size), new Uint8Array(result, 16 + size, size)]
+        : null;
+      const lengths = [0, 0];
       let ended = false;
       const encode = (data: string | Uint8Array) =>
         typeof data === 'string' ? new TextEncoder().encode(data) : data;
+      // Its stdout (0) or stderr (1): the process's own, the room, or
+      // messages.
+      const out = (stream: 0 | 1, bytes: Uint8Array) => {
+        if (message.inherit) {
+          if (stream && process.writeError) process.writeError(bytes);
+          else process.write(bytes);
+        } else if (rooms) {
+          const room = rooms[stream];
+          const length = lengths[stream];
+          if (length < 0 || length + bytes.length > room.length) lengths[stream] = -1;
+          else {
+            room.set(bytes, length);
+            lengths[stream] += bytes.length;
+          }
+        } else thread.postMessage({ kind: 'child', op: stream ? 'err' : 'out', id, bytes });
+      };
       const child: Process = {
-        write: (data) => {
-          const bytes = encode(data);
-          if (message.inherit) process.write(bytes);
-          else if (room) {
-            if (length < 0 || length + bytes.length > room.length) length = -1;
-            else {
-              room.set(bytes, length);
-              length += bytes.length;
-            }
-          } else thread.postMessage({ kind: 'child', op: 'out', id, bytes });
-        },
+        write: (data) => out(0, encode(data)),
+        writeError: (data) => out(1, encode(data)),
         exit: (code = 0) => {
           if (ended) return;
           ended = true;
           children.delete(id);
           if (header) {
             Atomics.store(header, 1, code);
-            Atomics.store(header, 2, length);
+            Atomics.store(header, 2, lengths[0]);
+            Atomics.store(header, 3, lengths[1]);
             Atomics.store(header, 0, 1);
             Atomics.notify(header, 0);
           } else thread.postMessage({ kind: 'child', op: 'exit', id, code });
@@ -257,13 +269,13 @@ export const nodeProgram =
       children.set(id, child);
       const sh = programs().sh;
       if (!sh) {
-        child.write('sh: not in this playground\n');
+        child.writeError!('sh: not in this playground\n');
         return child.exit(127);
       }
       Promise.resolve(
         sh(child, { args: ['-c', message.line], cwd: message.cwd, env: message.env, fs: shared }),
       ).catch((error: Error) => {
-        child.write(`${error.message}\n`);
+        child.writeError!(`${error.message}\n`);
         child.exit(1);
       });
       // What it reads, given whole (spawnSync's input), then its end.
@@ -293,7 +305,9 @@ export const nodeProgram =
       process.exit(code);
     };
     thread.onmessage = ({ data }) => {
-      if (data.kind === 'out') process.write(data.bytes);
+      // Its stdout, and its stderr apart where the process's is.
+      if (data.kind === 'out')
+        (data.fd === 2 && process.writeError ? process.writeError : process.write)(data.bytes);
       else if (data.kind === 'net') network(data);
       // setRawMode: keys as typed, Ctrl+C one of them.
       else if (data.kind === 'tty') process.raw?.(data.raw, !data.raw);
@@ -306,7 +320,9 @@ export const nodeProgram =
     };
     thread.onerror = (event) => {
       event.preventDefault();
-      process.write(`node: ${event.message || 'the worker failed to start'}\n`);
+      (process.writeError ?? process.write)(
+        `node: ${event.message || 'the worker failed to start'}\n`,
+      );
       stop(1);
     };
     process.onkill = () => stop(130);

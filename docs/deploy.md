@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # Deploying the site
@@ -13,7 +13,8 @@ Forgejo runner and makes it live on the server as a new release
 1. **Build** (`build-site.sh`): the NIF libraries, then the site with
    the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.2 and
    Elixir 1.20.4), with `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`
-   from the repository's variables.
+   from the repository's variables (and `PLAYGROUND_EMBEDDERS`, the sites
+   that may embed it: [embed.md](embed.md)).
 2. **Upload** (`upload.sh SITE user@host`): the server seeds
    `releases/RID.partial` with the live release's files, hard-linked, and
    this build's `b/ID/` and runtime's `r/RID/` with the live ones' (a
@@ -30,7 +31,8 @@ Forgejo runner and makes it live on the server as a new release
    served (the isolation headers, the page naming this build, the pages
    and `sw.js` no-cache, its runtime's `beam.wasm` as WebAssembly and
    immutable, and with a usercontent domain an exec frame's headers there
-   and its Node.js worker's `Content-Security-Policy`);
+   and its Node.js worker's `Content-Security-Policy`, and `embed.html`'s
+   and `embed.js`'s headers, [embed.md](embed.md));
    if that fails, the previous release is live again and the deploy fails.
    Then Cloudflare drops its copies of the apex's pages (if configured), and
    releases beyond `KEEP_RELEASES` go.
@@ -118,7 +120,8 @@ repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 
 Only the pages keep their names across deploys: `index.html` (every
 route's page), `preview.html`, `relay.html`, `exec.html`, `storage.html`,
-`sw.js` and `playground.json`, with `app/public`'s files. They are served
+`embed.html`, `embed.js`, `sw.js` and `playground.json`, with
+`app/public`'s files. They are served
 `Cache-Control: no-cache`, which Cloudflare honours whatever its cache
 rules: it may keep them, but asks the server each time (a `304` while
 unchanged), so a deploy is seen at once. `b/`, `r/` and `_playground/` are
@@ -148,6 +151,11 @@ a safety net only.
   ([architecture.md](architecture.md#hex)). Only what Hex fetches is
   proxied. Without it, the page falls back to a public mirror that sends
   CORS headers (hexpm.upyun.com, slower).
+- **embed.html and embed.js** for the sites that embed the playground
+  ([embed.md](embed.md#headers)): `embed.html` framed by them alone
+  (`frame-ancestors`) under their COEP (CORP `cross-origin`), `embed.js`
+  with CORS; the proxies refuse other sites' pages (`Sec-Fetch-Site:
+  cross-site`).
 - **git clones at `/git/`.** Git dependencies are fetched by the page
   over git's smart HTTP, which GitHub, GitLab and Codeberg serve without
   CORS headers; the site proxies cloning and fetching only (no pushes).
@@ -214,7 +222,21 @@ starts no project: its pages say so.
 	header {
 		Cross-Origin-Opener-Policy same-origin
 		Cross-Origin-Embedder-Policy require-corp
-		Cross-Origin-Resource-Policy same-site
+	}
+	@own not path /embed.html /embed.js
+	header @own Cross-Origin-Resource-Policy same-site
+	# embed.html, framed by the sites that embed the playground
+	# (PLAYGROUND_EMBEDDERS) under their COEP, and embed.js, which their
+	# pages import (embed.md).
+	@embed path /embed.html
+	header @embed {
+		Cross-Origin-Resource-Policy cross-origin
+		Content-Security-Policy "frame-ancestors https://tidewave.ai https://tidewave.steffend.me http://localhost:4000"
+	}
+	@embedjs path /embed.js
+	header @embedjs {
+		Cross-Origin-Resource-Policy cross-origin
+		Access-Control-Allow-Origin *
 	}
 }
 (usercontent) {
@@ -227,6 +249,20 @@ starts no project: its pages say so.
 	# serve.py sends the same.
 	@nodejs path_regexp nodejs ^/b/([^/]+)/(nodejs\.js|chunks/[^/]+\.js)$
 	header @nodejs Content-Security-Policy "default-src 'none'; script-src https://{host}/b/{re.nodejs.1}/nodejs.js https://{host}/b/{re.nodejs.1}/chunks/ 'unsafe-eval' 'wasm-unsafe-eval'; worker-src https://{host}/b/{re.nodejs.1}/nodejs.js https://{host}/b/{re.nodejs.1}/chunks/ blob:; connect-src https://{host}/r/ data: blob:"
+}
+
+# The proxies answer the site's own pages and frames, not another site's
+# (embed.md: no boundary for other clients). Imported first in each site:
+# handle blocks are tried in the order they appear (and a bare respond
+# would run after them all).
+(proxies) {
+	@crosssite {
+		path /hex/* /git/* /api/nif/*
+		header Sec-Fetch-Site cross-site
+	}
+	handle @crosssite {
+		respond 403
+	}
 }
 
 (playground) {
@@ -287,6 +323,7 @@ starts no project: its pages say so.
 # Without a usercontent domain it starts no project (frames.md).
 elixir-playground.steffend.me {
 	root * /srv/playground/elixir-playground/current
+	import proxies
 	import apex
 	import playground
 }
@@ -298,6 +335,7 @@ run-elixir.dev, *.run-elixir.dev {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
 	root * /srv/playground/run-elixir/current
+	import proxies
 	# The backend (backend.md): NIF builds, and /socket for live sessions.
 	@backend path /api/nif/* /socket /socket/*
 	handle @backend {
@@ -315,6 +353,11 @@ run-elixir.dev, *.run-elixir.dev {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
 	root * /srv/playground/run-elixir/current
+	import proxies
+	# Only the apex is embedded (embed.md); before the files' handle.
+	handle /embed.html {
+		respond 404
+	}
 	# NIF builds, which the exec frame's nodes fetch from their origin.
 	@backend path /api/nif/*
 	handle @backend {
@@ -350,4 +393,7 @@ usercontent.localhost:PORT` it answers `playground.json` with the two
 domains, whatever the build says, and the usercontent domain's hosts
 with its headers: browsers resolve `*.localhost` to this machine, and
 with two labels each is a site of its own (Chromium takes `localhost` for
-a top-level domain).
+a top-level domain). `--embedders "ORIGIN …"` names the sites that may
+embed it instead of the build's, and `--embedder-host HOST
+--embedder-root DIR` serves a test embedder's page there, cross-origin
+isolated ([embed.md](embed.md)).

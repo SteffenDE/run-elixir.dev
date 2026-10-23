@@ -71,8 +71,11 @@ export const claudeProgram =
   (programs: () => Record<string, Program>, connect: () => Promise<MessagePort>) =>
   async (process: Process, context: Context): Promise<void> => {
     const node = programs().node;
+    // Its progress and errors on stderr: its stdout may be a program's
+    // to read (the Agent SDK's stream-json).
+    const err = (text: string) => (process.writeError ?? process.write)(text);
     if (!node) {
-      process.write('claude: node is not in this playground\n');
+      err('claude: node is not in this playground\n');
       return process.exit(1);
     }
     // Input (including EOF) can arrive while the shared cache prepares.
@@ -91,13 +94,13 @@ export const claudeProgram =
     process.onowner = cancel;
     let dir: string;
     try {
-      const { version, files } = await claudeFiles(connect, (text) => process.write(text), signal);
+      const { version, files } = await claudeFiles(connect, err, signal);
       dir = `${DIR}/${version}`;
       await install(context.fs as unknown as Files, dir, files, signal);
       signal.throwIfAborted();
     } catch (error) {
       if (signal.aborted) return;
-      process.write(`claude: ${(error as Error).message}\n`);
+      err(`claude: ${(error as Error).message}\n`);
       return process.exit(1);
     }
     const running = node(process, {

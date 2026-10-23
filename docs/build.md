@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # Building the site (`runtime/build.py`)
@@ -82,9 +82,11 @@ rebar3), and builds the template with the host's Mix in
 target/site/
   index.html, preview.html,  the app's Vite build (assets in _playground/), each
   relay.html, exec.html,       naming its build and runtime: <meta name="playground-build">,
-  storage.html                 <meta name="playground-runtime">
+  storage.html, embed.html     <meta name="playground-runtime">
+  embed.js                   the embedders' client (embed.md), self-contained, at the root
   sw.js                      the service worker, at the root for its scope /
-  playground.json            the apex and the usercontent domain (frames.md)
+  playground.json            the apex, the usercontent domain (frames.md) and the
+                               sites that may embed it (PLAYGROUND_EMBEDDERS, embed.md)
   favicon.ico, icons/,       app/public as it is: the icons, the web app manifest,
   manifest.webmanifest,        the link preview's card (og:image, absolute with a
   og.png                       project domain)
@@ -108,6 +110,7 @@ target/site/
       diff3.wasm, sdiff.wasm     (213, 131, 133, 138 KB gzipped)
     gawk.wasm                  GNU awk (tools/gawk/build.py), 1.5 MB (415 KB gzipped)
     find.wasm                  GNU find (tools/findutils/build.py), 877 KB (278 KB gzipped)
+    runtime.json               its OTP and Elixir versions, the embedders' contract (embed.md)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
@@ -146,7 +149,8 @@ The filesystem holds:
 
 1. **Vite build.** `npm ci && npm run build` in `app`, in Docker:
    `tsc --noEmit`, the app (`vite.config.ts`), then the runtime
-   (`vite.runtime.config.ts`). Its browser entries, `worker.js`,
+   (`vite.runtime.config.ts`) and `embed.js` (`vite.embed.config.ts`, one
+   module with nothing to share). Its browser entries, `worker.js`,
    `files.js` and `sw.js`, keep their names (the page starts
    them by URL; `sw.js` is the service worker), beside the app's in
    `dist/`, which goes into the site; with `--mode node`, the Node harness

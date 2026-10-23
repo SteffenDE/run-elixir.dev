@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import { Channel, END, FRAME, INPUT, RING } from '@/runtime/worker/channel';
+import { Process } from '@/runtime/wasi/process';
 
 // A channel, and a way to write the page's frames to it (host/node.ts's).
 function channel() {
@@ -65,5 +66,24 @@ describe("a process's input to a node", () => {
     frame(FRAME.INPUT, INPUT.TERMINAL, [4]);
     c.pump();
     expect(c.input[0]).not.toBe(END);
+  });
+});
+
+describe("a page program's output to a node", () => {
+  test('its standard error comes apart where the process keeps it so, else with its output', () => {
+    const { channel: c, frame } = channel();
+    const apart = new Process();
+    apart.errors = [];
+    const merged = new Process();
+    c.processes.set(1, apart);
+    c.processes.set(2, merged);
+    for (const id of [1, 2]) {
+      frame(FRAME.OUTPUT, id, [111]);
+      frame(FRAME.OUTPUT_ERR, id, [101]);
+    }
+    c.pump();
+    expect(apart.output.map((bytes) => [...bytes])).toEqual([[111]]);
+    expect(apart.errors.map((bytes) => [...bytes])).toEqual([[101]]);
+    expect(merged.output.map((bytes) => [...bytes])).toEqual([[111], [101]]);
   });
 });

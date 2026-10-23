@@ -7,25 +7,16 @@
 // tabs. Everything the UI does to the project goes through here.
 import { Terminal } from '@xterm/xterm';
 import { EditStateManager } from '@pierre/diffs/edit';
-import { PGlite } from '@electric-sql/pglite';
-import { citext } from '@electric-sql/pglite/contrib/citext';
-import { fuzzystrmatch } from '@electric-sql/pglite/contrib/fuzzystrmatch';
-import { hstore } from '@electric-sql/pglite/contrib/hstore';
-import { ltree } from '@electric-sql/pglite/contrib/ltree';
-import { pg_trgm } from '@electric-sql/pglite/contrib/pg_trgm';
-import { pgcrypto } from '@electric-sql/pglite/contrib/pgcrypto';
-import { unaccent } from '@electric-sql/pglite/contrib/unaccent';
-import { uuid_ossp } from '@electric-sql/pglite/contrib/uuid_ossp';
 import type { ExecEvents, ExecStart } from '@/exec/host';
 import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
 import type { Connection, NifBuild } from '@/runtime/host/node';
 import type { GitOptions, GitOutput } from '@/runtime/host/git';
 import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
 import { PortConnection } from '@/runtime/portConnection';
-import { postgres } from '@/runtime/postgres';
 import { REPORT, lineDiscipline } from '@/runtime/terminal';
 import { BUILD, RUNTIME } from '@/shared/lib/build';
-import { Rpc } from '@/shared/lib/rpc';
+import type { Rpc } from '@/shared/lib/rpc';
+import { startExecFrame } from '@/shared/lib/execFrame';
 import {
   connectTailscale,
   IEX,
@@ -49,7 +40,7 @@ import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { baseline, clone } from '@/project/lib/git';
 import { repositoryLabel } from '@/shared/lib/repository';
 import { filesChanged as changesHeard, watchChanges } from '@/project/lib/review';
-import { filesStore, pgliteDataDir, SHARED_STORE } from '@/shared/lib/storage';
+import { filesStore, SHARED_STORE } from '@/shared/lib/storage';
 import type { KeptRecord } from '@/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
 import { applied, loadSettings, SETTINGS_CHANNEL, type Applied } from '@/shared/lib/settings';
@@ -61,7 +52,7 @@ import { setWorkspace, type Workspace } from './workspace';
 import { forgetRelays, previewRelay } from './previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
-import { hex } from './hex';
+import { apexServices } from './services';
 import { setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
@@ -106,12 +97,8 @@ const SETUP_SCRIPT = '/tmp/playground-setup.sh';
 // The other projects open in this browser, which hear what this one kept
 // in /shared and tell it what they kept.
 let sharedPeers: BroadcastChannel | null = null;
-// Started on the first connection to 5432; a stored project's is kept in
-// IndexedDB.
-let db: Promise<PGlite> | null = null;
-// Postgres on 5432 for every node: one handler, so that the nodes'
-// connections take turns in PGlite's one session.
-let serveDatabase = postgres(database);
+// Postgres and Hex's cache for the nodes (services.ts), the project's.
+let services = apexServices(null);
 let nextSession = 1;
 export const FIRST_SESSION = 1;
 // The ports Node.js processes serve on (exec/host.ts's 'serving').
@@ -332,35 +319,10 @@ const preview: PreviewHost = {
   shows: (port) => void exec?.call('previewShows', [port]),
 };
 
-function database(): Promise<PGlite> {
-  // The extensions Phoenix apps ask for (phx.gen.auth: citext), a few KB
-  // each, for CREATE EXTENSION.
-  const extensions = {
-    citext,
-    fuzzystrmatch,
-    hstore,
-    ltree,
-    pg_trgm,
-    pgcrypto,
-    unaccent,
-    uuid_ossp,
-  };
-  db ??= PGlite.create(projectId ? pgliteDataDir(projectId) : undefined, {
-    extensions,
-  });
-  return db;
-}
-
-// The apex's services for the nodes (exec/host.ts carries their
-// connections here): Postgres, and Hex's cache. Each remote node has a
-// stand-in, which postgres.ts tells nodes apart by.
-const standIns = new Map<number, object>();
-function connect(service: 'postgres' | 'hex', node: number, id: number, port: MessagePort): void {
-  if (!standIns.has(node)) standIns.set(node, {});
-  const connection = new PortConnection(port, standIns.get(node)!, id) as unknown as Connection;
-  if (service === 'postgres') serveDatabase(connection);
-  else hex(connection);
-}
+// The apex's services, as the exec frame carries the nodes' connections
+// here (exec/host.ts apex).
+const connect = (service: string, node: number, id: number, port: MessagePort) =>
+  services.connect(service, node, id, port);
 
 // A shell in a new terminal tab (the first runs `initial`).
 export function openTerminal(initial: string[] = []): number {
@@ -585,10 +547,8 @@ export async function shutdown(): Promise<void> {
   sessions.clear();
   nextSession = 1;
   scriptPorts = new Set();
-  const pglite = await db?.catch(() => null);
-  await pglite?.close().catch(() => {});
-  db = null;
-  serveDatabase = postgres(database);
+  await services.close();
+  services = apexServices(null);
 }
 
 // The page goes to another of the apex's pages in place (navigate.ts):
@@ -631,67 +591,6 @@ export const local: Workspace = {
   restartServer,
 };
 
-// The frame that runs the project (e-KEY on the usercontent domain), its
-// worker's port once it started. After the page's load: a frame of
-// another site would hold its load event up (Firefox) until it started.
-async function startFrame(origin: string, signal: AbortSignal): Promise<Rpc> {
-  if (document.readyState !== 'complete')
-    await new Promise<void>((resolve, reject) => {
-      const loaded = () => {
-        signal.removeEventListener('abort', cancelled);
-        resolve();
-      };
-      const cancelled = () => {
-        removeEventListener('load', loaded);
-        reject(signal.reason);
-      };
-      signal.addEventListener('abort', cancelled, { once: true });
-      addEventListener('load', loaded, { once: true });
-    });
-  signal.throwIfAborted();
-  return new Promise((resolve, reject) => {
-    const element = document.createElement('iframe');
-    element.src = `${origin}/exec.html`;
-    element.className = 'exec-frame';
-    element.setAttribute('aria-hidden', 'true');
-    element.tabIndex = -1;
-    // Its own SharedArrayBuffers and threads (Chromium asks for this).
-    element.allow = 'cross-origin-isolated';
-    const cleanup = () => {
-      removeEventListener('message', loaded);
-      signal.removeEventListener('abort', cancelled);
-      clearTimeout(timer);
-    };
-    const cancelled = () => {
-      cleanup();
-      element.remove();
-      reject(signal.reason);
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      element.remove();
-      reject(new Error(`${origin}: the project did not start`));
-    }, 30000);
-    const loaded = (event: MessageEvent) => {
-      if (event.origin !== origin || event.source !== element.contentWindow) return;
-      if (event.data?.kind !== 'playground-exec-loaded') return;
-      cleanup();
-      if (!event.data.isolated) {
-        element.remove();
-        reject(new Error(`${origin} is not cross-origin isolated (see docs/frames.md).`));
-        return;
-      }
-      const channel = new MessageChannel();
-      element.contentWindow!.postMessage({ kind: 'playground-exec' }, origin, [channel.port2]);
-      resolve(new Rpc(channel.port1));
-    };
-    addEventListener('message', loaded);
-    signal.addEventListener('abort', cancelled, { once: true });
-    frame = element;
-    document.body.append(element);
-  });
-}
-
 // Start a project of `kind`: the frame that runs it, its files, and the
 // first shell. `id`: the stored project's, whose changes are kept (none
 // for a temporary IEx). False if startup was cancelled or failed.
@@ -700,6 +599,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   const { signal } = startup;
   kind = workspaceKind;
   projectId = id;
+  services = apexServices(id);
   // This page's project (it may have run another before).
   setPreviewKey();
   setWorkspace(local);
@@ -748,7 +648,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   }
   settings = applied(user, project);
   try {
-    const rpc = await startFrame(origin, signal);
+    const rpc = await startExecFrame(origin, signal, document.body, (element) => {
+      frame = element;
+    });
     if (signal.aborted) {
       rpc.close();
       return false;
@@ -841,7 +743,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     // For tests and the curious.
     Object.assign(window, {
       playground: {
-        database,
+        database: () => services.database(),
         files,
         git,
         sessions,
@@ -862,7 +764,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
         // (see runtime/trace.ts for tracing it as it happens).
         debug: async () => ({
           ...(await rpc.call<object>('debug')),
-          postgres: serveDatabase.debug(),
+          postgres: services.serveDatabase.debug(),
         }),
       },
     });

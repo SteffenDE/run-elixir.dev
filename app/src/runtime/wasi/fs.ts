@@ -264,6 +264,8 @@ export interface TarEntry {
   type: string;
   body: Uint8Array;
   mtime: bigint;
+  // What a link ('1' hard, '2' symbolic) names.
+  link: string;
 }
 
 export function* entries(tar: Uint8Array): Generator<TarEntry> {
@@ -273,9 +275,11 @@ export function* entries(tar: Uint8Array): Generator<TarEntry> {
     return new TextDecoder().decode(tar.subarray(from, end));
   };
   // A GNU long name ('L') or a pax header's path ('x', as npm's tarballs
-  // have them): the next entry's name. A global pax header ('g') says
-  // nothing a file needs.
+  // have them): the next entry's name; a GNU long link name ('K') or a pax
+  // linkpath, its link's. A global pax header ('g') says nothing a file
+  // needs.
   let longName: string | null = null;
+  let longLink: string | null = null;
   for (let at = 0; at + 512 <= tar.length;) {
     if (tar[at] === 0) break;
     let name = text(at, 100);
@@ -288,17 +292,26 @@ export function* entries(tar: Uint8Array): Generator<TarEntry> {
     const size = parseInt(text(at + 124, 12).trim() || '0', 8);
     const mtime = BigInt(parseInt(text(at + 136, 12).trim() || '0', 8)) * 1000000000n;
     const type = String.fromCharCode(tar[at + 156] || 48);
+    let link = text(at + 157, 100);
+    if (longLink !== null && type !== 'K' && type !== 'L' && type !== 'x') {
+      link = longLink;
+      longLink = null;
+    }
     const body = at + 512;
     if (type === 'L') longName = text(body, size);
-    else if (type === 'x') longName = paxPath(tar.subarray(body, body + size));
-    else if (type !== 'g') yield { name, type, body: tar.slice(body, body + size), mtime };
+    else if (type === 'K') longLink = text(body, size);
+    else if (type === 'x') {
+      const records = tar.subarray(body, body + size);
+      longName = paxRecord(records, 'path');
+      longLink = paxRecord(records, 'linkpath');
+    } else if (type !== 'g') yield { name, type, body: tar.slice(body, body + size), mtime, link };
     at = body + Math.ceil(size / 512) * 512;
   }
 }
 
-// A pax header's path ("LENGTH path=VALUE\n" records, LENGTH in bytes), or
+// A pax header's record `key` ("LENGTH key=VALUE\n", LENGTH in bytes), or
 // null.
-function paxPath(records: Uint8Array): string | null {
+function paxRecord(records: Uint8Array, key: string): string | null {
   const decoder = new TextDecoder();
   for (let at = 0; at < records.length;) {
     const space = records.indexOf(32, at);
@@ -306,7 +319,7 @@ function paxPath(records: Uint8Array): string | null {
     const length = parseInt(decoder.decode(records.subarray(at, space)), 10);
     if (!(length > 0)) break;
     const record = decoder.decode(records.subarray(space + 1, at + length - 1));
-    if (record.startsWith('path=')) return record.slice(5);
+    if (record.startsWith(`${key}=`)) return record.slice(key.length + 1);
     at += length;
   }
   return null;
@@ -335,12 +348,20 @@ export function untarInto(
   keep: (name: string) => boolean = () => true,
 ): number {
   let count = 0;
-  for (const { name, type, body, mtime } of entries(tar)) {
+  for (const { name, type, body, mtime, link } of entries(tar)) {
     if (!keep(name)) continue;
     if (type === '5') root.mkdirs(name);
     else if (type === '0') {
       root.put(name, new File(body)).mtime = mtime;
       count++;
+    } else if (type === '2') root.put(name, new Symlink(link)).mtime = mtime;
+    else if (type === '1') {
+      // A hard link: the same file under a second name (an earlier entry's).
+      const [, ...parts] = `/${link}`.split('/');
+      let node: FsNode | undefined = root;
+      for (const part of parts.filter(Boolean))
+        node = node instanceof Dir ? node.entries.get(part) : undefined;
+      if (node instanceof File) root.put(name, node);
     }
   }
   return count;

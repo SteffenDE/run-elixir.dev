@@ -9,6 +9,7 @@ production's unless --api names another backend (http://localhost:4000,
 say).
 
     python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
+        [--embedders "ORIGIN ..."] [--embedder-host HOST --embedder-root DIR]
 
 With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
@@ -19,6 +20,14 @@ whatever the build says. The usercontent domain's hosts are framed by the
 apex's pages from another site (Cross-Origin-Resource-Policy:
 cross-origin) and open no window of their own isolated; the apex's former
 project addresses (p-ID.DOMAIN) send their visitors to the apex.
+
+embed.html, the page another site frames to run a project
+(docs/embed.md), may be framed by the origins playground.json names
+(`embedders`, or --embedders), and is answered with what lets it be
+framed under the embedder's COEP; embed.js, its client, with CORS. With
+--embedder-host (embedder.localhost:8081, say) that host is a test
+embedder of its own site, serving --embedder-root's files cross-origin
+isolated, as an embedder serves its page.
 """
 import functools
 import http.server
@@ -44,10 +53,21 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     # What Hex fetches from its repository, and nothing else.
     HEX = re.compile(r"^/hex/(names|versions|public_key|(packages|tarballs)/[A-Za-z0-9_.+-]+)$")
 
+    def cross_site(self):
+        """A browser's request from another site's page: the proxies answer
+        the site's own frames and pages, not another site's (a page of
+        another site could not read the answer anyway; this keeps the
+        proxies from being anyone's through visitors' browsers). Not a
+        boundary for other clients, which send what they like."""
+        return self.headers.get("Sec-Fetch-Site") == "cross-site"
+
     def proxy_hex(self, head):
         path = self.HEX.match(self.path.split("?")[0])
         if not path:
             return False
+        if self.cross_site():
+            self.send_error(403)
+            return True
         request = urllib.request.Request("https://repo.hex.pm/" + path.group(1),
                                          method="HEAD" if head else "GET",
                                          headers={"User-Agent": "playground-serve"})
@@ -73,7 +93,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not match:
             return False
         host, repo, endpoint = match.groups()
-        if (method, endpoint, query) not in (("GET", "info/refs", "service=git-upload-pack"),
+        if self.cross_site() or (method, endpoint, query) not in (("GET", "info/refs", "service=git-upload-pack"),
                                              ("POST", "git-upload-pack", "")):
             self.send_error(403)
             return True
@@ -102,6 +122,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def proxy_api(self):
         if not self.API.match(self.path.split("?")[0]):
             return False
+        if self.cross_site():
+            self.send_error(403)
+            return True
         request = urllib.request.Request(API + self.path, headers={"User-Agent": "playground-serve"})
         try:
             upstream = urllib.request.urlopen(request, timeout=60)
@@ -161,8 +184,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_error(405)
 
     def do_GET(self):
-        if (DOMAIN is not None or USERCONTENT is not None) and self.path.split("?")[0] == "/playground.json":
-            data = json.dumps({"domain": DOMAIN, "usercontent": USERCONTENT}).encode()
+        if self.embedder():
+            super().do_GET()
+        elif self.usercontent() and self.path.split("?")[0] == "/embed.html":
+            # Only the apex is embedded (docs/embed.md).
+            self.send_error(404)
+        elif OVERRIDES and self.path.split("?")[0] == "/playground.json":
+            data = json.dumps(site_config()).encode()
             self.send_response(200)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(data)))
@@ -176,9 +204,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self.proxy_hex(True):
             super().do_HEAD()
 
+    def translate_path(self, path):
+        # The test embedder's page and scripts, from their own directory.
+        if self.embedder():
+            relative = urllib.parse.unquote(path.split("?")[0]).lstrip("/") or "index.html"
+            return os.path.join(EMBEDDER_ROOT, os.path.normpath("/" + relative).lstrip("/"))
+        return super().translate_path(path)
+
+    def embedder(self):
+        host = (self.headers.get("Host") or "").lower()
+        return EMBEDDER_HOST is not None and host == EMBEDDER_HOST.lower()
+
     def send_head(self):
         # The app's routes (/ID/, /phoenix, ...) are the page.
-        if not os.path.exists(self.translate_path(self.path)):
+        if not self.embedder() and not os.path.exists(self.translate_path(self.path)):
             self.path = "/index.html"
         return super().send_head()
 
@@ -188,7 +227,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def end_headers(self):
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
-        if self.usercontent():
+        path = self.path.split("?")[0]
+        if self.embedder():
+            # An embedder's own page, cross-origin isolated as it must be;
+            # its files (an app's archive) fetched by the project's frame,
+            # another site: with CORS.
+            self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            self.send_header("Access-Control-Allow-Origin", "*")
+        elif path == "/embed.html":
+            # Framed by an embedder's page, another site, under its COEP;
+            # by those the site names alone.
+            self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
+            ancestors = " ".join(site_config().get("embedders") or []) or "'none'"
+            self.send_header("Content-Security-Policy", f"frame-ancestors {ancestors}")
+        elif path == "/embed.js":
+            # The client, which an embedder's page imports (a module: CORS).
+            self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
+            self.send_header("Access-Control-Allow-Origin", "*")
+        elif self.usercontent():
             # The apex's pages frame these from another site.
             self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
         else:
@@ -220,11 +277,29 @@ def node_policy(origin, build):
             f"worker-src {scripts} blob:; connect-src {origin}/r/ data: blob:")
 
 
+def site_config():
+    """playground.json as served: the site's, with what the command line
+    names instead."""
+    try:
+        with open(os.path.join(directory, "playground.json")) as f:
+            config = json.load(f)
+    except (OSError, ValueError):
+        config = {}
+    return {**config, **OVERRIDES}
+
+
 directory = os.path.join(ROOT, "target", "site")
 args = sys.argv[1:]
-OPTIONS = ("--domain", "--usercontent", "--api")
-DOMAIN = args[args.index("--domain") + 1] if "--domain" in args else None
-USERCONTENT = args[args.index("--usercontent") + 1] if "--usercontent" in args else None
+OPTIONS = ("--domain", "--usercontent", "--api", "--embedders", "--embedder-host", "--embedder-root")
+option = lambda name: args[args.index(name) + 1] if name in args else None
+DOMAIN = option("--domain")
+USERCONTENT = option("--usercontent")
+EMBEDDERS = option("--embedders")
+EMBEDDER_HOST = option("--embedder-host")
+EMBEDDER_ROOT = os.path.abspath(option("--embedder-root") or ".")
+OVERRIDES = {key: value for key, value in (("domain", DOMAIN), ("usercontent", USERCONTENT),
+                                           ("embedders", EMBEDDERS and EMBEDDERS.split()))
+             if value is not None}
 API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir.dev").rstrip("/")
 args = [arg for i, arg in enumerate(args)
         if arg not in OPTIONS and (i == 0 or args[i - 1] not in OPTIONS)]

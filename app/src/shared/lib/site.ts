@@ -27,9 +27,18 @@ interface Site {
   // A name under either domain that is no address (a reserved name, or a
   // mistyped one).
   stray: boolean;
+  // The origins that may frame embed.html and drive it (docs/embed.md).
+  embedders: string[];
 }
 
-let site: Site = { domain: null, usercontent: null, preview: null, moved: null, stray: false };
+let site: Site = {
+  domain: null,
+  usercontent: null,
+  preview: null,
+  moved: null,
+  stray: false,
+  embedders: [],
+};
 
 // A preview of one port of a project's app (or a temporary IEx's): v-, its
 // id and the port.
@@ -51,15 +60,21 @@ function movedFrom(name: string): string | null {
 
 // Read the site's configuration, once, before anything asks.
 export async function loadSite(): Promise<void> {
-  const config: { domain?: unknown; usercontent?: unknown } = await fetch('/playground.json', {
-    cache: 'no-cache',
-  })
+  const config: { domain?: unknown; usercontent?: unknown; embedders?: unknown } = await fetch(
+    '/playground.json',
+    {
+      cache: 'no-cache',
+    },
+  )
     .then((response) => (response.ok ? response.json() : {}))
     .catch(() => ({}));
   const domain = typeof config.domain === 'string' && config.domain ? config.domain : null;
   const usercontent =
     typeof config.usercontent === 'string' && config.usercontent ? config.usercontent : null;
-  site = { domain, usercontent, preview: null, moved: null, stray: false };
+  const embedders = Array.isArray(config.embedders)
+    ? config.embedders.filter((origin): origin is string => typeof origin === 'string')
+    : [];
+  site = { domain, usercontent, preview: null, moved: null, stray: false, embedders };
   const host = location.host;
   if (usercontent && host.endsWith(`.${usercontent}`)) {
     site.preview = previewName(host.slice(0, -usercontent.length - 1));
@@ -70,6 +85,8 @@ export async function loadSite(): Promise<void> {
   }
 }
 
+// The origins that may embed the site (embed.html).
+export const embedders = () => site.embedders;
 // The usercontent domain, if the site has one.
 export const usercontentDomain = () => site.usercontent;
 // This page is on a name that is no address.

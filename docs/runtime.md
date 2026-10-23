@@ -392,12 +392,13 @@ What is missing, the worker fetches and compiles itself.
 | 12 `CONNECTED` | How dialing a connection the node opened to another host (id) went: an int8, 1 or a negative errno; once connected, its local end: family (4 or 6), address, port (u16, big-endian). |
 | 13 `DATAGRAM` | A datagram for the node's UDP port (id): the source's port (u16, big-endian), family (4 or 6) and address (4 or 16 bytes), then its bytes. |
 | 7 `OUTPUT`, 8 `EXIT` | A page program's output and exit code (u8). |
+| 16 `OUTPUT_ERR` | A page program's standard error: to its process's fd 2 where the worker keeps it apart (`pageProgram`), else with its output (a node's port's program). |
 
 **Node → page: messages.**
 
 | Message | Meaning |
 | --- | --- |
-| `out` | Terminal output (bytes). |
+| `out`, `err` | Output (bytes): fd 1, and fd 2 apart (`onoutput(bytes, fd)`; the IDE's terminals show both). |
 | `status` | Loading progress, then `running`. |
 | `exit` | The command's exit status (one-command mode). |
 | `net` | Connection traffic: `open` (a port the page serves, or with `host` the HTTPS gateway), `dial` (another host's address and port), `data`, `end`, `close` and `refused`, by id. |
@@ -442,8 +443,8 @@ through the user's tailnet ([tailscale.md](tailscale.md)).
 `node.datagram(to, address, port, bytes)` sends the node one.
 
 **Page programs.** `programs: { name: (process, { args, cwd, env, fs }) => …
-}` run on the page and may be async. `process.write`, `process.exit` and
-`process.onkill`. `fs` is the shared `Files`.
+}` run on the page and may be async. `process.write`, `process.writeError`
+(its stderr), `process.exit` and `process.onkill`. `fs` is the shared `Files`.
 
 `new Files({ base, boots, template, store, onchange, onwarning })` starts
 `files.js` from the site's boot images and manifest (only the shared paths

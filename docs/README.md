@@ -1,7 +1,7 @@
 ---
 kind: index
 status: live
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Playground documentation
@@ -46,6 +46,7 @@ beamos checkout (`BEAMOS`, or `../beamos`).
 | --- | --- |
 | [architecture.md](architecture.md) | The moving parts: page, workers, service worker, shared files, how a request reaches Phoenix. |
 | [frames.md](frames.md) | The apex as the one trusted origin; previews (and next, the project's runtime) in frames of the usercontent domain; measurements. |
+| [embed.md](embed.md) | Experiment: run-elixir.dev embedded by another site (Tidewave's IDE): embed.js and embed.html, the API, who may embed it, versions, archives of natively built apps, headers. |
 | [projects.md](projects.md) | Projects: kinds, URLs, what is stored where, one tab per project, deleting; plans for sharing and collaboration. |
 | [collaboration.md](collaboration.md) | Plan: *Share* as a link or a live session; the encrypted relay, permissions, editing with Yjs, terminals and preview for guests. |
 | [git.md](git.md) | git in a project: git itself built to WebAssembly (git.wasm), the shell's and the nodes' only git, its processes, HTTPS transport and git's own test suite; the diff view, a repository opened as a project, push to GitHub and its token; plans for signing in, and the origins that keep a project's code from the account. |

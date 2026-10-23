@@ -5,6 +5,9 @@ import { CHUNK, FRAME, type Node, type SpawnMessage } from './node';
 // A program the node started that runs on the page.
 export interface PageProcess {
   write(data: string | Uint8Array): void;
+  // Its standard error, apart from its output (where the node keeps them
+  // apart: a pipe's; else with it).
+  writeError?(data: string | Uint8Array): void;
   exit(code?: number): void;
   // The node closed its port.
   onkill: (() => void) | null;
@@ -47,6 +50,12 @@ export function spawn(node: Node, { id, name, args, cwd, env, tty }: SpawnMessag
       const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
       for (let at = 0; at < bytes.length; at += CHUNK)
         node.frame(FRAME.OUTPUT, id, bytes.subarray(at, at + CHUNK));
+    },
+    writeError: (data) => {
+      if (exited) return;
+      const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
+      for (let at = 0; at < bytes.length; at += CHUNK)
+        node.frame(FRAME.OUTPUT_ERR, id, bytes.subarray(at, at + CHUNK));
     },
     exit: (code = 0) => {
       if (exited) return;
@@ -92,7 +101,7 @@ export function spawn(node: Node, { id, name, args, cwd, env, tty }: SpawnMessag
       }),
     )
     .catch((error) => {
-      process.write(`${name}: ${error.message}\n`);
+      process.writeError!(`${name}: ${error.message}\n`);
       process.exit(1);
     });
 }

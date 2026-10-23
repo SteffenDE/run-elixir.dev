@@ -88,12 +88,15 @@ export class Files implements FileSystem {
   ready: Promise<void>;
   // Once ready.
   boot: Boot | null = null;
+  // The archive's top directories, below /work (its 'start').
+  archived: string[] = [];
 
   // base: where files.js is; runtime: the site's files (build.ts
   // RUNTIME), by default base. boots, template, store: what files.js
   // starts with (its 'start'); storePort, in place of store: a port to
   // the apex's store (overlay.ts remote, docs/frames.md); sharedPort: a
-  // port to /shared's, the user's for every project.
+  // port to /shared's, the user's for every project; archive: a gzipped
+  // tar's URL whose directories go below /work, a template's.
   // onwarning(message): a change that was not kept; onkept(records): what
   // it kept in /shared, for the other projects open (apply).
   constructor({
@@ -101,6 +104,7 @@ export class Files implements FileSystem {
     runtime = null as string | null,
     boots = ['boot'],
     template = [] as string[],
+    archive = null as string | null,
     store = null as string | null,
     storePort = null as MessagePort | null,
     sharedPort = null as MessagePort | null,
@@ -116,6 +120,7 @@ export class Files implements FileSystem {
       this.worker.onmessage = ({ data }) => {
         if (data.kind === 'ready') {
           this.boot = data.boot;
+          this.archived = data.archived ?? [];
           resolve();
         } else if (data.kind === 'failed') reject(new Error(data.message));
         else if (data.kind === 'changed') onchange(data.paths);
@@ -137,6 +142,7 @@ export class Files implements FileSystem {
         doorbell: this.doorbell,
         boots,
         template,
+        archive,
         store,
         storePort,
         sharedPort,

@@ -633,6 +633,7 @@ function runProgram(program: Program, process: Process, context: Context): Promi
     let done = false;
     const inner: Process = {
       write: (data) => process.write(data),
+      writeError: (data) => (process.writeError ?? process.write)(data),
       exit: (code = 0) => {
         if (done) return;
         done = true;
@@ -645,10 +646,26 @@ function runProgram(program: Program, process: Process, context: Context): Promi
     };
     process.onkill = () => inner.onkill?.();
     process.onowner = () => inner.onowner?.();
-    process.oninput = (bytes) => inner.oninput?.(bytes);
+    // What comes before the program reads (npx's install, node's start)
+    // waits for it, as a pipe's would.
+    const early: (Uint8Array | null)[] = [];
+    let reader: Process['oninput'] = null;
+    Object.defineProperty(inner, 'oninput', {
+      get: () => reader,
+      set: (read: Process['oninput']) => {
+        reader = read;
+        // (Each may set another reader, or none.)
+        while (early.length) {
+          const next: Process['oninput'] = reader;
+          if (!next) break;
+          next(early.shift()!);
+        }
+      },
+    });
+    process.oninput = (bytes) => (reader ? reader(bytes) : void early.push(bytes));
     process.onresize = (columns, rows) => inner.onresize?.(columns, rows);
     Promise.resolve(program(inner, context)).catch((error) => {
-      process.write(`${(error as Error).message}\n`);
+      inner.writeError!(`${(error as Error).message}\n`);
       inner.exit(1);
     });
   });
@@ -695,6 +712,8 @@ export const npmProgram =
   async (process: Process, context: Context): Promise<void> => {
     const fs = context.fs as unknown as Files;
     const out = (text: string) => process.write(text);
+    // Warnings and errors, on stderr as npm's.
+    const err = (text: string) => (process.writeError ?? process.write)(text);
     const [command = 'help', ...rest] = context.args;
     const flags = new Set(rest.filter((a) => a.startsWith('-')));
     const names = rest.filter((a) => !a.startsWith('-'));
@@ -719,7 +738,7 @@ export const npmProgram =
               exact: flags.has('-E') || flags.has('--save-exact'),
               save: !flags.has('--no-save'),
             },
-            out,
+            err,
           );
           out(
             added
@@ -833,7 +852,7 @@ export const npmProgram =
           throw new NpmError(`${command}: not a command the playground's npm has (npm help)`);
       }
     } catch (error) {
-      out(`npm error ${(error as Error).message}\n`);
+      err(`npm error ${(error as Error).message}\n`);
       return process.exit(1);
     }
   };
@@ -858,9 +877,10 @@ async function npx(
   context: Context,
 ): Promise<number> {
   const fs = context.fs as unknown as Files;
+  const err = (text: string) => (process.writeError ?? process.write)(text);
   const [request, ...args] = context.args.filter((a, i) => i > 0 || !/^(-y|--yes)$/.test(a));
   if (!request) {
-    process.write('npx: a package or command to run\n');
+    err('npx: a package or command to run\n');
     return 1;
   }
   const [name, spec] = splitRequest(request);
@@ -881,7 +901,7 @@ async function npx(
         ? Object.keys(found)[0]
         : null;
     if (!chosen) {
-      process.write(
+      err(
         `npx: ${name} has no bin to run${Object.keys(found).length ? ` (it has ${Object.keys(found).join(', ')})` : ''}\n`,
       );
       return 1;
@@ -901,7 +921,7 @@ export const npxProgram =
     try {
       process.exit(await npx(programs, process, context));
     } catch (error) {
-      process.write(`npx error ${(error as Error).message}\n`);
+      (process.writeError ?? process.write)(`npx error ${(error as Error).message}\n`);
       process.exit(1);
     }
   };

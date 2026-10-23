@@ -38,7 +38,7 @@ KEEP_BUILDS=${KEEP_BUILDS:-3}
 RELEASES=$SITE/releases
 # The pages and what keeps its name; everything else is under b/ID (the
 # runtime's JavaScript) and r/RID (the BEAM, fs/, nif/).
-PAGES=(index.html preview.html relay.html exec.html storage.html sw.js playground.json)
+PAGES=(index.html preview.html relay.html exec.html storage.html sw.js playground.json embed.html embed.js)
 
 die() {
   echo "playground-deploy: $*" >&2
@@ -120,6 +120,16 @@ check() {
     "${curl[@]}" -o /dev/null -D - "$base/r/$runtime/beam.wasm" | grep -qi '^cache-control:.*immutable' ||
       { echo "check: r/$runtime/beam.wasm is not immutable" >&2; return 1; }
   fi
+  # embed.html, framed by the embedders the site names under their COEP,
+  # and embed.js, which their pages import (docs/embed.md).
+  headers=$("${curl[@]}" -D - -o /dev/null "$base/embed.html") || { echo "check: /embed.html failed" >&2; return 1; }
+  grep -qi '^cross-origin-resource-policy: cross-origin' <<<"$headers" ||
+    { echo "check: /embed.html is not CORP cross-origin (docs/embed.md)" >&2; return 1; }
+  grep -qi '^content-security-policy: frame-ancestors ' <<<"$headers" ||
+    { echo "check: /embed.html names no frame-ancestors (docs/embed.md)" >&2; return 1; }
+  headers=$("${curl[@]}" -D - -o /dev/null "$base/embed.js") || { echo "check: /embed.js failed" >&2; return 1; }
+  grep -qi '^access-control-allow-origin: \*' <<<"$headers" ||
+    { echo "check: /embed.js has no CORS (docs/embed.md)" >&2; return 1; }
   # A project's exec frame on the usercontent domain: framed by the apex,
   # from another site.
   if [ -n "$USERCONTENT" ]; then

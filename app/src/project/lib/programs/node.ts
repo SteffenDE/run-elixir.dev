@@ -6,13 +6,14 @@ import { CHUNK, FRAME } from '@/runtime/host/node';
 import type { Context, Process } from './tailwind';
 
 // Start a node for `command` (['mix', 'deps.get']): its output is the
-// process's, and its exit status the process's; terminal(raw, signals):
+// process's (fd 1, or its standard error 2), and its exit status the
+// process's; terminal(raw, signals):
 // it set the terminal's input mode. It takes the process's input (as
 // frames) and the terminal's size.
 export type StartNode = (
   command: string[],
   context: Context,
-  output: (bytes: Uint8Array) => void,
+  output: (bytes: Uint8Array, fd: number) => void,
   exit: (code: number) => void,
   terminal?: (raw: boolean, signals: boolean) => void,
 ) => {
@@ -33,7 +34,8 @@ function run(start: StartNode, process: Process, command: string[], context: Con
   const node = start(
     command,
     context,
-    (bytes) => process.write(bytes),
+    (bytes, fd) =>
+      fd === 2 && process.writeError ? process.writeError(bytes) : process.write(bytes),
     (code) => {
       node.stop();
       process.exit(code);

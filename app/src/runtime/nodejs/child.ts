@@ -5,11 +5,11 @@
 //
 // The process asks { kind: 'child', op: 'spawn', id, line, cwd, env },
 // { op: 'stdin', id, bytes } (or end) and { op: 'kill', id }; it hears
-// { op: 'out', id, bytes } and { op: 'exit', id, code }. A page program has
-// one output, so a child's stderr comes on its stdout. The synchronous
-// forms (spawnSync, execSync, execFileSync) give a SharedArrayBuffer of
-// maxBuffer's size with the spawn, which the exec frame fills, and wait
-// on it (Atomics.wait): the process stands still meanwhile, as Node's.
+// { op: 'out', id, bytes }, { op: 'err', id, bytes } (its stderr) and
+// { op: 'exit', id, code }. The synchronous forms (spawnSync, execSync,
+// execFileSync) give a SharedArrayBuffer with room for maxBuffer of each
+// with the spawn, which the exec frame fills, and wait on it
+// (Atomics.wait): the process stands still meanwhile, as Node's.
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
 import { Buffer } from './buffer';
@@ -22,6 +22,7 @@ type Stdio = 'pipe' | 'inherit' | 'ignore' | 'overlapped' | null | undefined | n
 
 export type ChildMessage =
   | { kind: 'child'; op: 'out'; id: number; bytes: Uint8Array }
+  | { kind: 'child'; op: 'err'; id: number; bytes: Uint8Array }
   | { kind: 'child'; op: 'exit'; id: number; code: number };
 
 interface SpawnOptions {
@@ -108,8 +109,10 @@ export function createChildProcess(
     declare release: (() => void) | null;
     // Where its output goes when it is not piped: the process's own (an
     // fd, 'inherit', process.stdout given as itself), a file the process
-    // opened (its fd: Claude Code's shell writes to one), or a stream's.
+    // opened (its fd: Claude Code's shell writes to one), or a stream's;
+    // and its stderr's.
     declare sink: ((bytes: Uint8Array) => void) | null;
+    declare errorSink: ((bytes: Uint8Array) => void) | null;
     declare connected: boolean;
     // The start of its output (notFound).
     declare said: string;
@@ -153,10 +156,23 @@ export function createChildProcess(
                   ? (bytes) => own.write(out.fd!, bytes)
                   : (bytes) => out.write!(bytes)
                 : null;
+      const err = stdio[2] as Stdio & { fd?: number; write?: (chunk: Uint8Array) => unknown };
+      this.errorSink =
+        err === 'inherit'
+          ? (bytes) => own.write(2, bytes)
+          : typeof err === 'number' && err > 0 && err !== 1
+            ? (bytes) => own.write(err, bytes)
+            : // 2>&1, as Node's stdio [.., .., 1] has it: where stdout goes.
+              err === 1
+              ? (bytes) => this.output(bytes)
+              : err && typeof err === 'object' && typeof err.write === 'function'
+                ? err.fd === 1 || err.fd === 2
+                  ? (bytes) => own.write(err.fd!, bytes)
+                  : (bytes) => err.write!(bytes)
+                : null;
       const piped = (s: Stdio) =>
         s === undefined || s === null || s === 'pipe' || s === 'overlapped';
       this.stdout = piped(stdio[1]) ? new Readable({ read() {} }) : null;
-      // Its stderr comes on its stdout: an empty stream that ends with it.
       this.stderr = piped(stdio[2]) ? new Readable({ read() {} }) : null;
       // What the program writes to it, and its end.
       this.stdin = piped(stdio[0])
@@ -204,6 +220,12 @@ export function createChildProcess(
       if (this.sink) this.sink(bytes);
       else this.stdout?.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
     }
+    // Its stderr (where sh says it found no such program, too).
+    errorOutput(bytes: Uint8Array) {
+      if (this.said.length < 256) this.said += new TextDecoder().decode(bytes);
+      if (this.errorSink) this.errorSink(bytes);
+      else this.stderr?.push(Buffer.from(bytes.buffer, bytes.byteOffset, bytes.length));
+    }
 
     exited(code: number) {
       children.delete(this.id);
@@ -242,9 +264,12 @@ export function createChildProcess(
         release();
       };
       // 'close' once its streams have ended, as Node's.
-      if (this.stdout && !this.stdout.readableEnded && this.stdout.listenerCount('data'))
-        this.stdout.once('end', closed);
-      else queueMicrotask(closed);
+      const open = [this.stdout, this.stderr].filter(
+        (stream) => stream && !stream.readableEnded && stream.listenerCount('data'),
+      );
+      let left = open.length;
+      for (const stream of open) stream!.once('end', () => --left || closed());
+      if (!left) queueMicrotask(closed);
     }
 
     kill(signal: string | number = 'SIGTERM') {
@@ -279,7 +304,9 @@ export function createChildProcess(
   // A child's whole output, then callback(error, stdout, stderr).
   function collect(child: ChildProcess, options: SpawnOptions, callback?: Done) {
     const chunks: Buffer[] = [];
+    const errors: Buffer[] = [];
     child.stdout?.on('data', (chunk: Buffer) => chunks.push(chunk));
+    child.stderr?.on('data', (chunk: Buffer) => errors.push(chunk));
     // Text in its encoding (utf8 unless given), else (null, 'buffer') a Buffer.
     const encoding = options.encoding === undefined ? 'utf8' : options.encoding;
     const encode = (b: Buffer) =>
@@ -290,16 +317,17 @@ export function createChildProcess(
     child.on('close', (code: number, signal: string | null) => {
       if (code === -2) return;
       const out = Buffer.concat(chunks);
+      const err = Buffer.concat(errors);
       const error =
         code === 0
           ? null
-          : Object.assign(new Error(`Command failed: ${child.spawnargs.join(' ')}\n${out}`), {
+          : Object.assign(new Error(`Command failed: ${child.spawnargs.join(' ')}\n${err}`), {
               code,
               killed: child.killed,
               signal,
               cmd: child.spawnargs.join(' '),
             });
-      callback?.(error, encode(out), encode(Buffer.alloc(0)));
+      callback?.(error, encode(out), encode(err));
     });
     return child;
   }
@@ -359,8 +387,9 @@ export function createChildProcess(
           : opts.maxBuffer,
       256 << 20,
     );
-    const shared = new SharedArrayBuffer(12 + room);
-    const header = new Int32Array(shared, 0, 3);
+    // [done, status, stdout's length, stderr's], then room for each.
+    const shared = new SharedArrayBuffer(16 + 2 * room);
+    const header = new Int32Array(shared, 0, 4);
     const stdio = Array.isArray(opts.stdio) ? opts.stdio : [opts.stdio, opts.stdio, opts.stdio];
     const inherit = stdio[1] === 'inherit' || stdio[1] === 1;
     const cwd = opts.cwd instanceof URL ? opts.cwd.pathname : (opts.cwd ?? own.cwd());
@@ -393,18 +422,20 @@ export function createChildProcess(
     }
     const status = Atomics.load(header, 1);
     const length = Atomics.load(header, 2);
-    const bytes = new Uint8Array(shared, 12, Math.max(0, length)).slice();
+    const errorLength = Atomics.load(header, 3);
+    const bytes = new Uint8Array(shared, 16, Math.max(0, length)).slice();
+    const errorBytes = new Uint8Array(shared, 16 + room, Math.max(0, errorLength)).slice();
     const out = encoded(bytes, opts.encoding);
-    const none = encoded(new Uint8Array(0), opts.encoding);
+    const err = encoded(errorBytes, opts.encoding);
     const result: SyncResult = {
       pid,
-      output: [null, out, none],
+      output: [null, out, err],
       stdout: out,
-      stderr: none,
+      stderr: err,
       status: timedOut ? null : status,
       signal: timedOut ? 'SIGTERM' : null,
     };
-    if (length < 0)
+    if (length < 0 || errorLength < 0)
       result.error = Object.assign(new Error(`spawnSync ${file} ENOBUFS`), {
         code: 'ENOBUFS',
         errno: -105,
@@ -416,7 +447,11 @@ export function createChildProcess(
         errno: -110,
         syscall: `spawnSync ${file}`,
       });
-    else if (status === 127 && !opts.shell && notFound(new TextDecoder().decode(bytes), file)) {
+    else if (
+      status === 127 &&
+      !opts.shell &&
+      notFound(new TextDecoder().decode(errorBytes) + new TextDecoder().decode(bytes), file)
+    ) {
       result.status = null;
       result.error = Object.assign(new Error(`spawnSync ${file} ENOENT`), {
         code: 'ENOENT',
@@ -435,7 +470,7 @@ export function createChildProcess(
     if (result.error) throw Object.assign(result.error, result);
     if (result.status !== 0)
       throw Object.assign(
-        new Error(`Command failed: ${command}\n${String(result.stdout)}`),
+        new Error(`Command failed: ${command}\n${String(result.stderr)}`),
         result,
       );
     return result.stdout;
@@ -455,6 +490,7 @@ export function createChildProcess(
     const child = children.get(message.id);
     if (!child) return;
     if (message.op === 'out') child.output(message.bytes);
+    else if (message.op === 'err') child.errorOutput(message.bytes);
     else child.exited(message.code);
   };
 

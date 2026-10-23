@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>A test embedder</title>
+  </head>
+  <body>
+    <!-- A page of another site that embeds the playground (docs/embed.md),
+         as Tidewave's would: served cross-origin isolated by serve.py's
+         --embedder-host. The tests drive it through window.embed. -->
+    <h1>Embedder</h1>
+    <div id="frames"></div>
+    <script type="module">
+      const apex = `${location.protocol}//playground.localhost:${location.port}`;
+      const started = performance.now();
+      window.embed = { apex, started, progress: [], module: import(`${apex}/embed.js`) };
+    </script>
+  </body>
+</html>

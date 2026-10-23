@@ -17,6 +17,7 @@ import {
   File,
   Symlink,
   lookup,
+  entries as tarEntries,
   gunzip,
   untarInto,
   mount,
@@ -763,11 +764,14 @@ onmessage = async ({ data }) => {
       // files (/work/playground for a Phoenix project); store: the
       // IndexedDB database the project's changes are kept in, or
       // storePort: a port to the apex's (overlay.ts remote); sharedPort:
-      // a port to /shared's, the user's for every project (or none).
+      // a port to /shared's, the user's for every project (or none);
+      // archive: a gzipped tar's URL whose directories go below /work as a
+      // template's (an embedder's app: docs/embed.md), their mtimes kept.
       const {
         runtime,
         boots = ['boot'],
-        template = [],
+        template: given = [],
+        archive = null,
         store = null,
         storePort = null,
         sharedPort = null,
@@ -775,11 +779,12 @@ onmessage = async ({ data }) => {
         runtime: string;
         boots?: string[];
         template?: string[];
+        archive?: string | null;
         store?: string | null;
         storePort?: MessagePort | null;
         sharedPort?: MessagePort | null;
       } = data;
-      const [images, manifest, version] = await Promise.all([
+      const [images, manifest, version, archived] = await Promise.all([
         Promise.all(
           boots.map((boot) =>
             fetch(new URL(`fs/${boot}.tar.gz`, runtime)).then((r) => r.arrayBuffer()),
@@ -787,7 +792,20 @@ onmessage = async ({ data }) => {
         ),
         fetch(new URL('fs/manifest.json', runtime)).then((r) => r.json()),
         fetch(new URL('fs/version', runtime)).then((r) => (r.ok ? r.text() : '')),
+        archive
+          ? fetch(archive).then(async (r) => {
+              if (!r.ok) throw new Error(`${archive}: ${r.status} ${r.statusText}`);
+              return gunzip(new Uint8Array(await r.arrayBuffer()));
+            })
+          : null,
       ]);
+      // The archive's top directories (/work/APP), a template's.
+      const tops = archived
+        ? [...new Set([...tarEntries(archived)].map(({ name }) => name.split('/')[0]))].filter(
+            (name) => name && name !== '.' && name !== '..',
+          )
+        : [];
+      const template = [...given, ...tops.map((name) => `/work/${name}`)];
       root = new Dir();
       const shared = (path: string) =>
         `/${path}`.startsWith('/tmp/') ||
@@ -800,6 +818,7 @@ onmessage = async ({ data }) => {
       // page's Node.start), not from the site's gzipped images.
       const tars = await Promise.all(images.map((image) => gunzip(new Uint8Array(image))));
       for (const tar of tars) untarInto(tar, root, shared);
+      if (archived) untarInto(archived, root.mkdirs('work'));
       for (const prefix of template) {
         const found = resolve(prefix);
         if (found.node instanceof Dir)
@@ -835,7 +854,7 @@ onmessage = async ({ data }) => {
       // nodes with; files.js keeps no tar (its files are copies).
       const boot = Object.fromEntries(boots.map((name, i) => [name, tars[i].buffer]));
       postMessage(
-        { kind: 'ready', boot: { images: boot, manifest } },
+        { kind: 'ready', boot: { images: boot, manifest }, archived: tops },
         tars.map((tar) => tar.buffer),
       );
       loop ??= serve();

@@ -10,6 +10,9 @@ import type { WASI } from '.';
 // input.
 export class Process {
   declare output: Uint8Array[];
+  // Its standard error, where its host keeps it apart (pageProgram: to the
+  // process's fd 2); null: with its output (a node's port's program).
+  declare errors: Uint8Array[] | null;
   declare ended: boolean;
   declare status: number | null;
   declare input: Uint8Array[];
@@ -27,6 +30,7 @@ export class Process {
 
   constructor() {
     this.output = [];
+    this.errors = null;
     this.ended = false;
     this.status = null;
     this.input = [];
@@ -35,6 +39,11 @@ export class Process {
   }
   write(bytes: string | Uint8Array): void {
     this.output.push(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes);
+    this.notify?.();
+  }
+  writeError(bytes: string | Uint8Array): void {
+    if (!this.errors) return this.write(bytes);
+    this.errors.push(typeof bytes === 'string' ? new TextEncoder().encode(bytes) : bytes);
     this.notify?.();
   }
   exit(status: number): void {

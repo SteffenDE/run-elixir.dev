@@ -38,6 +38,8 @@ export const FRAME = {
   // A page program took this many bytes (u32) of what the worker sent it
   // (`stdin`): the worker sends more as it takes them.
   TAKEN: 15,
+  // A page program's standard error (OUTPUT is its standard output).
+  OUTPUT_ERR: 16,
 } as const;
 export const RING = 1 << 20;
 export const CHUNK = 1 << 16;
@@ -210,6 +212,8 @@ export type SpawnMessage = {
 };
 type NodeMessage =
   | { kind: 'out'; payload: Uint8Array }
+  // Its standard error (fd 2), apart.
+  | { kind: 'err'; payload: Uint8Array }
   | { kind: 'status'; payload: string }
   | { kind: 'exit'; payload: number }
   | { kind: 'tty'; raw: boolean; signals?: boolean }
@@ -281,7 +285,8 @@ export class Node {
   spawned = new Map<number, { command: string; started: number }>();
 
   // base: where the site's runtime scripts are; runtime: its BEAM, files
-  // and NIF libraries (build.ts RUNTIME), by default base; onoutput(bytes),
+  // and NIF libraries (build.ts RUNTIME), by default base; onoutput(bytes,
+  // fd): what it wrote to its output (1) or its standard error (2),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
   // ports the node may connect to on the page; https: (connection,
   // { host, port }) => ..., HTTPS the page carries for the node
@@ -306,7 +311,7 @@ export class Node {
   constructor({
     base = './',
     runtime = null as string | null,
-    onoutput = (_bytes: Uint8Array) => {},
+    onoutput = (_bytes: Uint8Array, _fd: number) => {},
     onstatus = (_text: string) => {},
     onexit = (_code: number) => {},
     serve = {} as Record<number, (connection: Served) => void>,
@@ -346,7 +351,8 @@ export class Node {
       const seen = (this.fromWorker[data.kind] ??= { count: 0, last: 0 });
       seen.count++;
       seen.last = Date.now();
-      if (data.kind === 'out') onoutput(data.payload);
+      if (data.kind === 'out') onoutput(data.payload, 1);
+      else if (data.kind === 'err') onoutput(data.payload, 2);
       else if (data.kind === 'status') onstatus(data.payload);
       else if (data.kind === 'exit') onexit(data.payload);
       else if (data.kind === 'tty') onterminal(data.raw, data.signals ?? true);
