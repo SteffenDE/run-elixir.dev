@@ -19,24 +19,23 @@ export function RelayPage() {
         </a>
         <h1 className="home-title">The relay</h1>
         <p className="muted home-lead">
-          The playground runs in this tab, so your code's HTTPS requests go through the browser,
-          which only reads sites that allow other sites to (CORS). For a few sites that don't, the
-          playground's relay can make the connection for your code.
+          The playground runs in your browser, where CORS restricts HTTPS requests to other sites.
+          The relay lets your code connect to selected hosts that do not support these requests.
         </p>
 
         <h2>How it works</h2>
         <p>
-          Your code opens a TCP connection to the site through the relay, a server of the
-          playground's, and does TLS over it itself, as it would on your computer. The relay passes
-          the encrypted bytes on: it sees which site, and how many bytes pass, never what they say.
-          It keeps no log of who reached which site.
+          The relay opens a TCP connection to the destination host. Your code handles TLS in the
+          browser, so the relay forwards encrypted traffic. It can see the destination host and
+          traffic volume, but cannot read the request or response contents. It does not log which
+          users connect to which hosts.
         </p>
         <p>
-          It only connects to the sites below, on port 443, and only once your code's first bytes
-          ask for that same site over TLS. Anything else is refused.
+          Only the hosts listed below are allowed, on port 443. Before forwarding traffic, the relay
+          checks that the TLS ClientHello specifies the requested hostname.
         </p>
 
-        <h2>Sites</h2>
+        <h2>Allowed hosts</h2>
         <ul className="relay-hosts">
           {list.hosts.map((host) => (
             <li key={host}>
@@ -45,22 +44,22 @@ export function RelayPage() {
           ))}
         </ul>
         <p className="muted">
-          <code>*.</code> means every name below that domain. {list.fetch.join(' and ')} allow
-          browsers, so the browser reaches them itself.
+          <code>*.</code> matches subdomains of that domain. {list.fetch.join(' and ')} support
+          CORS, so requests to them use browser fetch directly.
         </p>
 
         <h2>Limits</h2>
         <p>
-          The relay is for low-bandwidth requests: cloning a repository, an API call, a release's
-          download. A connection carries at most 1 GiB, and ends after 5 minutes without traffic; a
-          project has at most 16 open at once.
+          The relay is intended for low-bandwidth traffic, such as API calls and small downloads.
+          Each connection allows up to 1 GiB of traffic and closes after 5 minutes of inactivity.
+          Each project can have up to 16 connections open at once.
         </p>
 
-        <h2>Your own exit node instead</h2>
+        <h2>Using a Tailscale exit node</h2>
         <p>
-          Connected to your tailnet, the playground sends your code's requests through one of your
-          Tailscale exit nodes, to any site, with no limits of the playground's. While Tailscale
-          runs with an exit node, a project that may use it goes there, not through the relay.
+          A Tailscale exit node lets your code connect to any host without the relay's limits. When
+          an exit node is active and the project has permission to use Tailscale, connections use
+          that exit node instead of the relay.
         </p>
         <p>
           <a className="button" href={apexUrl('/tailscale')}>
@@ -70,9 +69,9 @@ export function RelayPage() {
 
         <h2>Turning it on or off</h2>
         <p>
-          The first time a project's code connects to one of these sites, the playground asks
-          whether it may use the relay, and keeps the answer for that project. Its settings (the
-          gear in the project's top bar, under <em>Network</em>) change it later.
+          When a project first needs the relay, the playground asks for permission and saves your
+          choice for that project. To change it, open Project settings using the gear icon in the
+          top bar, then look under <em>Network</em>.
         </p>
       </main>
     </div>

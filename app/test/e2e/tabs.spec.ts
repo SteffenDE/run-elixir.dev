@@ -39,7 +39,9 @@ test('projects run in parallel tabs, one tab per project', async ({
   await expect(c.getByText('This project is open in another tab.')).toBeVisible();
   await c.getByRole('button', { name: 'Open it here' }).click();
   await serverRunning(c);
-  await expect(a.getByText('it stopped here')).toBeVisible();
+  await expect(
+    a.getByText('This project stopped here because it was opened in another tab.'),
+  ).toBeVisible();
   await reloadPreview(c);
   await seesInPreview(c, 'Project A', 90_000);
 });

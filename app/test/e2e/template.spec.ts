@@ -58,7 +58,5 @@ test('a link from another template says so before it is opened', async ({ page }
     return `/import#${data}`;
   });
   await page.goto(link);
-  await expect(
-    page.getByText(/made from another Phoenix template \(phx\.new 1\.8\.0/),
-  ).toBeVisible();
+  await expect(page.getByText(/This project used Phoenix template phx\.new 1\.8\.0/)).toBeVisible();
 });

@@ -163,15 +163,14 @@ export function HomePage() {
         <h2>New</h2>
         <div className="new-projects">
           <NewProject href="/phoenix" icon={<RiFireLine size={20} />} title="Phoenix project">
-            A <code>phx.new</code> app with its server running, LiveView, and PGlite as its
-            Postgres.
+            A running <code>phx.new</code> app with LiveView and a PGlite database.
           </NewProject>
           <NewProject href="/empty" icon={<RiFolderAddLine size={20} />} title="Empty project">
             An empty folder and a shell: <code>mix new</code>, <code>elixir</code>, <code>iex</code>
             .
           </NewProject>
           <NewProject href="/iex" icon={<RiTerminalLine size={20} />} title="Temporary IEx">
-            An IEx shell in a project that is not kept.
+            An IEx session that is discarded when you close the tab.
           </NewProject>
         </div>
         <FolderImport />

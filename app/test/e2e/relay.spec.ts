@@ -18,8 +18,9 @@ test.beforeAll(async ({ request }) => {
   test.skip(!backend, `no backend at ${BACKEND} (mix phx.server in backend/)`);
 });
 
+// GitHub's response headers can exceed httpc's default 10 KiB limit.
 const GET = (url: string) =>
-  `elixir -e ':inets.start(); :ssl.start(); {:ok, {{_, status, _}, _headers, body}} = :httpc.request(:get, {~c"${url}", []}, [ssl: [verify: :verify_peer, cacerts: :public_key.cacerts_get(), customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]]], body_format: :binary); IO.inspect {:status, status}; IO.puts binary_part(body, 0, min(byte_size(body), 200))'`;
+  `elixir -e ':inets.start(); :ssl.start(); {:ok, {{_, status, _}, _headers, body}} = :httpc.request(:get, {~c"${url}", []}, [ssl: [verify: :verify_peer, cacerts: :public_key.cacerts_get(), customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]]], body_format: :binary, max_header_size: 65_536); IO.inspect {:status, status}; IO.puts binary_part(body, 0, min(byte_size(body), 200))'`;
 
 test('a node’s HTTPS to github.com goes through the relay, with its own TLS', async ({ page }) => {
   test.setTimeout(300_000);

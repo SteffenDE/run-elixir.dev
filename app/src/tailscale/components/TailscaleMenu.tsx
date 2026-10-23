@@ -92,7 +92,8 @@ export function TailscaleMenu() {
           </p>
           {status.state === 'off' ? (
             <p className="muted">
-              Set it up to reach any site, and your tailnet, from this project's code.
+              Set up Tailscale to access your tailnet. Add an exit node to connect to any internet
+              host.
             </p>
           ) : (
             <>
@@ -103,20 +104,20 @@ export function TailscaleMenu() {
                     ? 'May use your tailnet.'
                     : consent === false
                       ? 'May not use your tailnet.'
-                      : 'Asks when its code first reaches out.'}
+                      : 'Ask on the first connection.'}
                 </span>
                 <button type="button" className="button" onClick={() => decide(consent !== true)}>
-                  {consent === true ? 'Stop' : 'Allow'}
+                  {consent === true ? 'Block' : 'Allow'}
                 </button>
               </div>
               {offForGuests() && (
                 <p className="muted">
-                  Off while a guest of the live session may type or edit, as the session is set.
+                  Disabled by session settings while a guest has terminal or editing access.
                 </p>
               )}
-              <h3>Its servers in your tailnet</h3>
+              <h3>Project servers</h3>
               {ports.length === 0 ? (
-                <p className="muted">No server runs in this project.</p>
+                <p className="muted">No servers are running in this project.</p>
               ) : (
                 <ul className="tailscale-ports">
                   {ports.map((port) => {
@@ -197,8 +198,8 @@ export function TailscaleMenu() {
               )}
               {sharedPorts.length > 0 && (
                 <p className="muted">
-                  Your devices reach these if your policy lets them reach {TAG}, for example:{' '}
-                  <code>{inbound(sharedPorts)}</code>
+                  To access these servers, allow connections to {TAG} in your tailnet policy. For
+                  example: <code>{inbound(sharedPorts)}</code>
                 </p>
               )}
             </>

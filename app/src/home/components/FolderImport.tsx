@@ -138,18 +138,19 @@ function FolderReview({ folder, onClose }: { folder: Folder; onClose(): void }) 
         </span>
       </p>
       <p className="muted">
-        Left out already: <code>_build</code>, <code>deps</code>, <code>node_modules</code>,{' '}
-        <code>.git</code>, <code>.elixir_ls</code> and what its <code>.gitignore</code> ignores.
-        Uncheck what else to leave out.
-        {!isMixProject(folder) && ' It has no mix.exs at the top: is it a Mix project?'}
+        Excluded by default: <code>_build</code>, <code>deps</code>, <code>node_modules</code>,{' '}
+        <code>.git</code>, <code>.elixir_ls</code> and files matched by <code>.gitignore</code>.
+        Uncheck any other files you want to exclude.
+        {!isMixProject(folder) &&
+          ' No mix.exs found in the root folder. Check that you selected a Mix project.'}
       </p>
       {losesDotfiles() && (
         <p className="folder-review-warning">
           <RiErrorWarningLine size={16} />
           <span>
-            This browser leaves out files and folders whose names start with a dot (such as{' '}
-            <code>.formatter.exs</code> and <code>.gitignore</code>, so nothing it ignores is left
-            out here) and symlinks. Open the folder in Chrome or Firefox to bring them.
+            This browser skips symlinks and files or folders whose names start with a dot, including{' '}
+            <code>.formatter.exs</code> and <code>.gitignore</code>. Without <code>.gitignore</code>
+            , its exclusion rules cannot be applied. Use Chrome or Firefox to include these files.
           </span>
         </p>
       )}
@@ -165,8 +166,8 @@ function FolderReview({ folder, onClose }: { folder: Folder; onClose(): void }) 
       {over && (
         <p className="folder-review-over" role="alert">
           <RiErrorWarningLine size={16} />
-          That is {over}; a project here holds up to 5000 files and 64 MB. Leave out more to open
-          it.
+          Selection exceeds the limit: {over}. Projects support up to 5000 files and 64 MB. Exclude
+          more files to continue.
         </p>
       )}
       {error && <p className="project-error">{error}</p>}

@@ -13,7 +13,10 @@ export function ProjectTitle({ project }: { project: Project | null }) {
     return (
       <div className="project-title">
         <KindChip kind="iex" />
-        <span className="chip ephemeral" title="Nothing here is kept: closing the tab ends it">
+        <span
+          className="chip ephemeral"
+          title="Temporary session. Closing the tab discards all files and changes."
+        >
           ephemeral
         </span>
       </div>

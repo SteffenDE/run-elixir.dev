@@ -194,7 +194,7 @@ test('a project commits and pushes to an empty repository on GitHub', async ({ p
 
   await panel.getByRole('button', { name: 'Push' }).click();
   const dialog = page.getByRole('dialog', { name: 'Push to me/repo' });
-  await expect(dialog).toContainText('1 file has changed since the last commit');
+  await expect(dialog).toContainText('1 changed file will be committed before pushing.');
   await dialog.getByRole('textbox', { name: 'Commit message' }).fill('Add Demo');
   await page.screenshot({ path: '../target/tests/push-dialog.png' });
   await dialog.getByRole('button', { name: 'Commit and push' }).click();

@@ -16,7 +16,9 @@ test('the search finds text in the files and opens a hit at its line', async ({ 
   await expect(page.getByRole('tab', { name: 'Search' })).toHaveAttribute('aria-selected', 'true');
   const field = page.getByRole('textbox', { name: 'Search the files' });
   await expect(field).toBeFocused();
-  const summary = page.locator('.search-summary');
+  const summary = page
+    .getByRole('tabpanel', { name: 'Search', exact: true })
+    .locator('.search-summary');
 
   await page.keyboard.type('needle');
   await expect(summary).toHaveText('2 results in 1 file', { timeout: 60_000 });

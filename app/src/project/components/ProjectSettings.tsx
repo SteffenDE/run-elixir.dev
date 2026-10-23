@@ -67,7 +67,7 @@ export function ProjectSettings({ project }: { project: Project }) {
             if (event.newState === 'closed') setOpen(false);
           }}
         >
-          <h3>At each start</h3>
+          <h3>Startup commands</h3>
           <p className="muted">Run these commands in the project's first shell on startup.</p>
           <textarea
             className="settings-script"
@@ -106,8 +106,8 @@ export function ProjectSettings({ project }: { project: Project }) {
               href={apexUrl('/relay')}
               target="_blank"
               rel="noopener"
-              title="What the relay is"
-              aria-label="What the relay is"
+              title="About the relay"
+              aria-label="About the relay"
             >
               <RiQuestionLine size={16} />
             </a>
@@ -140,7 +140,7 @@ export function ProjectSettings({ project }: { project: Project }) {
             )}
           </div>
           <a className="tailscale-settings" href={apexUrl('/settings')}>
-            <RiArrowRightLine size={14} /> Your settings for every project
+            <RiArrowRightLine size={14} /> Global settings
           </a>
         </div>
       )}

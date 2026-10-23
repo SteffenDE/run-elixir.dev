@@ -36,17 +36,17 @@ export function RelayDialog({ name }: { name: string }) {
         Let {name} connect to {asking}?
       </h2>
       <p>
-        Its code is connecting to <code>{asking}</code>, which does not allow requests from a
-        browser (CORS), where the playground runs.
+        This project is trying to connect to <code>{asking}</code>. The host's CORS policy prevents
+        a direct request from the browser.
       </p>
       <p>
-        The playground's relay can connect for it, to a short list of hosts (GitHub, GitLab,
-        Codeberg, Anthropic's API) and for low-bandwidth requests. Your code still does TLS itself:
-        the relay sees which host, and how many bytes pass, not what they say. Or connect the
-        playground to your own Tailscale exit node, for any host.
+        The relay supports low-bandwidth traffic to selected hosts, including GitHub, GitLab,
+        Codeberg and Anthropic's API. Your code handles TLS, so the relay can see the destination
+        and traffic volume but cannot read the contents. To connect to any host, you can use your
+        own Tailscale exit node.
       </p>
       <p className="nif-build-meta">
-        The project's settings change this later.{' '}
+        You can change this in Project settings.{' '}
         <a href={apexUrl('/relay')} target="_blank" rel="noopener">
           More about the relay
         </a>

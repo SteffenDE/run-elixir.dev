@@ -18,9 +18,8 @@ export function GitHubSettings() {
     <>
       <h2>GitHub</h2>
       <p className="muted">
-        Projects push their commits to GitHub with this token, from the Changes panel. It stays in
-        this page: projects&rsquo; code and shells never see it, and <code>git push</code> in a
-        shell does not use it.
+        The Changes panel uses this token to push commits to GitHub. Project code and shells cannot
+        access the token. Running <code>git push</code> in a shell requires separate authentication.
       </p>
       {saved ? (
         <div className="settings-save">

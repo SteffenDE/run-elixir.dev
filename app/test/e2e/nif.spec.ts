@@ -124,7 +124,7 @@ test('a version the site has not built waits for the backend, saying so', async 
   // While make waits, only the dialog says so: the node reads its output
   // once it returns.
   const dialog = page.getByRole('dialog', { name: "Building bcrypt_elixir 3.3.1's native code" });
-  await expect(dialog).toContainText('an agent is working one out');
+  await expect(dialog).toContainText('An agent is creating one in a virtual machine.');
   seen = true;
   const used = await ran;
   await expect(dialog).toBeHidden();

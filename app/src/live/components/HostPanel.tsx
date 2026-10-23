@@ -55,8 +55,9 @@ function StartForm({ project, ended }: { project: HostProject; ended: string | n
     >
       {ended && <p className="muted">{ended}</p>}
       <p className="muted share-note">
-        Others join this project as it runs here. They watch; you choose who may edit, use the
-        terminals or fork it. The relay passes on what you share encrypted: it cannot read it.
+        Guests join the project running in your browser with view-only access. You can allow them to
+        edit files, use terminals or fork the project. Shared data is encrypted, so the relay cannot
+        read it.
       </p>
       <label className="live-field">
         Your name

@@ -68,7 +68,7 @@ export function GuestBar() {
           type="button"
           className="button"
           disabled={forking}
-          title="Make a project of your own from this one, as it is now"
+          title="Create your own copy of the project in its current state"
           onClick={() => {
             setForking(true);
             setError(null);

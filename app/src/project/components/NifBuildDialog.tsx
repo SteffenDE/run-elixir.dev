@@ -4,10 +4,10 @@ import { useStore } from '@/project/lib/store';
 
 const PENDING = {
   queued: 'Waiting for a build machine.',
-  running: 'Building it in a virtual machine; this usually takes under a minute.',
+  running: 'Building in a virtual machine. This usually takes under a minute.',
   setting_up:
-    'No recipe builds this package yet, so an agent is working one out in a virtual machine. ' +
-    'This can take several minutes; the recipe is kept, so later versions build directly.',
+    'No build recipe exists for this package yet. An agent is creating one in a virtual machine. ' +
+    'This can take several minutes. The recipe is saved for future builds.',
 } as const;
 
 // A package's NIF library the playground's backend builds while make (in
@@ -51,11 +51,12 @@ export function NifBuildDialog() {
       {pending ? (
         <>
           <p>
-            Its NIF library has to be compiled to WebAssembly, which the playground's server does
-            once for everyone. {PENDING[build.status as keyof typeof PENDING]}
+            The playground server compiles this package's native library (NIF) to WebAssembly and
+            caches the build for all users. {PENDING[build.status as keyof typeof PENDING]}
           </p>
           <p className="nif-build-meta">
-            {formatSeconds(seconds)} · the terminal waits for it; Ctrl-C there stops waiting.
+            {formatSeconds(seconds)} · Waiting for the build. Press Ctrl-C in the terminal to stop
+            waiting.
           </p>
         </>
       ) : (

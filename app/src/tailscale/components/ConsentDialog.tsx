@@ -32,13 +32,14 @@ export function ConsentDialog({ name }: { name: string }) {
         Let {name} use your tailnet?
       </h2>
       <p>
-        Its code is reaching <code>{asking}</code>. Through your tailnet, it reaches{' '}
+        This project is trying to connect to <code>{asking}</code>. Allowing access lets it connect
+        to{' '}
         {exit
-          ? `the internet from ${exit.name.replace(/\.$/, '')}, your exit node`
+          ? `the internet through your exit node, ${exit.name.replace(/\.$/, '')}`
           : 'your tailnet'}
-        , and whatever your policy lets <code>{TAG}</code> reach.
+        , plus any destinations your tailnet policy allows for <code>{TAG}</code>.
       </p>
-      <p className="nif-build-meta">The Tailscale menu in the top bar changes this later.</p>
+      <p className="nif-build-meta">You can change this in the Tailscale menu in the top bar.</p>
       <div className="start-error-actions">
         <button type="button" className="button" onClick={() => decide(false)}>
           Not this project
