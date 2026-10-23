@@ -452,14 +452,16 @@ site does not host Claude Code's files.
   with commands such as `exec -a bfs "$CLAUDE_CODE_EXECPATH"`. Neither
   brush nor Node can run these embedded programs. The playground does
   not yet provide `find` or `grep` commands in the shell.
-- **Network access:** without the tailnet, Anthropic's API is accessible
-  through the gateway's `fetch()`, but settings and telemetry endpoints
-  lack the required CORS headers. `claude` defaults
-  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` to `1` unless the environment
-  specifies a value. `claude -p` works without the tailnet. Interactive
-  mode exits when its connectivity check to the OAuth host's `/api/hello`
-  endpoint fails. Connecting through the tailnet allows the check to
-  succeed using the process's own TLS connection.
+- **Network access:** without the tailnet, `api.anthropic.com` and
+  `platform.anthropic.com` go through the site's TCP relay
+  ([relay.md](relay.md)), with the process's own TLS: the settings
+  endpoint (`/api/claude_code/settings`) and the OAuth host's
+  `/api/hello` send no CORS headers, only the Messages API does. Without
+  the relay too (no backend), Anthropic's API is reached by the gateway's
+  `fetch()`, the settings and telemetry endpoints not, and interactive
+  mode exits when its connectivity check fails; `claude -p` still works.
+  `claude` defaults `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` to `1`
+  unless the environment specifies a value.
 
 Supporting Claude Code required `/proc/self/fd/N` paths, child output to
 file descriptors, `path/win32`, `stream/consumers`, `fs.realpath.native`,

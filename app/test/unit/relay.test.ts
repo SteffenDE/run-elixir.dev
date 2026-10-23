@@ -57,12 +57,13 @@ describe('which connections go through the relay', () => {
     expect(relayed('codeberg.org', 443)).toBe(true);
     expect(relayed('pushin.eu', 443)).toBe(true);
     expect(relayed('platform.anthropic.com', 443)).toBe(true);
+    // Its Messages API sends CORS headers, Claude Code's settings there not.
+    expect(relayed('api.anthropic.com', 443)).toBe(true);
   });
 
   test('not those fetch() reaches, other ports or other hosts', () => {
     expect(relayed('api.github.com', 443)).toBe(false);
     expect(relayed('raw.githubusercontent.com', 443)).toBe(false);
-    expect(relayed('api.anthropic.com', 443)).toBe(false);
     expect(relayed('github.com', 22)).toBe(false);
     expect(relayed('github.com.evil.example', 443)).toBe(false);
     expect(relayed('example.com', 443)).toBe(false);

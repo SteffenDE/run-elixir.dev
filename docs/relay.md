@@ -44,8 +44,17 @@ a way without opening the socket:
 
 | Hosts | Way |
 | --- | --- |
-| `github.com`, `*.github.com`, `*.githubusercontent.com`, `gitlab.com`, `codeberg.org`, `pushin.eu`, `platform.anthropic.com` | The relay. |
-| `api.github.com`, `raw.githubusercontent.com`, `api.anthropic.com` (its `fetch` list) | `fetch()`, from the user's own address: they send CORS headers (Anthropic's with `anthropic-dangerous-direct-browser-access`, which the gateway adds), so they spare the relay's bandwidth. The relay allows them too. |
+| `github.com`, `*.github.com`, `*.githubusercontent.com`, `gitlab.com`, `codeberg.org`, `pushin.eu`, `api.anthropic.com`, `platform.anthropic.com` | The relay. |
+| `api.github.com`, `raw.githubusercontent.com` (its `fetch` list) | `fetch()`, from the user's own address: they send CORS headers on every path, so they spare the relay's bandwidth. The relay allows them too. |
+
+A host goes one way for all its paths: over the relay the TLS is the
+page's own, so neither the gateway nor the relay sees a request's path,
+and an HTTP client reuses one connection for all of them. So
+`api.anthropic.com` takes the relay: its Messages API sends CORS headers
+(with `anthropic-dangerous-direct-browser-access`, which the gateway's
+`fetch()` adds), but Claude Code's `/api/claude_code/settings` there
+does not. Without the relay (no backend), it is `fetch()` as before, and
+only the Messages API answers.
 
 No setup hint for a relayed host, and no consent asked: nothing a
 `fetch()` could not reach but for CORS. Not `gen_tcp` to an address, nor
