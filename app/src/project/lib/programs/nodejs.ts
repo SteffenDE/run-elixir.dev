@@ -212,7 +212,16 @@ export const nodeProgram =
     // length -1: more than it holds, ENOBUFS), then room for each, alike;
     // the process waits on done. With `inherit`, its output is the
     // process's own, as it comes.
+    // One that inherits a stdin or stdout that is the terminal (`terminal`)
+    // has it too, as a child on a real tty: isTTY, the size and its
+    // changes, raw mode; with stdin, the typing goes to it, not to the
+    // process, until it ends (the last such one, if several), and the
+    // process's mode is the terminal's again after.
     const children = new Map<number, Process>();
+    const foreground: Process[] = [];
+    const sized = new Set<Process>();
+    // The terminal's mode as the process set it.
+    let mode: [boolean, boolean] = [false, true];
     const spawned = (message: {
       id: number;
       line: string;
@@ -221,8 +230,14 @@ export const nodeProgram =
       input?: Uint8Array;
       shared?: SharedArrayBuffer;
       inherit?: boolean;
+      terminal?: [boolean, boolean];
     }) => {
       const { id, shared: result } = message;
+      const tty = {
+        stdin: !!message.terminal?.[0] && !!context.tty?.stdin,
+        stdout: !!message.terminal?.[1] && !!context.tty?.stdout,
+      };
+      let moded = false;
       const header = result ? new Int32Array(result, 0, 4) : null;
       const size = result ? (result.byteLength - 16) / 2 : 0;
       const rooms = result
@@ -255,6 +270,10 @@ export const nodeProgram =
           if (ended) return;
           ended = true;
           children.delete(id);
+          sized.delete(child);
+          const at = foreground.indexOf(child);
+          if (at >= 0) foreground.splice(at, 1);
+          if (moded) process.raw?.(...mode);
           if (header) {
             Atomics.store(header, 1, code);
             Atomics.store(header, 2, lengths[0]);
@@ -266,6 +285,17 @@ export const nodeProgram =
         onkill: null,
         onowner: null,
       };
+      if (tty.stdin || tty.stdout) {
+        child.size = () => process.size?.() ?? [80, 24];
+        sized.add(child);
+      }
+      if (tty.stdin) {
+        child.raw = (on, signals) => {
+          moded = true;
+          process.raw?.(on, signals);
+        };
+        foreground.push(child);
+      }
       children.set(id, child);
       const sh = programs().sh;
       if (!sh) {
@@ -273,7 +303,13 @@ export const nodeProgram =
         return child.exit(127);
       }
       Promise.resolve(
-        sh(child, { args: ['-c', message.line], cwd: message.cwd, env: message.env, fs: shared }),
+        sh(child, {
+          args: ['-c', message.line],
+          cwd: message.cwd,
+          env: message.env,
+          fs: shared,
+          tty,
+        }),
       ).catch((error: Error) => {
         child.writeError!(`${error.message}\n`);
         child.exit(1);
@@ -310,8 +346,10 @@ export const nodeProgram =
         (data.fd === 2 && process.writeError ? process.writeError : process.write)(data.bytes);
       else if (data.kind === 'net') network(data);
       // setRawMode: keys as typed, Ctrl+C one of them.
-      else if (data.kind === 'tty') process.raw?.(data.raw, !data.raw);
-      else if (data.kind === 'child' && data.op === 'spawn') spawned(data);
+      else if (data.kind === 'tty') {
+        mode = [data.raw, !data.raw];
+        process.raw?.(...mode);
+      } else if (data.kind === 'child' && data.op === 'spawn') spawned(data);
       else if (data.kind === 'child' && data.op === 'kill') killed(data.id);
       // What it writes to the child's stdin (null: its end).
       else if (data.kind === 'child' && data.op === 'stdin')
@@ -341,8 +379,15 @@ export const nodeProgram =
       columns: process.size?.()[0] ?? 80,
       rows: process.size?.()[1] ?? 24,
     });
-    // What it reads, and the terminal's size as it changes.
-    process.oninput = (bytes) =>
+    // What it reads (a child's that has the terminal, meanwhile), and the
+    // terminal's size as it changes (its children's too).
+    process.oninput = (bytes) => {
+      const child = foreground.at(-1);
+      if (child) return child.oninput?.(bytes);
       thread.postMessage(bytes === null ? { kind: 'stdin', end: true } : { kind: 'stdin', bytes });
-    process.onresize = (columns, rows) => thread.postMessage({ kind: 'resize', columns, rows });
+    };
+    process.onresize = (columns, rows) => {
+      thread.postMessage({ kind: 'resize', columns, rows });
+      for (const child of sized) child.onresize?.(columns, rows);
+    };
   };

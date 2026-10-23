@@ -621,3 +621,50 @@ test("after a reload, npx and npm install take a kept project's packages without
     (await npm("node -p \"require('ms')('1h') + require('picocolors').red('!')\"")).stdout,
   ).toContain('3600000');
 });
+
+// A child that inherits a terminal's stdio has the terminal: isTTY, its
+// size and SIGWINCH, raw keys straight to it (claude-agent-acp --cli runs
+// Claude Code so).
+test('a child with stdio inherit has the terminal', async ({ page }) => {
+  await embedded(page, { template: 'empty' });
+  const child = [
+    "const s = process.stdout; console.log('tty', process.stdin.isTTY, s.isTTY, process.stderr.isTTY, s.columns, s.rows)",
+    "s.on('resize', () => console.log('resized', s.columns, s.rows))",
+    'process.stdin.setRawMode(true)',
+    "process.stdin.once('data', (d) => { console.log('key', JSON.stringify(String(d))); process.exit(3) })",
+    "console.log('raw')",
+  ].join('; ');
+  const parent = `require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'inherit' }).on('exit', (c) => console.log('child exited', c, process.stdin.isRaw))`;
+  const result = await page.evaluate(async (script) => {
+    const process = window.sandbox.spawn(['node', '-e', script], { tty: { cols: 100, rows: 30 } });
+    let out = '';
+    process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
+    const seen = (text: string) =>
+      new Promise<void>((resolve, reject) => {
+        const until = Date.now() + 60_000;
+        const check = () =>
+          out.includes(text)
+            ? resolve()
+            : Date.now() > until
+              ? reject(new Error(`not seen: ${text} in ${JSON.stringify(out)}`))
+              : setTimeout(check, 20);
+        check();
+      });
+    await seen('raw');
+    process.resize(120, 40);
+    await seen('resized');
+    // One key, no Enter: raw, so it reaches the child as it is.
+    process.write('q');
+    await seen('child exited');
+    const code = await process.exited;
+    return { out, code };
+  }, parent);
+  // (console.log colours its values on a tty.)
+  // oxlint-disable-next-line no-control-regex
+  const out = result.out.replace(/\x1b\[\d+m/g, '');
+  expect(out).toContain('tty true true true 100 30\r\n');
+  expect(out).toContain('resized 120 40\r\n');
+  expect(out).toContain('key "q"\r\n');
+  expect(out).toContain('child exited 3 false\r\n');
+  expect(result.code).toBe(0);
+});

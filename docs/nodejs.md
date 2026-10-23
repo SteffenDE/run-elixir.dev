@@ -119,7 +119,8 @@ the IDE's line discipline (`runtime/terminal.ts`):
   stdout are the terminal.
 - `sh` (a node of its own) and `npm run` pass the input, the size and
   the raw mode through, so `npm run dev`'s Vite or a script's prompt reads
-  the terminal too.
+  the terminal too, and so does a child process that inherits the
+  terminal ([child_process](#child_process-childts)).
 - **readline** (`readline.ts`): keypress events as Node parses a
   terminal's keys, and `createInterface` on a terminal with its own line
   editing (raw input, history, Ctrl+C, Ctrl+D), else lines;
@@ -211,6 +212,17 @@ does), its status a SIGTERM's (143), its `signalCode` the signal
   it runs: a page program, a coreutils tool, rg).
 - `stdio` may name a stream, such as `process.stdout` itself (npm-run-all2
   does on a TTY): the child's output goes there.
+- **The terminal, inherited:** a child whose stdin or stdout is the
+  process's (`'inherit'`, `[0, 1, 2]`, `process.stdin` and
+  `process.stdout` themselves) has the terminal where the process's is
+  it, as on a real tty: `isTTY` on its streams, the same `columns` and
+  `rows`, SIGWINCH, and `setRawMode` (the process's raw mode, as the
+  terminal's own programs set it). With stdin, the typing goes to the
+  child, not to the process, until it ends (to the last such child, if
+  several), and the process's mode is the terminal's again after.
+  `claude-agent-acp --cli` runs Claude Code so (`spawn(claude, args, {
+  stdio: 'inherit' })`). Neither a pipe's input nor a node's is passed
+  on: a child that inherits a stdin that is no terminal reads nothing.
 - **`spawnSync`, `execSync`, `execFileSync`:** the spawn carries a
   SharedArrayBuffer of `maxBuffer`'s size (Node's 1 MiB; more is
   `ENOBUFS`, for each stream), which the exec frame fills with the
@@ -546,7 +558,11 @@ the browser can report unhandled promise rejections.
   with a Headscale, interactively through the tailnet to its onboarding.
 - `child.spec.ts`: `execSync`'s output, `input` into a Node.js child,
   `spawnSync`'s status, `execSync` throwing, `ENOENT`, an asynchronous
-  child's stdin, and `kill()`.
+  child's stdin, and `kill()`. `embed.spec.ts`: a child with `stdio:
+  'inherit'` under a tty spawn sees `isTTY` on its three streams and the
+  terminal's size, hears a resize, and reads one raw key; its parent's
+  mode is cooked again after (`child.test.ts`: which streams a spawn says
+  it inherits).
 - `nodepolicy.spec.ts`: a script's ways around the process's messages,
   each refused ([the worker's policy](#the-workers-policy)): the
   browser's `fetch`, a synchronous `XMLHttpRequest`, `import()` of a
@@ -561,8 +577,8 @@ the browser can report unhandled promise rejections.
 
 1. A pool of kept connections for `http.Agent({ keepAlive })` (and
    `fetch`'s); `fd` in WebAssembly beside `rg` (its walker's threads).
-2. `child_process`'s rest: the terminal for one that inherits stdin,
-   fork's IPC; brotli in
+2. `child_process`'s rest: fork's IPC, a pipe's input for a child that
+   inherits it; brotli in
    `zlib`; more entries in npm's `STAND_INS` as projects need them
    (`@swc/core` → `@swc/wasm`, `rollup` → `@rollup/wasm-node`,
    `sass-embedded` → `sass`), each checked by hand.

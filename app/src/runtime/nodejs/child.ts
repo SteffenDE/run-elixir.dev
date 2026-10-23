@@ -36,6 +36,13 @@ interface SpawnOptions {
   maxBuffer?: number;
 }
 
+// Whether a child's stdio entry is the process's own fd: 'inherit', the
+// fd's number, or the stream itself (process.stdin, process.stdout).
+const inherits = (entry: Stdio, fd: number) =>
+  entry === 'inherit' ||
+  entry === fd ||
+  (!!entry && typeof entry === 'object' && (entry as { fd?: number }).fd === fd);
+
 const quote = (word: string) =>
   /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
 
@@ -197,7 +204,10 @@ export function createChildProcess(
       const env = Object.fromEntries(
         Object.entries(options.env ?? own.env).filter(([, v]) => v !== undefined),
       ) as Record<string, string>;
-      post({ kind: 'child', op: 'spawn', id: this.id, line, cwd: String(cwd), env });
+      // Which of the process's stdin and stdout it inherits: the terminal,
+      // where they are it (programs/nodejs.ts).
+      const terminal = [inherits(stdio[0], 0), inherits(stdio[1], 1)];
+      post({ kind: 'child', op: 'spawn', id: this.id, line, cwd: String(cwd), env, terminal });
       // Its abort signal and timeout, which hold nothing once it has exited.
       const { signal, timeout } = options;
       const abort = () => this.kill('SIGTERM');
@@ -392,6 +402,7 @@ export function createChildProcess(
     const header = new Int32Array(shared, 0, 4);
     const stdio = Array.isArray(opts.stdio) ? opts.stdio : [opts.stdio, opts.stdio, opts.stdio];
     const inherit = stdio[1] === 'inherit' || stdio[1] === 1;
+    const terminal = [inherits(stdio[0], 0), inherits(stdio[1], 1)];
     const cwd = opts.cwd instanceof URL ? opts.cwd.pathname : (opts.cwd ?? own.cwd());
     const env = Object.fromEntries(
       Object.entries(opts.env ?? own.env).filter(([, v]) => v !== undefined),
@@ -405,9 +416,16 @@ export function createChildProcess(
       line: lineOf(file, args, opts.shell),
       cwd: String(cwd),
       env,
-      input: opts.input === undefined ? new Uint8Array(0) : toBytes(opts.input),
+      // (An inherited stdin is the process's, not an empty one.)
+      input:
+        opts.input !== undefined
+          ? toBytes(opts.input)
+          : terminal[0]
+            ? undefined
+            : new Uint8Array(0),
       shared,
       inherit,
+      terminal,
     });
     // Until it ends, or its time is up (then it is stopped, and waited for).
     const deadline = opts.timeout ? Date.now() + opts.timeout : Infinity;

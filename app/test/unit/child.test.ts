@@ -193,4 +193,28 @@ describe('child_process', () => {
       vi.useRealTimers();
     }
   });
+  test('a child says which of stdin and stdout it inherits, and an inherited stdin is not ended', () => {
+    const { module, posted } = children('', 0);
+    const stdin = { fd: 0 };
+    module.spawn('a', [], { stdio: 'inherit' });
+    module.spawn('b', [], { stdio: [stdin, 'pipe', 'inherit'] });
+    module.spawn('c', [], { stdio: ['pipe', 1, 2] });
+    module.spawn('d', []);
+    module.spawnSync('e', [], { stdio: 'inherit' });
+    module.spawnSync('f', [], { stdio: 'inherit', input: 'x' });
+    const spawns = posted.filter((m) => m.op === 'spawn') as unknown as {
+      terminal: boolean[];
+      input?: Uint8Array;
+    }[];
+    expect(spawns.map((m) => m.terminal)).toEqual([
+      [true, true],
+      [true, false],
+      [false, true],
+      [false, false],
+      [true, true],
+      [true, true],
+    ]);
+    expect(spawns[4].input).toBeUndefined();
+    expect(spawns[5].input).toEqual(new TextEncoder().encode('x'));
+  });
 });
