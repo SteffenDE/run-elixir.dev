@@ -146,10 +146,22 @@ initializer's package, `create-NAME`, `@scope/create`, by npx), and
 - **The tree** is laid out as npm lays it out (each package as high as it
   goes without another version in the way, nor where it would hide the
   copy a package below it uses); a peer that conflicts with what is there
-  is warned of (`ERESOLVE`, as npm's `--legacy-peer-deps`) and left out; a
-  `package-lock.json`'s
-  versions are kept where they still satisfy, and one is written
-  (lockfileVersion 3). Bins are links in `node_modules/.bin`
+  is warned of (`ERESOLVE`, as npm's `--legacy-peer-deps`) and left out.
+- **The lock:** a `package-lock.json`'s (lockfileVersion 2 or 3) versions
+  are kept where they still satisfy, and one is written (lockfileVersion
+  3, with the fields npm keeps: an alias's `name`, `peerDependenciesMeta`,
+  `deprecated`, …). A locked package that still satisfies, with
+  `resolved` and `integrity`, is laid out from its entry, as `npm ci`
+  does: its tarball from Cache Storage, else by `resolved`, checked
+  against `integrity`. The registry's metadata (kept for the page alone)
+  is fetched only for what the lock lacks, what it has at a version
+  that no longer satisfies, and what the command names (`npm install
+  foo@2`, npx's package for a range or a tag). Optional packages for
+  another platform stay in the lock, uninstalled, as npm keeps them; a
+  package the registry has not (a guessed `-wasm32-wasi` build, below) is
+  remembered in Cache Storage for a day. So after a reload an unchanged
+  project installs without the registry, and `npm install newpkg` asks
+  it for what is new. Bins are links in `node_modules/.bin`
   (`Files.symlink`). Extraneous packages are not pruned.
 - **Platforms:** packages for another os or cpu are left out, matched as
   `os: linux`, `cpu: wasm32`. napi-rs packages list only their native
@@ -166,8 +178,8 @@ initializer's package, `create-NAME`, `@scope/create`, by npx), and
   first (a scope's `/` as `+`). An exact version already installed
   there, with its bin, runs as it is, without the registry (as npm's npx
   reuses its cache); a range, a tag or `latest` installs again, which the
-  lock makes cheap (the tree, above). An embedder may run that bin itself once it is
-  there ([embed.md](embed.md)).
+  lock makes cheap (above): its package's metadata alone. An embedder
+  may run that bin itself once it is there ([embed.md](embed.md)).
 
 ## child_process (`child.ts`)
 
@@ -483,6 +495,14 @@ the browser can report unhandled promise rejections.
 - `npm.spec.ts`: install (and the lock), a package with a tree of its own
   and a bin, `npx`, `npm run` with a pipe, `npx` of a package the project
   lacks, up to date.
+- `npm.test.ts` (unit, a stubbed registry): the tree's layout; npx of an
+  exact version again, and an install from a lock, after a reload
+  without the registry (another platform's build and a missing
+  WebAssembly build too); `npm install NAME` asking for NAME alone; a
+  locked version no longer allowed fetched again. `embed.spec.ts`
+  counts the registry's requests after a reload of a kept project: none
+  for `npx -y @agentclientprotocol/claude-agent-acp@0.85.1` and `npm
+  install`, picocolors' alone for `npm install picocolors`.
 - `vite.spec.ts`: a React app built with `npm run build`; `npm run dev`
   in the preview, an edit saved in the editor updating it in place (no
   reload), and Ctrl+C ending the server.

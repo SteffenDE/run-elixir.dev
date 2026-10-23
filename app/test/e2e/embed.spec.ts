@@ -580,3 +580,44 @@ test("a kept project's files, and ~/.claude, are there again after a reload", as
   );
   console.log(`${browserName}: warm Phoenix running ${Date.now() - startedAt} ms after spawn`);
 });
+
+// npx's package and a project's lock after a reload: npm's tree from the
+// lock and the kept tarballs, the registry asked only for what is new.
+test("after a reload, npx and npm install take a kept project's packages without the registry", async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.setTimeout(600_000);
+  const registry: string[] = [];
+  await context.route('https://registry.npmjs.org/**', (route) => {
+    registry.push(route.request().url());
+    return route.continue();
+  });
+  const metadata = () => registry.filter((url) => !url.includes('/-/'));
+  const project = { id: 'npm-kept', template: 'empty' };
+  const acp = 'npx -y @agentclientprotocol/claude-agent-acp@0.85.1 --version';
+  const npm = (command: string) => run(page, command, { cwd: '/work/app' });
+
+  await embedded(page, project, { persist: true });
+  expect(await run(page, acp)).toMatchObject({ stdout: '0.85.1\n', code: 0 });
+  await page.evaluate(() => window.sandbox.fs.write('/work/app/package.json', '{}\n'));
+  expect((await npm('npm install ms@2.1.3 cowsay@1.6.0')).code).toBe(0);
+  console.log(
+    `${browserName}: cold, ${metadata().length} metadata and ${registry.length - metadata().length} tarball requests`,
+  );
+  await page.evaluate(() => window.sandbox.shutdown());
+
+  await embedded(page, project, { persist: true });
+  registry.length = 0;
+  expect(await run(page, acp)).toMatchObject({ stdout: '0.85.1\n', code: 0 });
+  console.log(`${browserName}: npx after a reload, ${registry.length} registry requests`);
+  expect(registry).toEqual([]);
+  expect(await npm('npm install')).toMatchObject({ code: 0 });
+  expect(registry).toEqual([]);
+  expect((await npm('npm install picocolors@1.1.1')).code).toBe(0);
+  expect(metadata().map((url) => url.slice(27))).toEqual(['picocolors']);
+  expect(
+    (await npm("node -p \"require('ms')('1h') + require('picocolors').red('!')\"")).stdout,
+  ).toContain('3600000');
+});

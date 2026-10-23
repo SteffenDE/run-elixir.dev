@@ -12,8 +12,9 @@
 // package below that uses it), nested under what needs it otherwise. A
 // peer that conflicts with what is wanted there first is warned of
 // (ERESOLVE), as with npm --legacy-peer-deps, and left out. A
-// package-lock.json's versions are kept where they still satisfy, and one
-// is written (lockfileVersion 3).
+// package-lock.json's versions are kept where they still satisfy, laid out
+// from its entries without the registry (as npm ci), and one is written
+// (lockfileVersion 3).
 import { maxSatisfying, satisfies, valid, validRange } from 'semver';
 import type { Files } from '@/runtime/host/files';
 import { entries, gunzip } from '@/runtime/wasi/fs';
@@ -60,11 +61,44 @@ interface Placed {
   optional: boolean;
 }
 
+// A package-lock.json's entry: the package's own fields npm keeps there,
+// enough to lay it out without the registry.
+interface Locked {
+  name?: string;
+  version?: string;
+  resolved?: string;
+  integrity?: string;
+  link?: boolean;
+  dependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  peerDependencies?: Record<string, string>;
+  peerDependenciesMeta?: Record<string, { optional?: boolean }>;
+  bin?: Record<string, string>;
+  os?: string[];
+  cpu?: string[];
+  engines?: Record<string, string>;
+  hasInstallScript?: boolean;
+  deprecated?: string;
+  license?: string;
+}
+
 interface Lock {
-  packages?: Record<
-    string,
-    { version?: string; resolved?: string; integrity?: string; link?: boolean }
-  >;
+  lockfileVersion?: number;
+  packages?: Record<string, Locked>;
+}
+
+// A lock's entry at a location as the manifest the registry would have
+// given: null without its tarball's URL and integrity (or for a link).
+function lockedManifest(lock: Lock | null, location: string): Manifest | null {
+  const entry = lock?.packages?.[location];
+  if (!entry || entry.link || !entry.version || !entry.resolved || !entry.integrity) return null;
+  const { resolved, integrity, link: _, ...fields } = entry;
+  return {
+    ...fields,
+    name: entry.name ?? location.slice(folderAt(location)),
+    version: entry.version,
+    dist: { tarball: resolved, integrity },
+  };
 }
 
 interface PackageJson {
@@ -84,19 +118,31 @@ class NpmError extends Error {}
 const decoder = new TextDecoder();
 
 // The registry's metadata of a package, abbreviated (as npm install asks
-// for it), each once per page.
+// for it), each once per page. A package the registry has not (a napi-rs
+// package's WebAssembly build, guessed: wasmSibling) is remembered in Cache
+// Storage for a day, as no lock can say so.
 const packuments = new Map<string, Promise<Packument>>();
+const MISSING_FOR = 24 * 60 * 60 * 1000;
 function packument(name: string): Promise<Packument> {
   let found = packuments.get(name);
   if (!found) {
-    found = fetch(`${REGISTRY}${name.replace('/', '%2f')}`, {
-      headers: { Accept: 'application/vnd.npm.install-v1+json' },
-    }).then(async (response) => {
-      if (response.status === 404)
-        throw new NpmError(`${name}: no such package in the npm registry`);
+    const url = `${REGISTRY}${name.replace('/', '%2f')}`;
+    const missing = `${url}?missing`;
+    const none = () => new NpmError(`${name}: no such package in the npm registry`);
+    found = (async () => {
+      const cache = await caches.open(CACHE).catch(() => null);
+      const known = await cache?.match(missing).catch(() => undefined);
+      if (known && Date.now() - Number(await known.text()) < MISSING_FOR) throw none();
+      const response = await fetch(url, {
+        headers: { Accept: 'application/vnd.npm.install-v1+json' },
+      });
+      if (response.status === 404) {
+        await cache?.put(missing, new Response(String(Date.now()))).catch(() => {});
+        throw none();
+      }
       if (!response.ok) throw new NpmError(`${name}: the registry answered ${response.status}`);
       return response.json() as Promise<Packument>;
-    });
+    })();
     found.catch(() => packuments.delete(name));
     packuments.set(name, found);
   }
@@ -245,8 +291,20 @@ interface Want {
 }
 
 // The tree for a package.json, with what a lock had where it still fits.
-async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: string) => void) {
+// A locked package that still satisfies is laid out from its entry (its
+// tarball by `resolved`, checked against `integrity`), as npm ci's: the
+// registry's metadata is fetched only for what the lock lacks, what no
+// longer satisfies, and the project's dependencies in `requested` (those
+// npm install names).
+async function resolveTree(
+  pkg: PackageJson,
+  lock: Lock | null,
+  requested: Set<string>,
+  warn: (text: string) => void,
+) {
   const tree = new Map<string, Placed>();
+  // Optional packages for another platform: where they would have gone.
+  const skipped = new Map<string, Placed>();
   let queue: Want[] = [];
   const want = (
     from: string,
@@ -262,41 +320,69 @@ async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: str
   want('', pkg.devDependencies, true, false);
   want('', pkg.optionalDependencies, false, true);
 
+  // A want's package and range, the lock's say where it is to be trusted,
+  // and whether a version satisfies it: a tag by the metadata's dist-tags
+  // once fetched, and as the lock has it before.
+  const wanted = (w: Want) => {
+    const target = parseSpec(w.name, w.spec);
+    const trusted = !(w.from === '' && requested.has(w.name));
+    const satisfying = (version: string, doc: Packument | null) => {
+      const range = doc?.['dist-tags'][target.range] ?? target.range;
+      return validRange(range) ? satisfies(version, range, { includePrerelease: true }) : !doc;
+    };
+    const fromLock = (at: string) => {
+      const manifest = trusted ? lockedManifest(lock, at) : null;
+      return manifest?.name === target.name && satisfying(manifest.version, null) ? manifest : null;
+    };
+    return { target, satisfying, fromLock };
+  };
+
   while (queue.length) {
     const batch = queue;
     queue = [];
-    // The metadata of this round's packages, together.
+    // The metadata of this round's packages the lock cannot answer for,
+    // together.
     await Promise.all(
       batch.map((w) => {
         try {
-          return packument(parseSpec(w.name, w.spec).name).catch(() => null);
+          const { target, fromLock } = wanted(w);
+          if (lookups(w.from, w.name).some(fromLock)) return null;
+          return packument(target.name).catch(() => null);
         } catch {
           return null;
         }
       }),
     );
     for (const w of batch) {
-      let target: { name: string; range: string };
-      let doc: Packument;
+      let asked: ReturnType<typeof wanted>;
       try {
-        target = parseSpec(w.name, w.spec);
-        doc = await packument(target.name);
+        asked = wanted(w);
       } catch (error) {
         if (w.optional) continue;
         throw error;
       }
+      const { target, satisfying, fromLock } = asked;
       const path = lookups(w.from, w.name);
+      let doc: Packument | null = null;
+      // The registry's metadata, once needed: false if an optional
+      // package has none.
+      const load = async () => {
+        try {
+          doc ??= await packument(target.name);
+          return true;
+        } catch (error) {
+          if (w.optional) return false;
+          throw error;
+        }
+      };
+      if (!path.some(fromLock) && !(await load())) continue;
       // What is in the way: the nearest copy that does not satisfy.
       let blocked = path.length;
       let found: Placed | null = null;
       for (let i = 0; i < path.length; i++) {
         const there = tree.get(path[i]);
         if (!there) continue;
-        const range = doc['dist-tags'][target.range] ?? target.range;
-        if (
-          there.manifest.name === target.name &&
-          satisfies(there.manifest.version, range, { includePrerelease: true })
-        )
+        if (there.manifest.name === target.name && satisfying(there.manifest.version, doc))
           found = there;
         else blocked = i;
         break;
@@ -314,18 +400,17 @@ async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: str
           );
         continue;
       }
-      // The version for a place: the lock's there if it satisfies.
-      const versionAt = (at: string) => {
-        const locked = lock?.packages?.[at];
-        return (
-          (locked?.version &&
-          doc.versions[locked.version] &&
-          satisfies(locked.version, doc['dist-tags'][target.range] ?? target.range, {
-            includePrerelease: true,
-          })
-            ? doc.versions[locked.version]
-            : null) ?? pick(doc, target.range)
-        );
+      // The version for a place: the lock's there if it satisfies (from
+      // its entry, else from the metadata), else the metadata's pick.
+      const versionAt = async (at: string): Promise<Manifest | null> => {
+        const locked = fromLock(at);
+        if (locked) return locked;
+        if (!(await load())) return null;
+        const version = lock?.packages?.[at]?.version;
+        const known: Packument = doc!;
+        return version && known.versions[version] && satisfying(version, known)
+          ? known.versions[version]
+          : pick(known, target.range);
       };
       // As high as it goes below what is in the way, but not where it
       // would hide another copy from a package below that uses it.
@@ -333,7 +418,7 @@ async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: str
       let manifest: Manifest | null = null;
       for (let i = blocked - 1; i >= 0; i--) {
         location = path[i];
-        manifest = versionAt(location);
+        manifest = await versionAt(location);
         if (!manifest || i === 0 || !hides(tree, location, w.name, manifest)) break;
       }
       if (!manifest) {
@@ -345,6 +430,9 @@ async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: str
           warn(
             `npm warn ${manifest.name}@${manifest.version}: not for this platform (${PLATFORM.os}, ${PLATFORM.cpu}); skipped\n`,
           );
+        // Kept in the lock, as npm keeps another platform's builds, so the
+        // next install knows it without the registry.
+        else skipped.set(location, { location, manifest, dev: w.dev, optional: true });
         continue;
       }
       if (manifest.deprecated)
@@ -389,7 +477,8 @@ async function resolveTree(pkg: PackageJson, lock: Lock | null, warn: (text: str
   reach('', pkg.dependencies, false, false);
   reach('', pkg.devDependencies, true, false);
   reach('', pkg.optionalDependencies, false, true);
-  return tree;
+  for (const location of tree.keys()) skipped.delete(location);
+  return { tree, skipped };
 }
 
 // A tarball's bytes: Cache Storage's copy, else the registry's, checked
@@ -512,9 +601,20 @@ async function install(
   const pkgPath = `${root}/package.json`;
   const pkg: PackageJson = (await readJson<PackageJson>(fs, pkgPath)) ?? {};
   const lock = await readJson<Lock>(fs, `${root}/package-lock.json`);
+  // Locks this npm wrote before it kept peerDependenciesMeta: the
+  // installed package's.
+  for (const [location, entry] of Object.entries(lock?.packages ?? {})) {
+    if (!location || !entry.peerDependencies || entry.peerDependenciesMeta) continue;
+    const json = await readJson<PackageJson>(fs, `${root}/${location}/package.json`);
+    if (json && json.version === entry.version)
+      entry.peerDependenciesMeta =
+        (json.peerDependenciesMeta as Locked['peerDependenciesMeta']) ?? {};
+  }
   let changed = false;
+  const requested = new Set<string>();
   for (const request of add) {
     const [name, spec] = splitRequest(request);
+    requested.add(name);
     const target = parseSpec(name, spec);
     const manifest = pick(await packument(target.name), target.range);
     if (!manifest) throw new NpmError(`${request}: no version matches`);
@@ -535,7 +635,7 @@ async function install(
     else delete pkg.devDependencies?.[name];
     changed = true;
   }
-  const tree = await resolveTree(pkg, lock, out);
+  const { tree, skipped } = await resolveTree(pkg, lock, requested, out);
   let added = 0;
   const scripts: string[] = [];
   const placed = [...tree.values()].sort((a, b) => a.location.length - b.location.length);
@@ -591,7 +691,7 @@ async function install(
   if (options.save)
     await fs.write(
       `${root}/package-lock.json`,
-      `${JSON.stringify(lockfile(pkg, placed), null, 2)}\n`,
+      `${JSON.stringify(lockfile(pkg, [...placed, ...skipped.values()]), null, 2)}\n`,
     );
   return { added, total: placed.length };
 }
@@ -608,7 +708,9 @@ function lockfile(pkg: PackageJson, placed: Placed[]) {
   };
   for (const p of [...placed].sort((a, b) => (a.location < b.location ? -1 : 1))) {
     const m = p.manifest;
+    const folder = p.location.slice(folderAt(p.location));
     packages[p.location] = {
+      ...(folder !== m.name ? { name: m.name } : {}),
       version: m.version,
       resolved: m.dist.tarball,
       integrity: m.dist.integrity,
@@ -618,11 +720,13 @@ function lockfile(pkg: PackageJson, placed: Placed[]) {
       ...(m.dependencies ? { dependencies: m.dependencies } : {}),
       ...(m.optionalDependencies ? { optionalDependencies: m.optionalDependencies } : {}),
       ...(m.peerDependencies ? { peerDependencies: m.peerDependencies } : {}),
+      ...(m.peerDependenciesMeta ? { peerDependenciesMeta: m.peerDependenciesMeta } : {}),
       ...(m.bin ? { bin: bins(m.name, m.bin) } : {}),
       ...(m.engines ? { engines: m.engines } : {}),
       ...(m.os ? { os: m.os } : {}),
       ...(m.cpu ? { cpu: m.cpu } : {}),
       ...(m.hasInstallScript ? { hasInstallScript: true } : {}),
+      ...(m.deprecated ? { deprecated: m.deprecated } : {}),
     };
   }
   return { name: pkg.name, version: pkg.version, lockfileVersion: 3, requires: true, packages };

@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 import { afterEach, describe, expect, test, vi } from 'vitest';
 import {
@@ -51,6 +52,8 @@ interface Pkg {
   version: string;
   dependencies?: Record<string, string>;
   peerDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+  cpu?: string[];
   bin?: Record<string, string>;
 }
 
@@ -74,12 +77,19 @@ function registry(pkgs: Pkg[]) {
     const url = `https://t/${p.name}-${p.version}.tgz`;
     const doc = (docs[p.name] ??= { 'dist-tags': {}, versions: {} });
     doc['dist-tags'].latest = p.version;
-    Object.assign(doc.versions, { [p.version]: { ...p, dist: { tarball: url } } });
     const files: [string, string][] = [['package/package.json', JSON.stringify(p)]];
     for (const file of Object.values(p.bin ?? {})) files.push([`package/${file}`, '']);
     tars[url] = tarOf(files);
+    const integrity = `sha512-${createHash('sha512').update(tars[url]).digest('base64')}`;
+    Object.assign(doc.versions, { [p.version]: { ...p, dist: { tarball: url, integrity } } });
   }
-  vi.stubGlobal('caches', { open: () => Promise.reject(new Error('none')) });
+  // Cache Storage, which a reload keeps.
+  const cached = new Map<string, Response>();
+  const cache = {
+    match: async (url: string) => cached.get(url)?.clone(),
+    put: async (url: string, response: Response) => void cached.set(url, response),
+  };
+  vi.stubGlobal('caches', { open: async () => cache });
   // Every request, the registry's metadata and tarballs both.
   const requests: string[] = [];
   vi.stubGlobal('fetch', async (url: string) => {
@@ -269,5 +279,118 @@ describe('npx', () => {
     const again = await npx(fs, '-y', '@n1/tool@1.2.3', 'again');
     expect(again.out).toBe('node /h/.npm/_npx/@n1+tool@1.2.3/node_modules/.bin/tool again\n');
     expect(requests).toEqual([]);
+  });
+});
+
+// What of the registry an install fetched: the packages whose metadata
+// it asked for, and the tarballs.
+const asked = (requests: string[]) => ({
+  metadata: requests
+    .filter((url) => url.startsWith('https://registry.npmjs.org/'))
+    .map((url) => decodeURIComponent(url.slice(27)))
+    .sort(),
+  tarballs: requests.filter((url) => !url.startsWith('https://registry.npmjs.org/')).length,
+});
+
+describe('npm install with a lock', () => {
+  const tree = (prefix: string): Pkg[] => [
+    { name: `${prefix}-a`, version: '1.0.0', dependencies: { [`${prefix}-b`]: '^1' } },
+    { name: `${prefix}-b`, version: '1.0.0', peerDependencies: { [`${prefix}-c`]: '*' } },
+    { name: `${prefix}-c`, version: '1.0.0' },
+    { name: `${prefix}-new`, version: '1.0.0', dependencies: { [`${prefix}-c`]: '^1' } },
+  ];
+
+  test('after a reload, an unchanged package.json installs without the registry', async () => {
+    const { fs, requests } = registry(tree('l1'));
+    const pkg = { dependencies: { 'l1-a': '^1' } };
+    await npm(fs, pkg, 'install');
+    const before = await installed(fs);
+    expect(Object.keys(before)).toHaveLength(3);
+    forgetPackuments();
+    requests.length = 0;
+    const again = await npm(fs, pkg, 'install');
+    expect(again.out).toContain('up to date, 3 packages');
+    expect(asked(requests)).toEqual({ metadata: [], tarballs: 0 });
+    // And without node_modules (npm ci): the tarballs alone, by the lock's URLs.
+    forgetPackuments();
+    requests.length = 0;
+    const ci = await npm(fs, pkg, 'ci');
+    expect(ci.out).toContain('added 3 packages');
+    expect(asked(requests)).toEqual({ metadata: [], tarballs: 0 });
+    expect(await installed(fs)).toEqual(before);
+  });
+
+  test("another platform's build, and a WebAssembly build the registry has not, are known after a reload", async () => {
+    const { fs, requests } = registry([
+      {
+        name: 'l5-native',
+        version: '1.0.0',
+        optionalDependencies: { 'l5-native-linux-x64-gnu': '1.0.0' },
+      },
+      { name: 'l5-native-linux-x64-gnu', version: '1.0.0', cpu: ['x64'] },
+    ]);
+    const pkg = { dependencies: { 'l5-native': '1.0.0' } };
+    await npm(fs, pkg, 'install');
+    expect(asked(requests).metadata).toEqual([
+      'l5-native',
+      'l5-native-linux-x64-gnu',
+      'l5-native-wasm32-wasi',
+    ]);
+    expect(await installed(fs)).toEqual({
+      'node_modules/l5-native': '1.0.0',
+      'node_modules/l5-native-linux-x64-gnu': '1.0.0',
+    });
+    forgetPackuments();
+    requests.length = 0;
+    expect((await npm(fs, pkg, 'install')).out).toContain('up to date, 1 packages');
+    expect(asked(requests)).toEqual({ metadata: [], tarballs: 0 });
+  });
+
+  test('npm install NAME fetches the metadata of what is new alone', async () => {
+    const { fs, requests } = registry(tree('l2'));
+    await npm(fs, { dependencies: { 'l2-a': '^1' } }, 'install');
+    forgetPackuments();
+    requests.length = 0;
+    const pkg = JSON.parse(new TextDecoder().decode(await fs.read('/p/package.json')));
+    await npm(fs, pkg, 'install', 'l2-new');
+    // l2-c, its dependency, is the lock's already.
+    expect(asked(requests)).toEqual({ metadata: ['l2-new'], tarballs: 1 });
+    expect(await installed(fs)).toMatchObject({ 'node_modules/l2-new': '1.0.0' });
+  });
+
+  test("a locked version the package.json no longer allows is the registry's again", async () => {
+    const { fs, requests } = registry([
+      ...tree('l3'),
+      { name: 'l3-a', version: '2.0.0', dependencies: { 'l3-b': '^1' } },
+    ]);
+    // (The lock's l3-a@1 kept while ^1 allows it, though 2.0.0 is latest.)
+    await npm(fs, { dependencies: { 'l3-a': '1.0.0' } }, 'install');
+    forgetPackuments();
+    requests.length = 0;
+    await npm(fs, { dependencies: { 'l3-a': '^1' } }, 'install');
+    expect(asked(requests)).toEqual({ metadata: [], tarballs: 0 });
+    forgetPackuments();
+    requests.length = 0;
+    await npm(fs, { dependencies: { 'l3-a': '^2' } }, 'install');
+    expect(asked(requests)).toEqual({ metadata: ['l3-a'], tarballs: 1 });
+    expect(await installed(fs)).toMatchObject({ 'node_modules/l3-a': '2.0.0' });
+  });
+
+  test('npx of a range fetches its own metadata alone after a reload', async () => {
+    const { fs, requests } = registry([
+      ...tree('l4'),
+      {
+        name: 'l4-tool',
+        version: '1.0.0',
+        dependencies: { 'l4-a': '^1' },
+        bin: { 'l4-tool': 'cli.js' },
+      },
+    ]);
+    await npx(fs, 'l4-tool@^1');
+    forgetPackuments();
+    requests.length = 0;
+    const again = await npx(fs, 'l4-tool@^1', 'x');
+    expect(again.out).toBe('node /h/.npm/_npx/l4-tool@^1/node_modules/.bin/l4-tool x\n');
+    expect(asked(requests)).toEqual({ metadata: ['l4-tool'], tarballs: 0 });
   });
 });
