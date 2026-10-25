@@ -592,8 +592,9 @@ def main():
         print(f"{out}: build %s, runtime %s" % version(out))
         return
     shutil.rmtree(out, ignore_errors=True)
-    page(out, wasm)
+    # The installation first: page() writes its versions (runtime.json).
     otp_install()
+    page(out, wasm)
     for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
         shutil.copy(os.path.join(BEAM_DIST, name), os.path.join(out, name))
 
