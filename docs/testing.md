@@ -21,7 +21,9 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
   own, then the site (`runtime/build.py`), then `nif/test/test.py` and
   the Playwright suite in each browser, in four shards, with the backend
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
-  Each shard's `target/tests` is an artifact.
+  Each shard's `target/tests` is an artifact. A failed test runs once
+  more; WebKit runs on two workers, and its shards do not fail the run:
+  there, nodes that Mix and `System.shell` start sometimes hang.
 
 ## In browsers: Playwright (`app/test/e2e`)
 
