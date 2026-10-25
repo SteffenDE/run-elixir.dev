@@ -1,0 +1,76 @@
+# The Phoenix backend (backend/): formatting, a compile without warnings
+# and `mix test` against Postgres (the :docker and :vm tests need
+# Firecracker and KVM, so they stay excluded), and its release image.
+# GitHub only: Forgejo reads .forgejo/workflows and ignores this directory.
+name: backend
+
+on:
+  push:
+    branches: [main]
+    paths: [backend/**, nif/**, .github/workflows/backend.yml]
+  pull_request:
+    paths: [backend/**, nif/**, .github/workflows/backend.yml]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  OTP_VERSION: 29.1.2
+  ELIXIR_VERSION: 1.20.4
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      MIX_ENV: test
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          version-type: strict
+      - uses: actions/cache@v4
+        with:
+          path: |
+            backend/deps
+            backend/_build
+          key: backend-test-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('backend/mix.lock') }}
+          restore-keys: backend-test-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+      - run: mix deps.get
+      - run: mix deps.unlock --check-unused
+      - run: mix format --check-formatted
+      - run: mix compile --warnings-as-errors
+      - run: mix test
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      # The release's image (the Dockerfile's last stage), not pushed.
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          build-contexts: nif=nif
+          push: false
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
