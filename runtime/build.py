@@ -264,29 +264,25 @@ def compiler_stamp():
 def phoenix_app():
     """The phx.new app, generated once into the cache; its deps locked
     afresh every build (the newest its mix.exs allows, as a new phx.new
-    app gets); built again when that or configure changes it or another
-    OTP or Elixir compiled it."""
+    app gets); built again, from nothing when another OTP or Elixir
+    compiled it."""
     app = os.path.join(CACHE, "playground")
     env = mix_env()
     stamp = os.path.join(CACHE, "playground.compiler")
     if os.path.exists(os.path.join(app, "priv", "static", "assets", "css", "app.css")):
-        lock = os.path.join(app, "mix.lock")
-        with open(lock) as f:
-            locked = f.read()
-        os.remove(lock)
+        os.remove(os.path.join(app, "mix.lock"))
         subprocess.run(["mix", "deps.get"], cwd=app, env=env, check=True)
         subprocess.run(["mix", "deps.clean", "--unused"], cwd=app, env=env, check=True)
-        with open(lock) as f:
-            relocked = f.read() != locked
         built = open(stamp).read() if os.path.exists(stamp) else None
         if built != compiler_stamp():
             shutil.rmtree(os.path.join(app, BUILD, "dev"), ignore_errors=True)
-            configure(app)
-            subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
-            with open(stamp, "w") as f:
-                f.write(compiler_stamp())
-        elif configure(app) or relocked:
-            subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
+        configure(app)
+        # Without a lock, deps.get fetches the git deps again, which marks
+        # their builds outdated even when the lock comes out the same;
+        # left so, the node would build them in the recording run.
+        subprocess.run(["mix", "compile"], cwd=app, env=env, check=True)
+        with open(stamp, "w") as f:
+            f.write(compiler_stamp())
         return app
     os.makedirs(CACHE, exist_ok=True)
     shutil.rmtree(app, ignore_errors=True)
