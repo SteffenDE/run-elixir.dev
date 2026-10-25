@@ -227,11 +227,22 @@ build() {
     local bin="${OTP_DIR}/bin/wasm32-unknown-emscripten"
     mkdir -p "${DIST}"
     cp "${bin}/beam.wasm" "${DIST}/"
-    sed 's/"beam\.emu"/"beam.emu.mjs"/g' "${bin}/beam.smp" > "${DIST}/beam.mjs"
-    sed 's/"beam\.emu"/"beam.emu.mjs"/g' "${bin}/beam.emu" > "${DIST}/beam.emu.mjs"
+    module_js "${bin}/beam.smp" "${DIST}/beam.mjs"
+    module_js "${bin}/beam.emu" "${DIST}/beam.emu.mjs"
     cp "${OTP_DIR}/bootstrap/bin/no_dot_erlang.boot" "${DIST}/vm.boot"
     install_libs
     log "wrote ${DIST} (beam.wasm $(du -h "${DIST}/beam.wasm" | cut -f1))"
+}
+
+# Emscripten's module script $1, as the site serves it ($2): its threads'
+# script by its .mjs name, and a thread's worker from Module.beamThreadUrl
+# when given (run.ts: a blob of beam.emu.mjs), as WebKit's page crashes
+# when many workers fetch their module script at once.
+module_js() {
+    sed -e 's/"beam\.emu"/"beam.emu.mjs"/g' \
+        -e 's/new Worker(new URL("beam\.emu\.mjs",import\.meta\.url)/new Worker(Module["beamThreadUrl"]??new URL("beam.emu.mjs",import.meta.url)/' \
+        "$1" > "$2"
+    grep -q 'Module\["beamThreadUrl"\]' "$2" || { echo "$1: no thread worker to patch" >&2; exit 1; }
 }
 
 # An installation to mount: each application's ebin, priv and include under
