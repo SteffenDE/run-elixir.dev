@@ -159,8 +159,9 @@ jobs:
     needs: site
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # WebKit's shards report but do not fail the run: there, the git that
-    # mix deps.get starts sometimes stops before it fetches (git.spec.ts).
+    # WebKit's shards report but do not fail the run: there, a node's worker
+    # sometimes stops for good inside WebKit as it instantiates git.wasm
+    # (git.spec.ts, mix deps.get).
     continue-on-error: ${{ matrix.browser == 'webkit' }}
     strategy:
       fail-fast: false

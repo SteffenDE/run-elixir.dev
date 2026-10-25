@@ -23,8 +23,8 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
   Each shard's `target/tests` is an artifact. A failed test runs once
   more; WebKit runs on two workers, and its shards do not fail the run:
-  there, the git that `mix deps.get` starts sometimes stops before it
-  fetches. A test whose page crashes fails at once ("the page crashed"),
+  there, a node's worker sometimes stops for good inside WebKit as it
+  instantiates `git.wasm` (`mix deps.get` in `git.spec.ts`). A test whose page crashes fails at once ("the page crashed"),
   not when its wait times out.
 
 ## In browsers: Playwright (`app/test/e2e`)

@@ -4,6 +4,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import type { BrowserContext } from '@playwright/test';
 
 const IDENTITY = {
   GIT_AUTHOR_NAME: 'A',
@@ -179,4 +180,24 @@ export function gitHttp(
       }),
     };
   return { status: 404, contentType: 'text/plain', body: Buffer.from('not found') };
+}
+
+// github.com/`repo` (OWNER/REPO) for every page of `context`: the site's git
+// proxy (/git/github.com/…, from the exec frame's workers) answered from
+// `bare`, so nothing goes to GitHub.
+export async function routeRepository(
+  context: BrowserContext,
+  repo: string,
+  bare: string,
+): Promise<void> {
+  const path = repo.replace(/[.]/g, '\\.');
+  await context.route(new RegExp(`/git/github\\.com/${path}(\\.git)?/`), async (route) => {
+    const request = route.request();
+    const answer = gitHttp(bare, request.url(), request.method(), request.postDataBuffer());
+    await route.fulfill({
+      status: answer.status,
+      headers: { 'content-type': answer.contentType },
+      body: answer.body,
+    });
+  });
 }

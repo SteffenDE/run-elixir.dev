@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { BrowserContext, Page } from '@playwright/test';
-import { fakeGitHub, gitHttp, sh } from '../fake-github';
+import { fakeGitHub, routeRepository, sh } from '../fake-github';
 import { expect, test } from './fixtures';
 import { newProject, prompted, readText, run, writeText } from './helpers';
 
@@ -34,15 +34,7 @@ async function routeGitHub(context: BrowserContext, bare: string): Promise<void>
       body: await answer.text(),
     });
   });
-  await context.route(/\/git\/github\.com\/me\/demo(\.git)?\//, async (route) => {
-    const request = route.request();
-    const answer = gitHttp(bare, request.url(), request.method(), request.postDataBuffer());
-    await route.fulfill({
-      status: answer.status,
-      headers: { 'content-type': answer.contentType },
-      body: answer.body,
-    });
-  });
+  await routeRepository(context, 'me/demo', bare);
 }
 
 // A repository on "GitHub": main, with a script (100755), and a branch.
