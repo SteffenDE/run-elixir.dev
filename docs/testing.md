@@ -9,6 +9,20 @@ last_updated: 2026-10-23
 The browser suite runs against the built site. Deployment does not
 currently require it to pass.
 
+## On GitHub: `.github/workflows`
+
+Pushes to `main` and pull requests on GitHub run three workflows (Forgejo
+reads `.forgejo/workflows` only, so the deploy remote runs none of them):
+
+- **app:** lint, format, `tsc --noEmit` and the unit tests.
+- **backend:** formatting, a compile without warnings, `mix test` against
+  Postgres, and the release image.
+- **site:** each WebAssembly tool and the NIF packages in jobs of their
+  own, then the site (`runtime/build.py`), then `nif/test/test.py` and
+  the Playwright suite in each browser, in four shards, with the backend
+  at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
+  Each shard's `target/tests` is an artifact.
+
 ## In browsers: Playwright (`app/test/e2e`)
 
 Use the repository's Playwright version and Docker image, pinned in
