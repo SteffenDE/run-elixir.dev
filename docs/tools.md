@@ -1,17 +1,18 @@
 ---
 kind: design
-status: in progress
-last_updated: 2026-10-22
+status: live
+last_updated: 2026-10-23
 ---
 
 # sed, grep, diff, awk and find
 
-The shell has coreutils (uutils, Rust: [runtime.md](runtime.md#coreutils-coreutilsts)),
-`rg` and `git`, but not the text tools every script reaches for: `sed`,
-`grep`, `diff` and `cmp`, `awk`, `find`. git's own shell scripts need them
-(`git submodule` wants `sed`), as do agents and people. The plan: GNU's
-own, built from C with wasi-sdk, each a program of the worker's process
-table ([runtime.md](runtime.md#processes-processests)).
+The shell provides GNU sed, grep, diffutils, gawk, and findutils alongside
+uutils coreutils, ripgrep, and Git. These tools are compiled to WebAssembly
+with wasi-sdk and run through the worker's process table.
+
+The shared compatibility layer supplies process spawning, pipes, and
+other APIs missing from WASI preview 1. The remaining limits are listed
+below; Git's upstream test suite measures their compatibility.
 
 ## Which
 
@@ -171,9 +172,9 @@ locale being wasi-libc's. `-executable` is always true (as the shell's
 no modes): it checks the mode's syntax (octal, symbolic) and that each
 file is there, with GNU's messages and statuses, and changes nothing.
 
-## Order
+## Build dependencies
 
-1. **sed**: the pattern itself, and `git submodule` (done).
-2. **grep** and **diffutils**: the same autoconf and gnulib, in turn (done).
-3. **awk**: gawk, as the others are; its pipes, `|&` and `system()` over the layer (done).
-4. **findutils**: `fts` and `-exec` (done); `chmod` beside it.
+The tools use the same compatibility layer and build helper. Build each
+with `python3 -I tools/NAME/build.py`; `deploy/build-site.sh` builds the
+complete set. `runtime/build.py` checks that the resulting modules exist
+before assembling the site.

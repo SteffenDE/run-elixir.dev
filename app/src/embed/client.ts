@@ -323,8 +323,8 @@ export async function create(options: Options): Promise<Sandbox> {
   try {
     const hello = await rpc.call<Hello>('hello');
     if (options.onProgress) rpc.on<Events['progress']>('progress', options.onProgress);
-    const { runtime, project, persist, env } = options;
-    const created = await rpc.call<Created>('create', [{ runtime, project, persist, env }]);
+    const { runtime, project, persist, env, relay } = options;
+    const created = await rpc.call<Created>('create', [{ runtime, project, persist, env, relay }]);
     return new Sandbox(rpc, element, hello, created);
   } catch (error) {
     rpc.close();

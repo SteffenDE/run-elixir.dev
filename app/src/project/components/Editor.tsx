@@ -209,11 +209,11 @@ export function EditorArea({ phoenix }: { phoenix: boolean }) {
     return (
       <div className="editor-empty">
         <p>
-          Open a file from the tree, or find one with <Shortcut keyName="P" />, to edit it.
+          Select a file in the tree or press <Shortcut keyName="P" /> to find a file.
         </p>
         <p className="muted">
           Save with <Shortcut keyName="S" />
-          {phoenix ? '; the preview reloads, and Phoenix recompiles what changed.' : '.'}
+          {phoenix ? '. Phoenix recompiles changed files and reloads the preview.' : '.'}
         </p>
       </div>
     );

@@ -21,15 +21,21 @@ export function TemplateNotice({ project }: { project: Project | null }) {
   }, [project]);
 
   if (!project || !current || !made || made.id === current.id) return null;
-  const same = made.label === current.label;
   return (
     <div className="template-notice" role="status">
       <RiInformationLine size={16} />
-      <p>
-        This project was made from {same ? 'an earlier build of' : 'an earlier'} Phoenix template (
-        {made.label}); its changes now sit over the current one ({current.label}). If something
-        stops working, compare its config and <code>mix.lock</code> with a new Phoenix project.
-      </p>
+      {made.label === current.label ? (
+        <p>
+          The project&apos;s changes were applied onto a new version of the template. See the
+          Changes tab for details.
+        </p>
+      ) : (
+        <p>
+          This project used Phoenix template {made.label}. Its saved changes have been applied to
+          the current template ({current.label}). If the project fails, compare its configuration
+          and <code>mix.lock</code> with a new Phoenix project.
+        </p>
+      )}
       <button
         type="button"
         className="icon-button"

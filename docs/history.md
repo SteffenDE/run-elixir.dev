@@ -1,16 +1,18 @@
 ---
 kind: design
 status: plan
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 ---
 
 # A project's history
 
-A plan: every state of a project's files, and of its database, kept as
-it changes, so that any moment can be looked at, compared and restored
-at once. One mechanism, also behind the overlay that keeps a project
-([projects.md](projects.md#files-an-overlay-over-the-template)), git's
-baseline commit ([git.md](git.md#a-baseline-commit)) and shares.
+This is a design proposal, not an implemented feature. It would record
+project files and database state so users could inspect, compare, and
+restore checkpoints.
+
+Today, the overlay persists current files, Git provides explicit commits
+and diffs, and PGlite persists the database separately. The proposed
+checkpoint store would connect those mechanisms.
 
 ## Why now
 
@@ -23,7 +25,7 @@ fetched, and the rows a migration changed.
 ## Content-addressed, in git's format
 
 Every write already reaches one tree, in one worker (`files.js`,
-`src/runtime/files.ts`). History lives there:
+`src/runtime/files.ts`). The proposal would add history there:
 
 - **Blobs** by `sha1("blob N\0" + bytes)`, **trees** as git's, of the
   tree's directories: a moment is one root hash.
@@ -36,7 +38,7 @@ Every write already reaches one tree, in one worker (`files.js`,
 - **Kept** in IndexedDB (or OPFS for the blobs, if large ones are slow),
   per project, beside or instead of the overlay.
 
-Git's format makes a checkpoint a commit for free (*keep this as a
+Git's format would let the implementation create a commit from a checkpoint (*keep this as a
 commit*), lets the diff view ([git.md](git.md#a-diff-view-for-review))
 compare any two moments, and lets git.wasm read the store as an
 alternate. The template ships as hashed trees too: its own files
@@ -66,8 +68,8 @@ recompiled. What is left is retention and keeping a restore consistent:
 
 ## Restoring
 
-A restore is a diff of the current tree against the chosen one, applied
-in place: unchanged files keep their inodes, and the changes reach the
+A restore would apply a diff between the current tree and the chosen checkpoint
+in place. Unchanged files would keep their inodes, and changes would reach the
 watchers as edits do (inotifywait, Phoenix's live reload, the code
 reloader). So by default a running server picks it up; *restart* is the
 other choice. The BEAM's memory is not part of a moment.

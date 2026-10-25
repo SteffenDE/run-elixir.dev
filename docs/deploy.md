@@ -10,7 +10,8 @@ The site is static. A push to the `deploy` branch builds it on a
 Forgejo runner and makes it live on the server as a new release
 (`.forgejo/workflows/deploy.yml`, `deploy/`):
 
-1. **Build** (`build-site.sh`): the NIF libraries, then the site with
+1. **Build** (`build-site.sh`): the NIF libraries, brush, command-line tools,
+   Tailscale and TLS WebAssembly modules, then the site with
    the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.2 and
    Elixir 1.20.4), with `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`
    from the repository's variables (and `PLAYGROUND_EMBEDDERS`, the sites
@@ -61,7 +62,7 @@ It asks for the apex, the usercontent domain, the site's directory, Forgejo's UR
 (from the clone's remote), a runner made in Forgejo (the repository's
 Settings → Actions → Runners → Create new runner: its UUID and token) and
 the runner VM's size; or takes them from the environment (`DOMAIN`,
-`SITE`, `FORGEJO_URL`, `FORGEJO_UUID`, `FORGEJO_TOKEN`,
+`USERCONTENT`, `SITE`, `FORGEJO_URL`, `FORGEJO_UUID`, `FORGEJO_TOKEN`,
 `RUNNER_CPUS`, `RUNNER_MEMORY`, `RUNNER_DISK`, `RUNNER_SSH_PORT`). It
 installs what is missing (QEMU, `cloud-localds`, rsync and rrsync), then:
 
@@ -118,22 +119,15 @@ repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 
 ### Cloudflare
 
-Only the pages keep their names across deploys: `index.html` (every
-route's page), `preview.html`, `relay.html`, `exec.html`, `storage.html`,
-`embed.html`, `embed.js`, `sw.js` and `playground.json`, with
-`app/public`'s files. They are served
-`Cache-Control: no-cache`, which Cloudflare honours whatever its cache
-rules: it may keep them, but asks the server each time (a `304` while
-unchanged), so a deploy is seen at once. `b/`, `r/` and `_playground/` are
-new names when their contents change, `immutable`, and come from
-Cloudflare's edge.
+HTML pages, `embed.js`, `sw.js`, `playground.json` and public assets keep
+their names across releases. Serve them with `Cache-Control: no-cache`
+and configure the CDN to honor revalidation. A cache rule that overrides
+these headers can leave users on an older release.
 
-So nothing needs purging. The usercontent domain could not be purged by
-URL anyway: every project has hosts of its own there (`e-ID`,
-`v-ID-PORT`), each with its own copy of `exec.html`, `relay.html` and
-`sw.js`; it relies on `no-cache` alone, and needs no Cloudflare settings.
-The purge of the apex's pages (`CF_ZONE_ID`, `CF_API_TOKEN`) is optional,
-a safety net only.
+Files under `b/`, `r/` and `_playground/` have content-based names and can
+be cached as immutable. The optional apex purge uses `CF_ZONE_ID` and
+`CF_API_TOKEN`. Usercontent hosts also rely on revalidation: each exec
+and preview host has its own cached URLs.
 
 ## What the server must do
 
@@ -175,7 +169,7 @@ a safety net only.
     all can be cached for good, and a deploy of JavaScript alone keeps
     `r/RID/`.
   - The pages (`index.html`, `preview.html`, `relay.html`, `exec.html`,
-    `storage.html`), `sw.js`, `playground.json` and `app/public`'s files
+    `storage.html`, `claude.html`, `embed.html`), `embed.js`, `sw.js`, `playground.json` and `app/public`'s files
     (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
     names, so they are served `Cache-Control: no-cache`: they revalidate
     (ETag or Last-Modified, which Caddy's file_server sends) at the
@@ -203,11 +197,13 @@ building, written to `playground.json`; [frames.md](frames.md)):
 - **The usercontent domain** (run-elixir-usercontent.org), another
   registrable domain (so another
   site: none of the apex's cookies, its own processes): `e-ID` (a
-  project's exec frame) and `v-ID-PORT` (its preview), every response with
+  project's exec frame), `v-ID-PORT` (its preview) and `claude` (package
+  preparation), every response with
   COEP `require-corp` and `Cross-Origin-Resource-Policy: cross-origin`,
   for the apex's pages to frame. The same files; the Hex and git proxies
-  and `/api/nif/`, which the exec frame's nodes and programs ask of their
-  own origin; not `/socket`.
+  and `/api/nif/`, which the exec frame's nodes and programs request from
+  their own origin, plus `/relay` for TCP relay connections. Live sessions
+  use `/socket` on the apex.
 
 Both need wildcard certificates, and so DNS challenges: a Caddy built
 with its DNS provider's module (`xcaddy build --with
@@ -358,8 +354,9 @@ run-elixir.dev, *.run-elixir.dev {
 	handle /embed.html {
 		respond 404
 	}
-	# NIF builds, which the exec frame's nodes fetch from their origin.
-	@backend path /api/nif/*
+	# NIF builds, which the exec frame's nodes fetch from their origin,
+	# and the TCP relay its gateway opens (relay.md).
+	@backend path /api/nif/* /relay
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000
 	}
@@ -383,7 +380,14 @@ phoenix-playground.steffend.me {
 
 ## Locally
 
-`python3 -I runtime/serve.py [PORT]` serves
+For a local build, run:
+
+```sh
+python3 -I runtime/serve.py 8081 \
+  --domain playground.localhost:8081 --usercontent usercontent.localhost:8081
+```
+
+Open `http://playground.localhost:8081`. The server serves
 `target/site` with the isolation headers, `no-cache` and the
 `index.html` fallback, and proxies `/hex/` as above, and `/api/nif/` to
 the backend: production's (run-elixir.dev), or the one `--api URL`

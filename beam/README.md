@@ -11,9 +11,9 @@ comparisons with Rust-OTP below are from then.
 [Popcorn](https://github.com/software-mansion/popcorn) (Software Mansion,
 Apache License 2.0), `popcorn/patches` and `popcorn/emscripten` at commit
 `a64cbbc23cf1244a27d69a6d684e10c5040aa0e6`. Popcorn wrote them for
-OTP-29.0.6; all fourteen apply in order to OTP-29.1.2, our host version.
+OTP-29.0.6; The retained patches apply to OTP-29.1.2, the configured host version.
 `build.sh` follows Popcorn's `scripts/build-beam.sh`, and `openssl.sh` its
-`build-openssl.sh`. Patches 0015 to 0023 are ours; Popcorn's 0004
+`build-openssl.sh`. Patches 0015 through 0024 are ours; Popcorn's 0004
 (without-distribution, which stubbed `dist.c` and left the distribution
 modules out of kernel) is gone ([distribution.md](../docs/distribution.md)).
 
@@ -107,7 +107,7 @@ the emulator's.
   process' memory; binaries and ETS tables counted as system).
 - **Files.** PROXYFS mounts the node's tree (`beam/treefs.ts` over
   `wasi/fs.ts`, lazily fetched files and all) at each top directory but
-  Emscripten's `/dev` and `/proc`, and `/work` and `/tmp` from files.js
+  Emscripten's `/dev` and `/proc`, and `/work`, `/tmp`, `/home`, and `/shared` from files.js
   (`beam/sharedfs.ts`). Hard links go through the trees (`host/host.js`;
   Emscripten's always fail). Files are executable (`os:find_executable`).
 - **Network.** `gen_tcp` and `gen_udp` are `gen_tcp_socket` and
@@ -118,7 +118,7 @@ the emulator's.
   `docs/tailscale.md`). HTTPS: `ssl:connect` connects to a gateway port,
   names the host in its first line, and the page's says how it goes on:
   `fetch` (the page answers its plain HTTP with fetch), `tcp` (a TCP
-  connection through the tailnet, which `ssl` upgrades with the options it
+  connection through Tailscale or the restricted relay, which `ssl` upgrades with the options it
   was given) or `error REASON` (patch 0020).
 - **Ports.** `host/wasm_spawn.c` runs the playground's programs
   (`spawn.js`, the host's `Module.beamSpawn` over the playground's

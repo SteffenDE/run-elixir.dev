@@ -1,20 +1,24 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # Sharing and live sessions
 
-*Share* makes a link to a copy of the project, or starts a live session of
-it: others join the project as it runs in this tab. This covers how a live
-session works, what the relay sees, and what is left
-([below](#not-built-yet)). The link is [projects.md](projects.md#sharing)'s.
+The Share menu offers a link containing a copy of the project's file
+changes, or a live session hosted by the current tab. Live-session guests
+view the project and can edit, use terminals, or fork it when the host
+allows those actions.
 
-Code: `app/src/live` (the session), `backend/lib/playground/live*` and
-`backend/lib/playground_web/channels` (the relay). Tests:
-`app/test/e2e/live.spec.ts` and `live-domain.spec.ts`
-([testing.md](testing.md)), `backend/test/playground_web/channels`.
+This document describes live sessions, permissions, encryption, and the
+backend relay. Link-based copies are covered in
+[projects.md](projects.md#sharing).
+
+Implementation: `app/src/live/`, `backend/lib/playground/live/`, and
+`backend/lib/playground_web/channels/`. Browser tests are in
+`app/test/e2e/live.spec.ts`; backend channel tests are in
+`backend/test/playground_web/channels/`.
 
 ## What *Share* offers
 
@@ -25,7 +29,7 @@ Code: `app/src/live` (the session), `backend/lib/playground/live*` and
 | --- | --- | --- |
 | What the other side gets | A copy: a new project of their own, made from the project's changes (`/import#DATA`). | This project, as it runs in this tab: files, open editors, terminals, preview. |
 | Server | None (the fragment never reaches it). Later, optionally, a stored share ([below](#later-stored-shares-and-accounts)). | The backend's `/socket` relays encrypted messages between the browsers. It cannot read them. |
-| Lifetime | For ever. | While the host's tab runs the session (at most 24 hours). |
+| Lifetime | As long as the URL and its encoded format remain usable. | While the host's tab runs the session (at most 24 hours). |
 | Guests can | Everything (it is their project). | Watch; edit, use the terminals and fork only if the host allows it. |
 
 A temporary IEx has no link, only a live session (showing someone an IEx).
@@ -190,7 +194,7 @@ bytes that encrypt like anything else. Each update to a document goes to
 everyone, signed; guests that have the file apply it. The host's own
 editor is bound to the document like the guests'.
 
-The editor (@pierre/diffs 1.5.2, `project/components/Editor.tsx`) is bound
+The editor (@pierre/diffs, `project/components/Editor.tsx`) is bound
 to a document while one exists for its file:
 
 - **Others' cursors:** `editor.setCarets(...)` with `renderCaret`, a bar
@@ -290,7 +294,7 @@ their file does not. Following again opens theirs.
 
 - **Reload:** the host keeps the session's id, token and keys in
   `sessionStorage` and joins again; the relay keeps the session for 30 s
-  and guests show *The host is away*. The documents are made again from
+  and guests show *Waiting for the host to reconnect…*. The documents are made again from
   `/work` (and the host's tabs), so unsaved text the host's page held is
   lost.
 - ***End live session***, or the tab closed for longer than 30 s: guests
@@ -313,10 +317,9 @@ in the apex's list (the guest's page is the apex's).
   a leaked link is ending the session and starting a new one.
 - **Presence on tabs and the tree** (who has which file open).
 - **A guest's preview cache:** every asset crosses the relay each time.
-- **Deploying on a site without a project domain**
-  (elixir-playground.steffend.me): Caddy routes `/socket` only on
-  run-elixir.dev, and the backend lets only its origins in
-  ([deploy.md](deploy.md)).
+- **Additional deployments:** each apex needs a `/socket` proxy and must
+  be allowed by the backend's `PLAYGROUND_ORIGINS`. All deployments also
+  need a usercontent domain ([deploy.md](deploy.md)).
 
 ## Later: stored shares and accounts
 

@@ -121,7 +121,7 @@ test("a project's links to settings and Tailscale stay in the tab", async ({ pag
   await prompted(page, 1);
   const back = page.locator('.back-to-project');
   await page.getByRole('button', { name: 'Project settings' }).click();
-  await page.getByRole('link', { name: 'Your settings for every project' }).click();
+  await page.getByRole('link', { name: 'Global settings' }).click();
   await expect(page).toHaveURL('/settings');
   await back.click();
   await expect(page).toHaveURL(`/${id}/`);

@@ -1,13 +1,18 @@
 # Playground backend
 
-A Phoenix API app for the Elixir Playground: it builds packages' NIF
-libraries to WebAssembly on request, in Firecracker VMs, from templates an
-agent writes. See [../docs/backend.md](../docs/backend.md).
+The Phoenix backend builds WebAssembly NIF libraries in Firecracker VMs,
+relays encrypted live sessions, and provides the restricted TCP relay.
+It does not run project applications.
+
+See [backend setup](../docs/backend.md#developing) for Postgres,
+Firecracker, and build prerequisites. From `backend/`:
 
 ```sh
-DOCKER="sudo -n docker" mix setup   # deps, database, seeds, sandbox artifacts
-mix test                            # mix test --only vm boots VMs
+DOCKER="sudo -n docker" mix setup
+mix test                    # excludes VM tests
+mix test --only vm           # requires Firecracker and /dev/kvm
 mix phx.server
 ```
 
-Deploying: `docker-compose.yml` with `.env` (from `.env.example`).
+Deploy with `docker-compose.yml` and an `.env` based on `.env.example`.
+See [deployment instructions](../docs/backend.md#deploying).

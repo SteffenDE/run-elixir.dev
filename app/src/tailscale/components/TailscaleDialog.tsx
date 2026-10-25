@@ -32,13 +32,12 @@ export function TailscaleDialog() {
         {host} can't be reached from the browser
       </h2>
       <p>
-        The playground runs in this tab, so your code's HTTPS requests go through the browser, which
-        only reads sites that allow other sites to (CORS). Connected to your tailnet, the playground
-        sends them through one of your exit nodes instead, to any site.
+        Browser CORS restrictions can block HTTPS requests from your code. Connect a Tailscale exit
+        node to send these requests through your tailnet and reach any host.
       </p>
       <SetupSteps signIn={setup} />
       <p className="nif-build-meta">
-        This shows once. The Tailscale button in the top bar opens the setup later.
+        This notice appears once. You can reopen setup using the Tailscale button in the top bar.
       </p>
       <div className="start-error-actions">
         <button type="button" className="button" onClick={() => dialog.current?.close()}>

@@ -4,7 +4,8 @@ paths that are no file (a project's /ID/), Hex's repository at /hex/
 (repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
 clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
 does in production; and the backend's NIF builds at /api/nif/ and its
-socket at /socket (live sessions' relay, docs/collaboration.md), from
+sockets at /socket (live sessions' relay, docs/collaboration.md) and
+/relay (the TCP relay, docs/relay.md), from
 production's unless --api names another backend (http://localhost:4000,
 say).
 
@@ -141,10 +142,12 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.wfile.write(data)
         return True
 
-    # The backend's socket (live sessions): the WebSocket's bytes, both
-    # ways, as they are.
+    # The backend's sockets (live sessions, and the TCP relay of exec
+    # frames, docs/relay.md): the WebSocket's bytes, both ways, as they are.
     def proxy_socket(self):
-        if not self.path.startswith("/socket/") or self.headers.get("Upgrade", "").lower() != "websocket":
+        path = self.path.split("?")[0]
+        if not (path.startswith("/socket/") or path == "/relay") \
+                or self.headers.get("Upgrade", "").lower() != "websocket":
             return False
         upstream = urllib.parse.urlsplit(API)
         port = upstream.port or (443 if upstream.scheme == "https" else 80)

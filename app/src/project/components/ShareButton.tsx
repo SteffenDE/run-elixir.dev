@@ -170,8 +170,8 @@ export function ShareButton({ project }: { project: HostProject }) {
                 <p className="share-warning">{sizeNote(link.url.length)}</p>
               )}
               <p className="muted share-note">
-                The link holds what this project changed: its files, not its builds, dependencies or
-                database. Opening it makes a new project.
+                The link contains the project's file changes. Build outputs, dependencies and
+                database contents are excluded. Opening the link creates a new project.
               </p>
             </>
           )}

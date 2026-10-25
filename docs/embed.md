@@ -6,34 +6,19 @@ last_updated: 2026-10-23
 
 # Embedding the playground in another site
 
-Another site (an **embedder**, first Tidewave's IDE at `tidewave.ai/web`)
-runs a project in run-elixir.dev without hosting the BEAM, brush,
-coreutils, Node.js or Claude Code itself. Its page imports
-`https://run-elixir.dev/embed.js`, which frames `embed.html`: the
-project's page without the IDE. The two talk over `postMessage` and
-MessagePorts only: none of run-elixir.dev's code runs on the embedder's
-origin, and none of the embedder's on run-elixir.dev. The security model
-of [frames.md](frames.md) stays as it is: project code runs only on the
-usercontent domain, and its frames still answer only the apex.
+An embedder imports `https://run-elixir.dev/embed.js` and creates a
+project through the API below. The client creates an `embed.html` frame
+that hosts the runtime without the playground IDE.
 
-```
-embedder's page (COOP same-origin, COEP require-corp: its own headers)
- │  import https://run-elixir.dev/embed.js        (src/embed/client.ts)
- ├─ iframe run-elixir.dev/embed.html              (src/embed/host.ts)
- │   the apex's part of a project: PGlite, the store (IndexedDB), Hex's
- │   cache, the preview's relays, each terminal's line discipline,
- │   Claude Code's files, connections to the embedder's ports
- │   ├─ iframe e-ID.USERCONTENT/exec.html         (unchanged: trusts the apex)
- │   ├─ iframe claude.USERCONTENT/claude.html     (unchanged)
- │   └─ iframe v-ID-PORT.USERCONTENT/relay.html   (unchanged, per port)
- └─ iframe v-ID-PORT.USERCONTENT/…                the embedder's own preview frame
-```
+The small client module runs on the embedder's origin. The project host,
+PGlite, and storage run in the apex frame; project code runs in nested
+frames on the usercontent domain. Frames communicate through
+`postMessage` and MessagePorts. See [frames.md](frames.md) for the origin
+model.
 
-`embed.html` reuses the IDE's parts rather than copying them: the exec
-frame's start (`shared/lib/execFrame.ts`), the apex's services
-(`project/lib/services.ts`: PGlite, Hex), the relays
-(`previewOrigins.ts`), the claude frame (`programs/claude/frame.ts`)
-and the line discipline (`runtime/terminal.ts`).
+`embed.html` reuses the IDE's runtime startup, services, preview relays,
+Claude Code cache frame, and terminal line discipline. It does not need
+the embedder to host its own copy of those runtimes.
 
 ## The API (apiVersion 1)
 
@@ -42,10 +27,11 @@ import { create } from 'https://run-elixir.dev/embed.js';
 
 const sandbox = await create({
   runtime: { otp: '29.1.2', elixir: '1.20.4' }, // must be the site's (below)
-  project: { template: 'phoenix' },               // or 'empty', or { archive: url }
+  project: { id: 'my-project', template: 'phoenix' },               // or 'empty', or { archive: url }
   // project.id: the embedder's own name for it; the same name is the same project
   persist: true,          // keep /work, /home (~/.claude, ~/.npm) and Postgres
   env: { ANTHROPIC_API_KEY: '…' },                // every command's
+  relay: true,            // the site's TCP relay for GitHub, Anthropic's API, … (relay.md); off by default
   container: document.body,                       // where the 1px frame goes
   onProgress: ({ phase, text }) => {},
 });
@@ -280,7 +266,7 @@ run-elixir.dev, *.run-elixir.dev {
 	handle /embed.html {
 		respond 404
 	}
-	@backend path /api/nif/*
+	@backend path /api/nif/* /relay
 	…
 }
 ```

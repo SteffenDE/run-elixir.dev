@@ -108,6 +108,8 @@ class Sandbox {
   key = '';
   root = '/work';
   env: Record<string, string> = {};
+  // The embedder let the project use the site's relay (CreateOptions).
+  relayAllowed = false;
   spawned = new Map<number, Spawned>();
   served = new Set<number>();
   startup: AbortController | null = null;
@@ -157,6 +159,7 @@ class Sandbox {
     this.key = source.id ? await keyFor(source.id) : newId();
     this.root = kind === 'phoenix' ? PHOENIX_APP : '/work';
     this.env = { ...options.env };
+    this.relayAllowed = options.relay === true;
     const origin = execOrigin(this.key);
     if (!origin) throw new Error("this site names no usercontent domain (playground.json's)");
     this.startup = new AbortController();
@@ -245,6 +248,8 @@ class Sandbox {
       // No tailnet here: other hosts are unreachable, HTTPS by fetch().
       tailnetDial: () => false,
       tailnetResolve: () => Promise.reject(new Error('no tailnet')),
+      // The site's relay for its hosts, as the embedder's `relay` says.
+      relayWay: () => (this.relayAllowed ? 'relay' : 'none'),
       claudePort,
     });
   }

@@ -1,13 +1,15 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-21
+last_updated: 2026-10-23
 ---
 
 # Projects
 
-Everything a user makes is a project, kept in the browser that made it.
-Nothing is stored on the server.
+Projects run in the browser and store their files and databases there.
+The server does not persist project contents. Sharing a link exports a
+copy; live collaboration streams the running project through an encrypted
+relay.
 
 ## Kinds and URLs
 
@@ -21,16 +23,18 @@ Nothing is stored on the server.
 | `/import#DATA` | A shared project's link: what it holds, and a new project made from it. |
 | `/github/OWNER/REPO[/tree/REF]` | A public repository (`/gitlab/…`, `/codeberg/…` too), and a new project cloned from it ([git.md](git.md#opening-a-repository)). |
 
-Every path is the same page (`index.html`; the server falls back to it, see
-[deploy.md](deploy.md)). The tab moves between them in place
-(`shared/lib/navigate.ts`, `main.tsx`): a link to one of these paths,
-back and forward render the next page without loading it, so what lives
-as long as the tab stays (the Tailscale node's connection,
-[tailscale.md](tailscale.md)). Leaving a project ends what it ran as a load
-would (`leave` in `playground.ts`): its changes kept, its exec frame and
-PGlite stopped, its lock let go, its terminals and stores reset, a popped-out
-preview closed, a live session left (not ended: it resumes when the project
-opens again in the tab). A live session's guest's page is left by a load.
+All app routes load `index.html`. Navigation between app pages uses the
+client-side router (`shared/lib/navigate.ts`, `main.tsx`).
+
+The active project keeps running while the tab shows the home page,
+Settings, Tailscale, the relay page, or an import preview. A return link
+opens its IDE again. Opening a different project asks what to do with
+unsaved editor changes, then flushes saved files, stops the old runtime
+and PGlite, releases its lock, and closes its detached preview.
+A live guest page uses a full navigation when leaving.
+
+Additional routes are `/settings`, `/tailscale`, `/relay`, and
+`/live/ID#k=KEY&h=HOSTKEY` for a live-session guest.
 
 A project's kind (`src/project/lib/kinds.ts`) chooses its files and initial
 settings. Startup commands are saved on the project and remain editable:
@@ -49,17 +53,17 @@ gets a random name (`brave-otter`), renamed by clicking it in the top bar.
 
 ## The apex and the usercontent domain
 
-Every page is the apex's (`playground.json`'s `domain`;
-`PLAYGROUND_DOMAIN` when building, [deploy.md](deploy.md)), and what a
-project's code runs is another site's, the usercontent domain's
-(`usercontent`, `PLAYGROUND_USERCONTENT`): [frames.md](frames.md),
-`src/shared/lib/site.ts`.
+The IDE runs on the apex. Project code runs on a separate usercontent
+domain. `playground.json` records both domains, configured at build time
+with `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`. See
+[deploy.md](deploy.md), [frames.md](frames.md) and `src/shared/lib/site.ts`.
 
 | Where | What |
 | --- | --- |
 | `DOMAIN/` | The home page, as above. |
 | `DOMAIN/phoenix`, `/empty`, `/import#DATA` | Make a project, then go to its page. |
-| `DOMAIN/ID/` | The project: its IDE and nodes. |
+| `DOMAIN/ID/` | The project IDE. |
+| `e-ID.USERCONTENT/` | The exec frame and project runtime. |
 | `DOMAIN/iex` | A temporary IEx (it keeps nothing). |
 | `v-ID-PORT.USERCONTENT/` | The project's preview of its app's PORT, in the IDE ([runtime.md](runtime.md)); opened by itself, not found. |
 | `p-ID.DOMAIN/`, `l-SESSION.DOMAIN/live/SESSION` | The former layout's (a project's own origin, a live guest's): go to the apex's `/ID/` and `/live/SESSION`. |
@@ -78,28 +82,30 @@ itself.
 
 ## What is kept
 
-Three IndexedDB databases, all named after the project's id
-(`src/shared/lib/storage.ts`), besides the user's own (below):
+Project metadata uses the shared `playground` database. Each project
+has two additional databases for files and Postgres
+(`src/shared/lib/storage.ts`):
 
 | Database | Holds | Written by |
 | --- | --- | --- |
-| `playground` (Dexie), table `projects` | id, name, kind, created and opened times; where it came from (a link, a fork), whether it takes the user's settings, its own settings | the page |
-| `playground-files-ID` | what changed below `/work`, and below `/home` (home: Mix's, Hex's and the tools' caches, escripts; not in the tree, search or a share link) | `files.js` (`src/runtime/overlay.ts`) |
+| `playground` (Dexie), table `projects` | id, name, kind, created and opened times; where it came from (a link, repository, or live-session fork), whether it takes the user's settings, its own settings | the page |
+| `playground-files-ID` | Changes below `/work` and `/home`, including tool caches and escripts. `/home` is excluded from the tree, search and share links. | Apex storage, through a port from `files.js` (`src/runtime/overlay.ts`) |
 | `/pglite/playground-pg-ID` | the project's Postgres | PGlite (`idb://playground-pg-ID`) |
 
 ### Files: an overlay over the template
 
 A project keeps only what it changed. Its template stays on the site, so a
 new project costs nothing until it is used. `files.js` notes each changed
-path below `/work` (a closed written file, a directory made, removed or
-renamed) and, a second later, writes one record per path:
+path below `/work` or `/home`. After a one-second debounce, it sends
+records to the apex for storage:
 
 - `{ kind: 'file', data, mtime }`: the bytes and modification time (Mix
   compares mtimes);
 - `{ kind: 'dir', opaque, mtime }`: a directory; *opaque* when it replaced
   a removed one or was moved there, so the template's entries in it stay
   out;
-- `{ kind: 'gone' }`: a whiteout.
+- `{ kind: 'link', target, mtime }`: a symbolic link;
+- `{ kind: 'gone' }`: a deleted path, which hides the template entry.
 
 A moved directory is written with everything in it. On start, the records
 are applied over the template in path order (a directory before its
@@ -143,14 +149,14 @@ now. A holder that does not answer within 5 s loses the lock anyway (and
 stops when it notices).
 
 Different projects run in different tabs at once. The service worker
-routes each preview to its project's page ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
+routes each preview to its project's page ([runtime.md](runtime.md#the-preview-swjs-bridgets)).
 
 ## Sharing
 
 *Share* in the top bar offers a link or a live session. A live session
 lets others join the project as it runs in this tab
 ([collaboration.md](collaboration.md)); its guests' pages are
-`/live/ID#KEY`, and on a project domain `l-ID.DOMAIN`. A link is the
+`/live/ID#k=KEY&h=HOSTKEY` on the apex. A link is the
 project's changes over its template, copied (`src/shared/lib/share.ts`):
 
 - **What:** the files below `/work` it added, renamed or wrote, whole, and
@@ -204,7 +210,7 @@ settings apply when the project restarts.
   Projects without access to the shared folder get an empty `/shared`
   whose contents are not persisted. To share a tool's settings, link its
   configuration folder to `/shared`: `ln -s /shared/claude ~/.claude`.
-- **Imported projects:** projects created from a share link or forked
+- **Imported projects:** projects created from a repository or share link, or forked
   from a live session are marked as imported. Before running any code
   on their first start, they ask for permission to use the user's
   settings. The dialog lists environment variable names without their
@@ -263,11 +269,11 @@ serves.
 
 ## Deleting
 
-Deleting from the home page takes the project's lock (so not while a tab
-runs it), deletes both of its databases and then its row. The home page
-marks projects open in a tab. With a project domain, the project's
-storage frame takes the lock and deletes on its origin (also its caches
-and service worker), and then the apex deletes the row.
+The home page can stop and delete the project running in the current tab.
+A project running in another tab must be closed there first.
+`deleteProject()` takes the project's Web Lock, deletes its file and
+PGlite databases on the apex, then removes its metadata and seed.
+Legacy-origin migration is handled separately by `migrate.ts`.
 
 ## Plans
 
@@ -277,6 +283,6 @@ Not built yet; the design leaves room for them.
   changed files (the overlay without `_build`), imported over the same
   template.
 - **Shares on a server,** for projects too large for a link, encrypted
-  in the browser ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)), and git
-  history in a project, a diff view and accounts ([git.md](git.md)).
+  in the browser ([collaboration.md](collaboration.md#later-stored-shares-and-accounts)), and accounts ([git.md](git.md#accounts)). Git history and the diff view
+  are already implemented.
 - **Live sessions:** what is left ([collaboration.md](collaboration.md#not-built-yet)).

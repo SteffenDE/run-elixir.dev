@@ -67,8 +67,8 @@ export function RepositoryPage({ repository }: { repository: Repository }) {
           </p>
         )}
         <p className="muted">
-          A new project gets its files (the latest commit, without the history before it) and runs
-          its code in this tab. It asks before it takes your settings.
+          This creates a project from the latest commit, without earlier Git history, and runs the
+          code in this tab. The project asks for permission before using your global settings.
         </p>
         {error && <p className="project-error">{error}</p>}
         <p className="elsewhere-actions">

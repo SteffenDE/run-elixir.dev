@@ -77,9 +77,9 @@ export function TailscalePage() {
           <TailscaleIcon size={22} /> Tailscale
         </h1>
         <p className="muted home-lead">
-          Connect the playground to your tailnet: the HTTPS requests your projects' code makes,
-          which the browser only makes to sites that allow it, go through one of your exit nodes
-          instead. One device for this browser, shared by its projects.
+          Connect the playground to your tailnet to access private services or use an exit node for
+          HTTPS requests without browser CORS restrictions. All projects in this browser share one
+          Tailscale device.
         </p>
         <>
           <h2>This browser</h2>
@@ -125,8 +125,8 @@ function Device({
         <div className="tailscale-unset-text">
           <p className="tailscale-state">Tailscale is not set up in this browser</p>
           <p className="muted">
-            Let the playground into your tailnet's policy and have an exit node (the steps below),
-            then sign in.
+            Add the playground to your tailnet policy and configure an exit node, then sign in.
+            Follow the setup steps below.
           </p>
         </div>
         <button type="button" className="button primary" disabled={busy} onClick={signIn}>
@@ -151,8 +151,8 @@ function Device({
         (text) => text && /tags?\b.*not permitted|invalid.*tag/i.test(text),
       ) && (
         <p>
-          Your tailnet did not let the playground sign in with <code>{TAG}</code>: add it to the
-          policy file (step 1 below) and sign in again.
+          Your tailnet rejected the device tag <code>{TAG}</code>: add it to the policy file (step 1
+          below) and sign in again.
         </p>
       )}
       {running && (
@@ -176,7 +176,7 @@ function Device({
               disabled={busy}
               onChange={(event) => void run({ kind: 'exit-node', id: event.target.value })}
             >
-              <option value="">None: the tailnet only</option>
+              <option value="">None (tailnet access only)</option>
               {status.exitNodes.map((node) => (
                 <option key={node.id} value={node.id}>
                   {node.name.replace(/\.$/, '')}
@@ -185,15 +185,15 @@ function Device({
               ))}
             </select>
             {status.exitNodes.length === 0 && (
-              <span className="muted"> None it may use yet (step 2 below).</span>
+              <span className="muted"> No exit nodes available. See step 2 below.</span>
             )}
           </dd>
         </dl>
       )}
       {running && !tagged && (
         <p>
-          This device is not tagged <code>{TAG}</code>: it has your access to the tailnet, not only
-          exit nodes. Sign out, add the tag to the policy file and sign in again.
+          This device is missing the <code>{TAG}</code> tag and inherits your tailnet permissions.
+          To restrict its access, sign out, add the tag to the policy file and sign in again.
         </p>
       )}
       <div className="tailscale-actions">
@@ -249,7 +249,8 @@ function Projects() {
   if (!entries.length)
     return (
       <p className="muted">
-        None yet: a project asks the first time its code reaches for the tailnet.
+        No permissions saved yet. Each project asks for permission when it first connects to your
+        tailnet.
       </p>
     );
   return (
@@ -259,11 +260,11 @@ function Projects() {
         return (
           <li key={key} className="tailscale-row">
             <span>
-              {name} <span className="muted">{allowed ? 'may use it' : 'may not use it'}</span>
+              {name} <span className="muted">{allowed ? 'allowed' : 'blocked'}</span>
             </span>
             <span className="tailscale-row-actions">
               <button type="button" className="button" onClick={() => change(key, !allowed)}>
-                {allowed ? 'Stop' : 'Allow'}
+                {allowed ? 'Block' : 'Allow'}
               </button>
               <button type="button" className="button" onClick={() => change(key, null)}>
                 Forget
@@ -289,8 +290,11 @@ function ControlServer({
   const signedIn = status.state === 'Running' || status.state === 'NeedsMachineAuth';
   return (
     <details className="tailscale-control" open={status.controlURL !== CONTROL_URL}>
-      <summary>Another control server</summary>
-      <p className="muted">For Headscale: its URL, before signing in (sign out to change it).</p>
+      <summary>Custom control server</summary>
+      <p className="muted">
+        To use Headscale, enter its control server URL before signing in. Sign out to change this
+        URL.
+      </p>
       <form
         onSubmit={(event) => {
           event.preventDefault();

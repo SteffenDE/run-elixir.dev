@@ -1,255 +1,98 @@
 ---
 kind: status
 status: live
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # Status
 
-The site runs OTP's own emulator built with Emscripten
-([../beam/README.md](../beam/README.md)) since 2026-10-18; numbers marked
-*Rust-OTP* were measured on the runtime before it (the `rotp` branch).
-The two compared on 2026-10-17 (beamos's docs/log/2026-10-17.md): a
-Phoenix project's server runs in 4.2–6.1 s cold (Rust-OTP 7.7–9.4 s),
-`mix compile --force` in the template takes 5.1–6.4 s (7.1–9.1 s), a
-node's start 1.9–2.1 s (0.9–1.0 s); 41 MB gzipped downloads over the
-whole probe (31 MB), the `.beam` files keeping their `Dbgi` and `Docs`
-chunks; the same memory.
+The playground runs OTP's emulator compiled with Emscripten. This summary
+describes the implementation as of 2026-10-23. Browser tests cover many
+of these features; support for a feature does not mean every package or
+browser combination has been tested.
 
 ## Works
 
-- **One site with projects** (Chromium, Firefox and WebKit): a home page;
-  Phoenix, empty and temporary IEx projects at their own paths; files and the
-  database kept in IndexedDB over the template; several projects in
-  several tabs, one tab per project with a handover; deleting a project
-  deletes its storage.
-- **Temporary IEx.** Answers about 1.2–1.4 s after load (Chromium). Modules
-  load lazily; colours, IEx's own line editing (tab completion, history,
-  the terminal's width), Ctrl+C.
-- **Hex.** `mix deps.get` fetches packages through the page (Jason: fetched,
-  compiled and used in about 20 s in Chromium and Firefox; *Rust-OTP*).
-- **NIFs built to WebAssembly** ([nif.md](nif.md)): a package the site
-  has a build of (bcrypt_elixir 3.3.2, argon2_elixir 4.1.3, picosat_elixir
-  0.2.3; lazy_html 0.1.13, C++ with exceptions, which the Phoenix
-  template's tests use) compiles in a
-  project, its `make` unpacking the library, and its NIFs run in the
-  node's worker (fetched, built and used in about 13–16 s in each
-  browser; *Rust-OTP*).
-- **Live sessions** ([collaboration.md](collaboration.md)): *Share*
-  starts one; guests join with the link and see the project as it runs
-  in the host's tab, its tree, terminals, files and preview (their own
-  cookies and LiveView), end-to-end encrypted through the backend's
-  relay. Files open in the session are Yjs documents, edited together
-  with each other's carets; the host chooses who may edit, use the
-  terminals or fork, and may ask before letting each guest in.
-- **The backend** ([backend.md](backend.md), run-elixir.steffend.me,
-  deployed with docker compose on anubis): builds a Hex release's NIF
-  library on request (`/api/nif/`) in a Firecracker VM, from a template
-  for its package (build.py's four recipes are the seeds; each builds
-  the same library as build.py, lazy_html in 24 s), or, without one, from
-  a template an agent (OpenAI, through ReqLLM) writes and that later
-  versions reuse. Failures and new templates are notified (Web Push);
-  admins sign in with GitHub. A version the site has not built is asked
-  of it by `make`, which waits while it builds; the page says so in a
-  dialog. Tested with the API stubbed (Chromium); bcrypt_elixir and
-  argon2_elixir built through production. No real agent session has run
-  yet.
-- **Several schedulers** (`+S`, `min(4, hardwareConcurrency)`;
-  [architecture.md](architecture.md#the-node)): erts' threads are
-  Emscripten's workers on one shared memory, which needs the page's
-  cross-origin isolation (the site always sends it).
-- **An Ash app** (*Rust-OTP*; `mix igniter.new … --install ash,ash_phoenix,
-  ash_postgres,ash_authentication,ash_authentication_phoenix,ash_admin
-  --auth-strategy magic_link --setup --yes`) is generated, compiled and
-  installed: 2299 s in Chromium on a 12-core AMD machine with four
-  schedulers, BEAM `+S 4` 314 s
-  (beamos's docs/log/2026-10-15.md); measured
-  before the day's later runtime fixes, which took Ash's own compile from
-  157 s to about 135 s natively. Starting it needed mnesia, which every
-  Ash app starts and the installation now has; not yet tried in the
-  browser.
-- **git dependencies.** Through the page and the site's proxy: heroicons
-  as phx.new adds it (a tag, sparse, depth 1) in 14 s (Chromium), and
-  again from the lock.
-- **Sharing:** a link carries a project's changes over its template; opening
-  it makes a new project with them (Phoenix included).
-- **Repositories** ([git.md](git.md#opening-a-repository)): a public
-  repository on GitHub, GitLab or Codeberg opens as a new project
-  (`/github/OWNER/REPO`, or its address on the home page), shallow-cloned
-  at its first start. A project pushes its commits to GitHub from the
-  Changes panel with a fine-grained token from Settings, through the
-  REST API, the same commits there ([git.md](git.md#push)); tested
-  against a stand-in for the API (Chromium), not yet against GitHub's.
-- **A project per origin** with a project domain (`p-ID.DOMAIN`; the apex
-  keeps the list): [projects.md](projects.md#a-project-domain).
-- **Node programs and shell lines from a node:** `System.cmd("mix", …)`,
-  `System.shell` lines and rebar3 run as nodes of their own, so a phx.new
-  1.6 app's deps (rebar3's included) compile, and its server runs.
-- **HTTPS from a node** by the page's `fetch()`, to sites with CORS (hex.pm's
-  API: igniter's version lookups).
-- **UDP** between a node's ports and between a project's nodes (two
-  shells).
-- **Tailscale** (a prototype, [tailscale.md](tailscale.md)): with the
-  user's tailnet and an exit node, a project's HTTPS (its own TLS), TCP,
-  UDP and names reach any host, each project asked first; Erlang
-  distribution to a node in the tailnet; a project's server shared in
-  the tailnet. Tried against Headscale.
-- **Node.js** ([nodejs.md](nodejs.md)): `node`, `npm` and `npx` on the
-  page's own JavaScript engine; a React app built and served by Vite;
-  Pi, a coding agent.
-- **Claude Code** (`claude`, Chromium so far; [nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets)):
-  runs Claude Code's JavaScript on the playground's Node implementation.
-  The [claude frame](frames.md#the-claude-frame) extracts the JavaScript
-  from the npm package's Bun executable and caches it once per version
-  for all projects. Preparation takes about 20 seconds; cached starts
-  take about 0.4 seconds. `claude -p` can call a model and use Bash through
-  brush, Read, Write, Edit, and the `rg`-based Glob and Grep tools. The
-  terminal UI also renders. Interactive mode requires the tailnet because
-  the connectivity check reaches endpoints without CORS headers. The
-  pinned version is 2.1.306, the latest as of 2026-10-21.
-- **Settings** ([projects.md](projects.md#settings)): browser-wide
-  environment variables, such as `CLAUDE_CODE_OAUTH_TOKEN`, a setup script
-  for new projects, and a `/shared` folder stored on the apex. Changes to
-  `/shared` appear in other open projects. Projects can define their own
-  startup commands and environment variables. Imported and forked
-  projects ask before using the user's settings. By default, new shells
-  omit the user's environment variables and `/shared` is hidden while
-  guests have permission to type or edit in a live session.
-- **Phones:** one pane at a time.
-- **Terminals** fit their panels and link source locations to the editor
-  and addresses to the preview.
-- **Phoenix projects** (Chromium, Firefox and WebKit):
-  - The server runs about 4–6 s after load. Pages serve in about 200–400 ms,
-    and static files in milliseconds.
-  - Ecto through PGlite.
-  - LiveView over WebSockets (the bridge's).
-  - Phoenix LiveDashboard (`/dev/dashboard`) over the same WebSocket: every
-    page, and the details of processes, ports, ETS tables and applications.
-  - `mix phx.gen.auth … --hashing-lib pbkdf2`: generated, `pbkdf2_elixir`
-    from Hex, migrated (citext), and a user registered in the preview.
-  - Editing and saving with recompilation on the next request; Tailwind and
-    esbuild (esbuild-wasm, the template's watcher) on the page, never
-    downloaded for any project.
-  - Several shells: `mix phx.gen.live`, `mix ecto.migrate` and others run in
-    one while the server runs in another.
-  - `mix test`, LiveView tests too (lazy_html as a NIF): about 5 minutes
-    the first time (*Rust-OTP*), for the test environment's dependencies;
-    2.0 minutes with them compiled (Chromium).
-  - The preview pops out into its own window.
-  - After a reload, the server is back in about 4–5 s without
-    recompiling dependencies.
+- **Projects and persistence.** Phoenix, empty and temporary IEx projects;
+  repository and folder imports; file editing, search, terminals and previews.
+  Saved projects keep files and PGlite data in IndexedDB on the apex.
+  Project code runs on a separate usercontent domain. A project keeps
+  running while the user visits Settings or the project list.
+  See [projects](projects.md), [IDE](ide.md) and [frames](frames.md).
+- **Elixir and Phoenix.** IEx, Mix, Hex dependencies, rebar3, multiple
+  shells, Ecto through PGlite, LiveView and LiveDashboard. Tailwind and
+  esbuild run in the browser. Nodes in one project can connect to each
+  other over TCP and UDP, including Erlang distribution.
+  See [architecture](architecture.md) and [distribution](distribution.md).
+- **Shell tools and Git.** Brush runs shell pipelines and scripts.
+  WebAssembly builds provide coreutils, ripgrep, Git, sed, grep, diffutils,
+  awk and find. Git supports local commits and diffs, cloning and fetching.
+  The Changes panel pushes commits to GitHub through its REST API using
+  a token stored in Settings. See [tools](tools.md) and [Git](git.md).
+- **NIFs.** Bundled WebAssembly libraries cover selected package versions.
+  Other packages or versions can request a build from the backend.
+  Compatibility depends on the NIF APIs and build tools they need.
+  See [NIFs](nif.md) and [backend](backend.md).
+- **Networking.** Browser fetch handles HTTPS where CORS permits it.
+  The optional [TCP relay](relay.md) carries TLS to an allowlist of hosts.
+  [Tailscale](tailscale.md) provides broader TCP, UDP and DNS access,
+  including Erlang distribution and sharing project ports in a tailnet.
+- **JavaScript programs.** The browser-based [Node.js implementation](nodejs.md)
+  runs supported Node APIs, npm, npx and Vite builds. Pi and Claude Code
+  run on it, with network access through fetch, the relay or Tailscale.
+- **Sharing and collaboration.** Share links copy a project's files.
+  Live sessions provide collaborative editing, terminals and previews,
+  with permissions controlled by the host. See [collaboration](collaboration.md).
+- **Settings and embedding.** Browser-wide and project environment
+  variables, startup commands, a setup script and shared files are
+  implemented. The [embedding API](embed.md) exposes project runtimes to
+  configured embedder sites.
 
 ## Known gaps
 
-**In the emulator**
-- **WebKit:** two rare stalls, more often with two pages at once: a new
-  node hanging in `new WebAssembly.Memory`, and a node's worker stopping
-  in the middle of `mix test` ([../beam/README.md](../beam/README.md)).
-- **A node's start** takes about 2 s, twice Rust-OTP's, which every
-  shell command and `System.cmd("mix", …)` pays.
-- **NIFs** load only as WebAssembly built for the playground
-  ([nif.md](nif.md)): the site has bcrypt_elixir 3.3.2, argon2_elixir
-  4.1.3, picosat_elixir 0.2.3 and lazy_html 0.1.13; the backend builds
-  other versions and packages, as far as a template or its agent can.
-  When neither can, `make` fails, and a module whose on_load loads a
-  native library stays unloaded, as on ERTS without the library. The
-  backend's library is built with its own toolchain, which the request
-  does not check against the page's yet (plan in
-  [backend.md](backend.md#plan-one-source-of-nif-builds)).
-  Resources live as long as their library (the node does not report
-  collected references); NIF threads, `enif_select` and monitors are
-  missing; rustler_precompiled packages still try to download.
+- **NIF compatibility:** native libraries must be rebuilt for WebAssembly.
+  NIF threads, `enif_select` and monitors are not implemented. Library
+  resources live until the node stops. Backend builds do not yet check
+  their toolchain against the requesting runtime.
+- **Node.js compatibility:** this is a browser implementation of Node
+  APIs, not native Node.js. See its [module reference](nodejs.md) for
+  supported APIs and restrictions.
+- **Network access:** the relay permits only listed hosts on port 443.
+  Other external TCP, UDP and DNS traffic needs Tailscale. Git's HTTPS
+  helper still uses the site's `/git/` proxy.
+- **Shell input:** `os:cmd`, which writes commands to the shell's standard
+  input, is not supported. `System.shell` uses brush.
+- **Database concurrency:** PGlite has one session. Connections take turns
+  by transaction. After a transaction is idle for one second, another
+  connection from the same node may join it; other nodes remain blocked.
+- **Persistence:** file changes are saved after a one-second debounce.
+  Closing the tab before that save can lose recent changes.
+- **Build invalidation:** a new template version drops a Phoenix project's
+  saved template build. An empty project's `_build` is retained, even if
+  OTP or Elixir changed.
+- **Browser coverage:** earlier testing found intermittent WebKit stalls
+  during startup and `mix test`. Claude Code has been exercised in
+  Chromium; equivalent Firefox and WebKit coverage is still needed.
+- **Performance:** new dependencies can take minutes to compile. Historical
+  measurements are recorded in [the BEAM documentation](../beam/README.md).
+  They are not current performance guarantees.
+- **Validation:** deployment has no browser-test gate. Tests use fresh
+  browser contexts, which repeatedly load and compile the runtime.
+  See [testing](testing.md).
 
-**In the playground**
-- **No `find`, `grep`, `sed` or `awk`** at the shell (uutils' coreutils
-  have none of them; `rg` is there). Agents fall back on their own tools.
-- **Claude Code in Firefox and WebKit** is untried: its claude frame's
-  storage is shared by every project only where the browser keys a
-  frame's storage by the top-level site.
-- **Compiling is about 2.3× native BEAM** (Ash under Node, four
-  schedulers: [../beam/README.md](../beam/README.md#ash-benchmark-2026-10-16)):
-  a new app's deps take minutes. The plan: prebuilt deps.
-- **git in the shell:** `clone` and fast-forward `pull` from GitHub,
-  GitLab and Codeberg, besides what Mix asks; no commits, diffs or pushes
-  yet ([git.md](git.md)).
-- **HTTPS from a node** goes by the page's `fetch()` (`https.ts`): only
-  to sites that send CORS headers (hex.pm's API does; most others do not:
-  502), HTTP/1.1 only, one request per connection, without the headers
-  the browser sets itself. **Other hosts** (TCP, UDP) and names are out
-  of reach (`enetunreach`, `nxdomain`). With Tailscale set up (a
-  prototype, [tailscale.md](tailscale.md)), HTTPS, TCP, UDP and DNS go
-  through the user's tailnet and exit node, to any host; tried against
-  Headscale only. A relay through the site (an allow-listed TCP relay)
-  stays the plan for those without a tailnet.
-- **Shell commands from a node** (`System.shell`, `{spawn, Command}`) run
-  in brush (on the `worktree-node` branch; on `main`, only `mix`,
-  `elixir`, `iex`, `erl`, `escript` and `cd`, joined by `&&`); `os:cmd`
-  (which writes its command to the shell's input) does not run.
-- **Nodes reach each other only through the page's ports** (5432, 4000).
-  Mix's compile lock checks its holder over TCP, which another shell's node
-  cannot reach, so two shells compiling at once can both proceed. The page
-  could route a node's connection to the node listening on that port, as
-  it routes the preview's.
-- **`mix ecto.migrate` right after `mix deps.get`** of a new dependency
-  (after `phx.gen.auth`) fails to start `ecto_sql` (`eex.app` not found):
-  compiling the new dependencies pruned `eex` from the code path before
-  the app's own compile adds it back. Seen on Rust-OTP in the browser
-  (host OTP and native Rust-OTP in the same sequence pass), not yet
-  rechecked on the emulator; not yet understood. `mix
-  compile` first avoids it.
-- **PGlite is one session:** a pool's connections, and two shells, take
-  turns by transaction ([architecture.md](architecture.md#the-database)); a
-  transaction left idle for a second lets the others into it.
-- **Changes under a second old** are lost when the tab closes (files are
-  written a second after they change).
-- **A new site build** drops a Phoenix project's kept template build; Mix
-  recompiles its changed sources. An empty project's `_build` is kept as it
-  is, even if a new OTP or Elixir would compile differently.
-- **Long sessions:** each node's frame ring counts bytes in an Int32, so a
-  session that sends it 2 GB would wrap.
-- **esbuild's options** are the common ones (ide.md); plugins, a metafile
-  and `--serve` are not there, and a change before the watcher starts is
-  bundled only by its first build, without a preview reload.
-- **No Tailwind minification;** Tailwind's candidate scan is a
-  plain split, not the oxide scanner.
-
-**In the build**
-- **Phoenix's tailwind and esbuild** come from curl in `build.py` (on
-  Rust-OTP, `mix assets.setup`'s httpc was killed downloading the
-  100 MB binary).
-- **No gate job** builds or tests the playground yet.
-- **The browser tests** fetch and compile the runtime afresh in every test
-  ([testing.md](testing.md#not-yet-caching-the-runtime-between-tests)).
+An `ecto.migrate` failure involving a missing `eex.app` was observed on
+Rust-OTP after adding a dependency. It has not been rechecked on the
+current emulator; running `mix compile` first was the workaround.
 
 ## Next
 
-1. `mix phx.new` with prebuilt deps and a Hex cache; with bcrypt_elixir
-   built, `phx.gen.auth` with its default hashing library.
-2. More NIF packages ([nif.md](nif.md)): exqlite; Rustler
-   NIFs (rustler_precompiled). The backend as the one source of NIF
-   builds, the request naming the page's layer
-   ([backend.md](backend.md#plan-one-source-of-nif-builds)); a first real
-   agent session. The template's test build prebuilt, so `mix test`
-   starts at once.
-3. `ecto.migrate`'s pruned `eex` after a new dependency.
-4. Routing a node's connection to another node's listener (Mix's locks).
-5. A gate job for the playground tests; a persistent browser context per
-   test worker.
-6. Zip export and import of a project ([projects.md](projects.md#plans)).
-7. A TCP relay through the site for the node's other connections, for
-   those without a tailnet (allow-listed hosts, TLS in the node), as an
-   API-only Phoenix app the collaboration relay can grow from.
-8. Live sessions: what is left
-   ([collaboration.md](collaboration.md#not-built-yet)); `/socket` on
-   elixir-playground.steffend.me too.
-9. WebKit's two stalls; a faster node start.
-10. `find`, `grep`, `sed` and `awk` built to WebAssembly beside
-    coreutils.
-11. Tailscale against Tailscale's own control server, and what is left
-    ([tailscale.md](tailscale.md#not-built-yet)).
+Planned work includes prebuilt dependencies, broader NIF support,
+[unified backend NIF builds](backend.md#plan-one-source-of-nif-builds),
+[project archive import and export](projects.md#plans), a browser-test
+gate, and further browser compatibility testing. Networking and session
+follow-ups are tracked in [relay](relay.md#not-built-yet),
+[Tailscale](tailscale.md#not-built-yet) and
+[collaboration](collaboration.md#not-built-yet).
 
-Shelved: Linux programs through [Blink](https://github.com/jart/blink),
-an x86-64 emulator built for WASI (the `worktree-blink` branch: build,
-patches, timings and why, in its docs/blink.md). Static musl programs and
-busybox run, 100–450× slower than natively; nothing with a JIT or
-threads of its own (Bun, Node, Go programs) is worth running that way.
+The Blink experiment is shelved. Its build notes and measurements remain
+on the `worktree-blink` branch; it is not part of the current runtime.

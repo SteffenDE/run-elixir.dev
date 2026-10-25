@@ -1,22 +1,19 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-16
+last_updated: 2026-10-23
 ---
 
 # The backend (`backend`)
 
-The site is static; the backend is what it can't be: a Phoenix API app
-(`mix phx.new --no-html --no-assets`, app `:playground`) that builds NIF
-libraries to WebAssembly on request, and relays live sessions between
-browsers ([collaboration.md](collaboration.md)). It runs at
-run-elixir.steffend.me for its admin, and answers the playground's
-pages at `/socket` on run-elixir.dev (the apex: every page), and at
-`/api/nif/` there and on the usercontent domain, whose exec frames' nodes
-fetch NIF builds ([frames.md](frames.md)).
+The Phoenix backend provides three services for the static frontend:
+WebAssembly NIF builds, encrypted live-session messaging, and a restricted
+TCP relay. Project applications still run in the browser.
 
-Its sandbox, notifications and GitHub sign-in come from SCA (~/sca), a
-different project, cut down to what the backend needs.
+The deployment examples use `run-elixir.steffend.me` for administration.
+The apex proxies `/socket` for live sessions and `/api/nif/` for builds.
+The usercontent domain proxies `/api/nif/` and `/relay` for project
+runtime requests. See [deploy.md](deploy.md) for routing and origin checks.
 
 ## Building a NIF library
 
@@ -106,6 +103,16 @@ origins may open the socket: `PLAYGROUND_ORIGINS` (comma-separated, as
 `check_origin` takes them; `//run-elixir.dev` by default: every page is
 the apex's, and no page of the usercontent domain opens it).
 
+## The TCP relay
+
+`/relay` (`PlaygroundWeb.RelaySocket`) carries projects' TLS connections
+to a few listed hosts on port 443, for pages without a tailnet; each
+connection a process (`Playground.Relay.Connection`). Its list
+(`priv/relay/hosts.json`), frames, checks and limits:
+[relay.md](relay.md). The limits are `config :playground,
+Playground.Relay`; only `PLAYGROUND_RELAY_ORIGINS` may open it
+(`*.run-elixir-usercontent.org` by default: projects' exec frames).
+
 ## The sandbox
 
 `Playground.Sandbox` runs one job per Firecracker VM: a Linux 6.18 kernel
@@ -173,8 +180,8 @@ checkout is in.
 
 After building the artifacts anew (a new erl_nif layer, say), restart the
 app: it reads the toolchain once. It listens on `127.0.0.1:PORT`; Caddy
-terminates TLS in front: the admin's site, and `/api/nif/` and `/socket`
-on run-elixir.dev's ([deploy.md](deploy.md#caddy) has both). Caddy's
+terminates TLS in front: the admin's site, plus `/api/nif/` and `/socket`
+on the apex and `/api/nif/` and `/relay` on the usercontent domain ([deploy.md](deploy.md#caddy) has both). Caddy's
 `handle` blocks are exclusive, so these never reach the static site's
 fallback.
 

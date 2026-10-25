@@ -1,15 +1,19 @@
 ---
-kind: plan
+kind: reference
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # Distribution
 
-Erlang distribution between a project's nodes: `iex --sname a` in one
-terminal and `Node.connect(:a@localhost)` in another, and the reason to
-want it, Livebook, whose server is one node and whose notebooks run in a
-second (its standalone runtime) that connects back.
+Erlang distribution works between a project's nodes. Start
+`iex --sname a` in one terminal and `iex --sname b` in another, then call
+`Node.ping(:a@localhost)` from the second node. The project supplies a
+shared distribution cookie unless the command specifies one.
+
+Nodes can also connect to tailnet peers when Tailscale permissions allow
+it. Livebook uses this support to run notebook cells in a separate BEAM
+instance. The implementation and earlier measurements follow.
 
 ## The proof of concept (2026-10-18)
 
@@ -147,7 +151,7 @@ took, beyond distribution:
   output, and the last that ended: Livebook's runtime's output goes
   nowhere else.
 
-**As a user installs it** (Playwright's `livebook-domain`, `@slow`, about
+**As a user installs it** (Playwright's `livebook-ports`, `@slow`, about
 3 minutes in Chromium): `mix escript.install hex livebook 0.19.10` builds
 it in the tab (about 2 minutes), `livebook server` is a command (an
 escript on `PATH`: `$MIX_HOME/escripts` (`/home/user/.mix/escripts`) is on it, and the shell and a
@@ -157,18 +161,17 @@ output shows in Livebook's iframe endpoint, its port (8081) on an origin
 of its own on the project domain (runtime.md, *a preview origin per
 port*; `LIVEBOOK_IFRAME_URL` from the page).
 
-Not yet: NIF packages notebooks ask for (the backend's builds); `sh -c`
-with `rm` and the shell's other file commands (rebar3 removes its plugins'
-directories that way; their plugins then do not load, which the build
-survives); memory with two nodes (not measured); without a project
-domain, Kino's outputs (the preview is one origin there).
+Remaining limits include NIF packages that the backend cannot build and
+memory use with multiple nodes, which has not been measured here. Shell
+file commands such as `sh -c 'rm -rf …'` are implemented through brush
+and coreutils. Preview ports use separate usercontent origins.
 
 No Livebook project kind (2026-10-18): what people use Livebook for
 (Nx, EXLA, Explorer) needs native code the playground does not build,
 Livebook is easy to have elsewhere, and installing it as above works.
 
-## Estimate (what is left)
+## Further validation
 
-| Step | Work |
-| --- | --- |
-| `rm` and the other file commands in `sh -c` | ½ day |
+The file-command support proposed in the original plan is implemented.
+Further work should focus on notebook dependency compatibility and memory
+use with multiple BEAM instances.

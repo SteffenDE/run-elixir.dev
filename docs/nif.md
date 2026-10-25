@@ -1,18 +1,20 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-18
+last_updated: 2026-10-23
 ---
 
 # NIFs (`nif/`)
 
-The Emscripten BEAM links no native libraries. In the playground a NIF
-library is a WebAssembly module instead: the package's C or C++, built
-with wasi-sdk against an erl_nif of our own, run in an instance of its
-own beside the node. The node and the library exchange external terms
-(`term_to_binary`), so erts needs only one proxy NIF for them (patch
-0021). The layer was written for Rust-OTP, which runs the same builds
-(the `rotp` branch).
+NIF libraries run as separate WebAssembly instances beside the BEAM.
+Package C or C++ code is compiled with wasi-sdk against the project's
+`erl_nif` compatibility layer. A proxy NIF in ERTS exchanges external
+terms with the library, so no native shared library is loaded into the
+browser's BEAM instance.
+
+The same library format is used by bundled builds and backend builds.
+The layer originated with the older Rust-OTP runtime, which is preserved
+on the `rotp` branch.
 
 ## The erl_nif layer (`beamos_nif.c`)
 
@@ -124,8 +126,8 @@ ends the call, as `proc_raise`), anonymous and read-only `mmap()`,
 `clock()`/`times()` and `getpid()` compile and link; a library takes only
 what it uses.
 
-A package's recipe in `PACKAGES` gives its make targets, its `make_env`
-per version, Hex packages whose directories it names (`headers`, such as
+A package's recipe in `PACKAGES` gives its make targets, its environment overrides
+per version (`versions`), Hex packages whose directories it names (`headers`, such as
 Fine's include directory) and `prepare`, what the Makefile would fetch and
 build itself (lazy_html's lexbor, cloned and built with cmake: here from
 GitHub's archive of the commit, with the wasi-sdk cmake toolchain).
@@ -134,7 +136,8 @@ GitHub's archive of the commit, with the wasi-sdk cmake toolchain).
 `build.py NAME`, the layer's and the package's checks, and a site build.
 A library that does not link names the `enif_` functions the layer lacks.
 `make` looks a build up by the exact name and version in the project's
-`deps`, so a version the site has not built fails in `make`.
+`deps`, and requests a backend build when no bundled build exists. It fails only
+when neither source can provide a usable library.
 
 **Test.** `test/test.py` builds `test/layer.c` with `nifcc` and runs
 `test/layer.exs` in the Node harness over the built site: a resource made,

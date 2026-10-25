@@ -1,44 +1,31 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # Architecture
 
-A project runs in one browser tab. Nothing on the server knows about
-Elixir: the site is static files. The home page (`/`) only lists projects;
-a project's page (`/ID/`, `/iex`) runs it, and several tabs may run
-several projects (one tab per project, [projects.md](projects.md)). Every
-page is the apex's; what the project's code runs is in frames of the
-usercontent domain, another site ([frames.md](frames.md)).
+The frontend is a static site. Each active project runs in a browser tab,
+with its files and database stored locally. The backend handles NIF
+builds, encrypted collaboration, and the restricted TCP relay; it does
+not run the project's Elixir application.
+
+The IDE runs on the apex origin. Project code runs in an exec frame on a
+separate usercontent domain, and each preview port has its own origin.
+A tab can keep one project running while displaying Settings, Tailscale,
+or the project list. Different tabs can run different projects.
+See [projects.md](projects.md) and [frames.md](frames.md).
 
 ```
- project page (React IDE, apex)
- ├─ terminals' screens and line disciplines, the tree, the tabs
- ├─ postgres.ts ─── PGlite (Postgres in WebAssembly; the apex's IndexedDB)
- ├─ overlay.ts serveStore: /work's changes, in the apex's IndexedDB
- ├─ hex.ts: Hex's tarballs, in the apex's Cache Storage
- │
- ├─ exec frame (e-ID.USERCONTENT) ─► exec/host.ts, a worker: rpc.ts ◄─► the page
- │   ├─ host/ Node ──────────► worker.js  (one per shell / terminal tab)
- │   │    frames in a SharedArrayBuffer ring;   the Emscripten BEAM
- │   │    messages back                         its own /rotp, /dev, /usr
- │   ├─ host/ Files ─────────► files.js   (one; runs no node)
- │   │    messages                              /work and /tmp, shared;
- │   │                                          keeps /work's changes
- │   │                                          through the page's store
- │   │                worker.js ═══════════► files.js
- │   │                synchronous calls (SharedArrayBuffer + Atomics.wait)
- │   ├─ bridge.ts: the preview's requests, to the app
- │   ├─ 5432, Hex's port ──► carried to the page (portConnection.ts)
- │   └─ page programs: tailwind (the project's plugins), esbuild, git,
- │       node, npm and npx (nodejs.md), and sh and rebar3
- │       (programs/node.ts), which start a node of their own
- │
- └─ relay frame (v-ID-PORT.USERCONTENT), per port ◄── sw.js ◄── preview <iframe>
-     passes requests to the exec frame's bridge         (the app), or a
-                                                        popped-out window
+apex: React IDE, project storage, PGlite, Hex cache, Tailscale device
+  ├─ e-ID.USERCONTENT: exec frame and host worker
+  │    ├─ files.js: shared project filesystem
+  │    ├─ worker.js: shell and BEAM workers
+  │    ├─ nodejs.js: Node.js processes
+  │    └─ Tailwind, esbuild, Git, network routing, preview bridge
+  ├─ v-ID-PORT.USERCONTENT: relay frame and preview for each server port
+  └─ claude.USERCONTENT: Claude Code preparation and cache
 ```
 
 ## The node
@@ -56,13 +43,15 @@ child processes, a clock, random bytes and a terminal.
   thread: every file and network call the threads make is proxied to it,
   so it never blocks while the node runs. It takes the page's frames as
   they come (`Atomics.waitAsync` on the ring's write count).
-- **The shell.** A worker runs a small shell. `elixir`, `iex`, `mix` and `erl`
-  each start a fresh node, as a Unix shell starts processes; `cd`, `ls`,
-  `cat`, `mkdir`, `rm`, `echo`, `clear` and `help` are builtins. A line
-  ending in `\` goes on in the next, as in sh. Ctrl+C stops the node
-  (status 130).
-- **One node per worker.** A worker runs one node at a time, so each
-  terminal tab is a worker of its own.
+- **The shell.** Each terminal runs brush, a Bash-compatible shell built
+  to WebAssembly. It supports pipelines, redirections, variables, jobs,
+  and command history. `elixir`, `iex`, `mix`, and `erl` start BEAM
+  instances; ordinary tools run through the worker's process table.
+- **One BEAM at a time per shell worker.** Separate terminal tabs have
+  separate workers and share the project's files. Child commands can
+  create additional workers. Ctrl+C sends SIGINT to a running BEAM,
+  which opens the ERTS break menu; other programs are interrupted.
+
 - **NIFs.** A NIF library built to WebAssembly runs beside the node, on
   the worker's thread, in an instance of its own; erts reaches it through
   one proxy NIF, in external terms ([nif.md](nif.md)).
@@ -79,7 +68,7 @@ child processes, a clock, random bytes and a terminal.
   compiled module reaches no worker of another site, [frames.md](frames.md)): each worker gets them with its start and builds
   its tree from the tars (tens of milliseconds), rather than fetching and
   compiling for itself.
-- **`/work` and `/tmp`** live in `src/runtime/files.ts`, a worker that runs no node
+- **`/work`, `/tmp`, `/home`, and `/shared`** live in `src/runtime/files.ts`, a worker that runs no node
   and so is always free to answer. Nodes reach it synchronously: `wasi/shared.ts`
   sends each call on those paths through a SharedArrayBuffer channel and
   waits with `Atomics.wait`. The page reaches it with messages (the IDE's
@@ -87,38 +76,29 @@ child processes, a clock, random bytes and a terminal.
   every other shell and the page see.
 - **A project's `/work`** starts as its template (the site's
   `/work/playground` for Phoenix, nothing otherwise), with the project's
-  kept changes laid over it. `files.js` writes what changes below `/work`
-  to the project's IndexedDB database a second later
+  saved changes applied over it. `files.js` sends changes below `/work`
+  and `/home` to apex storage after a one-second debounce
   ([projects.md](projects.md#what-is-kept)).
 
 ## How a preview request reaches Phoenix
 
-1. The preview iframe asks for `/posts`. The service worker (`src/runtime/sw.ts`, served as `/sw.js`)
-   answers only the preview's requests: iframe navigations, and requests
-   from the documents those made. Everything else goes to the network
-   directly.
-2. The service worker sends the request to the page running the preview's
-   project. Each project page announces itself under its project's key, and
-   each preview document takes the key of what navigated it; the routes
-   outlive a service worker restart ([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
-   Each port of a project's app has an origin of its own on the
-   usercontent domain, and so a service worker
-   ([frames.md](frames.md)); its relay frame (`relay.html`) is never a
-   preview.
-3. `src/runtime/bridge.ts` on the page opens a connection to the preview's port
-   (4000, else the lowest port a node serves on; ports a node asked for
-   with 0, such as Mix's compile lock's, are no server) of the node that
-   listens there. Nodes report their listening ports, and the IDE routes by
-   them. The request goes in as HTTP/1.1 with the app's cookies: the
-   HttpOnly ones the bridge keeps (a service worker's responses cannot set
-   cookies) and those in `document.cookie`, which the preview shares with
-   the page.
-4. Bandit answers in the node; the response comes back the same way.
+1. The preview iframe requests a path such as `/posts`. Its service worker
+   intercepts preview navigations and requests from preview documents.
+   Runtime assets and other non-preview requests go to the network.
+2. The service worker forwards the request through the port's relay frame
+   (`relay.html`) to the project's exec host. Each preview port has its own
+   origin and service worker. Routes survive service-worker restarts.
+3. The bridge (`src/runtime/bridge.ts`) connects to the node listening on
+   that port and sends an HTTP/1.1 request. It adds cookies from the preview's
+   cookie jar, including HttpOnly cookies that the bridge stores because
+   service-worker responses cannot set them directly.
+4. Bandit handles the request in the node. The response returns through
+   the same route.
 
-A service worker sees no WebSocket connection, so HTML gets a `WebSocket`
-of the bridge's: it asks the service worker for the project's page, whose
-bridge connects to the app and speaks the protocol for it. LiveView runs
-over it as outside the playground.
+Service workers cannot intercept WebSocket connections. The runtime
+injects a WebSocket implementation into preview documents that sends
+connections through the bridge. This carries LiveView traffic.
+See [runtime.md](runtime.md#the-preview-swjs-bridgets) for protocol details.
 
 ## The database
 
@@ -128,8 +108,9 @@ Postgrex connects to `localhost:5432`. That port is served on the page:
 turns: one that leaves the session in a transaction, or between a Parse and
 its Sync, holds it until a ReadyForQuery says idle, and the others wait
 (one that saw another's transaction would take it for its own, and an
-unnamed statement would be another's). A transaction idle for a second lets
-the waiting ones in, into it, except a new connection's startup: Ecto's
+unnamed statement would be another's). After a transaction has been idle for a second, waiting connections
+from the same node may join it. New connection startups and connections
+from other nodes remain blocked: Ecto's
 migrator holds a lock in a transaction on one connection and migrates on
 another. A connection that closes in its transaction has it rolled back; a
 CancelRequest closes its connection and stops nothing. The template's pool
@@ -140,10 +121,9 @@ IEx's lives in memory.
 
 ## Hex
 
-The node reaches no other host but through the page (and the user's
-tailnet, once Tailscale is set up: [tailscale.md](tailscale.md)), and the
-page reads only what CORS allows: hex.pm's API does, repo.hex.pm (the registry and tarballs)
-does not. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
+Hex uses a local HTTP adapter. The browser can fetch hex.pm's API
+directly, but repo.hex.pm's registry and tarballs need a proxy because
+they do not allow CORS. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
 `src/runtime/fetcher.ts`, which answers each request with a `fetch()`
 (`src/project/lib/hex.ts`):
@@ -173,31 +153,24 @@ harness (`node.ts`, the build's recording) runs git.wasm the same way.
 
 ## Programs
 
-When the node spawns a program (`open_port`, `System.cmd`), the worker runs a
-JavaScript one instead:
+When a node spawns a program through `open_port` or `System.cmd`, the
+runtime dispatches it by name:
 
-- **In the worker, synchronously:** `git`, as far as Mix asks a git
-  dependency, and `make`, as elixir_make runs it: it unpacks the site's
-  WebAssembly build of the package's NIF library into the app's `priv`
-  ([nif.md](nif.md)).
-- **On the page, asynchronously:** `tailwind`, `esbuild` and `git`. The
-  worker forwards the spawn, and output and exit come back as frames.
-- **As a node of its own:** `sh`, `rebar3`, and `mix`, `elixir`, `iex`,
-  `erl` and `escript` themselves (`programs/node.ts`), page
-  programs that start a node in a new worker over the same files, as the
-  shell does, and pass on its output and exit status. `sh -c LINE` (open_port's
-  `{spawn, Command}`, `System.shell`; `phx.new` runs `mix deps.get` that way)
-  is brush in that worker, without its line editor: the line runs as the
-  terminal's shell runs it (pipes, `||`, variables, redirections), a node
-  command in that worker ([nodejs.md](nodejs.md#a-nodes-sh--c-is-brush)). `rebar3` runs
-  `escript /rotp/mix/rebar3`, the rebar3 the installation built, which Mix
-  builds rebar3 dependencies with (`MIX_REBAR3`). `System.cmd("mix", …)`
-  finds `/rotp/bin/mix` on `PATH` (the others have stand-ins in
-  `/usr/bin`) and runs it as a node; `igniter.new` runs `mix deps.get`
-  that way. The image has the OTP
-  applications' `include` directories for them. `os:cmd` writes its command
-  to the shell's input, which page programs do not read, so it is not
-  covered.
+- **WASI tools:** Git, coreutils, ripgrep, sed, grep, diffutils, gawk,
+  and find. Tools that spawn children use the worker's process table.
+- **Native-build adapter:** `make` obtains the package's WebAssembly NIF
+  library from the site or backend and unpacks it into the app's `priv`.
+- **Host programs:** Tailwind, esbuild, Node.js, npm, and npx run through
+  the exec host. Project plugins execute on the usercontent origin.
+- **BEAM commands:** `mix`, `elixir`, `iex`, `erl`, `escript`, and
+  `rebar3` run in workers over the same project files.
+- **Shell commands:** `sh -c` runs brush, including pipelines,
+  redirections, and child processes. `os:cmd`'s `sh -s` input path is
+  not supported.
+
+`rebar3` runs the installed escript at `/rotp/mix/rebar3`. Stand-ins on
+`PATH` let Erlang and Elixir find the supported programs. The installation
+also includes OTP application headers for dependency compilation.
 
 The Hex `esbuild` and `tailwind` packages run the playground's programs
 whatever the project: Elixir starts with their `:path` set to

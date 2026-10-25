@@ -15,6 +15,10 @@ defmodule Playground.Application do
       {DynamicSupervisor, name: Playground.Sandbox.Supervisor, strategy: :one_for_one},
       {Registry, name: Playground.Live.Registry, keys: :unique},
       {DynamicSupervisor, name: Playground.Live.Supervisor, strategy: :one_for_one},
+      {DynamicSupervisor,
+       name: Playground.Relay.Supervisor,
+       strategy: :one_for_one,
+       max_children: Playground.Relay.config(:max_total)},
       {Oban, Application.fetch_env!(:playground, Oban)},
       # Start to serve requests, typically the last entry
       PlaygroundWeb.Endpoint

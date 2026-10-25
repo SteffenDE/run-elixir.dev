@@ -9,8 +9,11 @@ last_updated: 2026-10-23
 ```sh
 python3 -I runtime/build.py       # → target/site
 python3 -I runtime/build.py app   # just the page and the runtime's JavaScript
-python3 -I runtime/serve.py 8081
+python3 -I runtime/serve.py 8081 \
+  --domain playground.localhost:8081 --usercontent usercontent.localhost:8081
 ```
+
+Open `http://playground.localhost:8081`. Both domains are required to run projects.
 
 `build.py app` rebuilds the Vite app and the runtime's bundles into an
 existing site, without the recording runs (seconds instead of a minute).
@@ -82,7 +85,8 @@ rebar3), and builds the template with the host's Mix in
 target/site/
   index.html, preview.html,  the app's Vite build (assets in _playground/), each
   relay.html, exec.html,       naming its build and runtime: <meta name="playground-build">,
-  storage.html, embed.html     <meta name="playground-runtime">
+  storage.html, embed.html,    <meta name="playground-runtime">
+  claude.html
   embed.js                   the embedders' client (embed.md), self-contained, at the root
   sw.js                      the service worker, at the root for its scope /
   playground.json            the apex, the usercontent domain (frames.md) and the
@@ -92,8 +96,9 @@ target/site/
   og.png                       project domain)
   _playground/               the Vite assets, content-hashed
   b/ID/                      the build's JavaScript, ID a digest of it and RID:
-    worker.js files.js         the runtime's workers, bundled (Vite),
-    tailscale.js                 the apex's Tailscale worker,
+    worker.js, files.js,       runtime, filesystem, Git and Node.js workers,
+    git.js, nodejs.js            bundled with Vite
+    tailscale.js               the apex's Tailscale worker,
     chunks/                      and what they share
   r/RID/                     the runtime, RID a digest of what is in it:
     beam.mjs, beam.emu.mjs     the emulator's loader and its threads'
@@ -110,6 +115,7 @@ target/site/
       diff3.wasm, sdiff.wasm     (213, 131, 133, 138 KB gzipped)
     gawk.wasm                  GNU awk (tools/gawk/build.py), 1.5 MB (415 KB gzipped)
     find.wasm                  GNU find (tools/findutils/build.py), 877 KB (278 KB gzipped)
+    roots.pem                  trusted roots for the TLS client
     runtime.json               its OTP and Elixir versions, the embedders' contract (embed.md)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
@@ -184,8 +190,9 @@ The filesystem holds:
    - `_build_otp` becomes `_build`;
    - links in the build (each dependency's `priv`, some `src`) are copied in
      place;
-   - a dependency's `.git` keeps only `config` and `HEAD`, which is what
-     Mix's lock check asks `git` about;
+   - a dependency's `.git` keeps `config`, `HEAD`, `packed-refs` and
+     `refs`, with empty object directories. This preserves the revision
+     metadata Mix needs without bundling the repository's object history;
    - the native tool binaries become empty stand-ins.
 5. **Record.** Write every file lazily, then run each boot image's command
    in the node under `node.mjs` in Docker (`RECORD` in

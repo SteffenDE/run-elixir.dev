@@ -34,8 +34,8 @@ export function SettingsPage() {
           <RiSettings3Line size={22} /> Settings
         </h1>
         <p className="muted home-lead">
-          These settings apply to all projects in this browser. Projects imported from a link or
-          forked from a live session ask for permission first.
+          These settings apply to all projects in this browser. Projects imported from a repository
+          or link, or forked from a live session, ask for permission first.
         </p>
 
         <h2>Environment</h2>

@@ -49,9 +49,9 @@ export function ImportPage() {
             <p className="muted">
               {paths.length} {paths.length === 1 ? 'file' : 'files'}
               {shared.removed.length ? `, ${shared.removed.length} removed` : ''}
-              {shared.kind === 'phoenix' ? ' over the Phoenix template' : ''}.
+              {shared.kind === 'phoenix' ? ' applied to the Phoenix template' : ''}.
               {current && shared.template && shared.template.id !== current.id
-                ? ` It was made from another Phoenix template (${shared.template.label}; this site's is ${current.label}); its files go over this one.`
+                ? ` This project used Phoenix template ${shared.template.label}. Its files will be applied to the current template, ${current.label}.`
                 : ''}
             </p>
             <ul className="import-files">

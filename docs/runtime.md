@@ -1,33 +1,32 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-22
+last_updated: 2026-10-23
 ---
 
 # The runtime (`app/src/runtime`)
 
-The site's runtime, in TypeScript, as part of the app: one `tsconfig`,
-oxlint and oxfmt (`npm run lint`, `format:check`), erasable syntax only
-(no enums or namespaces). The app's Vite build bundles it
-([build.md](build.md#steps)). The page's parts (`host/`, `bridge.ts`, …)
-go into the app, which imports them as `@/runtime/…`. The scripts that
-load by URL go into the build as entries of their own, under their
-names: `worker.js` (`worker/index.ts`) and `files.js` (what they share in
-`chunks/`), and `sw.js`, at the site's root. `node.ts` is
-bundled for Node, as `node.mjs`.
+The TypeScript runtime connects browser workers, the BEAM, WASI tools,
+project files, and preview traffic. It shares the app's type, lint, and
+formatting checks.
 
-**The WASI calls stay cheap** (NIF libraries'). The calls are closures, built once per
-node (`functions()`, `sharedCalls`, `positioned`) and wrapped once in
-`unsigned()`; classes declare their fields (`declare`), so types add no
-code, and a call goes through no more functions than it did as
-JavaScript.
+“Host” code usually runs in the exec frame's worker on the usercontent
+origin. The apex owns persistent stores, PGlite, the Hex cache, and
+Tailscale credentials. Older module names still use “page” for the host.
+
+Vite emits runtime scripts under `b/BUILD/`, with shared chunks alongside
+them. The service worker stays at `/sw.js`; Node harnesses are emitted
+separately as `.mjs` files. See [build.md](build.md#steps).
+
+WASI call wrappers are created once per instance, so TypeScript adds no
+per-call allocation.
 
 | File | Runs in | Role |
 | --- | --- | --- |
 | `wasi/` | worker, Node | The node's tree and network, and WASI preview 1 for NIF libraries. `index.ts`: the shim (`WASI`) and the calls on the process; `descriptors.ts`: the calls on the node's own files and the host's (`/.proc`, `/.tty`, `/.nif`, `/.net`); `shared.ts`: the client for shared files and the calls on them; `positioned.ts`: `fd_pread`, `fd_pwrite`, `fd_tell`; `fs.ts`: the in-memory filesystem, lazy files, tars, `/dev/urandom`, `/dev/null`; `net.ts`: TCP and UDP (`Network`); `process.ts`: programs and the terminal; `pipe.ts`: pipes between processes; `jspi.d.ts`: JSPI's types; `abi.ts`: errnos, flags and the calls' signatures. |
 | `worker/` (`worker.js`) | worker | A node. `index.ts` builds the node's tree from the boot images (the page's tars, else fetched) and runs one command or the shell, each node through `beam.ts`; `channel.ts` takes in the page's frames and runs the page's programs; `nif.ts` fetches NIF libraries (the site's, the backend's). |
-| `files.ts` (`files.js`) | worker | The shared filesystem (`/work`, `/tmp`), and keeping a project's changes. |
-| `overlay.ts` | worker | A project's kept changes in IndexedDB. |
+| `files.ts` (`files.js`) | worker | Project filesystem and persistence: `/work` and `/home` are saved per project; `/tmp` is temporary; `/shared` uses the user's shared store when allowed. |
+| `overlay.ts` | apex, worker | IndexedDB storage on the apex and a remote store interface for the files worker. |
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation (`/etc/hosts`; `/etc/resolv.conf` when the page serves DNS), programs. |
 | `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. The site's other WASI programs run the same way, each of its own module (`PROGRAMS`: ripgrep's `rg`, `rg.wasm`; git's `git`, `git.wasm`, the shell's `git` but for a remote: [git.md](git.md#gitwasm-git-itself)); the shell runs them as processes (`processes.ts`). |
@@ -36,12 +35,13 @@ JavaScript.
 | `processes.ts` | worker, Node | A worker's processes: programs built for WASI (and the host's) running at once as coroutines under JSPI, their descriptors shared, pipes between them ([below](#processes-processests)). |
 | `git-remote.ts` | worker, Node | git's remote helper for HTTPS (`git remote-https`): protocol v2's `stateless-connect` through the site's proxy, as a process ([git.md](git.md#gitwasm-git-itself)). |
 | `sh.ts` | worker, page | Command lines split into words; `&&`-joined commands for the Node harness's `sh -c` (with a page, `sh -c` is brush). |
-| `programs.ts` | worker, Node | `git` (as far as Mix asks), `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
+| `programs.ts` | worker, Node | `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
 | `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT); raw without signals while a page program asks (Node's setRawMode): Ctrl+C is a key too. Ctrl+D on an empty line is the end of input, for a page program reading the terminal. |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
-| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's, over which the node does TLS: [tailscale.md](tailscale.md)). |
+| `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's or the site's relay's, over which the node does TLS: [tailscale.md](tailscale.md), [relay.md](relay.md)). |
+| `relay.ts` | page | The site's TCP relay ([relay.md](relay.md)): for the gateway's `tcp`, a TCP connection to a listed host on 443 made by the backend, over one WebSocket for all of them; `relayed(host, port)`, which connections go there. |
 | `dns.ts` | page | The node's DNS at 127.0.0.53, port 53, UDP and TCP: each query answered by a resolver it is given (the playground's: Tailscale's, else no such name). |
 | `bridge.ts` | page | Sends them on to the node as HTTP/1.1, with the app's cookies; carries the preview's WebSockets. |
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
@@ -78,7 +78,7 @@ nothing.
   with the links on the way resolved, and laying the records back makes
   what a dangling link names, as a link can sort before it; the page's requests follow
   links but for removing and renaming. A link and what it names stay on
-  one side, the shared directories (`/work`, `/tmp`) or a node's own: a
+  one side, the shared directories (`/work`, `/tmp`, `/home`, `/shared`) or a node's own: a
   path goes to one or the other by its prefix. Mix links a build's `priv`
   to the project's, as natively, so Phoenix serves new assets at once and
   no longer warns.
@@ -152,7 +152,7 @@ library that trapped or exited is gone.
 ### Shared files
 
 With `shared: { prefixes, call }`, the calls on paths under the prefixes
-(`/work`, `/tmp`) go to `files.js` instead of the local tree. This covers
+(`/work`, `/tmp`, `/home`, `/shared`) go to `files.js` instead of the local tree. This covers
 `path_open`, `path_filestat_get`, `path_create_directory`,
 `path_remove_directory`, `path_unlink_file`, `path_rename`, `path_link`,
 and `fd_read`, `fd_write`, `fd_seek`, `fd_filestat_get`,
@@ -423,7 +423,8 @@ does TLS itself, over sockets that reach no other host).
 `httpsByFetch({ tunnel, onblocked })`: `tunnel(host, port)` may give a
 TCP connection there instead (`tcp`: the node's `ssl` upgrades the
 gateway's socket, with its own options; the playground's: through the
-user's tailnet, [tailscale.md](tailscale.md)), or fail (`error REASON`);
+user's tailnet or restricted relay, [tailscale.md](tailscale.md) and
+[relay.md](relay.md)), or fail (`error REASON`);
 `onblocked(url)` hears of a fetch the browser would not make.
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
@@ -485,9 +486,8 @@ over. The service worker:
   documents in IndexedDB (`playground-sw`), so a restart keeps routing;
 - answers 503 when the key's page is gone;
 - adds `Cross-Origin-Embedder-Policy: require-corp` and
-  `Cross-Origin-Resource-Policy: same-site` to every answer, including
-  errors, which the isolated page needs to frame them (on a project
-  domain, from a port's origin of the same site).
+  `Cross-Origin-Resource-Policy: cross-origin` to every answer, including
+  errors, so the apex can frame the preview on the usercontent domain.
 
 `new Bridge({ connect })` answers the service worker's requests. For each
 one it:
@@ -495,11 +495,11 @@ one it:
 - opens `connect(bridge.port)` (the IDE sets it to the preview's port) and
   sends HTTP/1.1 with `connection: close`;
 - reads the response to its end, removing chunked encoding;
-- keeps HttpOnly `Set-Cookie`s in its own jar and puts the others in
-  `document.cookie` (the preview's origin is the page's, so the app's
-  JavaScript reads and sets them too), and sends both as `cookie`; an
-  HttpOnly one replaces or expires one of its name in `document.cookie`,
-  as a browser's jar would (Plug expires cookies as HttpOnly);
+- keeps HttpOnly `Set-Cookie` values in its project jar and sends other
+  cookies to the preview origin's relay. The relay stores them locally;
+  an injected `document.cookie` shim exposes them to preview JavaScript.
+  Both sets are sent as the request's Cookie header. HttpOnly updates
+  can replace or expire an existing JavaScript-visible cookie;
 - injects a `WebSocket` of its own into HTML (below), and a script
   (`linkShim`) that sends the app's absolute links
   (`http://localhost:PORT/…`, as in a magic link's mail) and forms to

@@ -1,31 +1,32 @@
 # Elixir Playground
 
-Elixir in the browser: OTP's own emulator built to WebAssembly with
-Emscripten (`beam/`), booting OTP and Elixir from an in-memory filesystem
-in Web Workers. One site (elixir-playground.steffend.me) with projects
-kept in the browser: Phoenix projects (a `phx.new` app, its server,
-PGlite, Tailwind on the page), empty projects, and a temporary IEx.
+The Elixir Playground runs OTP and Elixir in the browser. OTP's emulator
+is compiled to WebAssembly with Emscripten. Projects run in Web Workers,
+with files and databases stored locally in IndexedDB.
 
-- `app/`: the site's page, a React app (home page, project IDE) built with
-  Vite, its runtime (`app/src/runtime`: the node's tree, workers, shared
-  files and their storage, the service worker, bridges), and its
-  Playwright tests (`app/test/e2e`).
-- `beam/`: the emulator's build (OTP's erts with our patches).
-- `runtime/`: the site's build (`build.py`) and a server for it
-  (`serve.py`).
-- `nif/`: an erl_nif for NIF libraries built to WebAssembly, and the
-  builds of packages' native code (bcrypt_elixir, lazy_html).
-- `tailscale/`: Tailscale's client built to WebAssembly, the browser's
-  one device in the user's tailnet, through which a project's node may
-  reach any host ([docs/tailscale.md](docs/tailscale.md)).
-- `tests/run.sh`: runs the Playwright tests in Docker;
-  `tests/headscale.sh`, a tailnet for the Tailscale test.
+Create a Phoenix app with LiveView and PGlite, an empty project, or a
+temporary IEx session. The IDE also supports public repository imports,
+Git diffs, sharing links, and live collaboration.
+
+- `app/`: the React IDE, browser runtime, and Playwright tests.
+- `beam/`: the OTP emulator build and Emscripten patches.
+- `runtime/`: site assembly (`build.py`) and local server (`serve.py`).
+- `nif/`: the WebAssembly NIF compatibility layer and package builds.
+- `tools/` and `brush/`: Git, command-line tools, and the shell.
+- `tailscale/` and `tls/`: Tailscale and TLS clients built to WebAssembly.
+- `backend/`: NIF builds, encrypted collaboration, and the TCP relay.
+- `deploy/`: build, upload, activation, and rollback scripts.
+
+See [Build requirements](docs/build.md#requirements) before the first build.
+For an existing build:
 
 ```sh
-python3 -I nif/build.py            # → target/nif (NIF builds)
-python3 -I runtime/build.py        # → target/site
-python3 -I runtime/serve.py 8081   # http://localhost:8081/
-tests/run.sh --project=chromium    # the browser tests
+python3 -I runtime/build.py app
+python3 -I runtime/serve.py 8081 \
+  --domain playground.localhost:8081 --usercontent usercontent.localhost:8081
+PORT=8181 tests/run.sh --project=chromium
 ```
 
-Everything else is in [docs/](docs/README.md).
+Open `http://playground.localhost:8081/`. The separate usercontent domain
+is required to run projects. See [the documentation index](docs/README.md)
+for architecture, setup, and feature details.

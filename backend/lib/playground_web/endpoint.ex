@@ -17,6 +17,19 @@ defmodule PlaygroundWeb.Endpoint do
     websocket: [max_frame_size: 1_048_576],
     longpoll: false
 
+  # The TCP relay (PlaygroundWeb.RelaySocket): opened by projects' exec
+  # frames, on the usercontent domain (:relay_origins). A frame holds a
+  # kind, an id and up to Playground.Relay's :max_payload bytes; Bandit
+  # counts the WebSocket header too (14 bytes for a masked frame over
+  # 65_535).
+  socket "/relay", PlaygroundWeb.RelaySocket,
+    websocket: [
+      path: "",
+      max_frame_size: 65_536 + 5 + 14,
+      check_origin: {PlaygroundWeb.RelaySocket, :origin_allowed?, []}
+    ],
+    longpoll: false
+
   # Serve at "/" the static files from "priv/static" directory.
   #
   # When code reloading is disabled (e.g., in production),

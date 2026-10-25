@@ -1,6 +1,15 @@
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
-import { newProject, newShell, output, prompted, run, seesInPreview, writeText } from './helpers';
+import {
+  newProject,
+  newShell,
+  output,
+  prompted,
+  run,
+  runAnswering,
+  seesInPreview,
+  writeText,
+} from './helpers';
 
 // A Node.js process's connections: to the page's services, to other
 // processes' servers and to a node's, and a node's to a process's.
@@ -364,16 +373,18 @@ test('a Node.js process’s fetch: the project’s ports, redirects, gzip, HTTPS
 // anthropic-dangerous-direct-browser-access for it (its CORS lets a
 // browser in then); Node's fetch, and Pi, whose undici's tls.connect to
 // port 443 goes to the gateway as plain HTTP. A key that is none: the
-// API's refusal is the answer the test needs.
+// API's refusal is the answer the test needs. The project does not take
+// the site's relay (docs/relay.md), so fetch() it is.
 test('a Node.js process reaches Anthropic’s API by the browser’s fetch: fetch, and Pi', async ({
   page,
 }) => {
   test.setTimeout(300_000);
   await newProject(page, 'empty');
   await prompted(page, 1);
-  const fetched = await run(
+  const fetched = await runAnswering(
     page,
     `node -e "fetch('https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'x-api-key': 'none', 'anthropic-version': '2023-06-01', 'content-type': 'application/json' }, body: '{}' }).then((r) => r.text().then((t) => console.log(r.status, t)))"`,
+    "Don't allow",
   );
   expect(fetched).toContain('401');
   expect(fetched).toContain('authentication_error');

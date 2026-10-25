@@ -6,17 +6,16 @@ last_updated: 2026-10-23
 
 # Node.js in the playground
 
-An experiment on the `worktree-node` branch: `node`, `npm` and `npx` in a
-project's terminal and from its nodes, with scripts on the browser's own
-JavaScript engine rather than an engine compiled to WebAssembly (which
-could not JIT). Like the nodes, they run in the project's exec frame, on
-the usercontent domain ([frames.md](frames.md)). Node's modules are the playground's own
-(`app/src/runtime/nodejs/`), over the project's files. A React project
-installs and builds with Vite, and its dev server shows the app in the
-preview and hot-updates it on an edit, in Chromium, Firefox and WebKit
-(`app/test/e2e/vite.spec.ts`). `npm create vue@latest` asks its questions
-at the terminal and its project builds; the coding agent Pi runs, and
-through a tailnet talks to its provider's API (below).
+The playground provides `node`, `npm`, and `npx` in project terminals and
+as child commands. JavaScript runs on the browser's engine in workers
+under the project's exec frame. Node-compatible modules in
+`app/src/runtime/nodejs/` provide access to project files, processes, and
+network services.
+
+This is a compatibility implementation, not an embedded Node.js binary.
+It supports Vite builds and dev servers, Vue and Svelte project creation,
+and coding agents. Unsupported APIs fail explicitly; the limits below
+are part of the current implementation.
 
 ## A process (`nodejs.js`, `programs/nodejs.ts`)
 
@@ -52,7 +51,7 @@ Stacks print as Node's (`at f (file:line:col)`) whatever the engine wrote,
 without the runtime's own frames.
 
 **What is missing** says so when called: an HTTPS server and
-`tls.createServer`, `child_process`'s synchronous forms, brotli in
+`tls.createServer`, brotli in
 `zlib`, ciphers and keys in `crypto`, HTTP/2 (its constants are there,
 which clients read as they load). There is no REPL (`node` alone).
 
@@ -297,11 +296,12 @@ CORS headers answers 502, saying why), sets Host, User-Agent and Cookie
 itself, follows redirects and decompresses. Each connection carries one
 request. The gateway says how first (`https.ts`: a line, `fetch`, `tcp`
 or `error REASON`), which the socket reads before its `connect`. With
-Tailscale set up and the project allowed, it says `tcp`: a TCP connection
-to the host through the tailnet, over which the socket does TLS itself
+an allowed Tailscale route or permission to use the restricted relay, it
+says `tcp`: a TCP connection to the host through that route, over which the socket does TLS itself
 (`tls.ts`'s Engine, ALPN `http/1.1`, the request's or its agent's `ca`,
 `cert`, `key`, `servername` and `rejectUnauthorized`), as a node's HTTPS
-does: any site, CORS or not.
+does. Tailscale can reach any host allowed by its policy; the relay
+accepts only its allowlist on port 443 ([relay.md](relay.md)).
 
 ### TLS (`tls/`, `tls.ts`)
 
@@ -321,10 +321,11 @@ worker: what crosses to the apex's Tailscale worker is TLS.
   (replacing Mozilla's roots), `cert` and `key` (a client certificate);
   `rejectUnauthorized` (default true, `NODE_TLS_REJECT_UNAUTHORIZED=0`
   too). `secureConnect` once the handshake is done.
-- To port 443 it asks the gateway (as `https.request` does): through the
-  tailnet, its own TLS over the tunnel's TCP; without, plain HTTP to the
-  gateway's `fetch()`, the browser doing the TLS (`authorized`, ALPN
-  `http/1.1`). Other ports (a database's TLS) go by the tailnet alone.
+- On port 443, the gateway chooses Tailscale, the restricted TCP relay,
+  or browser fetch. Tailscale and relay connections use the process's
+  own TLS. The fetch fallback sends plain HTTP to the gateway, which
+  delegates TLS and certificate checks to the browser. Other ports
+  require Tailscale.
 - A connection the other side closed is read to its end before it is
   destroyed (`closeAfterEnd`, `net.ts`'s sockets too).
 - `authorized` and `authorizationError` (OpenSSL's codes from rustls's
@@ -348,8 +349,8 @@ The global `fetch` is Node's, as undici's is: a request by the process's
 own `http` and `https`, not the browser's `fetch`. So
 `fetch('http://localhost:3000')` reaches another process's or a node's
 server (which the browser's cannot), and HTTPS goes as `https.request`
-does: through the tailnet with the process's own TLS, else by the exec
-frame's `fetch()` (CORS's rules). Redirects are followed as fetch's, gzip
+does: through Tailscale or the restricted relay with the process's own
+TLS, otherwise through the exec frame's browser fetch under CORS rules. Redirects are followed as fetch's, gzip
 and deflate answers decompressed. All of the caller's headers are sent
 (`Cookie`, `Origin`, `Accept-Encoding`, …: the browser's `Request` would
 drop them), and an abort rejects, or errors the body, with the signal's
@@ -397,16 +398,13 @@ Refresh), through the bridge's WebSocket as LiveView's goes.
 
 ## Coding agents
 
-Pi (`@earendil-works/pi-coding-agent`, a Node.js bundle) runs in the
-terminal: its TUI draws and reads raw keys, and with a provider's key it
-works on the project with its tools (read, edit, write, bash: `sh -c` by
-`child_process`). Its requests are undici's (on `net` and `tls`) and
-`fetch`'s, so a model's API is reached through the tailnet; without
-Tailscale, by the gateway's `fetch()` (undici's `tls.connect` to port 443
-is plain HTTP to it), an API whose CORS lets a browser in: Anthropic's
-does when asked (`anthropic-dangerous-direct-browser-access: true`, which
-the gateway adds for `api.anthropic.com`). It looks for `fd` and tries to
-download it, which fails without the tailnet; it goes on without.
+Pi (`@earendil-works/pi-coding-agent`) runs in the terminal. It uses raw
+input for its TUI and project tools for reading, editing, writing, and
+shell commands. Its API requests use the same HTTPS routing as other
+Node.js programs: Tailscale, the restricted relay for allowed hosts, or
+browser fetch when CORS permits it. Authentication requirements still
+come from the provider. Pi can continue without its optional `fd` binary
+when that download is unavailable.
 
 What it needed: `http2`'s constants, `worker_threads.markAsUncloneable`,
 `process.getBuiltinModule` and `performance.markResourceTiming` (undici's,
@@ -479,16 +477,19 @@ site does not host Claude Code's files.
   Glob and Grep tools, which use `rg`. Without this flag, the pinned build
   replaces them with bfs and ugrep, embedded in its executable and invoked
   with commands such as `exec -a bfs "$CLAUDE_CODE_EXECPATH"`. Neither
-  brush nor Node can run these embedded programs. The playground does
-  not yet provide `find` or `grep` commands in the shell.
-- **Network access:** without the tailnet, Anthropic's API is accessible
-  through the gateway's `fetch()`, but settings and telemetry endpoints
-  lack the required CORS headers. `claude` defaults
-  `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` to `1` unless the environment
-  specifies a value. `claude -p` works without the tailnet. Interactive
-  mode exits when its connectivity check to the OAuth host's `/api/hello`
-  endpoint fails. Connecting through the tailnet allows the check to
-  succeed using the process's own TLS connection.
+  brush nor Node can run these embedded programs. GNU `find` and `grep`
+  are available as separate shell commands, but they do not implement
+  those embedded executable entry points.
+- **Network access:** without the tailnet, `api.anthropic.com` and
+  `platform.claude.com` go through the site's TCP relay
+  ([relay.md](relay.md)), with the process's own TLS: the settings
+  endpoint (`/api/claude_code/settings`) and the OAuth host's
+  `/api/hello` send no CORS headers, only the Messages API does. Without
+  relay, the gateway falls back to `fetch()`. API-key requests to the
+  Messages API can work, but OAuth requests and endpoints without CORS
+  support fail. Interactive mode exits if its connectivity check fails.
+  `claude` defaults `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC` to `1`
+  unless the environment specifies a value.
 
 Supporting Claude Code required `/proc/self/fd/N` paths, child output to
 file descriptors, `path/win32`, `stream/consumers`, `fs.realpath.native`,
@@ -577,8 +578,7 @@ the browser can report unhandled promise rejections.
 
 1. A pool of kept connections for `http.Agent({ keepAlive })` (and
    `fetch`'s); `fd` in WebAssembly beside `rg` (its walker's threads).
-2. `child_process`'s rest: fork's IPC, a pipe's input for a child that
-   inherits it; brotli in
+2. `child_process`'s rest: fork's IPC, brotli in
    `zlib`; more entries in npm's `STAND_INS` as projects need them
    (`@swc/core` → `@swc/wasm`, `rollup` → `@rollup/wasm-node`,
    `sass-embedded` → `sass`), each checked by hand.

@@ -1,20 +1,20 @@
 ---
 kind: design
-status: plan
-last_updated: 2026-10-22
+status: live
+last_updated: 2026-10-23
 ---
 
 # git, review, and accounts
 
-A plan for git in a project (clone, history, a diff view, push) and for
-signing in, and what each needs from the site's origins to stay safe.
-Built so far: git itself built to WebAssembly, the only git: the
-shell's and a node's (Mix's), the processes it runs and fetching over
-HTTPS included ([below](#gitwasm-git-itself)); a public repository opened
-as a new project ([below](#opening-a-repository)); pushing to GitHub from
-the Changes panel with a pasted token ([below](#push)). A project's history beyond git (every
-change, the database too) is [history.md](history.md)'s.
-Mix's git dependencies are [architecture.md](architecture.md#git)'s.
+Git 2.56 runs as WebAssembly in the shell, in BEAM-spawned commands, and
+in the IDE's Git worker. The IDE creates baseline commits, shows diffs,
+imports public repositories, and pushes to GitHub through its REST API
+using a token stored on the apex.
+
+Server-side accounts and stored projects remain proposals. Automatic
+file and database checkpoints are described separately in
+[history.md](history.md). Mix's Git dependencies use the same Git build
+([architecture.md](architecture.md#git)).
 
 ## git in the shell
 
@@ -183,7 +183,7 @@ repository (`test/fake-github.ts`).
   that reads the commits runs in the exec frame, with the project's code,
   and never sees the token; what it reports could be the project's
   making, as its files are, so the dialog names the repository.
-- **Live sessions:** a guest who may edit types into the host's terminals;
+- **Live sessions:** a guest with terminal permission can type into the host's terminals;
   a push from a session asks the host on the host's own page, or is off.
 
 ## Accounts
@@ -196,77 +196,53 @@ quotas, size limits, rate limits, and someone to ban.
 
 ### What a project's code can reach
 
-Opening a project runs its author's code: Elixir in the node, and the app's
-JavaScript in the preview.
+The current origin model is implemented in [frames.md](frames.md):
 
-- **The node** runs in a worker: no DOM, no frames. It reaches out only by
-  `fetch` with `credentials: 'omit'` (`https.ts`, `fetcher.ts`), by the
-  page programs it may spawn, and, in a project the user lets use their
-  tailnet, by connections, datagrams and names through the apex's
-  Tailscale device ([tailscale.md](tailscale.md)), never its keys, which
-  stay on the apex.
-- **The preview** iframe is on the IDE's origin, without `sandbox`: its
-  JavaScript reaches `window.parent` (the IDE, its terminals, its
-  programs), the project's IndexedDB, and the apex's `registry.html`,
-  which takes it for the project. Today that only lets a project harm
-  itself: each project has an origin, and the frame allows only its own
-  entry.
-- **Safari's one-origin fallback** ([projects.md](projects.md#a-project-domain))
-  runs every project on the apex: there a project's preview reaches every
-  other project, and whatever the apex keeps.
-- **The apex and `p-ID` are one site:** `SameSite` cookies do not keep a
-  project's requests out, and a project page can set cookies for
-  `.DOMAIN` that shadow the apex's.
+- The apex hosts the IDE, project stores, GitHub token, and Tailscale
+  credentials. Project code does not execute there.
+- The exec frame (`e-ID.USERCONTENT`) runs project code, tools, and
+  plugins. It accesses project files and services through MessagePorts.
+- Each preview port uses `v-ID-PORT.USERCONTENT`. Preview JavaScript
+  cannot directly read the IDE's DOM or apex storage.
+- Tailscale requests require the project's permission. Node.js workers
+  also receive a CSP that restricts browser APIs which could bypass the
+  runtime's network routing.
 
-The rule: **no project's code runs on the origin that holds the account,
-and project pages hold capabilities, not credentials.**
+The old `p-ID.DOMAIN` layout and Safari same-origin fallback are no longer
+used for active projects. Legacy origins remain only for migration and
+redirects. A site without a usercontent domain cannot start projects.
 
 ### A preview origin per project (built, per port)
 
-Built as an origin per port of the app (2026-10-18): `v-ID-PORT.DOMAIN`,
-with a hidden relay frame of that origin in the IDE that passes its
-service worker's requests to the IDE's bridge ([runtime.md](runtime.md),
-*On a project domain, a preview origin per port*). The app's code then
-runs on `v-ID-PORT`, and only the site's on `p-ID`, so a frame that trusts
-`p-ID` for project ID means it.
+Each server port has a relay frame and service worker on its own
+usercontent origin. The relay forwards requests to the exec host's
+bridge. JavaScript-visible cookies are stored in that preview origin's
+partitioned storage; HttpOnly cookies stay in the bridge's project jar.
+Messages are accepted only from the expected source and origin.
 
-- **Not `sandbox`.** Without `allow-same-origin` an origin is opaque: no
-  service worker controls it, and `document.cookie` and `localStorage`
-  throw (Phoenix's session, LiveView).
-- **Cookies:** those the app's JavaScript reads are the port origin's
-  (the relay frame keeps them); HttpOnly ones stay in the bridge, one jar
-  per project.
-- **Left open:** the preview may still `postMessage` its parent, so the
-  IDE checks `event.source` and, for a relay, `event.origin`. Whether
-  Safari runs a service worker in a cross-origin frame wants checking by
-  hand (its one-origin fallback keeps the same-origin preview). A site
-  without a project domain keeps the same-origin preview.
+This isolates previews from the apex. It does not make all project code
+trusted: the exec host still needs to validate requests before using
+apex-held credentials.
 
 ### The account's origin
 
-- **A registrable domain of its own** (as `github.com` is to
-  `githubusercontent.com`): sign-in, the API and stored projects. No
-  project's code ever runs there.
-- **Its session:** a `__Host-` cookie, host-only, `HttpOnly`,
-  `SameSite=Lax`; the API checks `Origin` and answers no credentialed
-  CORS to project origins.
-- **Capabilities:** a project page talks to a frame of the account's
-  origin (as to `registry.html` now), which grants by `event.origin` only
-  *read project ID* and *save project ID*. The worst a hostile project
-  does is overwrite its own stored copy.
+Future account features should stay on the trusted apex. They must not
+expose credentials to exec frames or previews. The existing GitHub token
+flow follows this rule: the apex sends authenticated API requests, while
+the exec frame supplies Git objects without receiving the token.
+
+Server-side sessions, project synchronization, quotas, and authorization
+are not implemented. Their APIs and storage model still need a design.
 
 ### Confirmations
 
-Publishing, making a share public, linking a GitHub repository to a
-project, and pushing are confirmed in a window of the account's origin
-(*Publish brave-otter, 12 files?*): code on a project page cannot click
-another origin's window. That also covers Safari's fallback, where
-`event.origin` does not tell projects apart: there each write asks, or a
-project is not synced. A project linked to a repository once may push to
-that one only, its token staying on the account's origin.
+The current Push dialog runs on the apex and shows the destination
+repository and branch. Shell `git push` cannot use the saved token.
+Future publishing and synchronization flows should require equally
+explicit authorization on the trusted origin.
 
-Opening someone's stored project makes a new local project, on an origin
-of its own, as a link does now.
+Opening a shared project creates a new local project. Imported code asks
+before using the user's environment, shared folder, or setup script.
 
 ### Encrypted or not
 
@@ -277,24 +253,11 @@ better kept readable.
 
 ### Not the public suffix list
 
-With `DOMAIN` on the list, the apex, each `p-ID` and each `v-ID` would be
-sites of their own: `SameSite` would separate them, nobody could set
-cookies for `.DOMAIN`, and each project would get a process of its own.
-But:
-
-- **`registry.html` and `storage.html` become cross-site frames** and
-  Chromium and Firefox partition them, as Safari does now: every browser
-  would take the one-origin fallback, or the project list would have to
-  be redesigned (kept by the apex at creation, changes handed over at the
-  top level or through the server).
-- **The preview's cookies become third-party:** Safari ignores
-  `document.cookie` in a `v-ID` frame under `p-ID`.
-- **Slow both ways:** a reviewed request, then browser releases; old
-  browsers never get it.
-
-A separate account domain and a same-site preview origin give the same
-protection without that. Worth asking again once the server holds the
-project list.
+The current design uses a separate registrable usercontent domain rather
+than adding the project domain to the public suffix list. This separates
+project code from apex cookies while keeping the IDE and its stores on
+one origin. Storage partitioning for previews and embedded projects is
+covered in [frames.md](frames.md) and [embed.md](embed.md).
 
 ## git.wasm: git itself
 

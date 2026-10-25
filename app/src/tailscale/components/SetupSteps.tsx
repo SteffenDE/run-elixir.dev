@@ -49,7 +49,7 @@ export function SetupSteps({ signIn }: { signIn: ReactNode }) {
   return (
     <ol className="tailscale-steps">
       <li>
-        <strong>Let the playground in, for exit nodes only.</strong> In the admin console's{' '}
+        <strong>Allow the playground to use exit nodes.</strong> In the admin console's{' '}
         <a href="https://login.tailscale.com/admin/acls/file" target="_blank" rel="noreferrer">
           Access controls
         </a>
@@ -58,20 +58,21 @@ export function SetupSteps({ signIn }: { signIn: ReactNode }) {
           <pre>{POLICY}</pre>
           <CopyButton text={POLICY} className="tailscale-policy-copy" />
         </div>
-        The playground signs in as <code>{TAG}</code>, which may then use exit nodes and reach
-        nothing in your tailnet. A rule that lets every device reach everything (
-        <code>"src": ["*"]</code>, as in the default policy) covers tagged devices too: give it{' '}
-        <code>"autogroup:member"</code> as its source instead. With <code>acls</code> rather than
-        grants, the rule is <code>{POLICY_ACL}</code>.
+        The playground uses the device tag <code>{TAG}</code>. This grant allows internet access
+        through exit nodes. It does not grant access to other tailnet devices. Existing rules with{' '}
+        <code>"src": ["*"]</code> also apply to tagged devices. To restrict those rules to
+        user-owned devices, change their source to <code>"autogroup:member"</code>. If your policy
+        uses <code>acls</code>, use this rule: <code>{POLICY_ACL}</code>.
       </li>
       <li>
-        <strong>Have an exit node.</strong> Run <code>tailscale set --advertise-exit-node</code> on
-        a machine of yours and allow it in the admin console (Machines, the machine's menu, Edit
-        route settings, Use as exit node), or add Mullvad's.
+        <strong>Configure an exit node.</strong> Run{' '}
+        <code>tailscale set --advertise-exit-node</code> on one of your machines. In the admin
+        console, open the machine's menu under Machines, select Edit route settings, and enable Use
+        as exit node. You can also use a Mullvad exit node.
       </li>
       <li>
         <strong>Sign in</strong> and pick the exit node. This browser's projects share one device,{' '}
-        <code>elixir-playground</code>; a tagged device's key does not expire.
+        <code>elixir-playground</code>. Key expiry is disabled by default for tagged devices.
         <div className="tailscale-step-action">{signIn}</div>
       </li>
     </ol>

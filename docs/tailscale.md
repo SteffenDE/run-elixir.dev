@@ -1,38 +1,32 @@
 ---
 kind: design
 status: prototype
-last_updated: 2026-10-20
+last_updated: 2026-10-23
 ---
 
 # Tailscale: the node's network through the user's tailnet
 
-A node reaches the internet only through the page: HTTPS by `fetch()`
-(`https.ts`), which reads only sites that send CORS headers (502
-otherwise, [status.md](status.md)); no other host by TCP or UDP, and no
-names. With Tailscale compiled to WebAssembly, the browser joins the
-user's tailnet as one device, and the node's HTTPS, TCP, UDP and DNS go
-through it and out of one of the user's exit nodes: any host, its
-traffic leaving from a machine of the user's, not the site's servers
-(which never become an open proxy). The tailnet's devices may reach the
-servers a project shares there.
+Tailscale connects the browser to the user's tailnet as one shared
+device. Authorized projects can use it for HTTPS, TCP, UDP, and DNS.
+An exit node provides internet access; tailnet services remain subject
+to the device's access policy. Projects can also expose server ports to
+other tailnet devices.
 
-Code: `tailscale/` (the Tailscale node: `main.go`, `build.py`),
-`app/src/tailscale` (the apex's shared worker; the IDE's page's client,
-which gates what the project asks; the exec frame's routes for the
-node's connections, datagrams and DNS, `tailnet.ts`; shared ports; the
-UI), `app/src/runtime/https.ts`
-(the HTTPS gateway), `app/src/runtime/dns.ts` (the node's DNS), the node's
-sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
-(`ssl:connect`'s gateway). Tests: `app/test/e2e/tailscale.spec.ts`,
-`sockets.spec.ts`.
+Without Tailscale, HTTPS uses browser fetch where CORS permits it, or the
+restricted [TCP relay](relay.md) for allowed hosts. General outbound TCP,
+UDP, and DNS require Tailscale.
+
+Implementation: `tailscale/` builds the client, `app/src/tailscale/`
+hosts the device and permissions, and `app/src/runtime/https.ts` and
+`dns.ts` route project requests. Browser coverage is in
+`tailscale.spec.ts` and `sockets.spec.ts`.
 
 ## What it does (built, a prototype)
 
 - **One device per browser, `elixir-playground`, tagged
   `tag:elixir-playground`.** The user signs in once, on the apex's
-  `/tailscale` page; every project in the browser uses that one device. A
-  tagged device's key does not expire, so it stays signed in.
-- **The tag keeps it to exit nodes.** The setup asks the user to add the
+  `/tailscale` page; every project in the browser uses that one device. Key expiry is disabled by default for tagged devices.
+- **The recommended policy limits access to exit nodes.** The setup asks the user to add the
   tag to the tailnet's policy, allowed `autogroup:internet` only (below):
   the device can use exit nodes, and reach none of the tailnet's devices.
 - **Each project asks first.** The first time a project's code reaches
@@ -62,7 +56,7 @@ sockets (`beam/socket`, `app/src/runtime/wasi/net.ts`) and patch 0020
     address is the device's tailnet address.
   - Without Tailscale, another host is `enetunreach` and a name `nxdomain`,
     at once.
-  - On the `worktree-node` branch, a Node.js process's `net`, `dns`,
+  - A Node.js process's `net`, `dns`,
     `dgram` and HTTPS go the same ways, its TLS its own (rustls in
     WebAssembly, [nodejs.md](nodejs.md#tls-tls-tlsts)).
 - **Its servers in the tailnet:** the Tailscale menu shares a port a
@@ -248,8 +242,8 @@ TCP connection to the host through the tailnet, over which `ssl:connect`
 upgrades the socket with the options it was given, the host's name as SNI
 and for the certificate's check unless they name one), or `error REASON`
 (`etimedout`, …). `httpsByFetch({ tunnel, onblocked })`: `tunnel(host,
-port)` (`tailnet.ts`) gives the connection, or null for `fetch()`, as
-the IDE's page decides. `onblocked(url)` (the IDE's page's
+port)` in `exec/host.ts` chooses the tailnet or restricted relay, or
+returns null for fetch. The IDE supplies the project's permission decision. `onblocked(url)` (the IDE's page's
 `tailscaleBlocked`) hears of each `fetch()` that failed,
 and shows the hint while Tailscale is not set up and the hint was not
 dismissed.
@@ -359,56 +353,9 @@ refused dial).
 - **Not tried against Tailscale's own control server** (only Headscale):
   signing in, the tag's error text, and exit nodes there.
 
-## Idea: a TCP relay on the backend, for a few hosts
+## Without a tailnet: the site's relay
 
-Not planned yet; noted from an investigation (2026-10-20). Without
-Tailscale, `ssl:connect` could still get a `tcp` line for a short list of
-hosts that send no CORS headers: a TCP connection by the backend, over
-which the node does TLS itself, as through the tailnet. The backend sees
-the host, the port and how many bytes pass, never what they say (unlike
-the `/git/` and `/hex/` proxies, where Caddy ends TLS).
-
-**The hosts** (checked 2026-10-20 with `Origin: https://run-elixir.dev`):
-
-- No CORS headers, so the relay: `github.com` (pages, git,
-  `/releases/download/`'s redirects), `release-assets.githubusercontent.com`,
-  `codeload.github.com` (only `render.githubusercontent.com` is allowed),
-  `gitlab.com` (outside its API).
-- `repo.hex.pm` and `builds.hex.pm` send none either, but the node's Hex
-  already goes through `fetcher.ts` and `/hex/`: only for code that calls
-  them itself.
-- `api.anthropic.com`: CORS only with the request header
-  `anthropic-dangerous-direct-browser-access: true`, which `https.ts`
-  could add to its `fetch()` without the backend; the relay would carry the
-  node's own request (its headers, HTTP/2).
-- CORS already, so `fetch()`, from the user's own address (per-address
-  limits such as `api.github.com`'s 60 an hour without a token):
-  `api.github.com`, `raw.githubusercontent.com`, `gitlab.com/api`,
-  `hex.pm/api`, OpenAI, Mistral, OpenRouter, Groq, xAI, DeepSeek, Gemini,
-  Codeberg's API.
-
-**Its shape:**
-
-- **The backend:** a WebSocket of its own at `/relay` (`WebSockAdapter`,
-  not a channel), many connections over one: binary frames of a kind, a
-  connection id and a payload (`open host port`, `opened`, `error`,
-  `data`, `end`, `close`, `ack`). A process per upstream connection, and
-  credit (about 256 KiB unacknowledged) before it reads more. It checks
-  port 443, the host against the list (`Sandbox.Destination.allowed?/2`),
-  public addresses only and connects to those it resolved
-  (`Destination.resolve/2`), and that the first bytes are a ClientHello
-  whose server name is the host (as `sandbox/netd` checks): no plain text,
-  no other name behind an allowed address. Limits: connections a socket
-  and in all, connect and idle timeouts, bytes per client address. Counts
-  only, no log of who reached which host. Origins: the usercontent
-  domain's (the list is the gate, not the frame).
-- **The list:** one JSON file the backend reads when it compiles and the
-  app imports, so the page picks a way without opening the socket.
-- **The page:** `runtime/relay.ts` in the exec frame's worker, a `Tunnel`
-  as `tailnet.ts`'s. The WebSocket opens with the first connection, as the
-  live relay's, and closes 30 s after its last. `https.ts`'s `tunnel`:
-  the tailnet where it routes, else the relay for a listed host on 443,
-  else `fetch()`; no setup hint for a relayed host, no consent asked
-  (nothing a `fetch()` could not reach but for CORS).
-- **Not** `gen_tcp` to an address, nor names: those stay the tailnet's.
-  git.wasm's HTTPS helper (`git-remote.ts`, no TLS of its own) keeps `/git/`.
+For a few hosts that send no CORS headers (GitHub's pages and downloads,
+GitLab, Codeberg, Anthropic's API), the gateway's `tcp` line comes
+from the backend's TCP relay when the tailnet does not take the
+connection: [relay.md](relay.md).

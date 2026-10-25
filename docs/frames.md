@@ -1,40 +1,33 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # One trusted origin, and frames for what a project's code runs
 
-The apex (run-elixir.dev) is the only origin that holds anything of the
-user's: every page (the projects' list, `/ID/`, `/iex`, `/live/S`,
-`/import`), every store, and, later, a login. Whatever a project's code
-makes the browser run lives on another registrable domain, the
-**usercontent domain** (`PLAYGROUND_USERCONTENT`; the name is not chosen
-yet), framed by the apex's pages:
+The apex (`run-elixir.dev` in the deployment examples) hosts the IDE,
+project storage, settings, GitHub token, and Tailscale credentials.
+Project code runs on a separate registrable domain, configured with
+`PLAYGROUND_USERCONTENT` (`run-elixir-usercontent.org` in the examples).
 
-| Origin | What runs there |
+| Origin | Runs there |
 | --- | --- |
-| `DOMAIN` (the apex) | The IDE (React), the stores, the projects' list. Cross-origin isolated (COOP `same-origin`, COEP `require-corp`). |
-| `v-ID-PORT.USERCONTENT` | The preview of port PORT of project ID's app: its pages, its service worker (`sw.ts`), and the relay frame that passes its requests to the IDE (`frames/relay.ts`). |
-| `e-ID.USERCONTENT` | The exec frame: a worker that runs the project (below). |
-| `claude.USERCONTENT` | The claude frame: a worker that makes Claude Code's files for every project, and keeps them (below). |
+| `DOMAIN` | React IDE, project list, stores, PGlite, and Tailscale shared worker. |
+| `e-ID.USERCONTENT` | Project exec frame and its workers: BEAM, Node.js, tools, and plugins. |
+| `v-ID-PORT.USERCONTENT` | Preview, service worker, and relay frame for one project server port. |
+| `claude.USERCONTENT` | Claude Code preparation worker and cached files. |
 
-The former layout ran each project's IDE on an origin of its own under the
-apex (`p-ID.DOMAIN`, and a live guest's page on `l-ID.DOMAIN`), the same
-site as the apex, so their cookies and same-site requests were the apex's
-too, and code of the project's ran on the IDE's origin: a Tailwind
-plugin (`programs/modules.ts`), a page the service worker served to any
-frame, and in Safari (whose frames' storage is partitioned by origin)
-the whole preview, on the apex itself. Those addresses now send their
-visitors to the apex's; a project's stores there move to the apex (below).
+The previous layout put project IDEs on `p-ID.DOMAIN` and guest pages on
+`l-ID.DOMAIN`. Those URLs now redirect to the apex. Legacy project stores
+are migrated when a project opens or the home page lists it.
 
 ## Previews on another site
 
 The apex's page frames `v-ID-PORT.USERCONTENT/relay.html` for every port
-its app serves (`previewOrigins.ts`); the relay registers its origin's
-service worker and is its host there, and passes each request to the
-IDE's bridge on a port the IDE gave it. The preview's own frame then
+its app serves (`previewOrigins.ts`). The relay registers its origin's
+service worker and forwards requests to the exec host's bridge through
+a MessagePort supplied by the IDE. The preview's own frame then
 loads that origin. Both frames are the apex's site's, so the browser
 keys their storage, service worker and cookies by the apex's site
 (partitioned): the same partition for both, and for a popped-out
@@ -65,8 +58,7 @@ worker runs what the IDE's page ran before:
 - `files.js` and the nodes, a shell per terminal tab and one per command
   they run, and their routing to each other's ports;
 - the page programs: Tailwind (the project's plugins run here, nowhere
-  else), esbuild, git, `sh`, `rebar3`, `mix` and friends, and on the
-  `worktree-node` branch `node`, `npm` and `npx`, whose processes are
+  else), esbuild, git, `sh`, `rebar3`, `mix` and friends, and `node`, `npm`, and `npx`, whose processes are
   workers of this one, held by a `Content-Security-Policy` of their own to
   no network but this worker's messages
   ([nodejs.md](nodejs.md#the-workers-policy));
@@ -200,5 +192,7 @@ former layout's addresses until their stores have moved.
 - **Firefox leaving a page** with a frame of another site in it hung in
   Playwright's Firefox, which the pages now avoid (`leave.ts`); a stock
   Firefox is not checked.
-- **The usercontent domain's DNS and certificate**
-  (run-elixir-usercontent.org: [deploy.md](deploy.md#the-two-domains)).
+- **Deployment prerequisites:** configure wildcard DNS and a certificate
+  for the usercontent domain. See [deploy.md](deploy.md#the-two-domains).
+  The repository does not establish whether a particular deployment has
+  completed these steps.

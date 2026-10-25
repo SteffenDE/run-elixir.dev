@@ -1727,10 +1727,13 @@ button {
 }
 
 .template-notice {
+  position: relative;
   display: flex;
   align-items: flex-start;
+  justify-content: center;
   gap: 8px;
-  padding: 6px 10px 6px 14px;
+  /* Room for the dismiss button on both sides keeps the text centred. */
+  padding: 6px 40px;
   border-bottom: 1px solid var(--line);
   background: var(--accent-soft);
   font-size: 12px;
@@ -1743,8 +1746,15 @@ button {
 }
 
 .template-notice p {
-  flex: 1;
+  flex: 0 1 auto;
   margin: 2px 0;
+  text-align: center;
+}
+
+.template-notice .icon-button {
+  position: absolute;
+  top: 4px;
+  right: 10px;
 }
 
 /* Sharing: the choice between a link and a live session, and the live
@@ -2389,4 +2399,26 @@ button {
 }
 .running-dot.unsaved {
   background: var(--warn);
+}
+
+/* The relay's setting, and its help link (ProjectSettings). */
+.relay-setting {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.relay-setting a.icon-button {
+  color: var(--muted);
+}
+
+.relay-page a.button {
+  display: inline-flex;
+  color: inherit;
+  text-decoration: none;
+}
+
+.relay-hosts {
+  columns: 2;
+  padding-left: 1.2em;
 }

@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-19
+last_updated: 2026-10-23
 ---
 
 # The app (`app`)
@@ -11,7 +11,7 @@ dark tokens, oxlint and oxfmt. Its libraries are `@pierre/trees`,
 `@pierre/diffs`, `@base-ui/react`, `react-resizable-panels`, `zustand`,
 Dexie, Remix Icon, xterm.js (with its fit and web-links addons), PGlite and
 `tailwindcss`. Versions are exact in `package.json`; `package-lock.json` is
-committed. The layout follows tc's: `src/home`, `src/project` and
+committed. Source is organized into `src/home`, `src/project` and
 `src/shared`, each with `components/` and `lib/`, and the runtime in
 `src/runtime` ([runtime.md](runtime.md)); imports use `@/` for `src/`.
 
@@ -22,10 +22,18 @@ npm run lint                 # oxlint src test
 npm run format               # oxfmt src test
 ```
 
-`build.py` runs the build in Docker. There are two entries:
+`build.py` runs the build in Docker. Vite has seven HTML entries:
 
-- `index.html`: every route (`src/main.tsx` picks the page by path);
-- `preview.html`: a project's preview in its own window.
+- `index.html`: the IDE and app routes.
+- `preview.html`: a detached preview window.
+- `exec.html`: the project runtime frame.
+- `relay.html`: a preview origin's service-worker host.
+- `claude.html`: Claude Code preparation and cache.
+- `embed.html`: the runtime host for another site's IDE.
+- `storage.html`: migration from legacy project origins.
+
+Separate Vite configurations build the runtime workers, embed client,
+and Node harness. See [build.md](build.md#steps).
 
 Assets go under `/_playground/`, because the app in the preview owns
 `/assets/`. The base is `/`: the page is served at every project's path.
@@ -110,9 +118,9 @@ Highlighting:
 
 ## Tailwind on the page
 
-The app's dev config keeps its tailwind watcher (`--watch`). The node spawns
-`_build/tailwind-linux-x64-4.3.3`, and the worker forwards the spawn to the
-page, where `programs/tailwind.ts` is the CLI:
+The app's dev config starts Tailwind with `--watch`. The runtime overrides
+its executable path with `/usr/bin/tailwind` and dispatches it to
+`programs/tailwind.ts` in the exec host worker:
 
 - **Options:** `--input`, `--output`, `--watch`, and `--help` (the Hex
   package's version check), over `tailwindcss` 4.3.3's `compile()`.
@@ -174,7 +182,7 @@ and new CSS reach it over the BroadcastChannel `playground-preview:KEY`,
 one per project.
 
 Inside the iframe, LiveView connects over the bridge's WebSocket
-([runtime.md](runtime.md#the-preview-swjs-bridgejs)).
+([runtime.md](runtime.md#the-preview-swjs-bridgets)).
 
 ## Terminals
 
@@ -198,10 +206,10 @@ attaches to whichever panel shows it.
 - **History.** A terminal's history (up, down) starts with the lines its
   shell ran before it opened, so the first tab's `iex -S mix phx.server`
   is one up after Ctrl+C.
-- **IEx** edits its own lines: while it runs, keys go to it
-  as typed (tab completes, up recalls its history) and it knows the
-  terminal's size; Ctrl+C still stops it.
-- **The first tab** runs what the kind starts with and can't be closed. In
-  a Phoenix project it is "Server"; "Restart server" interrupts it and
-  types `cd /work/playground` and `iex -S mix phx.server` again.
+- **IEx** handles its own line editing, completion, and history. It receives
+  raw keys and terminal resize events. Ctrl+C opens the ERTS break menu.
+- **The first tab** runs the project's saved startup commands and cannot
+  be closed. A Phoenix project initially uses `cd playground && iex -S
+  mix phx.server`. Project settings can change or clear that command;
+  restart reruns the saved startup commands.
 - **Server state** comes from whether a node listens on the preview's port.

@@ -40,7 +40,7 @@ export function OpenElsewhere({
         <h1 className="home-title">{project.name}</h1>
         <p>
           {moved
-            ? 'This project is open in another tab now; it stopped here.'
+            ? 'This project stopped here because it was opened in another tab.'
             : 'This project is open in another tab.'}
         </p>
         <p className="elsewhere-actions">

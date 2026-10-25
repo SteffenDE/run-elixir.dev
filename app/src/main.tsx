@@ -9,6 +9,7 @@ import { OpenElsewhere } from '@/project/components/OpenElsewhere';
 import { ProjectPage } from '@/project/components/ProjectPage';
 import { SettingsPage } from '@/settings/components/SettingsPage';
 import { TailscalePage } from '@/tailscale/components/TailscalePage';
+import { RelayPage } from '@/relay/components/RelayPage';
 import { endSession } from '@/live/lib/host';
 import { BackToProject } from '@/project/components/BackToProject';
 import { LeaveDialog } from '@/project/components/LeaveDialog';
@@ -41,6 +42,7 @@ import '@/styles.css';
 //   /github/OWNER/REPO[/tree/REF]  a public repository, to clone into a
 //               new project (/gitlab/…, /codeberg/… too: repository.ts)
 //   /tailscale  this browser's Tailscale node (docs/tailscale.md)
+//   /relay      what the site's TCP relay is (docs/relay.md)
 //   /settings   the user's settings for every project (settings.ts)
 //   /live/ID#…  a live session's link, to join it
 //
@@ -82,6 +84,7 @@ async function page(path: string): Promise<ReactNode> {
     return <RepositoryPage repository={repository} />;
   }
   if (name === 'tailscale') return <TailscalePage />;
+  if (name === 'relay') return <RelayPage />;
   if (name === 'settings') return <SettingsPage />;
   if (name === 'live') {
     const session = path.split('/').filter(Boolean)[1] ?? '';
@@ -175,7 +178,9 @@ const isRoute = ({ pathname }: URL) => {
   const name = pathname.split('/').filter(Boolean)[0] ?? '';
   return (
     !name ||
-    ['import', 'tailscale', 'settings', 'live', 'iex', ...Object.keys(SHORTCUTS)].includes(name) ||
+    ['import', 'tailscale', 'relay', 'settings', 'live', 'iex', ...Object.keys(SHORTCUTS)].includes(
+      name,
+    ) ||
     isRepositoryPath(name) ||
     isId(name)
   );

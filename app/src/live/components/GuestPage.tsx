@@ -27,7 +27,8 @@ export function GuestPage({ session }: { session: string }) {
       <>
         {status === 'ended' && (
           <div className="live-ended" role="status">
-            {reason ?? 'The live session ended.'} What you see stays until you leave.
+            {reason ?? 'The live session ended.'} The current view remains available until you
+            leave.
           </div>
         )}
         <ProjectPage key={generation} project={null} guest={project} />
@@ -54,7 +55,7 @@ export function GuestPage({ session }: { session: string }) {
             {status === 'waiting'
               ? 'Waiting for the host to let you in…'
               : status === 'reconnecting'
-                ? 'The host is away; waiting for them to come back…'
+                ? 'Waiting for the host to reconnect…'
                 : 'Joining…'}
           </p>
         ) : (

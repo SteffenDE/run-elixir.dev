@@ -81,13 +81,13 @@ export function PushDialog({ onClose }: { onClose(): void }) {
               ? `GitHub's ${target!.merge} is up to date.`
               : `Pushed ${pushed.commits} ${pushed.commits === 1 ? 'commit' : 'commits'} to ${target!.merge}.`}{' '}
             <a href={pushed.url} target="_blank" rel="noreferrer">
-              See them on GitHub
+              View on GitHub
             </a>
           </p>
           {pushed.rewritten && (
             <p className="muted">
-              GitHub made its own copies of the commits (same files, other ids); this project's{' '}
-              {target!.branch} now points to them.
+              GitHub created commits with the same files but different commit IDs. The local branch{' '}
+              {target!.branch} now points to those commits.
             </p>
           )}
         </>
@@ -117,8 +117,8 @@ export function PushDialog({ onClose }: { onClose(): void }) {
             <p className="folder-review-warning">
               <RiErrorWarningLine size={16} />
               <span>
-                This project pushed to <strong>{elsewhere}</strong> before. Its remote now names{' '}
-                <strong>{repository}</strong>: push there only if you meant to.
+                This project pushed to <strong>{elsewhere}</strong> before. Its remote now points to{' '}
+                <strong>{repository}</strong>. Check the destination before pushing.
               </span>
             </p>
           )}
@@ -126,10 +126,10 @@ export function PushDialog({ onClose }: { onClose(): void }) {
             <>
               <p className="muted">
                 {target.uncommitted === 1
-                  ? '1 file has changed since the last commit; it is committed first.'
-                  : `${target.uncommitted} files have changed since the last commit; they are committed first.`}
+                  ? '1 changed file will be committed before pushing.'
+                  : `${target.uncommitted} changed files will be committed before pushing.`}
                 {unsaved > 0 &&
-                  ` ${unsaved} open ${unsaved === 1 ? 'file has' : 'files have'} edits not saved yet, which are not included.`}
+                  ` ${unsaved} open ${unsaved === 1 ? 'file has' : 'files have'} unsaved edits that will not be included.`}
               </p>
               <textarea
                 className="settings-script"

@@ -105,9 +105,18 @@ if config_env() == :prod do
   # comma-separated, as check_origin takes them); what projects' code runs
   # is another domain's (docs/frames.md), and opens none.
   origins =
-    String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev", ",",
-      trim: true
-    )
+    String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev", ",", trim: true)
+
+  # The TCP relay's socket is opened by projects' exec frames, each on a
+  # subdomain of the usercontent domain (PLAYGROUND_RELAY_ORIGINS,
+  # comma-separated host names, `*.domain` for its subdomains).
+  config :playground,
+    relay_origins:
+      String.split(
+        env.("PLAYGROUND_RELAY_ORIGINS") || "*.run-elixir-usercontent.org",
+        ",",
+        trim: true
+      )
 
   config :playground, PlaygroundWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

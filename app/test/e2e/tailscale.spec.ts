@@ -289,8 +289,8 @@ test('signed in to a tailnet with an exit node, a node reaches any site', async 
   expect(await refusing).toContain('{:error, :enetunreach}');
   await page.reload();
   const projects = page.locator('.tailscale-projects');
-  await expect(projects.locator('li', { hasText: 'may use it' })).toHaveCount(1);
-  await expect(projects.locator('li', { hasText: 'may not use it' })).toHaveCount(1);
+  await expect(projects.locator('li', { hasText: 'allowed' })).toHaveCount(1);
+  await expect(projects.locator('li', { hasText: 'blocked' })).toHaveCount(1);
 
   await page.locator('.tailscale-device').getByRole('button', { name: 'Sign out' }).click();
   await expect(state).toContainText('signed out', { timeout: 30_000 });
