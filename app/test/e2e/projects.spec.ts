@@ -223,7 +223,7 @@ test('a folder from this computer opens as a new project, without its builds or 
   await expect(review.getByText('lib/', { exact: true })).toBeVisible();
   // WebKit's picker leaves out dotfiles and symlinks, and says so.
   await expect(
-    review.getByText('leaves out files and folders whose names start with a dot'),
+    review.getByText('skips symlinks and files or folders whose names start with a dot'),
   ).toHaveCount(browserName === 'webkit' ? 1 : 0);
   await review.getByRole('button', { name: 'Open as a new project' }).click();
   await page.waitForURL(/\/[a-z0-9]{10}\/$/);
