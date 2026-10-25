@@ -348,6 +348,10 @@ def app_files(app):
                 empty = os.path.join(CACHE, "empty")
                 open(empty, "w").close()
                 out.append((f"work/playground/{relative_dir}/objects/info/packs", empty))
+                # A fresh shallow clone has no loose refs, and the node's
+                # files make no empty directories: refs/ by a file git
+                # skips (a ref's name has no leading dot).
+                out.append((f"work/playground/{relative_dir}/refs/.keep", empty))
             continue
         if parts[0] == BUILD and len(parts) == 1:
             dirs[:] = [d for d in dirs if d == "dev"]
