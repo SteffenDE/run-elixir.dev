@@ -15,7 +15,7 @@
 // package-lock.json's versions are kept where they still satisfy, laid out
 // from its entries without the registry (as npm ci), and one is written
 // (lockfileVersion 3).
-import { maxSatisfying, satisfies, valid, validRange } from 'semver';
+import { intersects, maxSatisfying, rcompare, satisfies, valid, validRange } from 'semver';
 import type { Files } from '@/runtime/host/files';
 import { entries, gunzip } from '@/runtime/wasi/fs';
 import type { Context, Process } from './tailwind';
@@ -276,6 +276,36 @@ const peers = (manifest: Manifest) =>
     ),
   );
 
+// The version for a range, as pick's, but one whose peers take what the
+// wanting package names beside it where pick's would not: the newest such,
+// else pick's. (Rolldown's WebAssembly binding pins @emnapi/core and wants
+// @napi-rs/wasm-runtime ~1.2.5, whose 1.2.6 peers on another @emnapi/core
+// and fails to load with the pinned one.)
+function pickBeside(
+  doc: Packument,
+  range: string,
+  beside: Record<string, string>,
+): Manifest | null {
+  const picked = pick(doc, range);
+  if (!picked || doc['dist-tags'][range]) return picked;
+  const agrees = (m: Manifest) =>
+    Object.entries(peers(m)).every(([name, peer]) => {
+      const named = beside[name];
+      return (
+        named === undefined ||
+        !validRange(named) ||
+        !validRange(peer) ||
+        intersects(named, peer, { includePrerelease: true })
+      );
+    });
+  if (agrees(picked)) return picked;
+  const newest = Object.keys(doc.versions)
+    .filter((version) => satisfies(version, range))
+    .sort(rcompare)
+    .find((version) => agrees(doc.versions[version]));
+  return newest ? doc.versions[newest] : picked;
+}
+
 // The package a location is in ('' for the project's).
 const parentOf = (location: string) =>
   location.slice(0, location.lastIndexOf('node_modules/')).replace(/\/$/, '');
@@ -401,7 +431,10 @@ async function resolveTree(
         continue;
       }
       // The version for a place: the lock's there if it satisfies (from
-      // its entry, else from the metadata), else the metadata's pick.
+      // its entry, else from the metadata), else the metadata's pick, with
+      // peers that take what the wanting package names.
+      const wanting = w.from === '' ? pkg : tree.get(w.from)?.manifest;
+      const beside = { ...wanting?.dependencies, ...wanting?.optionalDependencies };
       const versionAt = async (at: string): Promise<Manifest | null> => {
         const locked = fromLock(at);
         if (locked) return locked;
@@ -410,7 +443,7 @@ async function resolveTree(
         const known: Packument = doc!;
         return version && known.versions[version] && satisfying(version, known)
           ? known.versions[version]
-          : pick(known, target.range);
+          : pickBeside(known, target.range, beside);
       };
       // As high as it goes below what is in the way, but not where it
       // would hide another copy from a package below that uses it.
