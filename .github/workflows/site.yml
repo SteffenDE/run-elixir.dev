@@ -117,8 +117,8 @@ jobs:
             out/beam-wasm/openssl
             out/beam-wasm/ncurses
             out/beam-wasm/releaseO2
-          key: beam-${{ env.OTP_VERSION }}-${{ hashFiles('beam/**') }}
-          restore-keys: beam-${{ env.OTP_VERSION }}-
+          key: beam-v2-${{ env.OTP_VERSION }}-${{ hashFiles('beam/**') }}
+          restore-keys: beam-v2-${{ env.OTP_VERSION }}-
       # The Phoenix template; build.py compiles it again when the host's
       # Elixir differs and relocks its deps every build.
       - uses: actions/cache@v4

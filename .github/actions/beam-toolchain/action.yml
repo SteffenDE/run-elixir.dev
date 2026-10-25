@@ -32,10 +32,22 @@ runs:
         elixir-version: ${{ inputs.elixir-version }}
         version-type: strict
 
-    - uses: mymindstorm/setup-emsdk@v14
+    # At ~/emsdk, where beam/build.sh looks: a configured BEAM tree from the
+    # cache names emcc by its path, so the path stays the same every run.
+    - id: emsdk-cache
+      uses: actions/cache@v4
       with:
-        version: ${{ inputs.emsdk-version }}
-        actions-cache-folder: emsdk-cache
+        path: ~/emsdk
+        key: emsdk-${{ inputs.emsdk-version }}-${{ runner.os }}
+
+    - name: Install emsdk ${{ inputs.emsdk-version }}
+      if: steps.emsdk-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -eu
+        git clone -q --depth 1 https://github.com/emscripten-core/emsdk.git ~/emsdk
+        ~/emsdk/emsdk install ${{ inputs.emsdk-version }}
+        ~/emsdk/emsdk activate ${{ inputs.emsdk-version }}
 
     - id: autoconf-cache
       uses: actions/cache@v4
