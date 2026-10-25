@@ -1,0 +1,63 @@
+# What runtime/build.py needs on the host besides Docker (docs/build.md,
+# deploy/runner/provision.sh): the host's Erlang and Elixir, emsdk and
+# autoconf 2.72, which OTP's otp_build update_configure insists on
+# (Ubuntu 24.04's is 2.71).
+name: BEAM toolchain
+description: Erlang, Elixir, emsdk and autoconf for beam/build.sh and runtime/build.py
+
+inputs:
+  otp-version:
+    description: The host's Erlang/OTP
+    default: 29.1.2
+  elixir-version:
+    description: The host's Elixir
+    default: 1.20.4
+  emsdk-version:
+    description: emsdk, as beam/README.md pins it
+    default: 6.0.2
+
+runs:
+  using: composite
+  steps:
+    - name: Install build packages
+      shell: bash
+      run: |
+        sudo apt-get update -q
+        sudo DEBIAN_FRONTEND=noninteractive apt-get install -yq --no-install-recommends \
+          build-essential pkg-config m4 libssl-dev libncurses-dev
+
+    - uses: erlef/setup-beam@v1
+      with:
+        otp-version: ${{ inputs.otp-version }}
+        elixir-version: ${{ inputs.elixir-version }}
+        version-type: strict
+
+    - uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: ${{ inputs.emsdk-version }}
+        actions-cache-folder: emsdk-cache
+
+    - id: autoconf-cache
+      uses: actions/cache@v4
+      with:
+        path: ~/.local/autoconf
+        key: autoconf-2.72-${{ runner.os }}
+
+    - name: Build autoconf 2.72
+      if: steps.autoconf-cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        set -eu
+        version=2.72
+        curl -sSfLo /tmp/autoconf.tar.xz "https://ftp.gnu.org/gnu/autoconf/autoconf-$version.tar.xz"
+        echo "ba885c1319578d6c94d46e9b0dceb4014caafe2490e437a0dbca3f270a223f5a  /tmp/autoconf.tar.xz" | sha256sum -c -
+        mkdir /tmp/autoconf
+        tar -xJf /tmp/autoconf.tar.xz -C /tmp/autoconf --strip-components=1
+        cd /tmp/autoconf
+        ./configure -q --prefix="$HOME/.local/autoconf"
+        make -s
+        make -s install
+
+    - name: Put autoconf first on PATH
+      shell: bash
+      run: echo "$HOME/.local/autoconf/bin" >> "$GITHUB_PATH"
