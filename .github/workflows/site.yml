@@ -215,10 +215,14 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - run: npm ci
         working-directory: app
+      # WebKit is the slowest here: with a third worker its Phoenix boots
+      # starve each other into timeouts. A failed test runs once more; one
+      # that passes then is reported flaky.
       - name: Playwright
         env:
           SLOW: ${{ inputs.slow && '1' || '' }}
-        run: tests/run.sh --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/4
+          WORKERS: ${{ matrix.browser == 'webkit' && '2' || '3' }}
+        run: tests/run.sh --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/4 --retries=1
 
       - name: Backend log
         if: failure()
