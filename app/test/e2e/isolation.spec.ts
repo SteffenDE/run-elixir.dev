@@ -58,7 +58,7 @@ test('a Tailwind plugin of the project runs in its exec frame, not on the apex',
     '/work/playground/assets/vendor/probe.js',
     `const original = MessagePort.prototype.postMessage;
 MessagePort.prototype.postMessage = function(message, ...args) {
-  if (message?.event === 'css') {
+  if (message?.event === 'changed') {
     const record = path => ({path, kind: 'file', data: new TextEncoder().encode('from plugin'), mtime: '0'});
     for (const path of ['/work/foreign.txt', '/shared/../work/foreign.txt', '/shared/to-work/foreign.txt', '/shared/valid-probe'])
       original.call(this, {event: 'kept', data: [record(path)]});

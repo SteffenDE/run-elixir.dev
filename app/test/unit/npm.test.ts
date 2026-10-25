@@ -198,6 +198,29 @@ describe('npm install', () => {
     });
   });
 
+  // Rolldown's WebAssembly binding pins @emnapi/core and wants
+  // @napi-rs/wasm-runtime ~1.2.5, whose 1.2.6 peers on another one.
+  test('a version whose peers take what its package pins beside it is preferred', async () => {
+    const { fs } = registry([
+      { name: 'p9-core', version: '2.0.0-alpha.5' },
+      { name: 'p9-core', version: '2.0.0-beta.2' },
+      { name: 'p9-runtime', version: '1.2.5', peerDependencies: { 'p9-core': '^2.0.0-alpha.4' } },
+      { name: 'p9-runtime', version: '1.2.6', peerDependencies: { 'p9-core': '2.0.0-beta.2' } },
+      {
+        name: 'p9-binding',
+        version: '1.0.0',
+        dependencies: { 'p9-core': '2.0.0-alpha.5', 'p9-runtime': '~1.2.5' },
+      },
+    ]);
+    const { code } = await npm(fs, { dependencies: { 'p9-binding': '1.0.0' } }, 'install');
+    expect(code).toBe(0);
+    expect(await installed(fs)).toEqual({
+      'node_modules/p9-binding': '1.0.0',
+      'node_modules/p9-core': '2.0.0-alpha.5',
+      'node_modules/p9-runtime': '1.2.5',
+    });
+  });
+
   test('a package goes no higher than where it would hide the copy another one uses', async () => {
     const { fs } = registry([
       { name: 'p2-x', version: '1.0.0' },

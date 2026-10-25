@@ -1,0 +1,239 @@
+# The site as deploy/build-site.sh builds it (docs/build.md), then the
+# tests that need it (docs/testing.md): the erl_nif layer's, and the
+# Playwright suite in Chromium, Firefox and WebKit, sharded. GitHub only:
+# Forgejo reads .forgejo/workflows and ignores this directory.
+#
+#   wasm (one job per tool) ─┐
+#   nif ─────────────────────┴─ site ─┬─ nif-test
+#                                     └─ e2e (browser × shard)
+#
+# Each tool's build script skips its work when its stamp matches, so
+# restoring a tool's output and stamp from the cache makes it a no-op.
+name: site
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: [docs/**, '**/*.md', backend/README.md]
+  pull_request:
+    paths-ignore: [docs/**, '**/*.md', backend/README.md]
+  workflow_dispatch:
+    inputs:
+      slow:
+        description: Also run the tests tagged @slow
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  # The build scripts default to `sudo -n docker`.
+  DOCKER: docker
+  OTP_VERSION: 29.1.2
+  ELIXIR_VERSION: 1.20.4
+
+jobs:
+  wasm:
+    name: wasm (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # src: what the build is made from (its cache key); out: target/OUT.
+          - { name: brush, script: brush/build.py, src: brush, out: brush }
+          - { name: coreutils, script: tools/coreutils/build.py, src: tools/coreutils, out: coreutils }
+          - { name: tailscale, script: tailscale/build.py, src: tailscale, out: tailscale }
+          - { name: ripgrep, script: tools/ripgrep/build.py, src: tools/ripgrep, out: rg }
+          - { name: tls, script: tls/build.py, src: tls, out: tls }
+          - { name: git, script: tools/git/build.py, src: tools/git, out: git }
+          - { name: sed, script: tools/sed/build.py, src: tools/sed, out: sed }
+          - { name: grep, script: tools/grep/build.py, src: tools/grep, out: grep }
+          - { name: diffutils, script: tools/diffutils/build.py, src: tools/diffutils, out: diffutils }
+          - { name: gawk, script: tools/gawk/build.py, src: tools/gawk, out: gawk }
+          - { name: findutils, script: tools/findutils/build.py, src: tools/findutils, out: findutils }
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # brush's sources (brush/src), at the commits this one names.
+          submodules: ${{ matrix.name == 'brush' }}
+      - uses: actions/cache@v4
+        with:
+          path: |
+            target/${{ matrix.out }}/*.wasm
+            target/${{ matrix.out }}/stamp
+            target/${{ matrix.out }}/libexec
+          key: wasm-${{ matrix.name }}-${{ hashFiles(format('{0}/**', matrix.src), 'tools/wasi-compat/**') }}
+      - run: python3 -I ${{ matrix.script }}
+      # A tar keeps the paths below target/ and git's executable scripts.
+      - name: Pack target/${{ matrix.out }}
+        run: |
+          shopt -s nullglob
+          paths=(target/${{ matrix.out }}/*.wasm)
+          [ -d target/${{ matrix.out }}/libexec ] && paths+=(target/${{ matrix.out }}/libexec)
+          tar -cf wasm-${{ matrix.name }}.tar "${paths[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-${{ matrix.name }}
+          path: wasm-${{ matrix.name }}.tar
+          retention-days: 3
+
+  nif:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 -I nif/build.py
+      # The packages go into the site; the layer, its headers and nifcc's
+      # tools are what nif/test/test.py builds against.
+      - run: tar -cf nif.tar target/nif/include target/nif/lib target/nif/packages target/nif/tools
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nif
+          path: nif.tar
+          retention-days: 3
+
+  site:
+    needs: [wasm, nif]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: ./.github/actions/beam-toolchain
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+      # The Emscripten BEAM's trees: beam/build.sh's stamps rebuild what
+      # changed, so an older one is a good start.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            out/beam-wasm/openssl
+            out/beam-wasm/ncurses
+            out/beam-wasm/releaseO2
+          key: beam-v2-${{ env.OTP_VERSION }}-${{ hashFiles('beam/**') }}
+          restore-keys: beam-v2-${{ env.OTP_VERSION }}-
+      # The Phoenix template; build.py compiles it again when the host's
+      # Elixir differs and relocks its deps every build.
+      - uses: actions/cache@v4
+        with:
+          path: target/cache-otp
+          key: cache-otp-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('runtime/build.py') }}
+          restore-keys: cache-otp-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: wasm-*
+          merge-multiple: true
+      - uses: actions/download-artifact@v5
+        with:
+          name: nif
+      - run: for tar in wasm-*.tar nif.tar; do tar -xf "$tar"; done
+      - run: python3 -I runtime/build.py
+      - run: tar -cf site.tar target/site target/node target/nif
+      - uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site.tar
+          retention-days: 3
+
+  nif-test:
+    needs: site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: site
+      - run: tar -xf site.tar
+      - run: python3 -I nif/test/test.py
+
+  e2e:
+    name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/4)
+    needs: site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    # WebKit's shards report but do not fail the run: there, nodes that
+    # Mix and System.shell start sometimes hang (git.spec.ts, rebar3.spec.ts).
+    continue-on-error: ${{ matrix.browser == 'webkit' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        browser: [chromium, firefox, webkit]
+        shard: [1, 2, 3, 4]
+    # The backend at localhost:4000, for the live-session and relay tests
+    # (they skip without it).
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: site
+      - run: tar -xf site.tar && rm site.tar
+
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+          version-type: strict
+      - uses: actions/cache@v4
+        with:
+          path: |
+            backend/deps
+            backend/_build
+          key: backend-dev-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('backend/mix.lock') }}
+          restore-keys: backend-dev-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+      - name: Start the backend
+        working-directory: backend
+        run: |
+          mix deps.get
+          mix ecto.setup
+          nohup mix phx.server > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for _ in $(seq 120); do
+            curl -s -o /dev/null http://localhost:4000/ && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/backend.log"
+          exit 1
+
+      # tests/run.sh runs Playwright in its pinned image over the app's
+      # node_modules.
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+      - run: npm ci
+        working-directory: app
+      # WebKit is the slowest here: with a third worker its Phoenix boots
+      # starve each other into timeouts. A failed test runs once more; one
+      # that passes then is reported flaky.
+      - name: Playwright
+        env:
+          SLOW: ${{ inputs.slow && '1' || '' }}
+          WORKERS: ${{ matrix.browser == 'webkit' && '2' || '3' }}
+        run: tests/run.sh --project=${{ matrix.browser }} --shard=${{ matrix.shard }}/4 --retries=1
+
+      - name: Backend log
+        if: failure()
+        run: cat "$RUNNER_TEMP/backend.log" || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-${{ matrix.browser }}-${{ matrix.shard }}
+          path: target/tests
+          retention-days: 7
+          if-no-files-found: ignore
