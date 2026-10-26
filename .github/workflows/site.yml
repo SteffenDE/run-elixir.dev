@@ -159,8 +159,9 @@ jobs:
     needs: site
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # WebKit's shards report but do not fail the run: there, nodes that
-    # Mix and System.shell start sometimes hang (git.spec.ts, rebar3.spec.ts).
+    # WebKit's shards report but do not fail the run: there, a node's worker
+    # sometimes stops for good inside WebKit as it instantiates git.wasm
+    # (git.spec.ts, mix deps.get).
     continue-on-error: ${{ matrix.browser == 'webkit' }}
     strategy:
       fail-fast: false

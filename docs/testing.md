@@ -23,7 +23,9 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
   Each shard's `target/tests` is an artifact. A failed test runs once
   more; WebKit runs on two workers, and its shards do not fail the run:
-  there, nodes that Mix and `System.shell` start sometimes hang.
+  there, a node's worker sometimes stops for good inside WebKit as it
+  instantiates `git.wasm` (`mix deps.get` in `git.spec.ts`). A test whose page crashes fails at once ("the page crashed"),
+  not when its wait times out.
 
 ## In browsers: Playwright (`app/test/e2e`)
 
@@ -102,6 +104,12 @@ The servers and service worker use COEP `require-corp` for cross-origin
 isolation. Do not substitute `credentialless` without checking every
 supported browser. The fixture filters the known WebKit page error for
 a fetch blocked by CORS, which the HTTPS gateway handles itself.
+
+WebKit's page crashes (a segfault in its web process) when many workers
+fetch their module script at once, as a node's threads start together.
+A node's threads therefore start from a blob of `beam.emu.mjs` that the
+node fetches once (`app/src/runtime/beam/run.ts`; `beam/build.sh`
+patches Emscripten's worker for it).
 
 ## Debugging a stuck preview in the browser
 

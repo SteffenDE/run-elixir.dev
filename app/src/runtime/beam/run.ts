@@ -85,6 +85,28 @@ const instantiate =
 // oxlint-disable-next-line typescript/no-explicit-any -- Emscripten's module.
 type Module = any;
 
+// In a browser, where the node's threads start their workers from
+// (beam/build.sh): a blob of beam.emu.mjs, fetched once. WebKit's page
+// crashes when many workers fetch their module script at once, as a node's
+// threads start together. Node's workers load beam.emu.mjs themselves.
+const threads = new Map<string, Promise<string>>();
+function threadScript(module: string): Promise<string | undefined> {
+  if (!('WorkerGlobalScope' in globalThis)) return Promise.resolve(undefined);
+  const url = new URL('beam.emu.mjs', new URL(module, location.href)).href;
+  let script = threads.get(url);
+  if (!script) {
+    script = fetch(url)
+      .then((response) => {
+        if (!response.ok) throw new Error(`${url}: ${response.status}`);
+        return response.blob();
+      })
+      .then((blob) => URL.createObjectURL(new Blob([blob], { type: 'text/javascript' })));
+    script.catch(() => threads.delete(url));
+    threads.set(url, script);
+  }
+  return script;
+}
+
 export function startBeam(options: BeamOptions): BeamNode {
   const memory =
     options.memory ?? new WebAssembly.Memory({ initial: 1024, maximum: 65536, shared: true });
@@ -141,10 +163,11 @@ export function startBeam(options: BeamOptions): BeamNode {
       if (retry) clearTimeout(retry);
       resolve(status);
     };
-    import(/* @vite-ignore */ options.module)
-      .then(({ default: createModule }) =>
+    Promise.all([import(/* @vite-ignore */ options.module), threadScript(options.module)])
+      .then(([{ default: createModule }, beamThreadUrl]) =>
         createModule({
           arguments: options.args,
+          beamThreadUrl,
           // Not a terminal: /dev/stdin a device of its own (prim_tty reads
           // through Popcorn's buffer either way).
           ...(options.tty ? {} : { stdin: () => null }),
