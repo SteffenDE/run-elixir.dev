@@ -11,6 +11,8 @@
 // A worker, not the frame's page: a hidden frame of another site has its
 // page's timers slowed to a second (WebKit, Firefox), a worker's not.
 import { Bridge } from '@/runtime/bridge';
+import { assertSite } from '@/runtime/packages/check';
+import { Site, loadManifest, type SiteRef } from '@/runtime/packages/manifest';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
@@ -65,10 +67,10 @@ export interface ExecStart {
   key: string;
   // The IDE's origin, which the preview's pages answer.
   ide: string;
-  // The site's build and runtime paths (shared/lib/build.ts), on this
-  // frame's origin as on the apex's (the same site's files).
+  // The site's build path and its manifest's (shared/lib/build.ts BUILD,
+  // SITE), on this frame's origin as on the apex's (the same site's files).
   build: string;
-  runtime: string;
+  site: string;
   // Where the files keep their changes: a port to the apex's store, or
   // none (a temporary IEx keeps nothing).
   store: MessagePort | null;
@@ -140,6 +142,8 @@ let files: Files | null = null;
 let git: Git | null = null;
 let setup: Setup = setupOf('empty');
 let start: ExecStart | null = null;
+// The site's packages (site.json), checked against this runtime.
+let site: SiteRef = null!;
 let bridge: Bridge | null = null;
 let chosenPort: number | null = null;
 let serveNames = serveEpmd(new EpmdRegistry());
@@ -418,7 +422,7 @@ function nodeServices() {
       tailwind,
       esbuild,
       inotifywait,
-      node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
+      node: nodeProgram(start!.build, () => files, scriptPorts, new Site(site).tls(), pagePrograms),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
       // Its files from the claude frame, through the IDE's page.
@@ -445,7 +449,7 @@ const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal
   }
   const node = new Node({
     base: start.build,
-    runtime: start.runtime,
+    site,
     files,
     ...nodeServices(),
     onoutput(bytes, fd) {
@@ -537,18 +541,13 @@ function previewEnv(): Record<string, string> {
 // name and template).
 async function changes(hidden: string[]): Promise<Omit<Shared, 'name' | 'template'>> {
   const work = '/work';
-  const [{ changed, removed }, site] = await Promise.all([
-    running().changes(hidden),
-    fetch(new URL('fs/version', new URL(start!.runtime, location.href))).then((response) =>
-      response.text(),
-    ),
-  ]);
+  const { changed, removed } = await running().changes(hidden);
   const relative = (path: string) => path.slice(work.length + 1);
   const written = changed.filter(({ path }) => !path.includes('/priv/static/assets/'));
   return {
     v: 1,
     kind: start!.kind === 'phoenix' ? 'phoenix' : 'empty',
-    site: site.trim(),
+    site: site.manifest.fs?.version ?? '',
     files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
     removed: removed.map(relative),
   };
@@ -566,14 +565,18 @@ const handlers = {
     start = {
       ...options,
       build: new URL(options.build, location.origin).href,
-      runtime: new URL(options.runtime, location.origin).href,
+      site: new URL(options.site, location.origin).href,
     };
+    // The packages fit this runtime and each other, or nothing starts
+    // (ERUNTIME, docs/packages.md).
+    site = await loadManifest(start.site);
+    assertSite(site.manifest);
     setup = setupOf(options.kind);
     if (options.archive) setup = { ...setup, boots: setupOf('phoenix').boots };
     await loadSite();
     files = new Files({
       base: start.build,
-      runtime: start.runtime,
+      site,
       boots: setup.boots,
       template: setup.template,
       archive: options.archive ?? null,
@@ -629,7 +632,7 @@ const handlers = {
   // git for the IDE itself (runtime/git.ts), not a node's: its output whole.
   async git(args: string[], options: GitOptions = {}) {
     if (!files || !start) throw new Error('no project');
-    git ??= new Git({ base: start.build, runtime: start.runtime, files });
+    git ??= new Git({ base: start.build, site, files });
     const result = await git.run(args, options);
     return transfer(result, [result.stdout.buffer, result.stderr.buffer]);
   },
@@ -658,7 +661,7 @@ const handlers = {
     if (!files || !start) throw new Error('the playground is not running');
     const node = new Node({
       base: start.build,
-      runtime: start.runtime,
+      site,
       files,
       ...nodeServices(),
       onoutput: (bytes) => rpc.emit('output', { id, bytes }),
@@ -709,7 +712,7 @@ const handlers = {
     };
     const node = new Node({
       base: start.build,
-      runtime: start.runtime,
+      site,
       files,
       ...nodeServices(),
       onoutput: (bytes, fd) => rpc.emit('spawnOutput', { id, fd, bytes }, [bytes.buffer]),

@@ -15,7 +15,8 @@ import { claudePort } from '@/project/lib/programs/claude/frame';
 import { PHOENIX_APP, type WorkspaceKind } from '@/project/lib/kinds';
 import { forgetRelays, previewRelay } from '@/project/lib/previewOrigins';
 import { apexServices, type ApexServices } from '@/project/lib/services';
-import { BUILD, RUNTIME } from '@/shared/lib/build';
+import { BUILD, SITE, siteManifest } from '@/shared/lib/build';
+import { Site } from '@/runtime/packages/manifest';
 import { startExecFrame } from '@/shared/lib/execFrame';
 import { isId, newId } from '@/shared/lib/ids';
 import { Rpc } from '@/shared/lib/rpc';
@@ -41,12 +42,11 @@ const encoder = new TextEncoder();
 // An error with POSIX's code, as the client throws it.
 const failure = (code: string, message: string) => Object.assign(new Error(message), { code });
 
-// The runtime's OTP and Elixir (runtime/build.py's runtime.json).
-let versions: Promise<RuntimeVersions | null> | null = null;
-const runtimeVersions = () =>
-  (versions ??= fetch(new URL('runtime.json', new URL(RUNTIME, location.href)))
-    .then((response) => (response.ok ? response.json() : null))
-    .catch(() => null));
+// The runtime's OTP and Elixir: its OTP and Elixir packages' (site.json).
+const runtimeVersions = (): Promise<RuntimeVersions | null> =>
+  siteManifest()
+    .then((ref) => new Site(ref).versions())
+    .catch(() => null);
 
 // An embedder's own name for a project as a project's key (ten letters
 // and digits, its origins' name): the same name is the same key.
@@ -131,7 +131,7 @@ class Sandbox {
 
   async hello(): Promise<Hello> {
     const runtime = await runtimeVersions();
-    if (!runtime) throw new Error('this site names no runtime versions (runtime.json)');
+    if (!runtime) throw new Error('this site names no OTP and Elixir packages (site.json)');
     return { apiVersion: API_VERSION, apiVersions: [API_VERSION], runtime };
   }
 
@@ -191,7 +191,7 @@ class Sandbox {
             // where it is (bridge.ts).
             ide: this.embedder,
             build: BUILD,
-            runtime: RUNTIME,
+            site: SITE,
             store,
             shared: null,
             archive,

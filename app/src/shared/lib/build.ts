@@ -1,3 +1,5 @@
+import { loadManifest, type SiteRef } from '@/runtime/packages/manifest';
+
 // Where this page's build keeps its runtime, files and WebAssembly:
 // /b/ID/, which runtime/build.py names in each page's
 // <meta name="playground-build">. A page loaded before a deploy keeps
@@ -12,3 +14,12 @@ export const BUILD = id ? `/b/${id}/` : '/';
 // of the JavaScript alone leaves them cached. Without it, the build's.
 const runtime = meta('playground-runtime');
 export const RUNTIME = runtime ? `/r/${runtime}/` : BUILD;
+// The site manifest (runtime/build.py's site.json, docs/packages.md): the
+// packages this page's runtime runs with, and where their files are.
+export const SITE = `${RUNTIME}site.json`;
+
+let site: Promise<SiteRef> | null = null;
+export function siteManifest(): Promise<SiteRef> {
+  site ??= loadManifest(new URL(SITE, location.href));
+  return site;
+}

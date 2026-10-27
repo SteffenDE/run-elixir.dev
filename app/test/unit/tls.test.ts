@@ -97,7 +97,7 @@ describe("a caller's checkServerIdentity", () => {
 
 describe('a connection closed before the handshake', () => {
   test("is Node's ECONNRESET", async () => {
-    const tls = createTls({ module: { isIP: () => 0 } } as never, 'http://localhost/', {});
+    const tls = createTls({ module: { isIP: () => 0 } } as never, null, {});
     const raw = connecting();
     const socket = tls.connect({ socket: raw as never, host: 'example.com' });
     const error = new Promise<Error & { code?: string }>((resolve) => socket.on('error', resolve));
@@ -115,7 +115,7 @@ describe('a connection closed before the handshake', () => {
 
 describe('TLSSocket', () => {
   test("is Node's (socket, options)", () => {
-    const tls = createTls({ module: { isIP: () => 0 } } as never, 'http://localhost/', {});
+    const tls = createTls({ module: { isIP: () => 0 } } as never, null, {});
     const socket = new tls.TLSSocket(connecting(), { servername: 'example.com' });
     expect(socket.servername).toBe('example.com');
     expect(socket.encrypted).toBe(true);

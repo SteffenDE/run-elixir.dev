@@ -9,7 +9,8 @@
 // test-lib.sh makes its trash directories, and a scratch directory.
 import { spawn as spawnHost } from 'node:child_process';
 import { closeSync, existsSync, openSync, readFileSync, readSync, readdirSync } from 'node:fs';
-import { TOOLS } from '@/runtime/coreutils';
+import { pathToFileURL } from 'node:url';
+import { Site, type SiteManifest } from '@/runtime/packages/manifest';
 import {
   Processes,
   feed,
@@ -28,6 +29,20 @@ import { hostFiles } from './hostfs';
 const TARGET = new URL('../../../target/', import.meta.url).pathname;
 export const BUILD = `${TARGET}git/src`;
 const module = (path: string) => new WebAssembly.Module(readFileSync(`${TARGET}${path}`));
+// coreutils' tools, as the built site's manifest names them (its shell
+// package's programs: runtime/build.py).
+function coreutilsTools(): Set<string> {
+  const runtimes = `${TARGET}site/r`;
+  for (const id of existsSync(runtimes) ? readdirSync(runtimes) : []) {
+    const path = `${runtimes}/${id}/site.json`;
+    if (!existsSync(path)) continue;
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as SiteManifest;
+    const programs = new Site({ url: pathToFileURL(path).href, manifest }).programs();
+    return new Set([...programs].filter(([, entry]) => entry.tool).map(([name]) => name));
+  }
+  throw new Error(`no ${runtimes}/*/site.json: build the site first (runtime/build.py)`);
+}
+const TOOLS = coreutilsTools();
 
 export interface Machine {
   // Runs `program` to its end: its status and what it wrote (both streams).

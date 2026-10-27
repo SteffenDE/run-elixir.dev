@@ -29,7 +29,7 @@ function builtins(options: { tty?: boolean; stdinTty?: boolean } = {}) {
     wasi: () => ({}),
     threads: () => ({}),
     net: null,
-    runtime: '',
+    tls: null,
     child: null,
   });
 }

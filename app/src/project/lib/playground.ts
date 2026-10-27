@@ -14,7 +14,7 @@ import type { GitOptions, GitOutput } from '@/runtime/host/git';
 import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
 import { PortConnection } from '@/runtime/portConnection';
 import { REPORT, lineDiscipline } from '@/runtime/terminal';
-import { BUILD, RUNTIME } from '@/shared/lib/build';
+import { BUILD, SITE } from '@/shared/lib/build';
 import type { Rpc } from '@/shared/lib/rpc';
 import { startExecFrame } from '@/shared/lib/execFrame';
 import {
@@ -689,7 +689,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
           ide: apexOrigin(),
           // Paths: the frame takes them from its own origin.
           build: BUILD,
-          runtime: RUNTIME,
+          site: SITE,
           store: storePort,
           shared: sharedPort,
         } satisfies ExecStart,

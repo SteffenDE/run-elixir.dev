@@ -32,7 +32,7 @@ import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
 import { backendNif, get, siteNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
-import { PROGRAMS, TOOLS, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { REGISTRY, isProgram, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
 import { UTILITIES } from '../utilities';
 import {
@@ -47,12 +47,14 @@ import {
 } from '../processes';
 import { OutputLimitError } from './output';
 import type { Descriptor } from '../wasi/descriptors';
-import { runtime, setRuntime } from './site';
+import { artifacts, setSite } from './site';
+import type { SiteRef } from '../packages/manifest';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
 // A WebAssembly module from the site, compiled; null when the site has none
 // (it answers with its page).
-async function loadModule(url: URL): Promise<WebAssembly.Module | null> {
+async function loadModule(url: URL | null): Promise<WebAssembly.Module | null> {
+  if (!url) return null;
   const response = await fetch(url);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return null;
@@ -62,8 +64,9 @@ async function loadModule(url: URL): Promise<WebAssembly.Module | null> {
 // What the page starts a node with (host/node.ts Node.start).
 interface Start {
   shared: SharedArrayBuffer;
-  // Where the BEAM, the files and the NIF libraries are.
-  runtime: string;
+  // The site manifest: where the BEAM, the files, the programs and the
+  // NIF libraries are.
+  site: SiteRef;
   files: FilesChannel | null;
   shell: boolean;
   args?: string[];
@@ -263,7 +266,7 @@ help NAME: a shell built-in.
 onmessage = async ({
   data: {
     shared,
-    runtime: runtimeUrl,
+    site: siteRef,
     files,
     shell,
     args: erlArgs,
@@ -285,19 +288,20 @@ onmessage = async ({
     beam: beamModule,
   },
 }: MessageEvent<Start>) => {
-  setRuntime(runtimeUrl);
+  setSite(siteRef);
+  const packages = artifacts();
   try {
     say('status', 'Loading OTP and Elixir…');
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest, brushModule] = await Promise.all([
       tars ??
         Promise.all(
-          boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
+          boots.map((boot) => fetch(packages.fs(`${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
         ),
-      listed ?? fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
+      listed ?? fetch(packages.fs('manifest.json')).then((r) => r.json() as Promise<Manifest>),
       // The shell (brush.ts), if the site has it: the terminal's, or a
       // node's sh -c.
-      shellModule ?? (shell || isSh(named?.[0]) ? loadModule(runtime('brush.wasm')) : null),
+      shellModule ?? (shell || isSh(named?.[0]) ? loadModule(packages.shell()) : null),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -321,7 +325,7 @@ onmessage = async ({
     const channel = new Channel(shared);
     channel.tty = tty;
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
-    const fetchFile = bundled((bundle) => fetchBundle(runtime(`fs/bundles/${bundle}.tar`)));
+    const fetchFile = bundled((bundle) => fetchBundle(packages.fs(`bundles/${bundle}.tar`)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
@@ -333,22 +337,29 @@ onmessage = async ({
     let compiled: WebAssembly.Module | null | undefined = toolsModule;
     const module = () => {
       if (compiled === undefined) {
-        const [status, bytes] = get(runtime('coreutils.wasm'));
+        const url = packages.tools();
+        const [status, bytes] = url ? get(url) : [0, null];
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         compiled = wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null;
       }
       return compiled;
     };
-    // The site's other WASI programs (coreutils.ts PROGRAMS: rg.wasm), each
-    // fetched and compiled once it first runs.
+    // The site's other WASI programs (coreutils.ts REGISTRY: rg.wasm), by
+    // name, each module fetched and compiled once one of its programs first
+    // runs.
     const others = new Map<string, WebAssembly.Module | null>();
-    const load = (file: string) => {
-      if (!others.has(file)) {
-        const [status, bytes] = get(runtime(file));
+    const load = (name: string) => {
+      const url = REGISTRY.get(name)?.url;
+      if (!url) return null;
+      if (!others.has(url.href)) {
+        const [status, bytes] = get(url);
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
-        others.set(file, wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null);
+        others.set(
+          url.href,
+          wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null,
+        );
       }
-      return others.get(file)!;
+      return others.get(url.href)!;
     };
     const tools: CoreutilsOptions = { module, load, fetch: fetchFile, shared: sharedFs };
 
@@ -390,7 +401,7 @@ onmessage = async ({
       processes.hosting++;
       try {
         return await runBeam({
-          module: runtime('beam.mjs').href,
+          module: packages.beam()!.loader.href,
           argv: ['+S', String(SCHEDULERS), ...cookie(argv, vars), ...argv],
           env: { ...ENV, ...vars, PWD: cwd },
           cwd,
@@ -409,10 +420,9 @@ onmessage = async ({
               // (git's transport and children, sed's `e`, gnulib's dup2);
               // and the shell's own utilities (env, xargs, chmod).
               Object.fromEntries(
-                [...Object.keys(PROGRAMS), ...Object.keys(UTILITIES)].map((name) => [
-                  name,
-                  portProgram(processes, name),
-                ]),
+                [...[...REGISTRY.keys()].filter(isProgram), ...Object.keys(UTILITIES)].map(
+                  (name) => [name, portProgram(processes, name)],
+                ),
               ),
             ),
             tools,
@@ -543,7 +553,7 @@ onmessage = async ({
     // an escript), a page program (a
     // script for node, #!/usr/bin/env node, a package's bin in
     // node_modules/.bin), a program built for WASI (coreutils' tools, the
-    // site's PROGRAMS), or nothing.
+    // site's REGISTRY), or nothing.
     type Found =
       | { node: string[] }
       | { page: string; args: string[] }
@@ -585,16 +595,16 @@ onmessage = async ({
         const script = fs.read(exec)?.subarray(0, 64);
         if (script && /^#!.*\b(sh|bash)\b/.test(new TextDecoder().decode(script)))
           return { script: [exec, ...given] };
-        const git = GIT_DASHED.has(name) ? load(PROGRAMS.git) : null;
+        const git = GIT_DASHED.has(name) ? load('git') : null;
         if (git) return { wasm: git };
         return null;
       }
-      const own = name in PROGRAMS ? load(PROGRAMS[name]) : null;
+      const own = isProgram(name) ? load(name) : null;
       if (own) return { wasm: own };
       if (pagePrograms.includes(name)) return { page: name, args: given };
       if (/^#!.*\bnode\b/.test(shebang) && pagePrograms.includes('node'))
         return { page: 'node', args: [program, ...given] };
-      const tool = TOOLS.has(name) ? module() : null;
+      const tool = isTool(name) ? module() : null;
       return tool ? { wasm: tool } : null;
     };
     // Ctrl+C for the processes: the channel takes in the page's frames.

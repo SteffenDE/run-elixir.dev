@@ -15,7 +15,9 @@ import { Exit } from './wasi';
 import { Dir, File, untar, mount, bundled, type FsNode } from './wasi/fs';
 import { Network } from './wasi/net';
 import { ENV, prepare, programs } from './setup';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { register } from './coreutils';
+import { Site, type SiteManifest } from './packages/manifest';
 import { beamArgs } from './beam/args';
 import { startBeam } from './beam/run';
 import { TreeFs } from './beam/treefs';
@@ -28,11 +30,19 @@ const [site, ...args] = process.argv.slice(2);
 // a flat site.
 const runtimes = existsSync(`${site}/fs`) ? [] : readdirSync(`${site}/r`);
 const dir = runtimes.length ? `${site}/r/${runtimes[0]}` : site;
+// Its packages (site.json, build.py): the fs image, the BEAM, the programs.
+const siteJson = `${dir}/site.json`;
+const packages = new Site({
+  url: pathToFileURL(siteJson).href,
+  manifest: JSON.parse(readFileSync(siteJson, 'utf8')) as SiteManifest,
+});
+register(packages.programs());
+const local = (url: URL | null) => (url ? fileURLToPath(url) : '');
 const t0 = performance.now();
 let t2 = Infinity;
 const root = new Dir();
 const hostFiles = new Map<string, string>();
-mount(JSON.parse(await readFile(`${dir}/fs/manifest.json`, 'utf8')), root);
+mount(JSON.parse(await readFile(local(packages.fs('manifest.json')), 'utf8')), root);
 // MOUNT=VFSDIR:HOSTDIR (comma-separated): a host directory's files, read
 // when first opened.
 for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
@@ -59,13 +69,10 @@ for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
 }
 // BOOT=NAME,...: the boot images (fs/NAME.tar.gz) to unpack, by default
 // every one the site has.
-const boots = process.env.BOOT
-  ? process.env.BOOT.split(',')
-  : readdirSync(`${dir}/fs`)
-      .filter((name) => /^boot.*\.tar\.gz$/.test(name))
-      .map((name) => name.slice(0, -7));
+const boots = process.env.BOOT ? process.env.BOOT.split(',') : (packages.manifest.fs?.boots ?? []);
 let files = 0;
-for (const boot of boots) files += await untar(await readFile(`${dir}/fs/${boot}.tar.gz`), root);
+for (const boot of boots)
+  files += await untar(await readFile(local(packages.fs(`${boot}.tar.gz`))), root);
 let fetched = 0;
 const recorded: string[] = [];
 prepare(root);
@@ -73,7 +80,7 @@ const t1 = performance.now();
 const input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 // Mounted host files, or the site's bundles.
 const fromBundles = bundled(
-  (bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)),
+  (bundle) => new Uint8Array(readFileSync(local(packages.fs(`bundles/${bundle}.tar`)))),
 );
 function fetchFile(source: string, bundle: number): Uint8Array {
   fetched++;
@@ -167,9 +174,9 @@ const env: Record<string, string> = {
 };
 // git itself (git.wasm), as the worker has it: a process of a table of
 // its own, its dashed programs too (git-upload-pack).
-const gitModule = existsSync(`${dir}/git.wasm`)
-  ? new WebAssembly.Module(readFileSync(`${dir}/git.wasm`))
-  : null;
+const gitPath = local(packages.programs().get('git')?.url ?? null);
+const gitModule =
+  gitPath && existsSync(gitPath) ? new WebAssembly.Module(readFileSync(gitPath)) : null;
 const processes: Processes = new Processes((program) => {
   const name = program.split('/').pop()!;
   return gitModule && (name === 'git' || GIT_DASHED.has(name))
@@ -183,7 +190,7 @@ const processes: Processes = new Processes((program) => {
     : null;
 });
 const beam = startBeam({
-  module: pathToFileURL(`${dir}/beam.mjs`).href,
+  module: packages.beam()!.loader.href,
   args: beamArgs(args, env.HOME),
   env,
   cwd: env.PWD,
@@ -192,8 +199,8 @@ const beam = startBeam({
   network,
   programs: Object.assign(
     programs(vfs(root, fetchFile), (name, version) => {
-      const path = `${dir}/nif/${name}-${version}.tar`;
-      return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
+      const path = local(packages.nif(name, version));
+      return path && existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
     }),
     { git: portProgram(processes, 'git') },
   ),

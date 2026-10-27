@@ -94,12 +94,13 @@ const SiteRequest = globalThis.XMLHttpRequest;
 // Mozilla's roots as PEM certificates (the site's roots.pem, the nodes'
 // CA bundle), read once, synchronously; none if the site has none.
 let roots: readonly string[] | null = null;
-function rootCertificates(runtime: string): readonly string[] {
+function rootCertificates(files: TlsFiles | null): readonly string[] {
   if (roots) return roots;
   let text = '';
   try {
     const request = new SiteRequest();
-    request.open('GET', new URL('roots.pem', runtime).href, false);
+    if (!files) throw new Error('no tls package');
+    request.open('GET', files.roots, false);
     request.send();
     if (request.status === 200) text = request.responseText;
   } catch {
@@ -111,10 +112,17 @@ function rootCertificates(runtime: string): readonly string[] {
   return roots;
 }
 
-// tls.wasm from the site's runtime files, once per process.
-export function loadTls(runtime: string): Promise<Exports> {
+// The tls package's files (site.json: Site.tls()): tls.wasm and the roots.
+export interface TlsFiles {
+  module: string;
+  roots: string;
+}
+
+// tls.wasm from the tls package, once per process.
+export function loadTls(files: TlsFiles | null): Promise<Exports> {
   loading ??= (async () => {
-    const response = await siteFetch(new URL('tls.wasm', runtime));
+    if (!files) throw new Error('tls.wasm: this site has no tls package');
+    const response = await siteFetch(files.module);
     if (!response.ok) throw new Error(`tls.wasm: ${response.status}`);
     const module = await WebAssembly.compile(await response.arrayBuffer());
     let exports: Exports;
@@ -180,8 +188,8 @@ export class Engine {
     private handle: number,
   ) {}
 
-  static async open(runtime: string, host: string, options: TlsOptions): Promise<Engine> {
-    const x = await loadTls(runtime);
+  static async open(files: TlsFiles | null, host: string, options: TlsOptions): Promise<Engine> {
+    const x = await loadTls(files);
     const alpn = (options.ALPNProtocols ?? []).map(bytesOf);
     const wire = new Uint8Array(alpn.reduce((n, p) => n + p.length + 1, 0));
     let at = 0;
@@ -480,7 +488,7 @@ export function checkServerIdentity(hostname: string, cert: PeerCertificate) {
   });
 }
 
-export function createTls(net: Net, runtime: string, env: Record<string, string>) {
+export function createTls(net: Net, files: TlsFiles | null, env: Record<string, string>) {
   // tls.connect's TLSSocket: TLS over `raw`, plaintext for the program.
   class TLSSocket extends Duplex {
     declare raw: Duplex & Partial<Socket>;
@@ -531,7 +539,7 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
           for (const chunk of early.splice(0)) this.received(chunk);
           return;
         }
-        Engine.open(runtime, host, { ...options, rejectUnauthorized: reject }).then(
+        Engine.open(files, host, { ...options, rejectUnauthorized: reject }).then(
           (engine) => {
             if (this.destroyed) return engine.forget();
             this.engine = engine;
@@ -762,11 +770,11 @@ export function createTls(net: Net, runtime: string, env: Record<string, string>
       'ecdhe-rsa-aes256-gcm-sha384',
     ],
     get rootCertificates() {
-      return rootCertificates(runtime);
+      return rootCertificates(files);
     },
     // Node's: the bundled roots by default; no system's or extra ones.
     getCACertificates: (type = 'default') =>
-      type === 'default' || type === 'bundled' ? [...rootCertificates(runtime)] : [],
+      type === 'default' || type === 'bundled' ? [...rootCertificates(files)] : [],
     DEFAULT_MIN_VERSION: 'TLSv1.2',
     DEFAULT_MAX_VERSION: 'TLSv1.3',
     DEFAULT_ECDH_CURVE: 'auto',

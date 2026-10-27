@@ -5,6 +5,7 @@
 // (the worker sleeps on its write count, so a frame wakes it):
 // [kind u8][id u32][length u32][payload]. The worker answers with
 // messages.
+import { Site, type SiteRef } from '../packages/manifest';
 import type { Files, FilesChannel } from './files';
 import { spawn, type PageProcess, type PageProgram } from './programs';
 import { trace } from '../trace';
@@ -229,8 +230,9 @@ type NodeMessage =
 // compiled once on the page for every node's worker (a compiled module
 // posts to a worker as it is); null when the site has none.
 const modules = new Map<string, Promise<WebAssembly.Module | null>>();
-function siteModule(runtime: string, name: string): Promise<WebAssembly.Module | null> {
-  const url = new URL(name, runtime).href;
+function siteModule(location: URL | null): Promise<WebAssembly.Module | null> {
+  if (!location) return Promise.resolve(null);
+  const url = location.href;
   let module = modules.get(url);
   if (!module) {
     module = fetch(url)
@@ -274,7 +276,7 @@ export class Node {
   // there (project/lib/playground.ts), or false.
   peer: (connection: Connection, port: number) => boolean;
   worker: Worker;
-  runtime: string;
+  site: SiteRef;
   channel: FilesChannel | null = null;
   retry: ReturnType<typeof setTimeout> | null = null;
   // For debug(): connections that ended lately, and what the worker sent
@@ -284,8 +286,8 @@ export class Node {
   // The page programs it runs: their command lines, and since when.
   spawned = new Map<number, { command: string; started: number }>();
 
-  // base: where the site's runtime scripts are; runtime: its BEAM, files
-  // and NIF libraries (build.ts RUNTIME), by default base; onoutput(bytes,
+  // base: where the site's runtime scripts are; site: the site manifest,
+  // which names its BEAM, files, programs and NIF libraries; onoutput(bytes,
   // fd): what it wrote to its output (1) or its standard error (2),
   // onstatus(text), onexit(code); serve: { port: (connection) => ... } for
   // ports the node may connect to on the page; https: (connection,
@@ -310,7 +312,7 @@ export class Node {
   // unsupported, interrupted).
   constructor({
     base = './',
-    runtime = null as string | null,
+    site = null as unknown as SiteRef,
     onoutput = (_bytes: Uint8Array, _fd: number) => {},
     onstatus = (_text: string) => {},
     onexit = (_code: number) => {},
@@ -345,7 +347,7 @@ export class Node {
     this.connections = new Map();
     this.next = 1;
     this.serve = serve;
-    this.runtime = new URL(runtime ?? base, location.href).href;
+    this.site = site;
     this.worker = worker('worker.js', base);
     this.worker.onmessage = ({ data }: MessageEvent<NodeMessage>) => {
       const seen = (this.fromWorker[data.kind] ??= { count: 0, last: 0 });
@@ -411,10 +413,11 @@ export class Node {
     // posting copies the tars at memory speed, in place of each worker
     // fetching and gunzipping them. Without, the worker fetches them itself.
     const names = boots ?? ['boot'];
+    const packages = new Site(this.site);
     const files = this.files;
     const brush =
       shell || command?.[0] === 'sh' || command?.[0] === 'bash'
-        ? siteModule(this.runtime, 'brush.wasm')
+        ? siteModule(packages.shell())
         : null;
     void Promise.all([
       files
@@ -424,13 +427,13 @@ export class Node {
           )
         : null,
       brush,
-      siteModule(this.runtime, 'coreutils.wasm'),
-      siteModule(this.runtime, 'beam.wasm'),
+      siteModule(packages.tools()),
+      siteModule(packages.beam()?.wasm ?? null),
     ]).then(([boot, module, coreutils, beam]) => {
       const images = boot && names.every((name) => boot.images[name]);
       this.worker.postMessage({
         shared: this.shared,
-        runtime: this.runtime,
+        site: this.site,
         files: this.channel,
         shell,
         args,

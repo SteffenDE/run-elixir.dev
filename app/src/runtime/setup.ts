@@ -4,7 +4,7 @@ import { File, devnull, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
 import { esbuild, tailwind, make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
-import { PROGRAMS, TOOLS } from './coreutils';
+import { REGISTRY } from './coreutils';
 import { UTILITIES } from './utilities';
 
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
@@ -84,9 +84,9 @@ export function prepare(root: Dir, { dns = false, inotifywait = false } = {}): v
     'iex',
     'erl',
     'escript',
-    // coreutils.wasm's, and the site's other WASI programs (coreutils.ts).
-    ...TOOLS,
-    ...Object.keys(PROGRAMS),
+    // coreutils.wasm's, and the site's other WASI programs (coreutils.ts
+    // REGISTRY, from the site manifest).
+    ...REGISTRY.keys(),
     // The shell's own processes (utilities.ts UTILITIES).
     ...Object.keys(UTILITIES),
     ...(inotifywait ? ['inotifywait'] : []),

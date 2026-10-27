@@ -13,7 +13,8 @@ import { guestMayType, useLive } from '@/live/lib/store';
 import { failure, NXDOMAIN, questionName } from '@/runtime/dns';
 import type { Connection } from '@/runtime/host/node';
 import { trace } from '@/runtime/trace';
-import { BUILD, RUNTIME } from '@/shared/lib/build';
+import { BUILD, siteManifest } from '@/shared/lib/build';
+import { Site } from '@/runtime/packages/manifest';
 import { SHARE_LOCK } from './protocol';
 import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
 
@@ -101,7 +102,13 @@ function workerPort(): MessagePort {
     type: 'module',
     name: 'playground-tailscale',
   });
-  shared.port.postMessage({ kind: 'hello', wasm: `${RUNTIME}tailscale.wasm` } satisfies Request);
+  // tailscale.wasm, through the site manifest (the worker waits for it).
+  void siteManifest().then((ref) =>
+    shared.port.postMessage({
+      kind: 'hello',
+      wasm: new Site(ref).tailscale()?.href ?? '',
+    } satisfies Request),
+  );
   return shared.port;
 }
 

@@ -1,7 +1,7 @@
 // A package's NIF library built to WebAssembly, for make (programs.ts):
 // the site's, else the backend's.
 import type { Channel } from './channel';
-import { runtime, site } from './site';
+import { artifacts, site } from './site';
 
 // GET url, synchronously: [status, bytes] (status 0 when it failed).
 export function get(url: string | URL): [number, Uint8Array | null];
@@ -25,7 +25,9 @@ const isTar = (bytes: Uint8Array | null): bytes is Uint8Array =>
 
 // The site's own build of a package's NIF library, or null.
 export function siteNif(name: string, version: string): Uint8Array | null {
-  const [status, tar] = get(runtime(`nif/${name}-${version}.tar`));
+  const url = artifacts().nif(name, version);
+  if (!url) return null;
+  const [status, tar] = get(url);
   return status === 200 && isTar(tar) ? tar : null;
 }
 

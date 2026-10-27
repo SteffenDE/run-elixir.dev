@@ -30,7 +30,15 @@ async function filesWorker(records: KeptRecord[] = []) {
   const dispatch = (data: object) => send({ data });
   await dispatch({
     kind: 'start',
-    runtime: 'https://runtime.test/',
+    site: {
+      url: 'https://runtime.test/site.json',
+      manifest: {
+        manifest: 1,
+        packages: {},
+        fs: { base: 'fs/', format: 1, version: '', boots: [], packages: {} },
+        nif: null,
+      },
+    },
     boots: [],
     sharedPort: {},
     doorbell: new SharedArrayBuffer(4),

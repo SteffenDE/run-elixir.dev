@@ -21,16 +21,20 @@ rebar3) and the Phoenix template, a phx.new app, at /work/playground.
   size, mtime and bundle, for stat and readdir;
 - fs/bundles/N.tar: those files, a directory's in bundles of up to 512 KB,
   fetched whole by the node when it first opens one of them;
-- fs/templates.json: each template's id (a digest of its files, without
-  its build) and label; a project notes the template it was made from;
 - fs/version: a digest of the above; a project's kept changes note the
   version they were made over.
 - playground.json: the apex and the usercontent domain,
   PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
   (app/src/shared/lib/site.ts, docs/frames.md), and the origins that may
   frame embed.html, PLAYGROUND_EMBEDDERS (docs/embed.md);
-- runtime.json: the OTP and Elixir versions the runtime is, which an
-  embedder's natively compiled .beam files must match (docs/embed.md).
+- site.json: the site manifest (docs/packages.md): each package's version,
+  files, peer dependencies and `playground` field, the fs image and the
+  bundled NIF libraries. The runtime finds the BEAM, its programs and the
+  fs image through it, and checks the packages against itself as a
+  project starts. The OTP and Elixir packages' versions are the
+  embedders' contract (docs/embed.md). The packages that map onto the
+  site's files are also written to target/packages/NAME/ (a package.json
+  and its files), as npm would install them.
 
 Built flat, the site is then versioned: what keeps its name across builds
 but the pages, the service worker, playground.json and app/public's files
@@ -68,6 +72,8 @@ BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
 # runs and nif/test/test.py run it.
 NODE = os.path.join(ROOT, "target", "node")
+# The npm packages (docs/packages.md), as package.json and their files.
+PACKAGES_OUT = os.path.join(ROOT, "target", "packages")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
@@ -487,9 +493,6 @@ def page(out, wasm):
     embedders = (os.environ.get("PLAYGROUND_EMBEDDERS") or EMBEDDERS).split()
     with open(os.path.join(out, "playground.json"), "w") as f:
         json.dump({"domain": domain, "usercontent": usercontent, "embedders": embedders}, f)
-    # The runtime's OTP and Elixir, the embedders' contract (docs/embed.md).
-    with open(os.path.join(out, "runtime.json"), "w") as f:
-        json.dump(runtime_versions(), f)
     # Link previews want an absolute og:image; a site without a domain
     # keeps the path (most fetchers resolve it against the page).
     if domain:
@@ -529,7 +532,7 @@ ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.h
 RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
                  "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm", "sed.wasm",
                  "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm", "find.wasm",
-                 "runtime.json"}
+                 "site.json"}
 
 
 def unversion(out):
@@ -583,16 +586,301 @@ def version(out):
     return build, rid
 
 
+# The npm packages (docs/packages.md). The upstream version is in a name
+# ({otp}, {elixir}); a package's own version is our build of it: its major
+# an ABI break, its minor a new capability, its patch a rebuild or a fix.
+SCOPE = "@elixir-playground"
+# The runtime's own version and the ABI seams it speaks, which its
+# JavaScript checks a site against (app/src/runtime/packages/check.ts).
+HOST = os.path.join(ROOT, "app", "src", "runtime", "packages", "host.json")
+# The tools in coreutils.wasm (uutils 0.12.0's feat_wasm: `coreutils --list`).
+COREUTILS_TOOLS = (
+    "arch b2sum base32 base64 basename basenc cat cksum comm cp csplit cut date dd dir "
+    "dircolors dirname echo expand expr factor false fmt fold head hostid join link ln ls "
+    "md5sum mkdir mktemp mv nice nl nproc numfmt od paste pathchk pr printenv printf ptx pwd "
+    "readlink realpath rm rmdir seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf "
+    "sleep sort split sum tail tee test touch tr true truncate tsort tty uname unexpand uniq "
+    "unlink vdir wc yes").split()
+GNU_TOOLS = {"sed": "sed.wasm", "grep": "grep.wasm", "diff": "diff.wasm", "cmp": "cmp.wasm",
+             "diff3": "diff3.wasm", "sdiff": "sdiff.wasm", "awk": "gawk.wasm", "gawk": "gawk.wasm",
+             "find": "find.wasm"}
+# Each package: its version, its files in the flat site, the packages it
+# needs besides the runtime (by key), its `playground` field, and whether
+# target/packages gets it (False: its files are only in the fs image, or
+# in the app's own build).
+PACKAGES = {
+    "otp-{otp}": {
+        "version": "1.0.0",
+        "files": ["beam.mjs", "beam.emu.mjs", "beam.wasm"],
+        # beam.wasm's imports are its Emscripten glue's (beam.mjs); the
+        # runtime meets that glue at the beam seam (beam/run.ts).
+        "own": ("env", "wasi_snapshot_preview1"),
+        "playground": {"abi": {"beam": 1},
+                       "beam": {"loader": "beam.mjs", "threads": "beam.emu.mjs", "wasm": "beam.wasm"}},
+    },
+    "elixir-{elixir}": {"version": "1.0.0", "files": [], "write": False, "playground": {}},
+    "phoenix-template": {"version": "1.0.0", "files": [], "write": False,
+                         "peers": ["otp-{otp}", "elixir-{elixir}"], "playground": {}},
+    "shell": {
+        "version": "1.0.0",
+        "files": ["brush.wasm", "coreutils.wasm"],
+        "playground": {"abi": {"wasi": 1, "processes": 1, "crossterm": 1},
+                       "shell": "brush.wasm", "tools": "coreutils.wasm",
+                       "programs": {name: "coreutils.wasm" for name in COREUTILS_TOOLS}},
+    },
+    "git": {"version": "1.0.0", "files": ["git.wasm"],
+            "playground": {"abi": {"wasi": 1, "processes": 1}, "programs": {"git": "git.wasm"}}},
+    "ripgrep": {"version": "1.0.0", "files": ["rg.wasm"],
+                "playground": {"abi": {"wasi": 1}, "programs": {"rg": "rg.wasm"}}},
+    "gnu-tools": {"version": "1.0.0", "files": sorted(set(GNU_TOOLS.values())),
+                  "playground": {"abi": {"wasi": 1, "processes": 1}, "programs": GNU_TOOLS}},
+    "tls": {"version": "1.0.0", "files": ["tls.wasm", "roots.pem"],
+            "playground": {"abi": {"wasi": 1, "tls": 1}, "tls": {"module": "tls.wasm", "roots": "roots.pem"}}},
+    "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm"],
+                  "playground": {"abi": {"tailscale": 1}, "tailscale": "tailscale.wasm"}},
+    "claude": {"version": "1.0.0", "files": [], "write": False, "playground": {}},
+}
+# The packages whose files the fs image holds (fs_package).
+FS_PACKAGES = ("otp-{otp}", "elixir-{elixir}", "phoenix-template", "git", "tls", "shell")
+# A module's imports, by the seam (host.json's provides) they belong to.
+IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
+                "gojs": "tailscale"}
+
+
+def fs_package(path):
+    """The package (PACKAGES' key) a file of the fs image comes from."""
+    if path.startswith("work/playground/"):
+        return "phoenix-template"
+    if path.startswith(("rotp/lib/elixir/", "rotp/lib/eex/", "rotp/lib/ex_unit/", "rotp/lib/iex/",
+                        "rotp/lib/logger/", "rotp/lib/mix/", "rotp/mix/")):
+        return "elixir-{elixir}"
+    if path.startswith("rotp/"):
+        return "otp-{otp}"
+    if path.startswith("usr/libexec/git-core/"):
+        return "git"
+    if path.startswith("etc/ssl/"):
+        return "tls"
+    if path.startswith("usr/share/terminfo/"):
+        return "shell"
+    sys.exit(f"{path}: no package's (fs_package)")
+
+
+def wasm_interface(path):
+    """A WebAssembly module's imports ([(module, name)]) and exports ([name])."""
+    with open(path, "rb") as f:
+        data = f.read()
+
+    def leb(at):
+        value = shift = 0
+        while True:
+            byte = data[at]
+            at += 1
+            value |= (byte & 0x7f) << shift
+            shift += 7
+            if byte < 0x80:
+                return value, at
+
+    def name(at):
+        length, at = leb(at)
+        return data[at:at + length].decode(), at + length
+
+    def limits(at):
+        flags = data[at]
+        _, at = leb(at + 1)
+        return leb(at)[1] if flags & 1 else at
+
+    imports, exports, at = [], [], 8
+    while at < len(data):
+        section = data[at]
+        size, at = leb(at + 1)
+        end = at + size
+        if section in (2, 7):
+            count, at = leb(at)
+            for _ in range(count):
+                if section == 2:
+                    module, at = name(at)
+                    field, at = name(at)
+                    kind = data[at]
+                    at += 1
+                    if kind == 0:
+                        at = leb(at)[1]
+                    elif kind == 1:
+                        at = limits(at + 1)
+                    elif kind == 2:
+                        at = limits(at)
+                    elif kind == 3:
+                        at += 2
+                    elif kind == 4:
+                        at = leb(at + 1)[1]
+                    imports.append((module, field))
+                else:
+                    field, at = name(at)
+                    exports.append(field)
+                    at = leb(at + 1)[1]
+        at = end
+    return imports, exports
+
+
+def beam_abi(out):
+    """The BEAM build's id: OTP's tag and the patch stack (beam/build.sh's
+    stamp), emsdk's version and beam.wasm's imports and exports. What a NIF
+    build and a recording are keyed by (docs/packages.md)."""
+    stamp = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", ".stamp-patched")
+    try:
+        emsdk = subprocess.run(["emcc", "--version"], capture_output=True, text=True).stdout.split("\n")[0]
+    except OSError:
+        emsdk = ""
+    imports, exports = wasm_interface(os.path.join(out, "beam.wasm"))
+    hashed = hashlib.sha256(json.dumps({
+        "patches": open(stamp).read().strip() if os.path.exists(stamp) else "",
+        "emsdk": emsdk, "imports": sorted(imports), "exports": sorted(exports)}).encode())
+    return hashed.hexdigest()[:16]
+
+
+def file_entry(path):
+    with open(path, "rb") as f:
+        return {"size": os.path.getsize(path), "sha256": hashlib.sha256(f.read()).hexdigest()}
+
+
+def claude_code():
+    """The Claude Code version the playground pins (CLAUDE_CODE in the app)."""
+    path = os.path.join(ROOT, "app", "src", "project", "lib", "programs", "claude", "build.ts")
+    with open(path) as f:
+        return re.search(r"CLAUDE_CODE = \{\s*version: '([^']+)'", f.read()).group(1)
+
+
+def site_manifest(out, facts):
+    """The flat site's site.json (docs/packages.md), and its packages'
+    package.json files by key. `facts`: what only a full build knows (the
+    BEAM's id, the template's, the fs image's version), from it or from
+    the site.json before."""
+    with open(HOST) as f:
+        host = json.load(f)
+    runtime_range = "^%s.0.0" % host["version"].split(".")[0]
+    versions = runtime_versions()
+    otp, elixir = versions["otp"], versions["elixir"]
+    named = lambda key: f"{SCOPE}/" + key.format(otp=otp, elixir=elixir)
+    filled = {
+        "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"]},
+        "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
+        "phoenix-template": {"template": {"kind": "phoenix", "id": facts["template"],
+                                          "label": f"phx.new {PHX_NEW}", "otp": otp, "elixir": elixir}},
+        # The newest version tested is the upper bound (docs/packages.md).
+        "claude": {"claudeCode": f">={claude_code()} <={claude_code()}"},
+    }
+    packages, manifests = {}, {}
+    for key, package in PACKAGES.items():
+        playground = {**package["playground"], **filled.get(key, {})}
+        peers = {f"{SCOPE}/runtime": runtime_range}
+        for peer in package.get("peers", ()):
+            peers[named(peer)] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
+        files = {}
+        for name in package["files"]:
+            path = os.path.join(out, name)
+            files[name] = file_entry(path)
+            if name.endswith(".wasm"):
+                imports, _ = wasm_interface(path)
+                for module in sorted({module for module, _ in imports} - set(package.get("own", ()))):
+                    seam = IMPORT_SEAMS.get(module)
+                    if seam not in playground.get("abi", {}):
+                        sys.exit(f"{key}: {name} imports {module}, which its abi does not name")
+        packages[named(key)] = {"version": package["version"], "base": "./", "files": files,
+                                "peerDependencies": peers, "playground": playground}
+        manifests[key] = {"name": named(key), "version": package["version"], "files": sorted(files),
+                          "peerDependencies": peers, "playground": playground}
+    fs = os.path.join(out, "fs")
+    nif = os.path.join(out, "nif")
+    site = {
+        "manifest": 1,
+        "packages": packages,
+        "fs": {"base": "fs/", "format": 1, "version": facts["fs"],
+               "boots": sorted(name[:-7] for name in os.listdir(fs) if re.match(r"boot.*\.tar\.gz$", name)),
+               "packages": {named(key): PACKAGES[key]["version"] for key in FS_PACKAGES}},
+        "nif": {"base": "nif/", "beamAbi": facts["beamAbi"],
+                "libraries": sorted(name[:-4] for name in os.listdir(nif) if name.endswith(".tar"))}
+        if os.path.isdir(nif) else None,
+    }
+    with open(os.path.join(out, "site.json"), "w") as f:
+        json.dump(site, f, indent=1, sort_keys=True)
+    return manifests, host
+
+
+def previous_facts(out):
+    """What a full build found (site_manifest's facts), from the flat site's
+    site.json, or from a site built before it had one."""
+    try:
+        with open(os.path.join(out, "site.json")) as f:
+            site = json.load(f)
+        template = next(entry["playground"]["template"]["id"] for entry in site["packages"].values()
+                        if "template" in entry["playground"])
+        otp = next(entry["playground"]["beamAbi"] for entry in site["packages"].values()
+                   if "beamAbi" in entry["playground"])
+        return {"beamAbi": otp, "template": template, "fs": site["fs"]["version"]}
+    except (OSError, KeyError, StopIteration):
+        templates = os.path.join(out, "fs", "templates.json")
+        with open(os.path.join(out, "fs", "version")) as f:
+            fs = f.read().strip()
+        template = json.load(open(templates))["phoenix"]["id"] if os.path.exists(templates) else ""
+        return {"beamAbi": beam_abi(out), "template": template, "fs": fs}
+
+
+# The runtime package's files: the build's scripts (b/ID) and the service
+# worker. The frames' pages are the app's (Vite's _playground/ assets,
+# shared with the IDE), so they are not in it yet.
+RUNTIME_SCRIPTS = ("worker.js", "files.js", "git.js", "nodejs.js", "tailscale.js", "chunks", "sw.js")
+
+
+def write_packages(out, manifests, host):
+    """target/packages/NAME/: each package's package.json and its files
+    (linked to the site's), for the packages that map onto the site's
+    files; the runtime's and the api's from the build."""
+    shutil.rmtree(PACKAGES_OUT, ignore_errors=True)
+    runtime_range = "^%s.0.0" % host["version"].split(".")[0]
+    packages = {
+        "runtime": ({"name": host["name"], "version": host["version"], "files": list(RUNTIME_SCRIPTS),
+                     "playground": {"provides": host["provides"]}}, RUNTIME_SCRIPTS),
+        "api": ({"name": f"{SCOPE}/api", "version": "1.0.0", "files": ["embed.js"], "exports": "./embed.js",
+                 "peerDependencies": {host["name"]: runtime_range},
+                 "playground": {"apiVersions": [1]}}, ("embed.js",)),
+    }
+    for key, manifest in manifests.items():
+        if PACKAGES[key].get("write", True):
+            packages[manifest["name"].split("/")[1]] = (manifest, manifest["files"])
+    for directory, (manifest, files) in packages.items():
+        target = os.path.join(PACKAGES_OUT, directory)
+        os.makedirs(target)
+        for name in files:
+            here = os.path.join(out, name)
+            if os.path.isdir(here):
+                shutil.copytree(here, os.path.join(target, name), copy_function=link_or_copy)
+            else:
+                link_or_copy(here, os.path.join(target, name))
+        with open(os.path.join(target, "package.json"), "w") as f:
+            # Not for publishing yet (docs/packages.md).
+            json.dump({**manifest, "private": True}, f, indent=2)
+            f.write("\n")
+    return sorted(packages)
+
+
+def link_or_copy(source, target):
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+
+
 def main():
     out = os.path.join(ROOT, "target", "site")
     wasm = prebuilt()
     if sys.argv[1:] == ["app"]:
         unversion(out)
+        facts = previous_facts(out)
         page(out, wasm)
+        print(f"{out}: packages " + ", ".join(write_packages(out, *site_manifest(out, facts))))
         print(f"{out}: build %s, runtime %s" % version(out))
         return
     shutil.rmtree(out, ignore_errors=True)
-    # The installation first: page() writes its versions (runtime.json).
+    # The installation first: site.json names its versions.
     otp_install()
     page(out, wasm)
     for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
@@ -626,6 +914,10 @@ def main():
     for boot in RECORD:
         with tarfile.open(os.path.join(fs, f"{boot}.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT):
             pass
+    # The recording runs find the programs through site.json too; what only
+    # this build will know comes after them.
+    facts = {"beamAbi": beam_abi(out), "template": "", "fs": ""}
+    site_manifest(out, facts)
     fetched = {}
     for boot in RECORD:
         snapshot = os.path.join(CACHE, f"{boot}-snapshot")
@@ -667,8 +959,7 @@ def main():
             template.update(path.encode() + b"\0")
             with open(here, "rb") as f:
                 template.update(f.read())
-    with open(os.path.join(fs, "templates.json"), "w") as f:
-        json.dump({"phoenix": {"id": template.hexdigest()[:12], "label": f"phx.new {PHX_NEW}"}}, f)
+    template_id = template.hexdigest()[:12]
     # What a project's kept changes were made over (files.js).
     digest = hashlib.sha256()
     for name in sorted(os.listdir(fs)):
@@ -677,6 +968,14 @@ def main():
                 digest.update(f.read())
     with open(os.path.join(fs, "version"), "w") as f:
         f.write(digest.hexdigest()[:16] + "\n")
+    facts.update(template=template_id, fs=digest.hexdigest()[:16])
+    print(f"{out}: packages " + ", ".join(write_packages(out, *site_manifest(out, facts))))
+    # Which package each of the fs image's files is from (docs/packages.md).
+    owners = {}
+    for path, _ in files:
+        owner = fs_package(path).format(**runtime_versions())
+        owners[owner] = owners.get(owner, 0) + 1
+    print(f"{out}: fs image files by package: " + ", ".join(f"{key} {n}" for key, n in sorted(owners.items())))
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
     print(f"{out}: " + ", ".join(f"{name} {mb(os.path.join(out, name))}" for name in ("beam.wasm",)) + "; " + "; ".join(
         f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"

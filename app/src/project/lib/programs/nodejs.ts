@@ -23,6 +23,7 @@ import type { Files } from '@/runtime/host/files';
 import type { CloseReason, Link, Served } from '@/runtime/host/node';
 import type { Context, Process } from './tailwind';
 import { watchers, type Watcher } from './watch';
+import type { TlsFiles } from '@/runtime/nodejs/tls';
 
 // What listens on a port: connections to it.
 export interface Listener {
@@ -125,7 +126,7 @@ export const nodeProgram =
     base: string,
     files: () => Files | null,
     ports?: Ports,
-    runtime = base,
+    tls: TlsFiles | null = null,
     programs: () => Record<string, PageProgram> = () => ({}),
   ) =>
   (process: Process, context: Context): void => {
@@ -372,7 +373,7 @@ export const nodeProgram =
       env: context.env,
       doorbell: channel.doorbell,
       channel: channel.channel,
-      runtime: new URL(runtime, location.href).href,
+      tls,
       tty: context.tty?.stdout ?? false,
       stdinTty: context.tty?.stdin ?? false,
       bun: context.bun ?? false,

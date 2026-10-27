@@ -11,7 +11,7 @@ export const LOADED = 'run-elixir-embed-loaded';
 // The embedder → embed.html, with the port the calls go over.
 export const CONNECT = 'run-elixir-embed';
 
-// The OTP and Elixir a runtime is (r/RID/runtime.json): the contract for
+// The OTP and Elixir a runtime is (its packages in site.json): the contract for
 // an embedder's natively compiled .beam files.
 export interface RuntimeVersions {
   otp: string;
