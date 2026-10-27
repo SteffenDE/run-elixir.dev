@@ -111,3 +111,26 @@ export function lineDiscipline(
     },
   };
 }
+
+// A terminal's output as a tty's ONLCR has it: a newline is CR LF (the
+// nodes write bare newlines), across chunks.
+export function onlcr(): (bytes: Uint8Array) => Uint8Array {
+  let carriage = false;
+  return (bytes) => {
+    let extra = 0;
+    for (let i = 0; i < bytes.length; i++)
+      if (bytes[i] === 10 && !(i ? bytes[i - 1] === 13 : carriage)) extra++;
+    if (!extra) {
+      if (bytes.length) carriage = bytes[bytes.length - 1] === 13;
+      return bytes;
+    }
+    const out = new Uint8Array(bytes.length + extra);
+    let at = 0;
+    for (let i = 0; i < bytes.length; i++) {
+      if (bytes[i] === 10 && !(i ? bytes[i - 1] === 13 : carriage)) out[at++] = 13;
+      out[at++] = bytes[i];
+    }
+    carriage = bytes[bytes.length - 1] === 13;
+    return out;
+  };
+}

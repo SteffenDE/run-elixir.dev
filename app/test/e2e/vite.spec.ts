@@ -110,6 +110,6 @@ test('Vite’s dev server shows the app in the preview and updates it on an edit
   await expect.poll(() => output(page)).toContain('hmr update /src/App.jsx');
 
   // Ctrl+C stops the server: the shell's prompt again.
-  await page.evaluate(() => window.playground.sessions.get(1).discipline.keys('\x03'));
+  await page.evaluate(() => window.playground.keys(1, '\x03'));
   await prompted(page, prompts(before) + 1);
 });

@@ -43,3 +43,7 @@ export function commands(line: string): string[][] {
   }
   return out;
 }
+
+// A word as sh reads it back: quoted unless it needs nothing.
+export const quote = (word: string) =>
+  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;

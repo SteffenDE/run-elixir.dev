@@ -8,7 +8,8 @@ import { expect, test } from './fixtures';
 import { PORT } from './helpers';
 
 const EMBEDDER = `http://embedder.localhost:${PORT}/`;
-const RUNTIME = { otp: '29.1.2', elixir: '1.20.4' };
+// What the tests' code needs of the site's runtime (create()'s requires).
+const REQUIRES = { otp: '^29.1', elixir: '~1.20.4' };
 
 declare global {
   interface Window {
@@ -32,7 +33,7 @@ async function embedded(
       const { create } = await window.embed.module;
       const started = performance.now();
       window.sandbox = await create({
-        runtime: given.runtime,
+        requires: given.requires,
         project: given.project,
         container: document.getElementById('frames'),
         onProgress: (event: unknown) => window.embed.progress.push(event),
@@ -40,20 +41,24 @@ async function embedded(
       });
       return performance.now() - started;
     },
-    { runtime: RUNTIME, project, extra },
+    { requires: REQUIRES, project, extra },
   );
 }
 
-// A command's stdout, stderr and status, run without a tty.
+// A command's stdout, stderr and exit code, run without a tty: a shell
+// line (sh) or its words (spawn).
 function run(page: Page, command: string | string[], options: object = {}) {
   return page.evaluate(
     async (given) => {
-      const process = window.sandbox.spawn(given.command, given.options);
+      const process =
+        typeof given.command === 'string'
+          ? window.sandbox.sh(given.command, given.options)
+          : window.sandbox.spawn(given.command, given.options);
       const out: Uint8Array[] = [];
       const err: Uint8Array[] = [];
       process.onStdout((bytes: Uint8Array) => out.push(bytes));
       process.onStderr((bytes: Uint8Array) => err.push(bytes));
-      const code = await process.exited;
+      const { code } = await process.exited;
       const text = (parts: Uint8Array[]) =>
         parts.map((part) => new TextDecoder().decode(part)).join('');
       return { stdout: text(out), stderr: text(err), code };
@@ -69,9 +74,9 @@ function get(page: Page, port: number, path: string, headers = '') {
       const stream = await window.sandbox.connect(to);
       const parts: Uint8Array[] = [];
       const done = new Promise<void>((resolve) => {
-        stream.ondata = (bytes: Uint8Array) => parts.push(bytes);
-        stream.onend = resolve;
-        stream.onclose = resolve;
+        stream.onData((bytes: Uint8Array) => parts.push(bytes));
+        stream.onEnd(resolve);
+        stream.onClose(resolve);
       });
       stream.write(
         `GET ${at} HTTP/1.1\r\nhost: localhost:${to}\r\n${more}connection: close\r\n\r\n`,
@@ -133,7 +138,7 @@ test('an embedder runs a Phoenix project: files, commands, its server raw, its p
   // The server, then a raw GET to it, and its preview framed here.
   const startedAt = Date.now();
   await page.evaluate(() => {
-    const server = window.sandbox.spawn('mix phx.server');
+    const server = window.sandbox.sh('mix phx.server');
     window.embed.server = '';
     const keep = (bytes: Uint8Array) => (window.embed.server += new TextDecoder().decode(bytes));
     server.onStdout(keep);
@@ -151,16 +156,16 @@ test('an embedder runs a Phoenix project: files, commands, its server raw, its p
   expect(response).toMatch(/^HTTP\/1\.1 200/);
   expect(response).toContain('Phoenix Framework');
 
-  const origin = await page.evaluate(() => window.sandbox.previewOrigin(4000));
-  expect(origin).toMatch(/^http:\/\/v-[a-z0-9]{10}-4000\.usercontent\.localhost/);
+  const url = await page.evaluate(() => window.sandbox.previewUrl(4000));
+  expect(url).toMatch(/^http:\/\/v-[a-z0-9]{10}-4000\.usercontent\.localhost:\d+\/$/);
   await page.evaluate((at) => {
     const frame = document.createElement('iframe');
-    frame.src = `${at}/`;
+    frame.src = at;
     frame.id = 'preview';
     frame.style.width = '800px';
     frame.style.height = '600px';
     document.body.append(frame);
-  }, origin);
+  }, url);
   // What the preview shows, as its page tells its framer (bridge.ts's
   // snapshot: Playwright's Firefox reaches no frame of another site).
   await expect.poll(() => previewText(page), { timeout: 60_000 }).toContain('Phoenix Framework');
@@ -215,24 +220,24 @@ test("commands: stderr apart, input as it comes, signals, a terminal, the embedd
     await seen('ABC');
     process.write('def\n');
     await seen('DEF');
-    process.closeStdin();
-    const code = await process.exited;
-    return { out, code };
+    process.end();
+    const exit = await process.exited;
+    return { out, exit };
   });
-  expect(echoed).toEqual({ out: 'ABC\nDEF\nEND\n', code: 0 });
+  expect(echoed).toEqual({ out: 'ABC\nDEF\nEND\n', exit: { code: 0, signal: null } });
 
-  // A signal: SIGTERM stops it (143).
+  // A signal: SIGTERM ends it, and says so.
   const killed = await page.evaluate(async () => {
     const process = window.sandbox.spawn(['node', '-e', 'setInterval(() => {}, 1000)']);
     await new Promise((resolve) => setTimeout(resolve, 1500));
     process.kill('SIGTERM');
     return process.exited;
   });
-  expect(killed).toBe(143);
+  expect(killed).toEqual({ code: null, signal: 'SIGTERM' });
 
   // A terminal: an interactive shell, its echo and output as a tty's (CR LF).
   const terminal = await page.evaluate(async () => {
-    const process = window.sandbox.spawn(null, { tty: { cols: 100, rows: 30 } });
+    const process = window.sandbox.terminal({ cols: 100, rows: 30 });
     let out = '';
     // As a terminal (xterm.js) does: the cursor's position when asked,
     // which brush's line editor asks for.
@@ -259,19 +264,24 @@ test("commands: stderr apart, input as it comes, signals, a terminal, the embedd
     // oxlint-disable-next-line no-control-regex -- bracketed paste off, then its output.
     await seen(/\r\n\x1b\[\?2004l42\r\n/);
     process.kill('SIGKILL');
-    return { out, code: await process.exited };
+    const exit = await process.exited;
+    return { out, exit };
   });
   expect(terminal.out).toContain('\x1b[94m$((6*7))');
-  expect(terminal.code).toBe(137);
+  expect(terminal.exit).toEqual({ code: null, signal: 'SIGKILL' });
 
   // A port the embedder answers (as Tidewave's MCP bridge on 9832): from a
   // Node.js process and from a node.
   await page.evaluate(() =>
     window.sandbox.serve(
       9832,
-      (stream: { ondata: unknown; write(s: string): void; end(): void }) => {
+      (stream: {
+        onData(listener: (bytes: Uint8Array) => void): void;
+        write(s: string): void;
+        end(): void;
+      }) => {
         let request = '';
-        stream.ondata = (bytes: Uint8Array) => {
+        stream.onData((bytes: Uint8Array) => {
           request += new TextDecoder().decode(bytes);
           if (!request.includes('\r\n\r\n')) return;
           const path = request.split(' ')[1];
@@ -280,7 +290,7 @@ test("commands: stderr apart, input as it comes, signals, a terminal, the embedd
             `HTTP/1.1 200 OK\r\ncontent-type: text/plain\r\ncontent-length: ${body.length}\r\nconnection: close\r\n\r\n${body}`,
           );
           stream.end();
-        };
+        });
       },
     ),
   );
@@ -359,7 +369,7 @@ test('the ACP agent runs Claude Code through the Agent SDK, over pipes', async (
     );
   });
   const result = await page.evaluate(async () => {
-    const agent = window.sandbox.spawn('npx -y @agentclientprotocol/claude-agent-acp@0.85.1', {
+    const agent = window.sandbox.sh('npx -y @agentclientprotocol/claude-agent-acp@0.85.1', {
       cwd: '/work',
       env: { ANTHROPIC_BASE_URL: 'http://localhost:3456', ANTHROPIC_API_KEY: 'sk-ant-none' },
     });
@@ -466,7 +476,7 @@ test('a Phoenix app from an archive boots, and Tidewave answers on it', async ({
   expect(await page.evaluate(() => window.sandbox.root)).toBe('/work/demo');
   const startedAt = Date.now();
   await page.evaluate(() => {
-    const server = window.sandbox.spawn('mix phx.server');
+    const server = window.sandbox.sh('mix phx.server');
     window.embed.server = '';
     const keep = (bytes: Uint8Array) => (window.embed.server += new TextDecoder().decode(bytes));
     server.onStdout(keep);
@@ -490,9 +500,9 @@ test('a Phoenix app from an archive boots, and Tidewave answers on it', async ({
     const stream = await window.sandbox.connect(4000);
     const parts: Uint8Array[] = [];
     const done = new Promise<void>((resolve) => {
-      stream.ondata = (bytes: Uint8Array) => parts.push(bytes);
-      stream.onclose = resolve;
-      stream.onend = resolve;
+      stream.onData((bytes: Uint8Array) => parts.push(bytes));
+      stream.onClose(resolve);
+      stream.onEnd(resolve);
     });
     const body = JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} });
     stream.write(
@@ -532,15 +542,17 @@ test('only the sites the playground names may embed it, at its OTP and Elixir', 
   await page.goto(EMBEDDER);
   const refused = await page.evaluate(async () => {
     const { create } = await window.embed.module;
-    return create({ runtime: { otp: '28.0', elixir: '1.18.0' }, project: { template: 'empty' } })
+    return create({ requires: { otp: '^28.0', elixir: '~1.18.0' }, project: { template: 'empty' } })
       .then(() => 'created')
       .catch((error: Error & { code?: string }) => `${error.code}: ${error.message}`);
   });
-  expect(refused).toMatch(/^ERUNTIME: run-elixir.dev runs OTP 29\.1\.2 and Elixir 1\.20\.4/);
+  expect(refused).toBe(
+    'ERUNTIME: run-elixir.dev runs OTP 29.1.2 and Elixir 1.20.4, not OTP ^28.0 and Elixir ~1.18.0 as asked for',
+  );
   // The API's version, as embed.html answers it.
   await embedded(page, { template: 'empty' });
   expect(await page.evaluate(() => window.sandbox.hello)).toMatchObject({
-    apiVersion: 1,
+    apiVersion: 2,
     runtime: { otp: '29.1.2', elixir: '1.20.4' },
   });
   console.log(`${browserName}: refused as it should`);
@@ -550,14 +562,14 @@ test("a kept project's files, and ~/.claude, are there again after a reload", as
   page,
   browserName,
 }) => {
-  const project = { id: 'tidewave-test-app', template: 'phoenix' };
-  const cold = await embedded(page, project, { persist: true });
+  const project = { id: 'tidewave-test-app', template: 'phoenix', persist: true };
+  const cold = await embedded(page, project);
   await page.evaluate(async () => {
     await window.sandbox.fs.write('/work/playground/kept.txt', 'kept');
     await window.sandbox.fs.write('/home/user/.claude/.credentials.json', '{"token":"x"}');
     await window.sandbox.shutdown();
   });
-  const warm = await embedded(page, project, { persist: true });
+  const warm = await embedded(page, project);
   console.log(`${browserName}: create() cold ${Math.round(cold)} ms, warm ${Math.round(warm)} ms`);
   const read = (path: string) =>
     page.evaluate(async (at) => new TextDecoder().decode(await window.sandbox.fs.read(at)), path);
@@ -565,7 +577,7 @@ test("a kept project's files, and ~/.claude, are there again after a reload", as
   expect(await read('/home/user/.claude/.credentials.json')).toBe('{"token":"x"}');
   const startedAt = Date.now();
   await page.evaluate(() => {
-    const server = window.sandbox.spawn('mix phx.server');
+    const server = window.sandbox.sh('mix phx.server');
     window.embed.server = '';
     const keep = (bytes: Uint8Array) => (window.embed.server += new TextDecoder().decode(bytes));
     server.onStdout(keep);
@@ -595,11 +607,11 @@ test("after a reload, npx and npm install take a kept project's packages without
     return route.continue();
   });
   const metadata = () => registry.filter((url) => !url.includes('/-/'));
-  const project = { id: 'npm-kept', template: 'empty' };
+  const project = { id: 'npm-kept', template: 'empty', persist: true };
   const acp = 'npx -y @agentclientprotocol/claude-agent-acp@0.85.1 --version';
   const npm = (command: string) => run(page, command, { cwd: '/work/app' });
 
-  await embedded(page, project, { persist: true });
+  await embedded(page, project);
   expect(await run(page, acp)).toMatchObject({ stdout: '0.85.1\n', code: 0 });
   await page.evaluate(() => window.sandbox.fs.write('/work/app/package.json', '{}\n'));
   expect((await npm('npm install ms@2.1.3 cowsay@1.6.0')).code).toBe(0);
@@ -608,7 +620,7 @@ test("after a reload, npx and npm install take a kept project's packages without
   );
   await page.evaluate(() => window.sandbox.shutdown());
 
-  await embedded(page, project, { persist: true });
+  await embedded(page, project);
   registry.length = 0;
   expect(await run(page, acp)).toMatchObject({ stdout: '0.85.1\n', code: 0 });
   console.log(`${browserName}: npx after a reload, ${registry.length} registry requests`);
@@ -636,7 +648,11 @@ test('a child with stdio inherit has the terminal', async ({ page }) => {
   ].join('; ');
   const parent = `require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(child)}], { stdio: 'inherit' }).on('exit', (c) => console.log('child exited', c, process.stdin.isRaw))`;
   const result = await page.evaluate(async (script) => {
-    const process = window.sandbox.spawn(['node', '-e', script], { tty: { cols: 100, rows: 30 } });
+    const process = window.sandbox.terminal({
+      cols: 100,
+      rows: 30,
+      command: ['node', '-e', script],
+    });
     let out = '';
     process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
     const seen = (text: string) =>
@@ -656,7 +672,7 @@ test('a child with stdio inherit has the terminal', async ({ page }) => {
     // One key, no Enter: raw, so it reaches the child as it is.
     process.write('q');
     await seen('child exited');
-    const code = await process.exited;
+    const { code } = await process.exited;
     return { out, code };
   }, parent);
   // (console.log colours its values on a tty.)

@@ -38,7 +38,7 @@ per-call allocation.
 | `programs.ts` | worker, Node | `make` (a package's NIF library built to WebAssembly, the site's or the backend's), and stubs for `esbuild` and `tailwind` (the page's replace them; the Node harness keeps them). |
 | `nif.ts` | worker, Node | NIF libraries built to WebAssembly, each in an instance beside the node. |
 | `vfs.ts` | worker, Node | Files for code beside the node (shell builtins, programs): local and shared paths as one. |
-| `terminal.ts` | page | A shell's line discipline, one per shell (the project's, not each xterm.js's): keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT); raw without signals while a page program asks (Node's setRawMode): Ctrl+C is a key too. Ctrl+D on an empty line is the end of input, for a page program reading the terminal. |
+| `terminal.ts` | exec frame | A terminal's line discipline, one per process on a terminal (the exec frame's process API keeps it, for the IDE's terminals and `embed.html`'s alike; not each xterm.js's), and its ONLCR: keys in, echo into the shell's output. Cooked: echo, editing, history (seeded with the lines the shell ran first), pastes, Ctrl+C; tab and other control keys are dropped. Raw while the node asks for it (IEx's line editing): keys go through as typed, Ctrl+C still interrupts (the node's SIGINT); raw without signals while a page program asks (Node's setRawMode): Ctrl+C is a key too. Ctrl+D on an empty line is the end of input, for a page program reading the terminal. |
 | `sw.ts` (`/sw.js`) | service worker | Sends a preview's requests to its project's page. |
 | `https.ts` | page | HTTPS for the node: the gateway of patch 0020, which answers its first line with `fetch` (then each HTTP/1.1 request on the connection with a fetch of `https://NAME[:PORT]/path`) or `tcp` (a TCP connection to the host, Tailscale's or the site's relay's, over which the node does TLS: [tailscale.md](tailscale.md), [relay.md](relay.md)). |
 | `relay.ts` | page | The site's TCP relay ([relay.md](relay.md)): for the gateway's `tcp`, a TCP connection to a listed host on 443 made by the backend, over one WebSocket for all of them; `relayed(host, port)`, which connections go there. |
@@ -249,7 +249,7 @@ history, Ctrl+R searches it, and a line that does not end a command (a
 `for` … `done` over several lines) goes on. It runs on crossterm, whose WASI
 backend (`brush/patches/crossterm/`) is the host's terminal through three
 imports (`crossterm.raw_mode`, `size`, and `read`, the terminal's input
-within a timeout; `worker/brush.ts`): the page's line discipline is raw
+within a timeout; `worker/brush.ts`): the terminal's line discipline is raw
 while reedline reads, and Ctrl+C reaches it as `\x03`. reedline asks the
 terminal where its cursor is (`ESC [ 6 n`): a shell's screen on the page
 (`screen` in `playground.ts`, an xterm `Terminal` that is always fed,

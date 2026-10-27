@@ -20,7 +20,8 @@ export const HOST: Host = declared;
 // OTP's versions have up to four parts (26.2.5.3), semver's three.
 const loose = (version: string) => coerce(version)?.version ?? version;
 
-const fits = (version: string, range: string) =>
+// Whether a version is in a semver range.
+export const fits = (version: string, range: string) =>
   validRange(range) !== null && satisfies(loose(version), range);
 
 // What is wrong with the site for this runtime: nothing when it fits.

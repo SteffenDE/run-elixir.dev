@@ -30,7 +30,8 @@ const LINGER = 30_000;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-const listed = (host: string, names: string[]) => {
+// Whether `names` lists the host ('*.github.com': its subdomains).
+export const listed = (host: string, names: string[]) => {
   host = host.toLowerCase().replace(/\.$/, '');
   return names.some((name) =>
     name.startsWith('*.') ? host.endsWith(name.slice(1)) : host === name,

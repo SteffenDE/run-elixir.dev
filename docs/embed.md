@@ -16,27 +16,29 @@ frames on the usercontent domain. Frames communicate through
 `postMessage` and MessagePorts. See [frames.md](frames.md) for the origin
 model.
 
-`embed.html` reuses the IDE's runtime startup, services, preview relays,
-Claude Code cache frame, and terminal line discipline. It does not need
-the embedder to host its own copy of those runtimes.
+`embed.html` reuses the IDE's runtime startup, services, preview relays
+and Claude Code cache frame. Its processes are the exec frame's, as the
+IDE's terminals are, line discipline included. It does not need the
+embedder to host its own copy of those runtimes.
 
-## The API (apiVersion 1)
+## The API (apiVersion 2)
 
 ```js
 import { create } from 'https://run-elixir.dev/embed.js';
 
 const sandbox = await create({
-  runtime: { otp: '29.1.2', elixir: '1.20.4' }, // must be the site's (below)
-  project: { id: 'my-project', template: 'phoenix' },               // or 'empty', or { archive: url }
-  // project.id: the embedder's own name for it; the same name is the same project
-  persist: true,          // keep /work, /home (~/.claude, ~/.npm) and Postgres
-  env: { ANTHROPIC_API_KEY: '…' },                // every command's
-  relay: true,            // the site's TCP relay for GitHub, Anthropic's API, … (relay.md); off by default
-  container: document.body,                       // where the 1px frame goes
+  requires: { otp: '^29.1', elixir: '~1.20.4' },  // semver ranges; ERUNTIME if the site's are not in them
+  project: { id: 'my-project', template: 'phoenix', persist: true },  // or 'empty', or { archive: url }
+  // id: the embedder's own name for it; the same name is the same project.
+  // persist: keep /work, /home (~/.claude, ~/.npm) and Postgres; needs an id.
+  env: { ANTHROPIC_API_KEY: '…' },                 // every command's
+  relay: ['github.com', 'api.anthropic.com'],      // hosts through the site's TCP relay (relay.md); none by default
+  container: document.body,                        // where the 1px frame goes
   onProgress: ({ phase, text }) => {},
 });
 sandbox.root;                 // the app's directory: /work/playground, /work/APP
-sandbox.hello;                // { apiVersion, apiVersions, runtime }
+sandbox.projectId;            // its key, the name of its origins
+sandbox.hello;                // { apiVersion, apiVersions, runtime: { otp, elixir } }
 
 await sandbox.fs.read(path);                     // Uint8Array
 await sandbox.fs.write(path, data, { exclusive, expectedSha256 });  // EEXIST, ESTALE
@@ -48,42 +50,53 @@ await sandbox.fs.rename(from, to);
 await sandbox.fs.copy(from, to);                 // a directory too
 const unwatch = sandbox.fs.watch(path, ({ path, type }) => {});  // 'changed' | 'deleted'
 
-const p = sandbox.spawn('mix test', { cwd, env });           // a shell line: sh -c
-const q = sandbox.spawn(['node', '-e', code]);               // words, quoted
-const t = sandbox.spawn(null, { tty: { cols: 80, rows: 24 } }); // an interactive shell
-p.onStdout(bytes => {}); p.onStderr(bytes => {}); p.onExit(code => {});
-p.write(data); p.closeStdin(); p.kill('SIGTERM'); p.resize(cols, rows);
-await p.exited;                                  // 128 + the signal's number when killed
+const p = sandbox.spawn(['mix', 'test'], { cwd, env });   // a program and its arguments, on pipes
+const q = sandbox.sh('mix test && echo ok', { cwd, env }); // a shell line: sh -c
+const t = sandbox.terminal({ cols: 80, rows: 24 });      // an interactive shell on a terminal
+const u = sandbox.terminal({ cols: 80, rows: 24, command: ['iex'] });  // a program on a terminal
+const off = p.onStdout((bytes) => {});           // each on… returns a function that stops listening
+p.onStderr((bytes) => {}); p.onExit(({ code, signal }) => {});
+p.write(data); p.end(); p.kill('SIGTERM'); p.resize(cols, rows);
+await p.exited;                                  // { code: 0, signal: null } or { code: null, signal: 'SIGTERM' }
 
 const stream = await sandbox.connect(4000);      // raw bytes to a sandbox server
 stream.write(bytes); stream.end(); stream.close();
-stream.ondata = bytes => {}; stream.onend = () => {}; stream.onclose = () => {};
-const stop = await sandbox.serve(9832, stream => {});  // 127.0.0.1:9832 answered here
-const origin = await sandbox.previewOrigin(4000);      // relay ready: frame `${origin}/…`
-sandbox.on('serving', ({ ports, port }) => {});        // also 'progress', 'changed', 'warning'
+stream.onData((bytes) => {}); stream.onEnd(() => {}); stream.onClose(() => {});
+const stop = await sandbox.serve(9832, (stream) => {});  // 127.0.0.1:9832 answered here
+const url = await sandbox.previewUrl(4000, '/tidewave?entrypoint=inner');  // relay ready: frame it
+const unsubscribe = sandbox.on('serving', ({ ports, port }) => {});  // also 'progress', 'changed', 'warning'
 await sandbox.shutdown();
 ```
 
 Errors carry POSIX's `code` (`ENOENT`, `EEXIST`, `ESTALE`, `ECONNREFUSED`,
-`ERUNTIME` for a runtime mismatch, `EACCES` for an origin not allowed).
-Output that comes before a listener is given to the first one.
+`EINVAL`, `ERUNTIME` for a runtime outside `requires` or a site whose
+packages do not fit, `EACCES` for an origin not allowed). Output and
+events that come before a listener are given to the first one.
 
-**Commands.** A command is `sh -c LINE` in a node of its own (brush, as
-the IDE's terminals run it): node commands, page programs (`node`, `npm`,
-`npx`, `git`, `claude`, …), coreutils.
+**Processes.** Every process is the exec frame's (`exec/host.ts`
+`spawn`), the IDE's terminals too: a node of its own, running `sh -c
+LINE` (brush, as the terminals run it). `spawn(argv)` quotes its words
+into that line. A process runs node commands, page programs (`node`,
+`npm`, `npx`, `git`, `claude`, …) and coreutils. Its environment is
+`create()`'s `env`, then its own, both under the playground's own
+variables (`PATH`, `HOME`, `MIX_HOME`, the preview's origins), as an
+IDE terminal's user settings are.
 
-- **Without `tty`:** pipes. Its input as it comes (`write`), then its end
-  (`closeStdin`); its stdout and stderr apart, through brush, its children,
-  a node's `standard_error`, page programs and Node.js's `child_process`
-  (below); its exit status.
-- **With `tty`:** a terminal. Keys go through a line discipline in
-  `embed.html` (echo, editing, Ctrl+C as SIGINT, raw when the program asks:
-  brush's line editor, IEx, Node's `setRawMode`), as the IDE keeps it;
-  stdout and stderr are one stream (a shell draws its prompt on stderr),
-  and a newline is CR LF (a tty's ONLCR). `resize` is SIGWINCH. The
-  terminal must answer the cursor-position query (`ESC [ 6 n`) as
-  xterm.js does: brush's line editor waits for it, and starts again
-  without.
+- **On pipes** (`spawn`, `sh`): its input as it comes (`write`), then its
+  end (`end`); its stdout and stderr apart, through brush, its children,
+  a node's `standard_error`, page programs and Node.js's `child_process`;
+  how it ended.
+- **On a terminal** (`terminal`): the exec frame keeps its line
+  discipline, as it does for the IDE's terminals: echo, editing, history,
+  Ctrl+C as SIGINT, raw when the program asks (brush's line editor, IEx,
+  Node's `setRawMode`). Output and errors are one stream (a shell draws its
+  prompt on stderr), on stdout, and a newline is CR LF (a tty's ONLCR).
+  `resize` is SIGWINCH. The terminal must answer the cursor-position query
+  (`ESC [ 6 n`) as xterm.js does: brush's line editor waits for it, and
+  starts again without. The answer goes to the program as it is.
+- **Signals:** `kill('SIGINT')` is Ctrl+C (a node's break, a program's
+  stop), and the program decides how it ends. Another signal ends the
+  process at once: `{ code: null, signal }`.
 - **`CLAUDE_CODE_EXECUTABLE`** is `/usr/bin/claude` in every command's
   environment, so claude-agent-acp (and the Agent SDK under it) runs the
   playground's Claude Code ([nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets)).
@@ -98,16 +111,21 @@ Node.js process (`fetch`, `net`), carried as Postgres's are
 (`exec/host.ts` `apex`). A stream's messages are `{ data }`, `{ end:
 true }` and `{ close: true }` (`runtime/portConnection.ts`).
 
-**The preview.** `previewOrigin(port)` makes the port's relay frame and
-answers its origin, `https://v-ID-PORT.USERCONTENT`; the embedder frames
-it itself (Tidewave: `${origin}/tidewave?entrypoint=inner`). The
-embedder's frame and the relay are both under the embedder's top-level
+**The preview.** `previewUrl(port, path)` makes the port's relay frame and
+answers the page's URL, `https://v-ID-PORT.USERCONTENT/path`; the embedder
+frames it itself (Tidewave: `previewUrl(4000, '/tidewave?entrypoint=inner')`).
+The embedder's frame and the relay are both under the embedder's top-level
 site, so the browser gives them one storage partition and the relay's
 service worker answers the embedder's frame (checked in Chromium,
 Firefox and WebKit). The bridge takes the embedder's origin for the
 IDE's: the app's `frame-ancestors` take it, and the preview's first
 frame tells it where it is (`playground-location`) and answers
 `playground-snapshot`.
+
+**The relay.** `relay` names the hosts the project's code may reach
+through the site's TCP relay, as the relay's own list names them
+(`'*.github.com'`: its subdomains). The relay still connects only to its
+own list's hosts ([relay.md](relay.md)).
 
 ### The handshake and versions
 
@@ -122,17 +140,23 @@ frame tells it where it is (`playground-location`) and answers
 The API grows by adding calls, options, fields and events, never by
 changing them: `embed.js` comes from a stable URL (no-cache), but an
 embedder's page may stay open across a deploy, with the older client
-and the newer `embed.html`. A breaking change would be apiVersion 2,
-with 1 still answered.
+and the newer `embed.html`. A breaking change is a new apiVersion.
+apiVersion 2 (2026-10-27) replaced 1 without answering it: `requires`
+for `runtime`, `persist` in `project`, `relay` as hosts, `spawn`/`sh`/
+`terminal` for `spawn(string | string[] | null)`, `{ code, signal }`
+exits, `on…` methods that return their unsubscribe for the streams'
+`on…` properties, and `previewUrl` for `previewOrigin`.
 
 **The runtime's versions** are the contract for an embedder's code:
-OTP 29.1.2 and Elixir 1.20.4 (the OTP and Elixir packages in
+OTP 29.1.2 and Elixir 1.20.4 today (the OTP and Elixir packages in
 `r/RID/site.json`, written by `build.py` from the installation:
-[packages.md](packages.md)). The exec frame also checks the site's
-packages against its runtime as it starts, and fails with `ERUNTIME`. An embedder's `.beam` files compiled
-natively with that pair run on any later build of it. `create()` fails
-(`ERUNTIME`) when the deployed runtime is another. Older builds and
-runtimes (`b/ID/`, `r/RID/`) need not stay online for embedders.
+[packages.md](packages.md)). An embedder's `.beam` files compiled
+natively with that pair run on any later build of it; `requires` says
+which OTP and Elixir they need, and `create()` fails (`ERUNTIME`) when
+the deployed runtime is outside it. The exec frame also checks the
+site's packages against its runtime as it starts, and fails with
+`ERUNTIME`. Older builds and runtimes (`b/ID/`, `r/RID/`) need not stay
+online for embedders.
 
 ## Who may embed it
 
@@ -282,13 +306,13 @@ CORS ([deploy.md](deploy.md)).
 | Tidewave's CLI | Here |
 | --- | --- |
 | `/read`, `/write`, `/stat`, `/listdir`, `/mkdir`, `/delete`, `/copy`, `/move`; `watch:` | `fs.*`; `fs.watch` |
-| `/cmd`, `/shell`, `/which` | `spawn(line)` without a tty: stdout, stderr, status |
-| `terminal:` | `spawn(null or line, { tty })`, raw keys in, PTY output out |
-| ACP proxy | `spawn('npx -y @agentclientprotocol/claude-agent-acp@0.85.1')`, newline-delimited JSON-RPC on stdin/stdout, its logs on stderr |
+| `/cmd`, `/shell`, `/which` | `sh(line)` on pipes: stdout, stderr, how it ended |
+| `terminal:` | `terminal({ cols, rows, command })`, raw keys in, PTY output out |
+| ACP proxy | `spawn(['npx', '-y', '@agentclientprotocol/claude-agent-acp@0.85.1'])`, newline-delimited JSON-RPC on stdin/stdout, its logs on stderr |
 | reverse MCP bridge (`127.0.0.1:9832/socket/mcp-remote-client`) | `serve(9832, …)`: a tiny HTTP/1.1 server on the stream |
 | the app's `/tidewave/mcp`, `/config`, `/upload` | `connect(4000)`, raw HTTP |
 | the agent's own MCP (`localhost:4000/tidewave/mcp`) | inside the sandbox, as any connection |
-| the app frame | `previewOrigin(4000) + '/tidewave?entrypoint=inner'` |
+| the app frame | `previewUrl(4000, '/tidewave?entrypoint=inner')` |
 
 ## Measurements (2026-10-23)
 

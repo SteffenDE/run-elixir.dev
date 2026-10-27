@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # One trusted origin, and frames for what a project's code runs
@@ -83,8 +83,10 @@ apex's stays the apex's:
   the IDE's page for each connection through the tailnet and each name;
   the page decides (the project's answer, a live session's guests) and
   hands the connection's port to that worker.
-- **The terminals.** Their screens and line disciplines are the IDE's:
-  keys are echoed and edited there, and lines go to the node.
+- **The terminals.** Their screens are the IDE's; their line
+  disciplines are the frame's, one per process on a terminal
+  (`exec/host.ts` `spawn`, the process API that `embed.html` uses too):
+  the IDE sends the keys, and the echo comes back with the output.
 - **What the IDE changes** (a save, the tree's operations) is kept before
   the frame answers: the page may go at once (a reload), and the frame
   with it. What the nodes change is kept a second later, as before.

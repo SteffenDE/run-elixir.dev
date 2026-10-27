@@ -7,13 +7,14 @@
 // tabs. Everything the UI does to the project goes through here.
 import { Terminal } from '@xterm/xterm';
 import { EditStateManager } from '@pierre/diffs/edit';
-import type { ExecEvents, ExecStart } from '@/exec/host';
+import type { ExecEvents, ExecStart, ProcessStart } from '@/exec/host';
 import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
 import type { Connection, NifBuild } from '@/runtime/host/node';
 import type { GitOptions, GitOutput } from '@/runtime/host/git';
 import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
 import { PortConnection } from '@/runtime/portConnection';
-import { REPORT, lineDiscipline } from '@/runtime/terminal';
+import { REPORT } from '@/runtime/terminal';
+import { SIGNALS } from '@/runtime/signals';
 import { BUILD, SITE } from '@/shared/lib/build';
 import type { Rpc } from '@/shared/lib/rpc';
 import { startExecFrame } from '@/shared/lib/execFrame';
@@ -59,10 +60,11 @@ import { setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
 
 type Output = (text: string) => void;
 
-// A shell's node, as this page knows it: what it runs is the frame's.
+// A shell's node, as this page knows it: a process of the frame's
+// (exec/host.ts spawn), which keeps its line discipline.
 interface ShellNode {
+  // Keys typed (a terminal's, its reports too), as they come.
   input(text: string): void;
-  interrupt(): void;
   // Stops what runs now at once, the shell staying.
   terminate(): void;
   // The ports it serves on (a server's: not Mix's locks).
@@ -74,9 +76,6 @@ interface Session {
   node: ShellNode;
   backlog: string;
   listeners: Set<Output>;
-  // Its tty's line discipline: everyone's keys, one line being typed, and
-  // the command lines it ran first as if typed (the history).
-  discipline: ReturnType<typeof lineDiscipline>;
   // Its screen, whether a terminal shows it or not: it answers the cursor
   // position the shell's line editor asks for, and is what the shell
   // looks like (the visible terminals only show it; they do not answer).
@@ -275,7 +274,7 @@ export async function save(path: string, text: string): Promise<void> {
 
 // Keys typed into shell `id`'s terminal, here or by a live session's guest.
 export function keys(id: number, data: string): void {
-  sessions.get(id)?.discipline.keys(data);
+  sessions.get(id)?.node.input(data);
 }
 
 // The size of shell `id`'s terminal, for the node's line editing.
@@ -334,33 +333,35 @@ export function openTerminal(initial: string[] = []): number {
   const session: Session = {
     id,
     node: {
-      input: (text) => void rpc.call('input', [id, text]),
-      interrupt: () => void rpc.call('interrupt', [id]),
-      terminate: () => void rpc.call('terminate', [id]),
+      input: (text) => {
+        const bytes = encoder.encode(text);
+        void rpc.call('input', [id, bytes], [bytes.buffer]);
+      },
+      terminate: () => void rpc.call('stopForeground', [id]),
       serving: new Set(),
     },
     backlog: '',
     listeners: new Set(),
-    discipline: null as unknown as Session['discipline'],
     screen: new Terminal({ cols: 80, rows: 24, convertEol: true, scrollback: 5000 }),
     decoder: new TextDecoder(),
   };
+  // The screen answers the shell's line editor's questions (the cursor's
+  // position); the frame passes them on as they are.
   session.screen.onData((data) => {
     if (REPORT.test(data)) session.node.input(data);
   });
-  session.discipline = lineDiscipline(
-    (text) => emit(session, text),
-    {
-      input: (text) => session.node.input(text),
-      interrupt: () => session.node.interrupt(),
-    },
-    initial,
-  );
   sessions.set(id, session);
   // None of the user's settings while a live session's guest may type, at
   // the host's choice.
   const env = useLive.getState().settingsOff && guestMayType() ? {} : settings.env;
-  void rpc.call('openShell', [id, { initial, env }]);
+  void rpc.call('spawn', [
+    id,
+    {
+      initial,
+      env,
+      tty: { cols: session.screen.cols, rows: session.screen.rows },
+    } satisfies ProcessStart,
+  ]);
   useStore.getState().addTerminal(id);
   return id;
 }
@@ -375,7 +376,7 @@ export function closeTerminal(id: number): void {
   if (id === FIRST_SESSION) return;
   sessions.get(id)?.screen.dispose();
   sessions.delete(id);
-  void exec?.call('closeShell', [id]);
+  void exec?.call('signal', [id, SIGNALS.SIGKILL]);
   useStore.getState().removeTerminal(id);
 }
 
@@ -387,11 +388,11 @@ function listen(rpc: Rpc): void {
     rpc.on<ExecEvents[K]>(event, (data) => {
       if (exec === rpc) listener(data);
     });
-  on('output', ({ id, bytes }) => {
+  on('processOutput', ({ id, bytes }) => {
     const session = sessions.get(id);
     if (session) emit(session, session.decoder.decode(bytes, { stream: true }));
   });
-  on('status', ({ id, text }) => {
+  on('processStatus', ({ id, text }) => {
     if (id !== FIRST_SESSION) return;
     const store = useStore.getState();
     if (text === 'running') {
@@ -401,10 +402,9 @@ function listen(rpc: Rpc): void {
       store.failedToStart(text.replace(/^failed: /, ''));
     } else store.setStatus(text);
   });
-  on('terminal', ({ id, raw, signals }) => sessions.get(id)?.discipline.raw(raw, signals));
-  on('serving', ({ ports, port, byShell, scripts }) => {
+  on('serving', ({ ports, port, byProcess, scripts }) => {
     scriptPorts = new Set(scripts);
-    for (const [id, served] of Object.entries(byShell)) {
+    for (const [id, served] of Object.entries(byProcess)) {
       const session = sessions.get(Number(id));
       if (session) session.node.serving = new Set(served);
     }
@@ -767,6 +767,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
           remember: (cookie: string) => rpc.call<string[]>('remember', [cookie]),
         },
         openTerminal,
+        // Keys typed into a shell's terminal (its line discipline's).
+        keys,
         shareable,
         previewSnapshot,
         // For a bug hunt: what is under way between the page and its nodes

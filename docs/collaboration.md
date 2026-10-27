@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # Sharing and live sessions
@@ -236,8 +236,9 @@ in anyone's editor is not searched.
 The host sends each terminal's output, in batches of 30 ms, to everyone.
 A guest's terminal fits its own panel; the node keeps the host's size, so
 a narrower guest sees long lines wrapped where the host's terminal wraps
-them. A shell has one line discipline, on the host's page
-(`runtime/terminal.ts`), as a tty has one driver: everyone's keys go to
+them. A shell has one line discipline, in the host's exec frame
+(`runtime/terminal.ts`, kept by `exec/host.ts` for each process on a
+terminal), as a tty has one driver: everyone's keys go to
 it, and its echo is part of the output, so everyone sees a line as it is
 typed, and one line is being typed at a time. With *Terminals*, the
 guest's keys go to it (`keys`, Ctrl+C too): the guest sees them once the
