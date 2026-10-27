@@ -81,10 +81,18 @@ export function checkSite(site: SiteManifest, host: Host = HOST): string[] {
           `the fs image was made with ${name}@${version}, not ${installed(name) ?? 'none'}`,
         );
   }
-  if (site.nif && otp && site.nif.beamAbi !== otp.playground.beamAbi)
-    problems.push(
-      `the NIF libraries are for BEAM ${site.nif.beamAbi}, not ${otp.playground.beamAbi}`,
-    );
+  const nifAbi = otp?.playground.nifAbi;
+  if (nifAbi) {
+    // The layer's protocol, which nif.ts speaks.
+    const layer = Number(nifAbi.split('-')[0]);
+    if (!host.provides.nif?.includes(layer))
+      problems.push(
+        `OTP's NIF ABI is ${nifAbi}; ${host.name}@${host.version} loads layer ` +
+          `${host.provides.nif?.join(', ') || 'none'}`,
+      );
+  }
+  if (site.nif && site.nif.nifAbi !== nifAbi)
+    problems.push(`the NIF libraries are for NIF ABI ${site.nif.nifAbi}, not ${nifAbi ?? 'none'}`);
   return problems;
 }
 

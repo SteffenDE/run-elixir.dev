@@ -74,10 +74,14 @@ test('argon2_elixir hashes with its lanes in turn, and picosat_elixir solves', a
   expect(used).toContain('{"$argon2id$", true, false, {:ok, [-1, 2]}, {:error, :unsatisfiable}}');
 });
 
-// Versions the site has not built come from the backend (/api/nif/,
+// Versions the site has not built come from the backend (/api/v1/nif/,
 // docs/backend.md), stubbed here: the node's worker asks through the
-// service worker, whose requests only Chromium lets a context route.
-const SITE_BCRYPT = '../target/nif/packages/bcrypt_elixir-3.3.2.tar';
+// service worker, whose requests only Chromium lets a context route. The
+// request names the NIF ABI the site's OTP loads (docs/nif.md).
+const NIF_ABI = '1-2.18';
+const SITE_BCRYPT = `../target/nif/libraries/${NIF_ABI}/bcrypt_elixir-3.3.2.tar`;
+const backend = (path: string) =>
+  new RegExp(`/api/v1/nif/${path.replace(/\./g, '\\.')}\\?abi=${NIF_ABI}$`);
 
 async function bcryptProject(page: Page, version: string): Promise<void> {
   await newProject(page, 'empty');
@@ -103,16 +107,16 @@ test('a version the site has not built waits for the backend, saying so', async 
   // Queued, then set up by the agent until the test has seen that, then built.
   let asked = 0;
   let seen = false;
-  await context.route('**/api/nif/bcrypt_elixir/3.3.1', (route) => {
+  await context.route(backend('bcrypt_elixir/3.3.1'), (route) => {
     asked += 1;
     const status = asked === 1 ? 'queued' : seen ? 'succeeded' : 'setting_up';
-    const url = '/api/nif/bcrypt_elixir/3.3.1/library.tar';
+    const url = '/api/v1/nif/bcrypt_elixir/3.3.1/library.tar';
     return route.fulfill({
       status: status === 'succeeded' ? 200 : 202,
       json: { package: 'bcrypt_elixir', version: '3.3.1', status, ...(seen && { url }) },
     });
   });
-  await context.route('**/api/nif/bcrypt_elixir/3.3.1/library.tar', (route) =>
+  await context.route('**/api/v1/nif/bcrypt_elixir/3.3.1/library.tar', (route) =>
     route.fulfill({ body: readFileSync(SITE_BCRYPT), contentType: 'application/x-tar' }),
   );
   await bcryptProject(page, '3.3.1');
@@ -140,7 +144,7 @@ test('a build the backend could not make says why, and make fails', async ({
 }) => {
   test.skip(browserName !== 'chromium', "only Chromium routes a service worker's requests");
   test.setTimeout(900_000);
-  await context.route('**/api/nif/bcrypt_elixir/3.3.0', (route) =>
+  await context.route(backend('bcrypt_elixir/3.3.0'), (route) =>
     route.fulfill({
       status: 422,
       json: { package: 'bcrypt_elixir', version: '3.3.0', status: 'failed', error: 'it broke' },

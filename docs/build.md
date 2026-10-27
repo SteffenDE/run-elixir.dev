@@ -38,7 +38,7 @@ rebar3), and builds the template with the host's Mix in
   git dependencies and the native tailwind and esbuild binaries.
 - **NIF builds,** optional: `python3 -I nif/build.py` first
   ([nif.md](nif.md)); the site takes what is in
-  `target/nif/packages` (also `build.py app`).
+  `target/nif/libraries/ABI` (also `build.py app`).
 - **brush:** `python3 -I brush/build.py` first (the
   `brush/src/` submodules, `git submodule update --init brush/src`: brush,
   crossterm and fd-lock, each with `brush/patches/NAME/`, in Docker, about

@@ -180,7 +180,7 @@ forever.
 
 A second site in Caddy for the usercontent domain, with a wildcard
 certificate of its own, its headers, the Hex and git proxies and
-`/api/nif/` ([deploy.md](deploy.md#the-two-domains)); `PLAYGROUND_USERCONTENT`
+`/api/v1/nif/` ([deploy.md](deploy.md#the-two-domains)); `PLAYGROUND_USERCONTENT`
 in the build, `USERCONTENT` in `playground-deploy`'s configuration, which
 checks an exec frame's headers there. The apex's subdomains stay for the
 former layout's addresses until their stores have moved.

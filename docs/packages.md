@@ -35,7 +35,7 @@ Every package except `runtime` peer-depends on `@elixir-playground/runtime`.
 | --- | --- | --- |
 | `runtime` | Node, files, git and Node.js workers; `sw.js`; the program registry; Node.js and npm; the RPC protocol; the frames' pages (`exec.html`, `relay.html`, `claude.html`) | none |
 | `api` | `create()`, `fs`, `spawn`, `connect`, `serve`. Runs in the embedder's page. | `runtime` |
-| `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (Emscripten build and glue); OTP's applications as fs bundles. Declares `beamAbi`. | `runtime` |
+| `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (Emscripten build and glue); OTP's applications as fs bundles. Declares `beamAbi` and `nifAbi`. | `runtime` |
 | `elixir-X` | Elixir's applications, Hex, rebar3 and phx_new as fs bundles. | `runtime` |
 | `phoenix-template` | The phx.new app with `deps/` and its `_build`, compiled for one OTP and Elixir pair. | `runtime`, `otp-X ^N`, `elixir-Y ^N` |
 | `shell` | `brush.wasm` (the shell) and `coreutils.wasm` (78 tools). The terminfo entry. | `runtime` |
@@ -161,7 +161,7 @@ Every key is optional. A package sets the keys that describe it.
 | `abi` | artifacts | `{ seam: version }`: the host ABI seams its files use ([below](#abi-seams)). |
 | `programs` | `shell`, `git`, `ripgrep`, `gnu-tools` | `{ name: file }`: programs the shell and nodes find by name. The program runs with `name` as `argv[0]`. Several names may share a multi-call module. |
 | `shell`, `tools` | `shell` | The shell's module (`brush.wasm`) and the tools' multi-call module (`coreutils.wasm`), which the exec frame compiles once for every node. |
-| `otp`, `beamAbi`, `beam` | `otp-X` | OTP's version, the build's id, and `{ loader, threads, wasm }`. |
+| `otp`, `beamAbi`, `nifAbi`, `beam` | `otp-X` | OTP's version, the build's id, the NIF ABI it loads, and `{ loader, threads, wasm }`. |
 | `elixir`, `requires.otp` | `elixir-X` | Elixir's version, and the OTP range it runs on. |
 | `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build. `otp` and `elixir` are the pair it was compiled with. |
 | `tls` | `tls` | `{ module, roots }`. |
@@ -184,6 +184,7 @@ For example (from today's build):
   "abi": { "beam": 1 },
   "otp": "29.1.2",
   "beamAbi": "a51ebfdb010b7d3e",
+  "nifAbi": "1-2.18",
   "beam": { "loader": "beam.mjs", "threads": "beam.emu.mjs", "wasm": "beam.wasm" }
 }
 ```
@@ -210,7 +211,7 @@ the build step writes for the installed set:
     "boots": ["boot", "boot-phoenix"],
     "packages": { "@elixir-playground/otp-29.1.2": "1.0.0" }
   },
-  "nif": { "base": "nif/", "beamAbi": "a51ebfdb010b7d3e", "libraries": ["bcrypt_elixir-3.3.2"] }
+  "nif": { "base": "nif/", "nifAbi": "1-2.18", "libraries": ["bcrypt_elixir-3.3.2"] }
 }
 ```
 
@@ -249,7 +250,8 @@ So the exec frame checks the site manifest again as it starts
 - the template's `otp` and `elixir` against the installed ones;
 - the fs image's format, and each of its `packages` at exactly the
   installed version;
-- the bundled NIF libraries' `beamAbi` against OTP's.
+- OTP's NIF ABI against the layers the runtime loads (`provides.nif`), and
+  the bundled NIF libraries' NIF ABI against OTP's.
 
 `build.py` checks each module's imports when it writes the manifest. Every
 import module must belong to a seam the package's `abi` names:
@@ -274,7 +276,7 @@ of each.
 | `tailscale` | `tailscale.wasm` and `wasm_exec.js` plus the Tailscale worker | 1 | Go's version (the glue), the worker's calls into the node | `tailscale`; moving `wasm_exec.js` into `tailscale` leaves only the worker's calls |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
 | `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings and keyed caches follow |
-| NIF ABI | a NIF library and `nif.ts` plus patch 0021 | not numbered | `beamos_nif_input`/`run`/`output`, the request and answer terms, OTP's `erl_nif.h` | see below |
+| `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
 | template pair | `phoenix-template` and OTP plus Elixir | exact versions | another OTP or Elixir | a new template build |
 | recordings | the boot images and the installed set | exact versions | any package with fs files changing | a new recording |
 | embedding API | `api` (`embed.js`) and the host (`embed.html`) | apiVersion 1 | [embed.md](embed.md#the-handshake-and-versions) | apiVersion 2, with 1 still answered |
@@ -287,13 +289,11 @@ numbered `beam` seam. `beamAbi` identifies a build for what is keyed by
 it.
 
 **The NIF ABI is not the BEAM's.** A NIF library is a WASI reactor in an
-instance of its own ([nif.md](nif.md)). It does not link against
-`beam.wasm`. It depends on the erl_nif layer's protocol (its three
-exports and the request terms) and on the `erl_nif.h` of the OTP it was
-compiled against. Keying NIF builds by `beamAbi`, as planned, rebuilds
-every library after an emsdk or patch change that does not affect them.
-A numbered `nifAbi` (the layer's protocol version plus OTP's NIF API
-version) would keep them valid. This is an open question below.
+instance of its own ([nif.md](nif.md#the-nif-abi)). It does not link
+against `beam.wasm`. It depends on the erl_nif layer's protocol and on the
+`erl_nif.h` of the OTP it was compiled against, so its ABI is `nifAbi`:
+`LAYER-MAJOR.MINOR`, such as `1-2.18`. An emsdk or patch change makes a
+new `beamAbi` and keeps every NIF library built so far.
 
 ## The build step (proposal)
 
@@ -315,7 +315,7 @@ depends on the installed set, which npm cannot provide:
   Cloudflare Pages): COOP, COEP, CORP, `frame-ancestors`, and caching
   (immutable under `/npm/`, `no-cache` for `sw.js` and the pages).
 
-NIF libraries stay a backend service (`/api/nif/`).
+NIF libraries stay a backend service (`/api/v1/nif/`, keyed by `nifAbi`).
 
 ## Usercontent: hosted or self-hosted
 
@@ -490,10 +490,11 @@ and live sessions (`/socket`).
   allowlists, as `PLAYGROUND_EMBEDDERS` does for `embed.html` today.
 - **Mount them.** The backend could become a Hex package an embedder adds
   to its own Phoenix app.
-- **Version the endpoints** (`/api/v1/nif/…`). An embedder's lockfile can
-  hold an `api` for months.
-- NIF builds are keyed by the BEAM build: `beamAbi` as planned, or a NIF
-  ABI ([above](#abi-seams)).
+- **Version the endpoints.** An embedder's lockfile can hold an `api` for
+  months. NIF builds are at `/api/v1/nif/NAME/VERSION?abi=NIF_ABI`
+  ([backend.md](backend.md#building-a-nif-library)).
+- NIF builds are keyed by `nifAbi`; the backend builds for one and refuses
+  others (409).
 
 ## Keeping apiVersion 1 and `embed.html`
 
@@ -528,7 +529,6 @@ not come along. A move needs an export or import, or must start fresh.
   Two pairs cannot both be `phoenix-template@1.x`. Either the pair goes in
   the name (`phoenix-template-otp-29.1.2-elixir-1.20.4`), or the major
   encodes it.
-- **NIF ABI vs `beamAbi`** ([above](#abi-seams)).
 - **fs format 2:** per-package manifests and bundles, and how a project's
   kept changes note what they were made over.
 - **Recordings for embedders without the plugin:** ship a recording with

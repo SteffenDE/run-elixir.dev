@@ -46,7 +46,7 @@ into a WASI reactor. The layer implements the API over terms of its own:
   iovecs (a library that uses them does not link). `enif_hash` is not
   ERTS's hash. `enif_make_existing_atom` makes the atom.
 
-**Exports.** `beamos_nif_input(size)` (room for a request),
+**Exports.** `beamos_nif_abi()` (the layer's protocol, [below](#the-nif-abi)), `beamos_nif_input(size)` (room for a request),
 `beamos_nif_run(size)` (the answer's size) and `beamos_nif_output()`
 (where it is). Requests and answers are external terms:
 
@@ -57,6 +57,30 @@ into a WASI reactor. The layer implements the API over terms of its own:
 
 `Module` is `ERL_NIF_INIT`'s name, `Index` a function's place in that
 list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
+
+### The NIF ABI
+
+A library depends on two things: the layer's protocol (its exports and the
+terms above) and the `erl_nif.h` it was compiled against. It does not link
+against `beam.wasm`. So a library's ABI is its own, written
+`LAYER-MAJOR.MINOR`: `1-2.18` is layer 1 (`BEAMOS_NIF_ABI` in
+`beamos_nif.c`) with OTP 29.1.2's `erl_nif.h` (`ERL_NIF_MAJOR_VERSION` 2,
+`ERL_NIF_MINOR_VERSION` 18). A rebuilt BEAM (another emsdk, another
+patch) keeps the NIF ABI, and with it every library built so far.
+
+- **A change to the exports or the terms** is a new `BEAMOS_NIF_ABI`, in
+  `beamos_nif.c` and in the runtime's `host.json` (`provides.nif`, which
+  `nif.ts` loads).
+- **The library says its layer:** `beamos_nif_abi()` returns it, and
+  `nif.ts` refuses a library of another layer, or one without the export,
+  before it runs (`erlang:load_nif` fails, saying which).
+- **The site names it:** the OTP package's `nifAbi` and the bundled
+  libraries' (`site.json`, [packages.md](packages.md)), which the
+  load-time check compares; `runtime/build.py` works it out from the
+  sources as `nif/build.py` does, and fails when `nif/include/erl_nif.h`
+  is not the BEAM build's own.
+- **The backend builds for one** and refuses requests for another
+  ([backend.md](backend.md#building-a-nif-library)).
 
 ## In the node
 
@@ -69,7 +93,7 @@ list, `Messages` what `enif_send` sent meanwhile, `[{Pid, Message}]`.
    library into `MIX_APP_PATH`, so `priv/bcrypt_nif.so` is where the
    Makefile would have put it: the site's `nif/NAME-VERSION.tar` when it
    has one, else the backend's ([backend.md](backend.md)), asked for at
-   `/api/nif/NAME/VERSION` on the page's origin (`worker.js`). While the
+   `/api/v1/nif/NAME/VERSION?abi=ABI` (the site's NIF ABI, above) on the page's origin (`worker.js`). While the
    backend builds it (`queued`, `running`, or `setting_up` while an agent
    writes a recipe), `make` asks again every 2 s, and the page shows a
    dialog with the status (a `nif` message, `NifBuildDialog`) that can be
@@ -102,8 +126,10 @@ does on ERTS without dirty schedulers.
 python3 -I nif/build.py [PACKAGE...]   # → target/nif
 ```
 
-The site build copies `target/nif/packages` to the site's
-`nif/` (`runtime/build.py`, also `build.py app`).
+`nif/build.py` writes them to `target/nif/libraries/ABI/`, `ABI` the
+[NIF ABI](#the-nif-abi) (`1-2.18`). The site build copies the site's own
+NIF ABI's to its `nif/` (`runtime/build.py`, also `build.py app`); those
+of another are left out.
 
 In the wasi-sdk image (Docker, pinned by digest): `beamos_nif.o`, then each
 package in `PACKAGES` from its Hex tarball, by its own Makefile with the

@@ -19,9 +19,12 @@ export interface Playground {
   // (coreutils.wasm), which the page compiles once for every node.
   shell?: string;
   tools?: string;
-  // otp-X: its version, the build's beamAbi id, and the emulator's files.
+  // otp-X: its version, the build's beamAbi id, the NIF ABI its libraries
+  // are built for ("LAYER-MAJOR.MINOR": the erl_nif layer's protocol and
+  // OTP's erl_nif.h, docs/nif.md), and the emulator's files.
   otp?: string;
   beamAbi?: string;
+  nifAbi?: string;
   beam?: { loader: string; threads: string; wasm: string };
   // elixir-X: its version, and the OTP it runs on (a semver range).
   elixir?: string;
@@ -64,11 +67,11 @@ export interface FsImage {
   packages: Record<string, string>;
 }
 
-// NIF libraries the site bundles (nif/NAME-VERSION.tar), for the BEAM
-// build `beamAbi` names.
+// NIF libraries the site bundles (nif/NAME-VERSION.tar), built for the
+// NIF ABI `nifAbi`.
 export interface NifLibraries {
   base: string;
-  beamAbi: string;
+  nifAbi: string;
   libraries: string[];
 }
 

@@ -60,6 +60,13 @@ COPY --chmod=0755 --from=nif nifcc /tools/nifc++
 # make-rootfs puts it in manifest.json, and builds are kept per toolchain.
 RUN cat /nif/include/* /nif/src/beamos_nif.c /tools/nifcc /opt/wasi-sdk/VERSION \
       | sha256sum | cut -c1-16 >/nif/toolchain
+# What a library can be loaded by (docs/nif.md): the layer's protocol and
+# its erl_nif.h's version, as nif/build.py works it out ("1-2.18"). Pages
+# ask for builds of one, and this backend makes only its own.
+RUN layer=$(sed -n 's/^#define BEAMOS_NIF_ABI \([0-9]*\)$/\1/p' /nif/src/beamos_nif.c) \
+    && major=$(sed -n 's/^#define ERL_NIF_MAJOR_VERSION \([0-9]*\)$/\1/p' /nif/include/erl_nif.h) \
+    && minor=$(sed -n 's/^#define ERL_NIF_MINOR_VERSION \([0-9]*\)$/\1/p' /nif/include/erl_nif.h) \
+    && echo "$layer-$major.$minor" >/nif/abi && grep -qx '[0-9][0-9]*-[0-9][0-9]*\.[0-9][0-9]*' /nif/abi
 
 # Jobs run as this user, in a tmpfs mounted at /workspace by the guest init.
 RUN groupadd --gid 1000 sandbox \

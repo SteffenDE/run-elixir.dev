@@ -201,7 +201,7 @@ building, written to `playground.json`; [frames.md](frames.md)):
   preparation), every response with
   COEP `require-corp` and `Cross-Origin-Resource-Policy: cross-origin`,
   for the apex's pages to frame. The same files; the Hex and git proxies
-  and `/api/nif/`, which the exec frame's nodes and programs request from
+  and `/api/v1/nif/`, which the exec frame's nodes and programs request from
   their own origin, plus `/relay` for TCP relay connections. Live sessions
   use `/socket` on the apex.
 
@@ -253,7 +253,7 @@ starts no project: its pages say so.
 # would run after them all).
 (proxies) {
 	@crosssite {
-		path /hex/* /git/* /api/nif/*
+		path /hex/* /git/* /api/v1/nif/*
 		header Sec-Fetch-Site cross-site
 	}
 	handle @crosssite {
@@ -333,7 +333,7 @@ run-elixir.dev, *.run-elixir.dev {
 	root * /srv/playground/run-elixir/current
 	import proxies
 	# The backend (backend.md): NIF builds, and /socket for live sessions.
-	@backend path /api/nif/* /socket /socket/*
+	@backend path /api/v1/nif/* /socket /socket/*
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000
 	}
@@ -356,7 +356,7 @@ run-elixir.dev, *.run-elixir.dev {
 	}
 	# NIF builds, which the exec frame's nodes fetch from their origin,
 	# and the TCP relay its gateway opens (relay.md).
-	@backend path /api/nif/* /relay
+	@backend path /api/v1/nif/* /relay
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000
 	}
@@ -389,7 +389,7 @@ python3 -I runtime/serve.py 8081 \
 
 Open `http://playground.localhost:8081`. The server serves
 `target/site` with the isolation headers, `no-cache` and the
-`index.html` fallback, and proxies `/hex/` as above, and `/api/nif/` to
+`index.html` fallback, and proxies `/hex/` as above, and `/api/v1/nif/` to
 the backend: production's (run-elixir.dev), or the one `--api URL`
 names (`--api http://localhost:4000` for a local `mix phx.server`). It
 does not compress. With `--domain playground.localhost:PORT --usercontent

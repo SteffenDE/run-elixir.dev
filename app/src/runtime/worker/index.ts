@@ -328,7 +328,7 @@ onmessage = async ({
     const fetchFile = bundled((bundle) => fetchBundle(packages.fs(`bundles/${bundle}.tar`)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
-    // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
+    // site's (nif/NAME-VERSION.tar), else the backend's (/api/v1/nif/, on this
     // origin, which may have to build it first: docs/backend.md).
     const nif: NifSource = (name, version, report) =>
       siteNif(name, version) ?? backendNif(channel, name, version, report);

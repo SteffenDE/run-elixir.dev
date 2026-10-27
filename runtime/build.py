@@ -473,11 +473,12 @@ def page(out, wasm):
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
     shutil.rmtree(NODE, ignore_errors=True)
     shutil.copytree(os.path.join(source, "dist-node"), NODE)
-    # Packages' NIF libraries built to WebAssembly (nif/build.py),
-    # which the node's make fetches.
-    packages = os.path.join(ROOT, "target", "nif", "packages")
+    # Packages' NIF libraries built to WebAssembly (nif/build.py) for this
+    # NIF ABI, which the node's make fetches; others are another layer's.
+    shutil.rmtree(os.path.join(out, "nif"), ignore_errors=True)
+    packages = os.path.join(ROOT, "target", "nif", "libraries", nif_abi())
     if os.path.isdir(packages):
-        shutil.copytree(packages, os.path.join(out, "nif"), dirs_exist_ok=True)
+        shutil.copytree(packages, os.path.join(out, "nif"))
     for name, built in wasm.items():
         shutil.copy(built, os.path.join(out, f"{name}.wasm"))
     # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js process's
@@ -724,8 +725,9 @@ def wasm_interface(path):
 
 def beam_abi(out):
     """The BEAM build's id: OTP's tag and the patch stack (beam/build.sh's
-    stamp), emsdk's version and beam.wasm's imports and exports. What a NIF
-    build and a recording are keyed by (docs/packages.md)."""
+    stamp), emsdk's version and beam.wasm's imports and exports. What the
+    recordings are made for (docs/packages.md); NIF libraries have their
+    own ABI (nif_abi)."""
     stamp = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", ".stamp-patched")
     try:
         emsdk = subprocess.run(["emcc", "--version"], capture_output=True, text=True).stdout.split("\n")[0]
@@ -736,6 +738,22 @@ def beam_abi(out):
         "patches": open(stamp).read().strip() if os.path.exists(stamp) else "",
         "emsdk": emsdk, "imports": sorted(imports), "exports": sorted(exports)}).encode())
     return hashed.hexdigest()[:16]
+
+
+def nif_abi():
+    """The NIF ABI (docs/nif.md): the erl_nif layer's protocol and the
+    erl_nif.h it is compiled with, "BEAMOS_NIF_ABI-MAJOR.MINOR" (1-2.18),
+    as nif/build.py has it. That erl_nif.h must be the BEAM build's own."""
+    version = lambda path: ".".join(
+        re.search(rf"^#define ERL_NIF_{part}_VERSION (\d+)$", open(path).read(), re.M).group(1)
+        for part in ("MAJOR", "MINOR"))
+    header = version(os.path.join(ROOT, "nif", "include", "erl_nif.h"))
+    beam = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", "erts", "emulator", "beam", "erl_nif.h")
+    if os.path.exists(beam) and version(beam) != header:
+        sys.exit(f"nif/include/erl_nif.h is NIF {header}, the BEAM's {version(beam)}: copy OTP's")
+    with open(os.path.join(ROOT, "nif", "beamos_nif.c")) as f:
+        layer = re.search(r"^#define BEAMOS_NIF_ABI (\d+)$", f.read(), re.M).group(1)
+    return f"{layer}-{header}"
 
 
 def file_entry(path):
@@ -762,7 +780,7 @@ def site_manifest(out, facts):
     otp, elixir = versions["otp"], versions["elixir"]
     named = lambda key: f"{SCOPE}/" + key.format(otp=otp, elixir=elixir)
     filled = {
-        "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"]},
+        "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"], "nifAbi": nif_abi()},
         "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
         "phoenix-template": {"template": {"kind": "phoenix", "id": facts["template"],
                                           "label": f"phx.new {PHX_NEW}", "otp": otp, "elixir": elixir}},
@@ -797,7 +815,7 @@ def site_manifest(out, facts):
         "fs": {"base": "fs/", "format": 1, "version": facts["fs"],
                "boots": sorted(name[:-7] for name in os.listdir(fs) if re.match(r"boot.*\.tar\.gz$", name)),
                "packages": {named(key): PACKAGES[key]["version"] for key in FS_PACKAGES}},
-        "nif": {"base": "nif/", "beamAbi": facts["beamAbi"],
+        "nif": {"base": "nif/", "nifAbi": nif_abi(),
                 "libraries": sorted(name[:-4] for name in os.listdir(nif) if name.endswith(".tar"))}
         if os.path.isdir(nif) else None,
     }

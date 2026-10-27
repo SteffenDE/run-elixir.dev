@@ -2,11 +2,14 @@ defmodule PlaygroundWeb.NifController do
   @moduledoc """
   A package version's NIF library, for the playground's `make`.
 
-  `GET /api/nif/:package/:version` answers the build's status, queueing it
-  when there is none: 200 with `url` once it succeeded, 202 while it is
-  queued, running or being set up (ask again), 422 when it failed or there
-  is nothing to build (`error` says why), 404 for a version Hex does not
-  have. `url` is a path: the page asks on its own origin, through the proxy. `GET .../library.tar` is the library's archive: the app's `priv`
+  `GET /api/v1/nif/:package/:version?abi=ABI` answers the build's status,
+  queueing it when there is none: 200 with `url` once it succeeded, 202
+  while it is queued, running or being set up (ask again), 422 when it
+  failed or there is nothing to build (`error` says why), 404 for a version
+  Hex does not have. `abi` is the NIF ABI the page's OTP loads
+  (`Playground.Nif.nif_abi/0`); another than this backend's is 409, and none
+  is 400. `url` is a path: the page asks on its own origin, through the
+  proxy. `GET .../library.tar` is the library's archive: the app's `priv`
   files, which `make` unpacks into the app's directory.
   """
 
@@ -14,7 +17,26 @@ defmodule PlaygroundWeb.NifController do
 
   alias Playground.Nif
 
-  def show(conn, %{"package" => package, "version" => version}) do
+  def show(conn, %{"package" => package, "version" => version} = params) do
+    case params["abi"] do
+      nil ->
+        conn |> put_status(400) |> json(%{error: "name the NIF ABI the page loads (?abi=)"})
+
+      abi ->
+        if abi == Nif.nif_abi(),
+          do: build(conn, package, version),
+          else:
+            conn
+            |> put_status(409)
+            |> json(%{
+              error:
+                "this backend builds NIF libraries for NIF ABI #{Nif.nif_abi()}, " <>
+                  "not the page's #{abi}"
+            })
+    end
+  end
+
+  defp build(conn, package, version) do
     case Nif.request(package, version) do
       {:ok, build} ->
         conn |> put_status(status(build.status)) |> json(describe(build))
@@ -59,7 +81,7 @@ defmodule PlaygroundWeb.NifController do
           app: build.app,
           sha256: build.sha256,
           size: build.size,
-          url: ~p"/api/nif/#{build.package}/#{build.version}/library.tar"
+          url: ~p"/api/v1/nif/#{build.package}/#{build.version}/library.tar"
         })
 
       status when status in ["failed", "unsupported"] ->

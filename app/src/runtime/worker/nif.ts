@@ -48,7 +48,13 @@ export function backendNif(
   version: string,
   report: (text: string) => void,
 ): Uint8Array | string | null {
-  const api = site(`/api/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}`);
+  // The NIF ABI the site's OTP loads (docs/nif.md): the backend builds for
+  // one, and refuses a request for another.
+  const abi = artifacts().find('nifAbi')?.value ?? '';
+  const api = site(
+    `/api/v1/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}` +
+      `?abi=${encodeURIComponent(abi)}`,
+  );
   const tell = (status: string | undefined, error: string | null = null) =>
     postMessage({ kind: 'nif', name, version, status, error });
   let last: string | null | undefined = null;

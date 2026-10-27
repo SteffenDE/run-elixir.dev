@@ -83,7 +83,7 @@ connect-src ORIGIN/r/ data: blob:
 - **Threads** (`threads.ts`) start from blobs, which inherit the policy.
 - **`connect-src`:** the runtime's files (`tls.wasm`, `roots.pem`), and
   `data:` and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec
-  origin also serves `/git/`, `/hex/` and `/api/nif/`.
+  origin also serves `/git/`, `/hex/` and `/api/v1/nif/`.
 - **`'unsafe-eval'`** for the loader's CommonJS wrapper, and
   **`'wasm-unsafe-eval'`** for tls.wasm and `node:wasi`.
 

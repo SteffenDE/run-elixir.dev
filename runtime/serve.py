@@ -3,7 +3,7 @@ with the cross-origin isolation SharedArrayBuffer needs, index.html for
 paths that are no file (a project's /ID/), Hex's repository at /hex/
 (repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
 clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
-does in production; and the backend's NIF builds at /api/nif/ and its
+does in production; and the backend's NIF builds at /api/v1/nif/ and its
 sockets at /socket (live sessions' relay, docs/collaboration.md) and
 /relay (the TCP relay, docs/relay.md), from
 production's unless --api names another backend (http://localhost:4000,
@@ -118,7 +118,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return True
 
     # The backend's NIF builds (docs/backend.md): its answers as they are.
-    API = re.compile(r"^/api/nif/[A-Za-z0-9_]+/[A-Za-z0-9_.+-]+(/library\.tar)?$")
+    API = re.compile(r"^/api/v1/nif/[A-Za-z0-9_]+/[A-Za-z0-9_.+-]+(/library\.tar)?$")
 
     def proxy_api(self):
         if not self.API.match(self.path.split("?")[0]):

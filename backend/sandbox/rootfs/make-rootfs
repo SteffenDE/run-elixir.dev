@@ -23,5 +23,6 @@ printf 'label: gpt\nstart=1MiB, size=%sMiB, type=linux\n' "$size_mib" | sfdisk -
 dd if="$filesystem" of="$disk" bs=1M seek=1 conv=notrunc,sparse status=none
 rm "$filesystem"
 
-printf '{"partition_uuid": "%s", "toolchain": "%s"}\n' \
-  "$(sfdisk --part-uuid "$disk" 1)" "$(cat "$rootfs/nif/toolchain")" >"$output/manifest.json"
+printf '{"partition_uuid": "%s", "toolchain": "%s", "nif_abi": "%s"}\n' \
+  "$(sfdisk --part-uuid "$disk" 1)" "$(cat "$rootfs/nif/toolchain")" "$(cat "$rootfs/nif/abi")" \
+  >"$output/manifest.json"

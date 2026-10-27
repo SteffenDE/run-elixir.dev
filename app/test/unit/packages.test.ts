@@ -23,6 +23,7 @@ function site(): SiteManifest {
           abi: { beam: 1 },
           otp: '29.1.2',
           beamAbi: 'b1',
+          nifAbi: '1-2.18',
           beam: { loader: 'beam.mjs', threads: 'beam.emu.mjs', wasm: 'beam.wasm' },
         },
       },
@@ -82,7 +83,7 @@ function site(): SiteManifest {
       boots: ['boot', 'boot-phoenix'],
       packages: { [OTP]: '1.2.0', [ELIXIR]: '1.0.3', [TEMPLATE]: '1.0.0' },
     },
-    nif: { base: '../nif/', beamAbi: 'b1', libraries: ['bcrypt_elixir-3.3.2'] },
+    nif: { base: '../nif/', nifAbi: '1-2.18', libraries: ['bcrypt_elixir-3.3.2'] },
   };
 }
 
@@ -207,10 +208,22 @@ describe('the load-time check', () => {
     expect(checkSite(format)).toEqual(['the fs image is format 2; this runtime reads 1']);
   });
 
-  it('refuses NIF libraries of another BEAM build', () => {
+  it('refuses NIF libraries of another NIF ABI, not of another BEAM build', () => {
     const manifest = site();
-    manifest.nif!.beamAbi = 'b0';
-    expect(checkSite(manifest)).toEqual(['the NIF libraries are for BEAM b0, not b1']);
+    manifest.nif!.nifAbi = '1-2.17';
+    expect(checkSite(manifest)).toEqual(['the NIF libraries are for NIF ABI 1-2.17, not 1-2.18']);
+    const rebuilt = site();
+    rebuilt.packages[OTP].playground.beamAbi = 'b2';
+    expect(checkSite(rebuilt)).toEqual([]);
+  });
+
+  it('refuses an OTP whose NIF layer this runtime does not load', () => {
+    const manifest = site();
+    manifest.packages[OTP].playground.nifAbi = '2-2.18';
+    manifest.nif!.nifAbi = '2-2.18';
+    expect(checkSite(manifest)).toEqual([
+      `OTP's NIF ABI is 2-2.18; ${RUNTIME}@${HOST.version} loads layer 1`,
+    ]);
   });
 
   it('refuses two OTP packages', () => {
@@ -232,9 +245,9 @@ describe('the load-time check', () => {
 
   it('fails with ERUNTIME', () => {
     const manifest = site();
-    manifest.nif!.beamAbi = 'b0';
+    manifest.nif!.nifAbi = '1-2.17';
     expect(() => assertSite(manifest)).toThrow(
-      expect.objectContaining({ code: 'ERUNTIME', message: expect.stringContaining('BEAM b0') }),
+      expect.objectContaining({ code: 'ERUNTIME', message: expect.stringContaining('1-2.17') }),
     );
   });
 });

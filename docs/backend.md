@@ -11,16 +11,23 @@ WebAssembly NIF builds, encrypted live-session messaging, and a restricted
 TCP relay. Project applications still run in the browser.
 
 The deployment examples use `run-elixir.steffend.me` for administration.
-The apex proxies `/socket` for live sessions and `/api/nif/` for builds.
-The usercontent domain proxies `/api/nif/` and `/relay` for project
+The apex proxies `/socket` for live sessions and `/api/v1/nif/` for builds.
+The usercontent domain proxies `/api/v1/nif/` and `/relay` for project
 runtime requests. See [deploy.md](deploy.md) for routing and origin checks.
 
 ## Building a NIF library
 
 ```
-GET /api/nif/PACKAGE/VERSION              → 202 {status} | 200 {url, sha256, app} | 422 {error} | 404
-GET /api/nif/PACKAGE/VERSION/library.tar  → the app's priv files (ustar)
+GET /api/v1/nif/PACKAGE/VERSION?abi=ABI      → 202 {status} | 200 {url, sha256, app} | 422 {error} | 404
+                                               | 409 {error}: another NIF ABI | 400: no abi
+GET /api/v1/nif/PACKAGE/VERSION/library.tar  → the app's priv files (ustar)
 ```
+
+`abi` is the NIF ABI the page's OTP loads ([nif.md](nif.md#the-nif-abi)),
+from the site manifest. The backend builds for one NIF ABI, its root
+disk's (`manifest.json`'s `nif_abi`, from the image's `/nif/abi`), and
+answers a request for another with 409, never with a library the page
+can't load.
 
 The first request for a Hex release queues its build (`Playground.Nif`);
 the playground's `make` asks again while it is `queued`, `running` or
@@ -180,8 +187,8 @@ checkout is in.
 
 After building the artifacts anew (a new erl_nif layer, say), restart the
 app: it reads the toolchain once. It listens on `127.0.0.1:PORT`; Caddy
-terminates TLS in front: the admin's site, plus `/api/nif/` and `/socket`
-on the apex and `/api/nif/` and `/relay` on the usercontent domain ([deploy.md](deploy.md#caddy) has both). Caddy's
+terminates TLS in front: the admin's site, plus `/api/v1/nif/` and `/socket`
+on the apex and `/api/v1/nif/` and `/relay` on the usercontent domain ([deploy.md](deploy.md#caddy) has both). Caddy's
 `handle` blocks are exclusive, so these never reach the static site's
 fallback.
 
@@ -191,21 +198,15 @@ The GitHub OAuth app's callback is
 ## Plan: one source of NIF builds
 
 The site still ships its own builds of four packages (`nif/`, from
-build.py), and `make` takes those first. They match the page by
-construction: built with the same erl_nif layer as its `nif.ts`, in the
-same versioned runtime (`r/RID/`). The backend builds with the layer its
-root disk has, and a request does not say which one the page expects; a
-change to `beamos_nif.c` would let them drift apart. The plan, so that the
-backend is the only source:
+build.py), and `make` takes those first. They are built for the site's
+NIF ABI (`target/nif/libraries/ABI/`). A request to the backend names the
+NIF ABI too (above), so the two can no longer drift apart silently. What
+is left, so that the backend is the only source:
 
-1. **A layer version in the request.** `beamos_nif.c` and `nif.ts` carry
-   a version number for their protocol (the exports, the terms they
-   exchange); `make` asks `/api/nif/NAME/VERSION?abi=N`, and the backend
-   answers a mismatch with an error saying so, never with a library the
-   page can't load (it can only build with its current layer).
-2. **One deploy for a layer change:** the site, and the backend's root
-   disk built anew (`sandbox/build`), from the same commit.
-3. **Then no `nif/` on the site.** build.py builds the layer only (for
+1. **One deploy for a layer change:** the site, and the backend's root
+   disk built anew (`sandbox/build`), from the same commit. Until both are
+   out, the backend answers the new pages 409.
+2. **Then no `nif/` on the site.** build.py builds the layer only (for
    `test/test.py` and the Node harness); the browser tests use the
    backend (production through `serve.py`, or stubbed); the four recipes
    live on as the backend's seed templates.
@@ -217,5 +218,5 @@ locally needs the network or a local backend (`serve.py --api`).
 
 - Rustler packages: a toolchain for `wasm32-wasip1` in the guest and a
   layer for Rust NIFs.
-- Rate limits on `/api/nif/` beyond the agent's budget and the downloads
+- Rate limits on `/api/v1/nif/` beyond the agent's budget and the downloads
   threshold; builds of a popular package's many versions still queue VMs.

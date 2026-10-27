@@ -45,7 +45,7 @@ PORT=8181 SLOW=1 tests/run.sh --project=chromium shells
 Run these commands from the repository root. The build installs the app's
 npm dependencies in Docker. `tests/run.sh` mounts the repository and
 runs `npx playwright test` in `app`; it expects those dependencies to exist.
-The NIF stub tests also read `target/nif/packages/bcrypt_elixir-3.3.2.tar`
+The NIF stub tests also read `target/nif/libraries/1-2.18/bcrypt_elixir-3.3.2.tar`
 directly, so keep that archive even if the built site already contains it.
 
 The default port is 8081. The examples use 8181 to avoid an existing

@@ -154,7 +154,7 @@ and its NIF builds, it is in place before the apex has a login (whose
 session another site must not drive), and it says whose pages a change
 of the API could break.
 
-**The proxies** (`/hex/`, `/git/`, `/api/nif/`) refuse a browser's
+**The proxies** (`/hex/`, `/git/`, `/api/v1/nif/`) refuse a browser's
 request from another site's page (`Sec-Fetch-Site: cross-site`):
 `serve.py` and Caddy. That keeps them from being any site's through its
 visitors' browsers (which could not read the answers anyway); it is no
@@ -247,7 +247,7 @@ module). The usercontent domain does not serve `embed.html`. Caddy:
 # appear, and a bare respond would run after all of them.
 (proxies) {
 	@crosssite {
-		path /hex/* /git/* /api/nif/*
+		path /hex/* /git/* /api/v1/nif/*
 		header Sec-Fetch-Site cross-site
 	}
 	handle @crosssite {
@@ -258,7 +258,7 @@ module). The usercontent domain does not serve `embed.html`. Caddy:
 run-elixir.dev, *.run-elixir.dev {
 	…
 	import proxies
-	@backend path /api/nif/* /socket /socket/*
+	@backend path /api/v1/nif/* /socket /socket/*
 	…
 }
 
@@ -268,7 +268,7 @@ run-elixir.dev, *.run-elixir.dev {
 	handle /embed.html {
 		respond 404
 	}
-	@backend path /api/nif/* /relay
+	@backend path /api/v1/nif/* /relay
 	…
 }
 ```

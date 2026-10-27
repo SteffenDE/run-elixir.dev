@@ -4,13 +4,15 @@
 
 Builds the erl_nif layer (beamos_nif.c) with wasi-sdk, then each package in
 PACKAGES from its Hex tarball against it, in Docker. Each package's priv
-files go into packages/NAME-VERSION.tar, which the site serves under nif/
+files go into libraries/ABI/NAME-VERSION.tar, ABI the NIF ABI the layer and its
+erl_nif.h make (abi(), docs/nif.md: 1-2.18), which the site serves under nif/
 and the playground's `make` unpacks into the app's priv directory: the NIF
 library is the file ERTS would load (priv/NAME.so), holding WebAssembly.
 """
 
 import io
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -60,6 +62,20 @@ def docker(mounts, script, env=()):
     for name, value in env:
         command += ["-e", f"{name}={value}"]
     subprocess.run(command + [IMAGE, "sh", "-ec", script], check=True)
+
+
+def abi():
+    """The NIF ABI: the layer's protocol (BEAMOS_NIF_ABI) and the erl_nif.h
+    it is compiled with (its ERL_NIF_MAJOR_VERSION.ERL_NIF_MINOR_VERSION),
+    as "1-2.18". runtime/build.py and the backend's image work it out the
+    same way."""
+    with open(os.path.join(HERE, "beamos_nif.c")) as f:
+        layer = re.search(r"^#define BEAMOS_NIF_ABI (\d+)$", f.read(), re.M).group(1)
+    with open(os.path.join(HERE, "include", "erl_nif.h")) as f:
+        header = f.read()
+    major, minor = (re.search(rf"^#define ERL_NIF_{part}_VERSION (\d+)$", header, re.M).group(1)
+                    for part in ("MAJOR", "MINOR"))
+    return f"{layer}-{major}.{minor}"
 
 
 def layer():
@@ -148,8 +164,8 @@ def package(name, version, about):
     docker([(work, "/work", "rw"), (app, "/app", "rw"), (OUT, "/nif", "ro"), (tools, "/tools", "ro"),
             (os.path.join(OUT, "src"), "/deps", "ro")],
            f"cd /work && make {' '.join(about['targets'])}", env.items())
-    os.makedirs(os.path.join(OUT, "packages"), exist_ok=True)
-    out = os.path.join(OUT, "packages", f"{name}-{version}.tar")
+    os.makedirs(os.path.join(OUT, "libraries", abi()), exist_ok=True)
+    out = os.path.join(OUT, "libraries", abi(), f"{name}-{version}.tar")
     with tarfile.open(out, "w", format=tarfile.USTAR_FORMAT) as tar:
         tar.add(os.path.join(app, "priv"), arcname="priv")
     print(f"{out}: {os.path.getsize(out)} bytes")

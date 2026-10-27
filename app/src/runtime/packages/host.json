@@ -9,6 +9,7 @@
     "crossterm": [1],
     "beam": [1],
     "tls": [1],
-    "tailscale": [1]
+    "tailscale": [1],
+    "nif": [1]
   }
 }
