@@ -46,6 +46,9 @@ test('a change to the app’s JavaScript is bundled by esbuild on the page', asy
   await newProject(page, 'phoenix');
   await serverRunning(page);
   await expect.poll(() => output(page), { timeout: 120_000 }).toContain('[watch] build finished');
+  // The preview first, and with it Phoenix's live reload socket: an edit
+  // before that joins reloads nothing (WebKit's often joined later).
+  await seesInPreview(page, 'Peace of mind', 120_000);
   const app = await readText(page, APP_JS);
   await writeText(page, APP_JS, `${app}\nwindow.playgroundMarker = "bundled on the page"\n`);
   // The watcher rebuilds the bundle, and the preview reloads with it.

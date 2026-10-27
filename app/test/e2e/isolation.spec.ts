@@ -82,6 +82,8 @@ module.exports = require("tailwindcss/plugin")(function ({ addBase }) {
     .toContain(`e-${id}.${USERCONTENT}`);
   // A permitted shared update proves the forged messages reached the
   // receiver; foreign paths and traversal through its links stay out.
-  await expect.poll(() => readText(other, '/shared/valid-probe')).toBe('from plugin');
+  await expect
+    .poll(() => readText(other, '/shared/valid-probe').catch(() => ''))
+    .toBe('from plugin');
   expect(await other.evaluate(() => window.playground.files.stat('/work/foreign.txt'))).toBeNull();
 });
