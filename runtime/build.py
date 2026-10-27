@@ -51,6 +51,7 @@ The template is generated once into target/cache-otp with the host's
 Mix (the same OTP and Elixir): phx_new (PHX_NEW below), the playground's
 configuration, deps fetched and compiled, assets built.
 """
+import gzip
 import hashlib
 import json
 import re
@@ -944,9 +945,7 @@ def main():
     images["boot-phoenix"] = [(path, here) for path, here in files if path not in taken
                               and (path in fetched["boot-phoenix"] or needed(path))]
     for boot, eager in images.items():
-        with tarfile.open(os.path.join(fs, f"{boot}.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT) as tar:
-            for path, here in eager:
-                tar.add(here, arcname=path, recursive=False)
+        write_image(os.path.join(fs, f"{boot}.tar.gz"), eager)
     # Every project unpacks the first image; what the others hold stays
     # fetchable for projects that do not unpack them.
     lazy = [(path, here) for path, here in files if path not in taken]
@@ -960,12 +959,18 @@ def main():
             with open(here, "rb") as f:
                 template.update(f.read())
     template_id = template.hexdigest()[:12]
-    # What a project's kept changes were made over (files.js).
+    # What a project's kept changes were made over (files.js): the files'
+    # paths and bytes. Not their mtimes, nor the images' bytes: each build
+    # compiles the template again in the recording run, so its build's
+    # mtimes are new every time while its files are the same. Nor Mix's
+    # own records of that compile (_build/ENV/lib/APP/.mix/), which note
+    # when it ran: three builds in a row differed in those alone.
     digest = hashlib.sha256()
-    for name in sorted(os.listdir(fs)):
-        if os.path.isfile(os.path.join(fs, name)):
-            with open(os.path.join(fs, name), "rb") as f:
-                digest.update(f.read())
+    for path, here in sorted(files):
+        if re.search(r"/_build/[^/]+/lib/[^/]+/\.mix/", path):
+            continue
+        with open(here, "rb") as f:
+            digest.update(path.encode() + b"\0" + hashlib.sha256(f.read()).digest())
     with open(os.path.join(fs, "version"), "w") as f:
         f.write(digest.hexdigest()[:16] + "\n")
     facts.update(template=template_id, fs=digest.hexdigest()[:16])
@@ -987,6 +992,15 @@ def main():
 # bytes (one file may be bigger): a miss fetches its neighbours too, which
 # a module's are likely to be needed next.
 BUNDLE = 512 * 1024
+
+
+def write_image(path, files):
+    """A boot image: a gzipped tar of `files` ((path in the node, path here)),
+    the same bytes for the same files (gzip's header has no time)."""
+    with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as zipped, \
+            tarfile.open(fileobj=zipped, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for name, here in files:
+            tar.add(here, arcname=name, recursive=False)
 
 
 def write_lazy(fs, files):
