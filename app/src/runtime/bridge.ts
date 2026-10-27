@@ -12,7 +12,7 @@
 // connects to the node and speaks the protocol (RFC 6455) for it.
 import { COOKIES, cookieShim, setCookie } from './cookies';
 import type { Connection as NodeConnection } from './host/node';
-import { HOST_PROTOCOL, type Hosted } from './swProtocol';
+import { HOST_PROTOCOL, type HostAnnounce, type Hosted, type WebSocketRequest } from './swProtocol';
 import { trace } from './trace';
 
 // A connection to the app: a node's, or one through a live session's
@@ -28,7 +28,8 @@ type FromSocket = { send: string | ArrayBuffer } | { close: { code: number; reas
 
 // The preview's WebSocket: the browser's API over a MessagePort. Its
 // source goes into the preview's HTML as it is.
-function webSocketShim() {
+// `protocol`: the service worker's that the host speaks (swProtocol.ts).
+function webSocketShim(protocol: number) {
   const states = { CONNECTING: 0, OPEN: 1, CLOSING: 2, CLOSED: 3 };
   class PlaygroundWebSocket extends EventTarget {
     declare url: string;
@@ -53,11 +54,13 @@ function webSocketShim() {
       this.port = channel.port1;
       this.port.onmessage = ({ data }: MessageEvent<ToSocket>) => this.receive(data);
       const target = new URL(this.url);
+      // The service worker's WebSocketRequest (swProtocol.ts).
       navigator.serviceWorker.controller!.postMessage(
         {
           kind: 'websocket',
+          protocol,
           path: target.pathname + target.search,
-          protocols: ([] as string[]).concat(protocols),
+          subprotocols: ([] as string[]).concat(protocols),
         },
         [channel.port2],
       );
@@ -254,7 +257,7 @@ const SWITCH = /^\/__playground\/port\/(\d+)(\/.*)?$/;
 // (cookies.ts).
 // `ide`: the IDE's origin, which the preview's first frame tells where it is.
 const shims = (port: number, origins: string | null, ide: string) =>
-  `<script>${origins ? `(${cookieShim})(${setCookie}, ${JSON.stringify(COOKIES)});` : ''}(${webSocketShim})();(${linkShim})(${port}, ${JSON.stringify(origins)}, ${JSON.stringify(
+  `<script>${origins ? `(${cookieShim})(${setCookie}, ${JSON.stringify(COOKIES)});` : ''}(${webSocketShim})(${HOST_PROTOCOL});(${linkShim})(${port}, ${JSON.stringify(origins)}, ${JSON.stringify(
     ide,
   )})</script>`;
 
@@ -392,10 +395,10 @@ export class Bridge {
   websocket(
     {
       path,
-      protocols,
+      subprotocols,
       port: to = this.port,
       cookie: jar,
-    }: { path: string; protocols: string[]; port?: number; cookie?: string },
+    }: Pick<WebSocketRequest, 'path' | 'subprotocols'> & { port?: number; cookie?: string },
     port: MessagePort,
   ): void {
     const flight = this.flight('websocket', path) as Flight & { done(): void };
@@ -410,7 +413,7 @@ export class Bridge {
       'sec-websocket-version: 13',
       `origin: http://localhost:${to}`,
     ];
-    if (protocols.length) lines.push(`sec-websocket-protocol: ${protocols.join(', ')}`);
+    if (subprotocols.length) lines.push(`sec-websocket-protocol: ${subprotocols.join(', ')}`);
     const cookie = this.cookieHeader(jar);
     if (cookie) lines.push(cookie);
     connection.write(new TextEncoder().encode(lines.join('\r\n') + '\r\n\r\n'));
@@ -547,40 +550,30 @@ export class Bridge {
     connection.onclose = () => finish(1006, '', false);
   }
 
-  // Announce this page to the service worker as the host of `key` (sw.js
-  // routes a preview's requests by it), once it controls the page, and
+  // Announce this page to the origin's service worker as its host, with
+  // the protocol it speaks (swProtocol.ts), once it controls the page, and
   // again when another worker takes over.
-  static async register(url = 'sw.js', scope = './', key = 'default'): Promise<void> {
+  static async register(url = 'sw.js', scope = './'): Promise<void> {
     const registration = await navigator.serviceWorker.register(url, { scope });
-    // A worker that does not speak this host's protocol (swProtocol.ts):
-    // the newest sw.js, which announces again once it takes over.
+    // A worker that does not speak this host's protocol: the newest sw.js,
+    // which it announces itself to again once that takes over.
     navigator.serviceWorker.addEventListener('message', (event) => {
       const answer = event.data as Hosted | undefined;
-      if (answer?.kind === 'hosted' && answer.key === key && answer.protocol === null)
-        void registration.update();
+      if (answer?.kind === 'hosted' && answer.protocol === null) void registration.update();
     });
     // A forced reload (shift-reload) loads the page uncontrolled; the
     // active worker takes it over when asked.
     const { active } = await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) active!.postMessage('claim');
-    await Bridge.announce({ kind: 'host', key, protocol: HOST_PROTOCOL });
-  }
-
-  // Tell the service worker who this page is: { kind: 'host' | 'preview',
-  // key }, a host with the protocol it speaks.
-  static async announce(message: {
-    kind: 'host' | 'preview';
-    key: string;
-    protocol?: number;
-  }): Promise<void> {
+    const announce: HostAnnounce = { kind: 'host', protocol: HOST_PROTOCOL };
     if (!navigator.serviceWorker.controller) {
       await new Promise((resolve) =>
         navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }),
       );
     }
-    navigator.serviceWorker.controller!.postMessage(message);
+    navigator.serviceWorker.controller!.postMessage(announce);
     navigator.serviceWorker.addEventListener('controllerchange', () =>
-      navigator.serviceWorker.controller?.postMessage(message),
+      navigator.serviceWorker.controller?.postMessage(announce),
     );
   }
 

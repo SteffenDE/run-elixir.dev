@@ -40,7 +40,7 @@ async function start(control: MessagePort, port: MessagePort): Promise<void> {
     }
   });
   // This origin's service worker, controlling this page, with it as host.
-  await Bridge.register('/sw.js', '/', 'default');
+  await Bridge.register('/sw.js', '/');
   control.postMessage({ kind: 'ready' });
 }
 
