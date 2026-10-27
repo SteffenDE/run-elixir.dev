@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # Building the site (`runtime/build.py`)
@@ -116,12 +116,14 @@ target/site/
     gawk.wasm                  GNU awk (tools/gawk/build.py), 1.5 MB (415 KB gzipped)
     find.wasm                  GNU find (tools/findutils/build.py), 877 KB (278 KB gzipped)
     roots.pem                  trusted roots for the TLS client
-    runtime.json               its OTP and Elixir versions, the embedders' contract (embed.md)
+    site.json                  the site manifest (packages.md): each package's version, files,
+                                 peer dependencies and `playground` field, the fs image,
+                                 the bundled NIF libraries; OTP's and Elixir's versions are
+                                 the embedders' contract (embed.md)
     fs/boot.tar.gz             what IEx reads first
     fs/boot-phoenix.tar.gz     what the Phoenix server reads beyond it
     fs/manifest.json           every file not in boot.tar.gz: [path, size, mtime, bundle]
     fs/bundles/N.tar           those files, uncompressed tars of ≤ 512 KB
-    fs/templates.json          each template's id (its files, without its build) and label
     fs/version                 a digest of fs/, which kept project changes note
     nif/NAME-VERSION.tar       a package's NIF library built to WebAssembly (its priv)
 ```
@@ -130,7 +132,9 @@ The build's files keep their names from one build to the next, so they
 live under paths of their own, which the page reads from its `<meta>`s
 (`app/src/shared/lib/build.ts` BUILD and RUNTIME, which it gives the
 workers): `b/ID/` for the runtime's JavaScript and `r/RID/` for the BEAM
-and what it reads. RID depends on those files alone, so a build that
+and what it reads. The page and the workers find the files in `r/RID/`
+through its `site.json` (`SITE`), not by their names there
+([packages.md](packages.md)). RID depends on those files alone, so a build that
 changes only JavaScript (`build.py app`) keeps it, and browsers keep the
 BEAM, the boot images and the bundles cached across that deploy. A page
 loaded before a deploy keeps loading its own build and runtime, never a
@@ -138,6 +142,11 @@ newer `beam.wasm` with its older filesystem, for as long as the server
 keeps them ([deploy.md](deploy.md)). `build.py` builds flat and moves
 both there last; `build.py app` lays them flat again first. The Node
 harness takes the site or one runtime directory.
+
+`build.py` also writes `target/packages/NAME/` (a `package.json` and its
+files, linked to the site's) for the packages that map onto the site's
+files ([packages.md](packages.md#what-maps-onto-todays-artifacts)). They
+are not published.
 
 Every project unpacks `boot.tar.gz`; a Phoenix project also unpacks
 `boot-phoenix.tar.gz`. The manifest lists the second image's files too, so

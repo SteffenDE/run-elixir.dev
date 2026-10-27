@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # Embedding the playground in another site
@@ -126,8 +126,10 @@ and the newer `embed.html`. A breaking change would be apiVersion 2,
 with 1 still answered.
 
 **The runtime's versions** are the contract for an embedder's code:
-OTP 29.1.2 and Elixir 1.20.4 (`r/RID/runtime.json`, written by
-`build.py` from the installation). An embedder's `.beam` files compiled
+OTP 29.1.2 and Elixir 1.20.4 (the OTP and Elixir packages in
+`r/RID/site.json`, written by `build.py` from the installation:
+[packages.md](packages.md)). The exec frame also checks the site's
+packages against its runtime as it starts, and fails with `ERUNTIME`. An embedder's `.beam` files compiled
 natively with that pair run on any later build of it. `create()` fails
 (`ERUNTIME`) when the deployed runtime is another. Older builds and
 runtimes (`b/ID/`, `r/RID/`) need not stay online for embedders.

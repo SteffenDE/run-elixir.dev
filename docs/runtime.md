@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # The runtime (`app/src/runtime`)
@@ -463,8 +463,9 @@ the line from a little before the match, at most `limit` (1000) of them.
 ## The preview (`sw.js`, `bridge.ts`)
 
 `Bridge.register(url, scope, key)` installs the service worker and
-announces the page as the host of `key` (a stored project's id, a temporary
-IEx's own). A page that a forced reload left uncontrolled asks the active
+announces the page as the host of `key` (a stored project's id, a
+temporary IEx's own), with the protocol it speaks
+([packages.md](packages.md#protocol-1) has protocol 1). A page that a forced reload left uncontrolled asks the active
 worker to claim it first. `Bridge.announce({ kind: 'preview', key })` is the
 popped-out preview window's. Both announce again when another worker takes
 over. The service worker:

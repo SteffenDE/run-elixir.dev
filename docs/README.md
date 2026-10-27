@@ -1,7 +1,7 @@
 ---
 kind: index
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # Playground documentation
@@ -47,6 +47,7 @@ Its build instructions and measurements do not describe the current runtime.
 | [architecture.md](architecture.md) | The moving parts: page, workers, service worker, shared files, how a request reaches Phoenix. |
 | [frames.md](frames.md) | Origin isolation for the IDE, project runtime, previews, and Claude Code cache. |
 | [embed.md](embed.md) | Embedding API, runtime versions, persistence, archives and required headers. |
+| [packages.md](packages.md) | Proposal: the playground as npm packages; the site manifest, the load-time ABI check and the service worker's protocol 1 (implemented). |
 | [projects.md](projects.md) | Project types, routes, storage, settings, imports, sharing, and tab ownership. |
 | [collaboration.md](collaboration.md) | *Share* as a link or a live session; the encrypted relay, permissions, editing with Yjs, terminals and preview for guests. |
 | [git.md](git.md) | Git commands, diffs, repository imports, GitHub push and planned account support. |
