@@ -71,17 +71,20 @@ export function checkSite(site: SiteManifest, host: Host = HOST): string[] {
         `${name} was compiled with Elixir ${template.elixir}, not ${elixir.playground.elixir}`,
       );
   }
-  const fs = site.fs;
-  if (fs) {
-    if (!host.provides.fs?.includes(fs.format))
-      problems.push(`the fs image is format ${fs.format}; this runtime reads ${host.provides.fs}`);
-    // The boot images were recorded with exactly these packages.
-    for (const [name, version] of Object.entries(fs.packages))
-      if (installed(name) !== version)
-        problems.push(
-          `the fs image was made with ${name}@${version}, not ${installed(name) ?? 'none'}`,
-        );
+  for (const [name, entry] of all) {
+    const layer = entry.playground.fs;
+    if (layer && !host.provides.fs?.includes(layer.format))
+      problems.push(
+        `${name}@${entry.version}'s files are fs format ${layer.format}; ` +
+          `this runtime reads ${host.provides.fs}`,
+      );
   }
+  // The boot images were recorded with exactly these packages.
+  for (const [name, version] of Object.entries(site.boot?.packages ?? {}))
+    if (installed(name) !== version)
+      problems.push(
+        `the boot images were recorded with ${name}@${version}, not ${installed(name) ?? 'none'}`,
+      );
   const nifAbi = otp?.playground.nifAbi;
   if (nifAbi) {
     // The layer's protocol, which nif.ts speaks.

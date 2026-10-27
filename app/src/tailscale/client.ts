@@ -103,12 +103,14 @@ function workerPort(): MessagePort {
     name: 'playground-tailscale',
   });
   // tailscale.wasm, through the site manifest (the worker waits for it).
-  void siteManifest().then((ref) =>
+  void siteManifest().then((ref) => {
+    const tailscale = new Site(ref).tailscale();
     shared.port.postMessage({
       kind: 'hello',
-      wasm: new Site(ref).tailscale()?.href ?? '',
-    } satisfies Request),
-  );
+      wasm: tailscale?.module.href ?? '',
+      glue: tailscale?.glue.href ?? '',
+    } satisfies Request);
+  });
   return shared.port;
 }
 

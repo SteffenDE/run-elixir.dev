@@ -1,51 +1,51 @@
 """Build the playground site into target/site, ready to rsync:
 
     python3 -I runtime/build.py
-    python3 -I runtime/build.py app   # just the page and the runtime's JavaScript
+    python3 -I runtime/build.py app   # the JavaScript and the WebAssembly tools again
 
-The site is the app's Vite build (app/, made in Docker), which bundles
-the runtime's workers too, OTP's own emulator built with Emscripten
-(beam/build.sh: beam.mjs, beam.emu.mjs and beam.wasm), and a filesystem
-under fs/: the installation (target/otp, at /rotp in the node: OTP's
-applications from that build, the host's Elixir, Hex, phx_new and
-rebar3) and the Phoenix template, a phx.new app, at /work/playground.
+The site is the app's Vite builds (app/, made in Docker): the apex's
+pages; and the npm packages of docs/packages.md, each in a directory of
+its own, npm/@elixir-playground/NAME@VERSION+ID/ (ID a digest of what is
+in it), with its package.json and its files:
 
-- fs/boot.tar.gz: what IEx reads first, recorded by running it in the
-  WebAssembly node under Node (docker run node:24) with every file fetched
-  lazily, plus what must be there before (.app, .boot and release files,
-  erts's preloaded modules);
-- fs/boot-phoenix.tar.gz: what `iex -S mix phx.server` in the template
-  reads beyond that, recorded the same way, and the template's .app files;
-- fs/manifest.json: every file not in boot.tar.gz (so also those of
-  boot-phoenix.tar.gz, for projects that do not unpack it): its path,
-  size, mtime and bundle, for stat and readdir;
-- fs/bundles/N.tar: those files, a directory's in bundles of up to 512 KB,
-  fetched whole by the node when it first opens one of them;
-- fs/version: a digest of the above; a project's kept changes note the
-  version they were made over.
+- runtime: the runtime's workers and the usercontent domain's frames;
+- otp-X: OTP's own emulator built with Emscripten (beam/build.sh:
+  beam.mjs, beam.emu.mjs and beam.wasm), and OTP's applications (the
+  installation, target/otp, at /rotp in the node) as an fs layer;
+- elixir-X: the host's Elixir, Hex, phx_new and rebar3, an fs layer;
+- phoenix-template: a phx.new app at /work/playground, an fs layer;
+- shell, git, ripgrep, gnu-tools, tls, tailscale: the WebAssembly tools,
+  built by their own scripts; claude; api (embed.js).
+
+An fs layer is fs/manifest.json (each file's path, size, mtime and
+bundle, for stat and readdir) and fs/bundles/N.tar (a directory's files in
+bundles of up to 512 KB, fetched whole by the node when it first opens one
+of them). Beside the packages:
+
+- boot/ID/: boot.tar.gz, what IEx reads first, recorded by running it in
+  the WebAssembly node under Node (docker run node:24) with every file
+  fetched lazily, plus what must be there before (.app, .boot and release
+  files, erts's preloaded modules); boot-phoenix.tar.gz, what
+  `iex -S mix phx.server` in the template reads beyond that, recorded the
+  same way, and the template's .app files;
+- nif/ABI/: packages' NIF libraries built to WebAssembly (nif/build.py);
+- site/ID.json: the site manifest: each package's version, files, peer
+  dependencies and `playground` field (where its fs layer is, its
+  programs, its ABIs), the recordings and the NIF libraries. The runtime
+  finds what it runs through it, and checks the packages against itself
+  as a project starts;
 - playground.json: the apex and the usercontent domain,
   PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
   (app/src/shared/lib/site.ts, docs/frames.md), and the origins that may
   frame embed.html, PLAYGROUND_EMBEDDERS (docs/embed.md);
-- site.json: the site manifest (docs/packages.md): each package's version,
-  files, peer dependencies and `playground` field, the fs image and the
-  bundled NIF libraries. The runtime finds the BEAM, its programs and the
-  fs image through it, and checks the packages against itself as a
-  project starts. The OTP and Elixir packages' versions are the
-  embedders' contract (docs/embed.md). The packages that map onto the
-  site's files are also written to target/packages/NAME/ (a package.json
-  and its files), as npm would install them.
+- sw.js, one for the site's every version (docs/packages.md: its
+  protocol), and embed.js, at the root.
 
-Built flat, the site is then versioned: what keeps its name across builds
-but the pages, the service worker, playground.json and app/public's files
-(icons, the web app manifest, the link preview's image) moves. The BEAM
-and what it reads (beam*, fs/, nif/) go to r/RID/, RID a digest of them
-alone, so a deploy that changes only JavaScript keeps their URLs and
-browsers keep them cached; the runtime's JavaScript goes to b/ID/, ID a
-digest of it and RID. Each page names both in <meta name="playground-build">
-and <meta name="playground-runtime"> (the app's src/shared/lib/build.ts).
-A page loaded before a deploy keeps loading its own build's files while
-the server still has them.
+Each page names the runtime package and the site manifest it runs with
+(<meta name="playground-runtime"> and <meta name="playground-site">, the
+app's src/shared/lib/build.ts). All of these are immutable, so a page
+loaded before a deploy keeps loading its own build's files while the
+server still has them.
 
 The template is generated once into target/cache-otp with the host's
 Mix (the same OTP and Elixir): phx_new (PHX_NEW below), the playground's
@@ -73,8 +73,6 @@ BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
 # runs and nif/test/test.py run it.
 NODE = os.path.join(ROOT, "target", "node")
-# The npm packages (docs/packages.md), as package.json and their files.
-PACKAGES_OUT = os.path.join(ROOT, "target", "packages")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
         "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
@@ -392,10 +390,11 @@ def vite_build(source):
                              NODE_IMAGE, "sh", "-c", script], check=True)
 
 
-def record(out, boot, snapshot):
-    """The files a boot image's command fetches, run under Node; what it
-    writes below /work goes to `snapshot` (Mix's builds name their absolute
-    paths, so the app is compiled once more there, at /work/playground)."""
+def record(out, site, boot, snapshot):
+    """The files a boot image's command fetches, run under Node over the
+    site manifest `site` (its path in `out`); what it writes below /work
+    goes to `snapshot` (Mix's builds name their absolute paths, so the app
+    is compiled once more there, at /work/playground)."""
     args, cwd, env, stdin = RECORD[boot]
     with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "target")) as scratch:
         listing = os.path.join(scratch, "fetched")
@@ -414,7 +413,7 @@ def record(out, boot, snapshot):
         for name, value in env.items():
             command += ["-e", f"{name}={value}"]
         command += ["-v", f"{NODE}:/w:ro", "-v", f"{out}:/d:ro", "-v", f"{scratch}:/r",
-                    NODE_IMAGE, "node", "/w/node.mjs", "/d", *args]
+                    NODE_IMAGE, "node", "/w/node.mjs", f"/d{site}", *args]
         try:
             result = subprocess.run(command, input=stdin.encode(), capture_output=True, timeout=600)
         except subprocess.TimeoutExpired:
@@ -458,32 +457,25 @@ def prebuilt():
     return built
 
 
-def page(out, wasm):
-    """The app's Vite build into `out` (the page, and the runtime's workers
-    and service worker), and its Node harness into NODE; `wasm` is
-    prebuilt()'s."""
+def page(out):
+    """The app's Vite builds: the apex's pages and assets, embed.js and the
+    service worker into `out` (the site's root); the runtime package's
+    scripts and frames, whose directory it answers; and the Node harness
+    into NODE."""
     source = os.path.join(ROOT, "app")
     vite_build(source)
-    # What an earlier build left: its assets, and its runtime's scripts.
-    for name in ("_playground", "chunks"):
-        shutil.rmtree(os.path.join(out, name), ignore_errors=True)
+    # What an earlier build left at the root: its assets and scripts.
+    shutil.rmtree(os.path.join(out, "_playground"), ignore_errors=True)
     for name in os.listdir(out) if os.path.isdir(out) else ():
-        if name.endswith(".js"):
+        if name.endswith((".js", ".html")):
             os.remove(os.path.join(out, name))
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
+    runtime = os.path.join(source, "dist-runtime")
+    # One service worker for the site's every version, at the root for its
+    # scope (docs/packages.md: its protocol).
+    shutil.move(os.path.join(runtime, "sw.js"), os.path.join(out, "sw.js"))
     shutil.rmtree(NODE, ignore_errors=True)
     shutil.copytree(os.path.join(source, "dist-node"), NODE)
-    # Packages' NIF libraries built to WebAssembly (nif/build.py) for this
-    # NIF ABI, which the node's make fetches; others are another layer's.
-    shutil.rmtree(os.path.join(out, "nif"), ignore_errors=True)
-    packages = os.path.join(ROOT, "target", "nif", "libraries", nif_abi())
-    if os.path.isdir(packages):
-        shutil.copytree(packages, os.path.join(out, "nif"))
-    for name, built in wasm.items():
-        shutil.copy(built, os.path.join(out, f"{name}.wasm"))
-    # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js process's
-    # tls.rootCertificates (app/src/runtime/nodejs/tls.ts).
-    shutil.copy(cacerts(), os.path.join(out, "roots.pem"))
     # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
     # app/src/shared/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
@@ -505,6 +497,7 @@ def page(out, wasm):
         assert image in text, index
         with open(index, "w") as f:
             f.write(text.replace(image, f'<meta property="og:image" content="https://{domain}/og.png"'))
+    return runtime
 
 
 # The origins that may embed the site by default (docs/embed.md).
@@ -519,73 +512,6 @@ def runtime_versions():
     with open(os.path.join(INSTALL, "lib", "elixir", "ebin", "elixir.app")) as f:
         elixir = re.search(r'\{vsn,\s*"([^"]+)"\}', f.read()).group(1)
     return {"otp": otp, "elixir": elixir}
-
-
-# What stays at the site's root, by name: the pages, the service worker
-# (its scope is /), the site's configuration, the content-hashed Vite
-# assets, the builds and the runtimes; and what Vite copies from
-# app/public (the icons, the manifest, og.png), which the pages name there.
-ROOT_NAMES = {"index.html", "preview.html", "relay.html", "exec.html", "claude.html", "storage.html", "sw.js",
-              "embed.html", "embed.js",
-              "playground.json", "_playground", "b", "r",
-              *os.listdir(os.path.join(ROOT, "app", "public"))}
-# What goes to r/RID/: the BEAM and what it reads, which the JavaScript
-# does not change.
-RUNTIME_NAMES = {"beam.mjs", "beam.emu.mjs", "beam.wasm", "fs", "nif", "coreutils.wasm", "brush.wasm",
-                 "tailscale.wasm", "tls.wasm", "roots.pem", "rg.wasm", "git.wasm", "sed.wasm",
-                 "grep.wasm", "diff.wasm", "cmp.wasm", "diff3.wasm", "sdiff.wasm", "gawk.wasm", "find.wasm",
-                 "site.json"}
-
-
-def unversion(out):
-    """A versioned site laid flat again, to build over."""
-    for top in ("b", "r"):
-        versions = os.path.join(out, top)
-        if not os.path.isdir(versions):
-            continue
-        for version in os.listdir(versions):
-            for name in os.listdir(os.path.join(versions, version)):
-                shutil.rmtree(os.path.join(out, name), ignore_errors=True)
-                os.rename(os.path.join(versions, version, name), os.path.join(out, name))
-        shutil.rmtree(versions)
-
-
-def digest(out, names, extra=b""):
-    """A digest of the files below `names` in `out`, their paths with them."""
-    hashed = hashlib.sha256(extra)
-    for name in names:
-        top = os.path.join(out, name)
-        paths = [top] if os.path.isfile(top) else sorted(
-            os.path.join(directory, file) for directory, _, files in os.walk(top) for file in files)
-        for path in paths:
-            hashed.update(os.path.relpath(path, out).encode() + b"\0")
-            with open(path, "rb") as f:
-                hashed.update(f.read())
-    return hashed.hexdigest()[:16]
-
-
-def version(out):
-    """The flat site's runtime into r/RID/ and its JavaScript into b/ID/,
-    and both into each page: (ID, RID)."""
-    names = sorted(name for name in os.listdir(out) if name not in ROOT_NAMES)
-    runtime = [name for name in names if name in RUNTIME_NAMES]
-    scripts = [name for name in names if name not in RUNTIME_NAMES]
-    rid = digest(out, runtime)
-    build = digest(out, scripts, rid.encode())
-    for top, version, moved in (("r", rid, runtime), ("b", build, scripts)):
-        os.makedirs(os.path.join(out, top, version))
-        for name in moved:
-            os.rename(os.path.join(out, name), os.path.join(out, top, version, name))
-    for name in os.listdir(out):
-        if name.endswith(".html"):
-            path = os.path.join(out, name)
-            with open(path) as f:
-                text = f.read()
-            assert "<head>" in text, path
-            with open(path, "w") as f:
-                f.write(text.replace("<head>", f'<head>\n    <meta name="playground-build" content="{build}" />'
-                                     f'\n    <meta name="playground-runtime" content="{rid}" />', 1))
-    return build, rid
 
 
 # The npm packages (docs/packages.md). The upstream version is in a name
@@ -606,10 +532,14 @@ COREUTILS_TOOLS = (
 GNU_TOOLS = {"sed": "sed.wasm", "grep": "grep.wasm", "diff": "diff.wasm", "cmp": "cmp.wasm",
              "diff3": "diff3.wasm", "sdiff": "sdiff.wasm", "awk": "gawk.wasm", "gawk": "gawk.wasm",
              "find": "find.wasm"}
-# Each package: its version, its files in the flat site, the packages it
-# needs besides the runtime (by key), its `playground` field, and whether
-# target/packages gets it (False: its files are only in the fs image, or
-# in the app's own build).
+# A program of its own module, and one of a multi-call module (its first
+# argument names the tool: coreutils.wasm), which the exec frame compiles
+# once for every node (manifest.ts Program).
+own = lambda module: {"module": module}
+multicall = lambda module: {"module": module, "multicall": True}
+# Each package: its version, its files (by name: sources()), the packages
+# it needs besides the runtime (by key) and its `playground` field. Those
+# of FS_PACKAGES also have files in the nodes' tree (fs_package).
 PACKAGES = {
     "otp-{otp}": {
         "version": "1.0.0",
@@ -617,32 +547,36 @@ PACKAGES = {
         # beam.wasm's imports are its Emscripten glue's (beam.mjs); the
         # runtime meets that glue at the beam seam (beam/run.ts).
         "own": ("env", "wasi_snapshot_preview1"),
-        "playground": {"abi": {"beam": 1},
-                       "beam": {"loader": "beam.mjs", "threads": "beam.emu.mjs", "wasm": "beam.wasm"}},
+        # The loader's glue loads its threads' script (beam.emu.mjs) from
+        # beside itself.
+        "playground": {"abi": {"beam": 1}, "beam": {"loader": "beam.mjs", "wasm": "beam.wasm"}},
     },
-    "elixir-{elixir}": {"version": "1.0.0", "files": [], "write": False, "playground": {}},
-    "phoenix-template": {"version": "1.0.0", "files": [], "write": False,
+    "elixir-{elixir}": {"version": "1.0.0", "files": [], "playground": {}},
+    "phoenix-template": {"version": "1.0.0", "files": [],
                          "peers": ["otp-{otp}", "elixir-{elixir}"], "playground": {}},
     "shell": {
         "version": "1.0.0",
         "files": ["brush.wasm", "coreutils.wasm"],
         "playground": {"abi": {"wasi": 1, "processes": 1, "crossterm": 1},
-                       "shell": "brush.wasm", "tools": "coreutils.wasm",
-                       "programs": {name: "coreutils.wasm" for name in COREUTILS_TOOLS}},
+                       "shell": "brush.wasm",
+                       "programs": {name: multicall("coreutils.wasm") for name in COREUTILS_TOOLS}},
     },
     "git": {"version": "1.0.0", "files": ["git.wasm"],
-            "playground": {"abi": {"wasi": 1, "processes": 1}, "programs": {"git": "git.wasm"}}},
+            "playground": {"abi": {"wasi": 1, "processes": 1}, "programs": {"git": own("git.wasm")}}},
     "ripgrep": {"version": "1.0.0", "files": ["rg.wasm"],
-                "playground": {"abi": {"wasi": 1}, "programs": {"rg": "rg.wasm"}}},
+                "playground": {"abi": {"wasi": 1}, "programs": {"rg": own("rg.wasm")}}},
     "gnu-tools": {"version": "1.0.0", "files": sorted(set(GNU_TOOLS.values())),
-                  "playground": {"abi": {"wasi": 1, "processes": 1}, "programs": GNU_TOOLS}},
+                  "playground": {"abi": {"wasi": 1, "processes": 1},
+                                 "programs": {name: own(module) for name, module in GNU_TOOLS.items()}}},
     "tls": {"version": "1.0.0", "files": ["tls.wasm", "roots.pem"],
             "playground": {"abi": {"wasi": 1, "tls": 1}, "tls": {"module": "tls.wasm", "roots": "roots.pem"}}},
-    "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm"],
-                  "playground": {"abi": {"tailscale": 1}, "tailscale": "tailscale.wasm"}},
-    "claude": {"version": "1.0.0", "files": [], "write": False, "playground": {}},
+    # With Go's glue for it: the Go that built it has its own.
+    "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm", "wasm_exec.js"],
+                  "playground": {"abi": {"tailscale": 1},
+                                 "tailscale": {"module": "tailscale.wasm", "glue": "wasm_exec.js"}}},
+    "claude": {"version": "1.0.0", "files": [], "playground": {}},
 }
-# The packages whose files the fs image holds (fs_package).
+# The packages with files in the nodes' tree, each an fs layer (fs_package).
 FS_PACKAGES = ("otp-{otp}", "elixir-{elixir}", "phoenix-template", "git", "tls", "shell")
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
@@ -650,7 +584,7 @@ IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "cro
 
 
 def fs_package(path):
-    """The package (PACKAGES' key) a file of the fs image comes from."""
+    """The package (PACKAGES' key) a file in the nodes' tree comes from."""
     if path.startswith("work/playground/"):
         return "phoenix-template"
     if path.startswith(("rotp/lib/elixir/", "rotp/lib/eex/", "rotp/lib/ex_unit/", "rotp/lib/iex/",
@@ -723,7 +657,7 @@ def wasm_interface(path):
     return imports, exports
 
 
-def beam_abi(out):
+def beam_abi(wasm):
     """The BEAM build's id: OTP's tag and the patch stack (beam/build.sh's
     stamp), emsdk's version and beam.wasm's imports and exports. What the
     recordings are made for (docs/packages.md); NIF libraries have their
@@ -733,7 +667,7 @@ def beam_abi(out):
         emsdk = subprocess.run(["emcc", "--version"], capture_output=True, text=True).stdout.split("\n")[0]
     except OSError:
         emsdk = ""
-    imports, exports = wasm_interface(os.path.join(out, "beam.wasm"))
+    imports, exports = wasm_interface(wasm)
     hashed = hashlib.sha256(json.dumps({
         "patches": open(stamp).read().strip() if os.path.exists(stamp) else "",
         "emsdk": emsdk, "imports": sorted(imports), "exports": sorted(exports)}).encode())
@@ -768,17 +702,151 @@ def claude_code():
         return re.search(r"CLAUDE_CODE = \{\s*version: '([^']+)'", f.read()).group(1)
 
 
-def site_manifest(out, facts):
-    """The flat site's site.json (docs/packages.md), and its packages'
-    package.json files by key. `facts`: what only a full build knows (the
-    BEAM's id, the template's, the fs image's version), from it or from
-    the site.json before."""
+# The site's layout (docs/build.md): each package in a directory of its
+# own, NAME@VERSION+ID (ID a digest of what is in it: the repository's
+# versions are not published, so the same version may be another build),
+# the boot recordings in boot/ID/, the bundled NIF libraries in nif/ABI/,
+# and the site manifest at site/ID.json. Each of them is immutable.
+NPM = os.path.join("npm", SCOPE)
+
+
+def tree_digest(top, skip=lambda path: False):
+    """A digest of the files below `top`: their paths and bytes."""
+    hashed = hashlib.sha256()
+    for directory, dirs, names in sorted(os.walk(top)):
+        dirs.sort()
+        for name in sorted(names):
+            path = os.path.join(directory, name)
+            relative = os.path.relpath(path, top)
+            if skip(relative):
+                continue
+            with open(path, "rb") as f:
+                hashed.update(relative.encode() + b"\0" + hashlib.sha256(f.read()).digest())
+    return hashed.hexdigest()[:12]
+
+
+def layer_version(files):
+    """A digest of a layer's files ((path in the node, path here)), their
+    paths and bytes. Not their mtimes: each build compiles the template
+    again in the recording run, so its build's mtimes are new every time
+    while its files are the same. Nor Mix's own records of that compile
+    (_build/ENV/lib/APP/.mix/), which note when it ran: three builds in a
+    row differed in those alone."""
+    hashed = hashlib.sha256()
+    for path, here in sorted(files):
+        if re.search(r"/_build/[^/]+/lib/[^/]+/\.mix/", path):
+            continue
+        with open(here, "rb") as f:
+            hashed.update(path.encode() + b"\0" + hashlib.sha256(f.read()).digest())
+    return hashed.hexdigest()[:16]
+
+
+def write_layer(fs, files):
+    """A package's files in the nodes' tree (fs format 2) into `fs`:
+    bundles/N.tar (uncompressed: the server compresses, and the node reads
+    them synchronously), a directory's files in tars of up to BUNDLE bytes,
+    and manifest.json listing each with its size, mtime and bundle. Its
+    `playground` field (manifest.ts FsLayer)."""
+    os.makedirs(os.path.join(fs, "bundles"))
+    groups = []
+    for path, here in sorted(files):
+        size = os.path.getsize(here)
+        group = groups[-1] if groups else None
+        if not group or group["dir"] != os.path.dirname(path) or group["size"] + size > BUNDLE:
+            group = {"dir": os.path.dirname(path), "size": 0, "files": []}
+            groups.append(group)
+        group["size"] += size
+        group["files"].append((path, here))
+    manifest = []
+    for number, group in enumerate(groups):
+        with tarfile.open(os.path.join(fs, "bundles", f"{number}.tar"), "w", format=tarfile.USTAR_FORMAT) as tar:
+            for path, here in group["files"]:
+                tar.add(here, arcname=path, recursive=False)
+                manifest.append([path, os.path.getsize(here), int(os.path.getmtime(here)), number])
+    with open(os.path.join(fs, "manifest.json"), "w") as f:
+        json.dump(manifest, f, separators=(",", ":"))
+    return {"format": 2, "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": len(groups),
+            "version": layer_version(files)}
+
+
+def lay(out, name, version, files, playground, peers, layer=None, own=()):
+    """A package's directory, npm/@elixir-playground/NAME@VERSION+ID/: its
+    `files` ({name: path here}, a directory too), its fs layer (`layer`: the
+    files in the nodes' tree, [(path there, path here)], or a directory
+    that holds one already, with its `playground` field), and its
+    package.json. Each module's imports must belong to a seam `playground`
+    names (`own`: what its own glue answers). Its site manifest entry."""
+    for file, here in files.items():
+        if file.endswith(".wasm"):
+            imports, _ = wasm_interface(here)
+            for module in sorted({module for module, _ in imports} - set(own)):
+                if IMPORT_SEAMS.get(module) not in playground.get("abi", {}):
+                    sys.exit(f"{name}: {file} imports {module}, which its abi does not name")
+    scratch = os.path.join(out, NPM, f".{name}.partial")
+    shutil.rmtree(scratch, ignore_errors=True)
+    os.makedirs(scratch)
+    for file, here in files.items():
+        if os.path.isdir(here):
+            shutil.copytree(here, os.path.join(scratch, file), copy_function=link_or_copy)
+        else:
+            link_or_copy(here, os.path.join(scratch, file))
+    playground = dict(playground)
+    if isinstance(layer, list):
+        playground["fs"] = write_layer(os.path.join(scratch, "fs"), layer)
+    elif layer:
+        path, playground["fs"] = layer
+        shutil.copytree(path, os.path.join(scratch, "fs"), copy_function=link_or_copy)
+    package = {"name": f"{SCOPE}/{name}", "version": version,
+               "files": sorted([*files, *(["fs"] if layer else [])]),
+               **({"peerDependencies": peers} if peers else {}), "playground": playground,
+               # Not for publishing yet (docs/packages.md).
+               "private": True}
+    with open(os.path.join(scratch, "package.json"), "w") as f:
+        json.dump(package, f, indent=2)
+        f.write("\n")
+    directory = os.path.join(NPM, f"{name}@{version}+{tree_digest(scratch)}")
+    if os.path.isdir(os.path.join(out, directory)):
+        shutil.rmtree(scratch)
+    else:
+        os.rename(scratch, os.path.join(out, directory))
+    entry = {"version": version, "base": f"../{directory}/",
+             "files": {file: file_entry(os.path.join(out, directory, file))
+                       for file in files if not os.path.isdir(os.path.join(out, directory, file))},
+             "playground": playground}
+    if peers:
+        entry["peerDependencies"] = peers
+    return directory, entry
+
+
+def write_site(out, packages, boot, name=None):
+    """The site manifest, site/ID.json (`name`: another name, such as the
+    recording runs'), its bases relative to it; its path from the root."""
+    nif = os.path.join(out, "nif", nif_abi())
+    site = {
+        "manifest": 2,
+        "packages": dict(sorted(packages.items())),
+        "boot": boot,
+        "nif": {"base": f"../nif/{nif_abi()}/", "nifAbi": nif_abi(),
+                "libraries": sorted(file[:-4] for file in os.listdir(nif) if file.endswith(".tar"))}
+        if os.path.isdir(nif) else None,
+    }
+    data = json.dumps(site, indent=1).encode() + b"\n"
+    os.makedirs(os.path.join(out, "site"), exist_ok=True)
+    path = f"site/{name or hashlib.sha256(data).hexdigest()[:12]}.json"
+    with open(os.path.join(out, path), "wb") as f:
+        f.write(data)
+    return "/" + path
+
+
+def lay_packages(out, versions, facts, sources, layers):
+    """Every package of PACKAGES: `sources` names each file's path here,
+    `layers` each package's fs layer (lay's `layer`), by key; `facts` what
+    a full build found (beamAbi, the template's id). Their site manifest
+    entries, by name."""
     with open(HOST) as f:
         host = json.load(f)
-    runtime_range = "^%s.0.0" % host["version"].split(".")[0]
-    versions = runtime_versions()
     otp, elixir = versions["otp"], versions["elixir"]
-    named = lambda key: f"{SCOPE}/" + key.format(otp=otp, elixir=elixir)
+    named = lambda key: key.format(otp=otp, elixir=elixir)
     filled = {
         "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"], "nifAbi": nif_abi()},
         "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
@@ -787,123 +855,138 @@ def site_manifest(out, facts):
         # The newest version tested is the upper bound (docs/packages.md).
         "claude": {"claudeCode": f">={claude_code()} <={claude_code()}"},
     }
-    packages, manifests = {}, {}
+    entries = {}
     for key, package in PACKAGES.items():
-        playground = {**package["playground"], **filled.get(key, {})}
-        peers = {f"{SCOPE}/runtime": runtime_range}
+        peers = {host["name"]: "^%s.0.0" % host["version"].split(".")[0]}
         for peer in package.get("peers", ()):
-            peers[named(peer)] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
-        files = {}
-        for name in package["files"]:
+            peers[f"{SCOPE}/{named(peer)}"] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
+        _, entries[f"{SCOPE}/{named(key)}"] = lay(
+            out, named(key), package["version"], {file: sources[file] for file in package["files"]},
+            {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()))
+    return entries
+
+
+def lay_runtime(out, runtime):
+    """The runtime package (the Vite build's dist-runtime: its scripts and
+    frames) and the api package (embed.js, which also stays at the root
+    for its stable URL); the runtime's path."""
+    with open(HOST) as f:
+        host = json.load(f)
+    name = host["name"].split("/")[1]
+    files = {file: os.path.join(runtime, file) for file in sorted(os.listdir(runtime))}
+    directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {})
+    api, _ = lay(out, "api", "1.0.0", {"embed.js": os.path.join(out, "embed.js")}, {"apiVersions": [2]},
+                 {host["name"]: "^%s.0.0" % host["version"].split(".")[0]})
+    return f"/{directory}/", api
+
+
+def name_pages(out, runtime, site):
+    """Each page at the root names the runtime package and the site
+    manifest it runs with (app/src/shared/lib/build.ts)."""
+    for name in os.listdir(out):
+        if name.endswith(".html"):
             path = os.path.join(out, name)
-            files[name] = file_entry(path)
-            if name.endswith(".wasm"):
-                imports, _ = wasm_interface(path)
-                for module in sorted({module for module, _ in imports} - set(package.get("own", ()))):
-                    seam = IMPORT_SEAMS.get(module)
-                    if seam not in playground.get("abi", {}):
-                        sys.exit(f"{key}: {name} imports {module}, which its abi does not name")
-        packages[named(key)] = {"version": package["version"], "base": "./", "files": files,
-                                "peerDependencies": peers, "playground": playground}
-        manifests[key] = {"name": named(key), "version": package["version"], "files": sorted(files),
-                          "peerDependencies": peers, "playground": playground}
-    fs = os.path.join(out, "fs")
-    nif = os.path.join(out, "nif")
-    site = {
-        "manifest": 1,
-        "packages": packages,
-        "fs": {"base": "fs/", "format": 1, "version": facts["fs"],
-               "boots": sorted(name[:-7] for name in os.listdir(fs) if re.match(r"boot.*\.tar\.gz$", name)),
-               "packages": {named(key): PACKAGES[key]["version"] for key in FS_PACKAGES}},
-        "nif": {"base": "nif/", "nifAbi": nif_abi(),
-                "libraries": sorted(name[:-4] for name in os.listdir(nif) if name.endswith(".tar"))}
-        if os.path.isdir(nif) else None,
-    }
-    with open(os.path.join(out, "site.json"), "w") as f:
-        json.dump(site, f, indent=1, sort_keys=True)
-    return manifests, host
+            with open(path) as f:
+                text = f.read()
+            assert "<head>" in text, path
+            with open(path, "w") as f:
+                f.write(text.replace("<head>", f'<head>\n    <meta name="playground-runtime" content="{runtime}" />'
+                                     f'\n    <meta name="playground-site" content="{site}" />', 1))
 
 
-def previous_facts(out):
-    """What a full build found (site_manifest's facts), from the flat site's
-    site.json, or from a site built before it had one."""
-    try:
-        with open(os.path.join(out, "site.json")) as f:
-            site = json.load(f)
-        template = next(entry["playground"]["template"]["id"] for entry in site["packages"].values()
-                        if "template" in entry["playground"])
-        otp = next(entry["playground"]["beamAbi"] for entry in site["packages"].values()
-                   if "beamAbi" in entry["playground"])
-        return {"beamAbi": otp, "template": template, "fs": site["fs"]["version"]}
-    except (OSError, KeyError, StopIteration):
-        templates = os.path.join(out, "fs", "templates.json")
-        with open(os.path.join(out, "fs", "version")) as f:
-            fs = f.read().strip()
-        template = json.load(open(templates))["phoenix"]["id"] if os.path.exists(templates) else ""
-        return {"beamAbi": beam_abi(out), "template": template, "fs": fs}
+def prune(out, laid, site):
+    """What the site manifest and the runtime do not name goes: the
+    packages, recordings and manifests of the builds before (a deploy keeps
+    those its live releases name: deploy/server/playground-deploy)."""
+    with open(os.path.join(out, site.lstrip("/"))) as f:
+        manifest = json.load(f)
+    named = {os.path.normpath(os.path.join("site", entry["base"])) for entry in manifest["packages"].values()}
+    named.update(path.strip("/") for path in laid)
+    named.add(os.path.normpath(os.path.join("site", manifest["boot"]["base"])))
+    for top in (NPM, "boot"):
+        for name in os.listdir(os.path.join(out, top)) if os.path.isdir(os.path.join(out, top)) else ():
+            if os.path.join(top, name) not in named:
+                shutil.rmtree(os.path.join(out, top, name))
+    for name in os.listdir(os.path.join(out, "site")):
+        if f"/site/{name}" != site:
+            os.remove(os.path.join(out, "site", name))
 
 
-# The runtime package's files: the build's scripts (b/ID) and the service
-# worker. The frames' pages are the app's (Vite's _playground/ assets,
-# shared with the IDE), so they are not in it yet.
-RUNTIME_SCRIPTS = ("worker.js", "files.js", "git.js", "nodejs.js", "tailscale.js", "chunks", "sw.js")
+def copy_nifs(out):
+    """Packages' NIF libraries built to WebAssembly (nif/build.py) for this
+    NIF ABI, which the node's make fetches; others are another layer's."""
+    shutil.rmtree(os.path.join(out, "nif"), ignore_errors=True)
+    built = os.path.join(ROOT, "target", "nif", "libraries", nif_abi())
+    if os.path.isdir(built):
+        shutil.copytree(built, os.path.join(out, "nif", nif_abi()))
 
 
-def write_packages(out, manifests, host):
-    """target/packages/NAME/: each package's package.json and its files
-    (linked to the site's), for the packages that map onto the site's
-    files; the runtime's and the api's from the build."""
-    shutil.rmtree(PACKAGES_OUT, ignore_errors=True)
-    runtime_range = "^%s.0.0" % host["version"].split(".")[0]
-    packages = {
-        "runtime": ({"name": host["name"], "version": host["version"], "files": list(RUNTIME_SCRIPTS),
-                     "playground": {"provides": host["provides"]}}, RUNTIME_SCRIPTS),
-        "api": ({"name": f"{SCOPE}/api", "version": "1.0.0", "files": ["embed.js"], "exports": "./embed.js",
-                 "peerDependencies": {host["name"]: runtime_range},
-                 "playground": {"apiVersions": [1]}}, ("embed.js",)),
-    }
-    for key, manifest in manifests.items():
-        if PACKAGES[key].get("write", True):
-            packages[manifest["name"].split("/")[1]] = (manifest, manifest["files"])
-    for directory, (manifest, files) in packages.items():
-        target = os.path.join(PACKAGES_OUT, directory)
-        os.makedirs(target)
-        for name in files:
-            here = os.path.join(out, name)
-            if os.path.isdir(here):
-                shutil.copytree(here, os.path.join(target, name), copy_function=link_or_copy)
-            else:
-                link_or_copy(here, os.path.join(target, name))
-        with open(os.path.join(target, "package.json"), "w") as f:
-            # Not for publishing yet (docs/packages.md).
-            json.dump({**manifest, "private": True}, f, indent=2)
-            f.write("\n")
-    return sorted(packages)
+def sources(wasm):
+    """Where each package's files are here, by name (PACKAGES' files)."""
+    return {**{f"{name}.wasm": path for name, path in wasm.items()},
+            # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
+            # process's tls.rootCertificates (app/src/runtime/nodejs/tls.ts).
+            "roots.pem": cacerts(),
+            # tailscale/build.py's, the Go it built with has it.
+            "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
+            **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}
 
 
-def link_or_copy(source, target):
-    try:
-        os.link(source, target)
-    except OSError:
-        shutil.copy2(source, target)
+def page_meta(out, name):
+    """What the site's index.html names (<meta name="playground-NAME">)."""
+    with open(os.path.join(out, "index.html")) as f:
+        found = re.search(rf'<meta name="playground-{name}" content="([^"]+)"', f.read())
+    return found.group(1) if found else None
+
+
+def app(out, wasm):
+    """build.py app: the JavaScript and the WebAssembly tools again, over a
+    site a full build made, whose fs layers (the installation's, the
+    template's) and recordings stay as they are."""
+    site = page_meta(out, "site")
+    if not site:
+        sys.exit(f"{out}: no site to build over (python3 -I runtime/build.py first)")
+    with open(os.path.join(out, site.lstrip("/"))) as f:
+        before = json.load(f)
+    runtime = page(out)
+    by = {name: entry for name, entry in before["packages"].items()}
+    otp_entry = next(entry for entry in by.values() if "beamAbi" in entry["playground"])
+    versions = {"otp": otp_entry["playground"]["otp"],
+                "elixir": next(entry["playground"]["elixir"] for entry in by.values()
+                               if "elixir" in entry["playground"])}
+    template = next(entry for entry in by.values() if "template" in entry["playground"])
+    facts = {"beamAbi": otp_entry["playground"]["beamAbi"], "template": template["playground"]["template"]["id"]}
+    here = lambda entry: os.path.normpath(os.path.join(out, "site", entry["base"]))
+    found = sources(wasm)
+    # The emulator a full build recorded with, not one built since.
+    for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
+        found[name] = os.path.join(here(otp_entry), name)
+    layers = {}
+    for key in PACKAGES:
+        entry = by.get(f"{SCOPE}/{key.format(**versions)}")
+        if entry and "fs" in entry["playground"]:
+            layers[key] = (os.path.join(here(entry), "fs"), entry["playground"]["fs"])
+    copy_nifs(out)
+    entries = lay_packages(out, versions, facts, found, layers)
+    site = write_site(out, entries, before["boot"])
+    runtime, api = lay_runtime(out, runtime)
+    name_pages(out, runtime, site)
+    prune(out, (runtime, api), site)
+    print(f"{out}: runtime {runtime}, site {site}")
 
 
 def main():
     out = os.path.join(ROOT, "target", "site")
     wasm = prebuilt()
     if sys.argv[1:] == ["app"]:
-        unversion(out)
-        facts = previous_facts(out)
-        page(out, wasm)
-        print(f"{out}: packages " + ", ".join(write_packages(out, *site_manifest(out, facts))))
-        print(f"{out}: build %s, runtime %s" % version(out))
-        return
+        return app(out, wasm)
     shutil.rmtree(out, ignore_errors=True)
-    # The installation first: site.json names its versions.
+    os.makedirs(out)
+    # The installation first: the packages name its versions.
     otp_install()
-    page(out, wasm)
-    for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm"):
-        shutil.copy(os.path.join(BEAM_DIST, name), os.path.join(out, name))
+    versions = runtime_versions()
+    runtime = page(out)
+    copy_nifs(out)
 
     files = []  # (path in the node, path here)
     for directory, dirs, names in os.walk(INSTALL):
@@ -924,24 +1007,21 @@ def main():
         files.append(("usr/libexec/git-core/" + name, os.path.join(libexec, name)))
     files += app_files(phoenix_app())
 
-    # Everything lazy first, to record what each boot image's command
-    # fetches; only the Phoenix run's writes (the template, built at
-    # /work/playground) are kept.
-    fs = os.path.join(out, "fs")
-    os.makedirs(fs)
-    write_lazy(fs, files)
-    for boot in RECORD:
-        with tarfile.open(os.path.join(fs, f"{boot}.tar.gz"), "w:gz", format=tarfile.USTAR_FORMAT):
-            pass
-    # The recording runs find the programs through site.json too; what only
-    # this build will know comes after them.
-    facts = {"beamAbi": beam_abi(out), "template": "", "fs": ""}
-    site_manifest(out, facts)
+    # Every package laid out, its files lazy, to record what each boot
+    # image's command fetches; only the Phoenix run's writes (the template,
+    # built at /work/playground) are kept, and the template laid again.
+    found = sources(wasm)
+    facts = {"beamAbi": beam_abi(found["beam.wasm"]), "template": ""}
+    by_package = lambda: {key: [(path, here) for path, here in files if fs_package(path) == key]
+                          for key in FS_PACKAGES}
+    entries = lay_packages(out, versions, facts, found, by_package())
+    recording = write_site(out, entries, None, name="recording")
     fetched = {}
     for boot in RECORD:
         snapshot = os.path.join(CACHE, f"{boot}-snapshot")
         shutil.rmtree(snapshot, ignore_errors=True)
-        fetched[boot] = record(out, boot, snapshot)
+        fetched[boot] = record(out, recording, boot, snapshot)
+    os.remove(os.path.join(out, recording.lstrip("/")))
     # What the Phoenix run wrote replaces what was there.
     written = {}
     for directory, _, names in os.walk(os.path.join(CACHE, "boot-phoenix-snapshot")):
@@ -950,9 +1030,19 @@ def main():
             written["work/" + os.path.relpath(here, os.path.join(CACHE, "boot-phoenix-snapshot"))] = here
     files = [(path, written.get(path, here)) for path, here in files] + sorted(
         (path, here) for path, here in written.items() if path not in {p for p, _ in files})
+    # Which template a project was made from: its files (not its build,
+    # which changes with the runtime), and what it is.
+    template = hashlib.sha256()
+    for path, here in sorted(files):
+        if path.startswith("work/playground/") and not path.startswith("work/playground/_build/"):
+            template.update(path.encode() + b"\0")
+            with open(here, "rb") as f:
+                template.update(f.read())
+    facts["template"] = template.hexdigest()[:12]
+    entries = lay_packages(out, versions, facts, found, by_package())
 
-    # The template's files go only in the Phoenix image; an empty project
-    # has none of them.
+    # The boot images: what each run fetched. The template's files go only
+    # in the Phoenix image; an empty project has none of them.
     needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(
         ("rotp/releases/", "rotp/lib/erts/"))
     images = {
@@ -962,48 +1052,29 @@ def main():
     taken = {path for path, _ in images["boot"]}
     images["boot-phoenix"] = [(path, here) for path, here in files if path not in taken
                               and (path in fetched["boot-phoenix"] or needed(path))]
+    scratch = os.path.join(out, "boot", ".partial")
+    os.makedirs(scratch)
     for boot, eager in images.items():
-        write_image(os.path.join(fs, f"{boot}.tar.gz"), eager)
-    # Every project unpacks the first image; what the others hold stays
-    # fetchable for projects that do not unpack them.
-    lazy = [(path, here) for path, here in files if path not in taken]
-    bundles = write_lazy(fs, lazy)
-    # Which template a project was made from: its files (not its build,
-    # which changes with the runtime), and what it is.
-    template = hashlib.sha256()
-    for path, here in sorted(files):
-        if path.startswith("work/playground/") and not path.startswith("work/playground/_build/"):
-            template.update(path.encode() + b"\0")
-            with open(here, "rb") as f:
-                template.update(f.read())
-    template_id = template.hexdigest()[:12]
-    # What a project's kept changes were made over (files.js): the files'
-    # paths and bytes. Not their mtimes, nor the images' bytes: each build
-    # compiles the template again in the recording run, so its build's
-    # mtimes are new every time while its files are the same. Nor Mix's
-    # own records of that compile (_build/ENV/lib/APP/.mix/), which note
-    # when it ran: three builds in a row differed in those alone.
-    digest = hashlib.sha256()
-    for path, here in sorted(files):
-        if re.search(r"/_build/[^/]+/lib/[^/]+/\.mix/", path):
-            continue
-        with open(here, "rb") as f:
-            digest.update(path.encode() + b"\0" + hashlib.sha256(f.read()).digest())
-    with open(os.path.join(fs, "version"), "w") as f:
-        f.write(digest.hexdigest()[:16] + "\n")
-    facts.update(template=template_id, fs=digest.hexdigest()[:16])
-    print(f"{out}: packages " + ", ".join(write_packages(out, *site_manifest(out, facts))))
-    # Which package each of the fs image's files is from (docs/packages.md).
+        write_image(os.path.join(scratch, f"{boot}.tar.gz"), eager)
+    boot = os.path.join("boot", tree_digest(scratch))
+    os.rename(scratch, os.path.join(out, boot))
+    # Made with exactly these packages.
+    made = {f"{SCOPE}/{key.format(**versions)}": PACKAGES[key]["version"] for key in FS_PACKAGES}
+    site = write_site(out, entries, {"base": f"../{boot}/", "images": list(RECORD), "packages": made})
+    runtime, api = lay_runtime(out, runtime)
+    name_pages(out, runtime, site)
+    prune(out, (runtime, api), site)
+
+    mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
+    print(f"{out}: " + "; ".join(
+        f"{name} {len(images[name])} files ({len(fetched[name])} recorded), "
+        f"{mb(os.path.join(out, boot, name + '.tar.gz'))}" for name in RECORD))
     owners = {}
     for path, _ in files:
-        owner = fs_package(path).format(**runtime_versions())
+        owner = fs_package(path).format(**versions)
         owners[owner] = owners.get(owner, 0) + 1
-    print(f"{out}: fs image files by package: " + ", ".join(f"{key} {n}" for key, n in sorted(owners.items())))
-    mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
-    print(f"{out}: " + ", ".join(f"{name} {mb(os.path.join(out, name))}" for name in ("beam.wasm",)) + "; " + "; ".join(
-        f"{boot} {len(images[boot])} files ({len(fetched[boot])} recorded), {mb(os.path.join(fs, boot + '.tar.gz'))}"
-        for boot in RECORD) + f"; {len(lazy)} lazy files in {bundles} bundles")
-    print(f"{out}: build %s, runtime %s" % version(out))
+    print(f"{out}: fs layers' files by package: " + ", ".join(f"{key} {n}" for key, n in sorted(owners.items())))
+    print(f"{out}: runtime {runtime}, site {site}")
 
 
 # A lazily fetched bundle holds files of one directory, up to this many
@@ -1021,30 +1092,12 @@ def write_image(path, files):
             tar.add(here, arcname=name, recursive=False)
 
 
-def write_lazy(fs, files):
-    """files in fs/bundles/N.tar (uncompressed: the server compresses, and
-    the node reads them synchronously), and fs/manifest.json listing each
-    with its size, mtime and bundle. The number of bundles."""
-    shutil.rmtree(os.path.join(fs, "bundles"), ignore_errors=True)
-    os.makedirs(os.path.join(fs, "bundles"))
-    groups = []
-    for path, here in sorted(files):
-        size = os.path.getsize(here)
-        group = groups[-1] if groups else None
-        if not group or group["dir"] != os.path.dirname(path) or group["size"] + size > BUNDLE:
-            group = {"dir": os.path.dirname(path), "size": 0, "files": []}
-            groups.append(group)
-        group["size"] += size
-        group["files"].append((path, here))
-    manifest = []
-    for number, group in enumerate(groups):
-        with tarfile.open(os.path.join(fs, "bundles", f"{number}.tar"), "w", format=tarfile.USTAR_FORMAT) as tar:
-            for path, here in group["files"]:
-                tar.add(here, arcname=path, recursive=False)
-                manifest.append([path, os.path.getsize(here), int(os.path.getmtime(here)), number])
-    with open(os.path.join(fs, "manifest.json"), "w") as f:
-        json.dump(manifest, f, separators=(",", ":"))
-    return len(groups)
+def link_or_copy(source, target):
+    try:
+        os.link(source, target)
+    except OSError:
+        shutil.copy2(source, target)
+
 
 
 main()

@@ -295,10 +295,8 @@ onmessage = async ({
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest, brushModule] = await Promise.all([
       tars ??
-        Promise.all(
-          boots.map((boot) => fetch(packages.fs(`${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
-        ),
-      listed ?? fetch(packages.fs('manifest.json')).then((r) => r.json() as Promise<Manifest>),
+        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+      listed ?? packages.tree(),
       // The shell (brush.ts), if the site has it: the terminal's, or a
       // node's sh -c.
       shellModule ?? (shell || isSh(named?.[0]) ? loadModule(packages.shell()) : null),
@@ -325,7 +323,7 @@ onmessage = async ({
     const channel = new Channel(shared);
     channel.tty = tty;
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
-    const fetchFile = bundled((bundle) => fetchBundle(packages.fs(`bundles/${bundle}.tar`)));
+    const fetchFile = bundled((bundle) => fetchBundle(packages.bundle(bundle)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
     // site's (nif/NAME-VERSION.tar), else the backend's (/api/v1/nif/, on this
@@ -337,7 +335,7 @@ onmessage = async ({
     let compiled: WebAssembly.Module | null | undefined = toolsModule;
     const module = () => {
       if (compiled === undefined) {
-        const url = packages.tools();
+        const url = packages.multicall();
         const [status, bytes] = url ? get(url) : [0, null];
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         compiled = wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null;

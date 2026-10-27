@@ -788,11 +788,9 @@ onmessage = async ({ data }) => {
       } = data;
       const packages = new Site(site);
       const [images, manifest, version, archived] = await Promise.all([
-        Promise.all(
-          boots.map((boot) => fetch(packages.fs(`${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
-        ),
-        fetch(packages.fs('manifest.json')).then((r) => r.json()),
-        packages.manifest.fs?.version ?? '',
+        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+        packages.tree(),
+        packages.fsVersion(),
         archive
           ? fetch(archive).then(async (r) => {
               if (!r.ok) throw new Error(`${archive}: ${r.status} ${r.statusText}`);
@@ -812,7 +810,7 @@ onmessage = async ({ data }) => {
         `/${path}`.startsWith('/tmp/') ||
         template.some((prefix) => `/${path}/`.startsWith(`${prefix}/`));
       mount(
-        manifest.filter(([path]: [string]) => shared(path)),
+        manifest.filter(([path]) => shared(path)),
         root,
       );
       // Gunzipped once: the nodes' workers start from these tars (the
@@ -849,7 +847,7 @@ onmessage = async ({ data }) => {
         apply(records, false, true);
         keepers.push(keeperFor(KEPT_SHARED, sharedStore, '', records, true));
       }
-      fetchFile = bundled((bundle) => fetchBundle(packages.fs(`bundles/${bundle}.tar`)));
+      fetchFile = bundled((bundle) => fetchBundle(packages.bundle(bundle)));
       doorbell = new Int32Array(data.doorbell);
       // The boot images, gunzipped, and the manifest, for the page to start
       // nodes with; files.js keeps no tar (its files are copies).

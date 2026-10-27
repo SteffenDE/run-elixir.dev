@@ -26,8 +26,8 @@ export function register(programs: Map<string, Registered>): void {
 }
 
 // A tool of coreutils', and a program of its own module.
-export const isTool = (name: string) => REGISTRY.get(name)?.tool === true;
-export const isProgram = (name: string) => REGISTRY.get(name)?.tool === false;
+export const isTool = (name: string) => REGISTRY.get(name)?.multicall === true;
+export const isProgram = (name: string) => REGISTRY.get(name)?.multicall === false;
 
 export interface CoreutilsOptions {
   // coreutils.wasm, compiled; null when the site has none.
@@ -52,7 +52,7 @@ export function coreutils(options: CoreutilsOptions, name: string): Program | un
   const entry = REGISTRY.get(name);
   if (!entry) return undefined;
   return (process, { args, cwd, env, root }) => {
-    const module = entry.tool ? options.module() : (options.load?.(name) ?? null);
+    const module = entry.multicall ? options.module() : (options.load?.(name) ?? null);
     if (!module) {
       process.write(`${name}: not in this site (${entry.url.pathname.split('/').pop()})\n`);
       return process.exit(127);

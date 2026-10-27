@@ -15,18 +15,14 @@ export default defineConfig({
   build: {
     assetsDir: '_playground',
     target: 'es2022',
-    // The IDE, the preview popped out into its own window, and the
-    // usercontent domain's frames: a preview origin's relay, the frame
-    // that runs a project, and the claude frame (docs/frames.md); and a
-    // project's former origin's storage frame, which moves its stores to
-    // the apex.
+    // The IDE, the preview popped out into its own window, embed.html,
+    // and a project's former origin's storage frame, which moves its
+    // stores to the apex. The usercontent domain's frames are the
+    // runtime package's (vite.frames.config.ts).
     rollupOptions: {
       input: {
         main: 'index.html',
         preview: 'preview.html',
-        relay: 'relay.html',
-        exec: 'exec.html',
-        claude: 'claude.html',
         embed: 'embed.html',
         storage: 'storage.html',
       },

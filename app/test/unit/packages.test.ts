@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HOST, assertSite, checkSite, type Host } from '@/runtime/packages/check';
 import { Site, type SiteManifest } from '@/runtime/packages/manifest';
+import type { Manifest } from '@/runtime/wasi/fs';
 
 const RUNTIME = '@elixir-playground/runtime';
 const OTP = '@elixir-playground/otp-29.1.2';
@@ -10,9 +11,18 @@ const file = { size: 1, sha256: '00' };
 
 // A site as runtime/build.py writes it, in a layout of npm's: each package
 // under its own name and version.
+// A package's fs layer: `count` bundles.
+const layer = (count: number, version: string) => ({
+  format: 2,
+  manifest: 'fs/manifest.json',
+  bundles: 'fs/bundles/',
+  count,
+  version,
+});
+
 function site(): SiteManifest {
   return {
-    manifest: 1,
+    manifest: 2,
     packages: {
       [OTP]: {
         version: '1.2.0',
@@ -24,7 +34,8 @@ function site(): SiteManifest {
           otp: '29.1.2',
           beamAbi: 'b1',
           nifAbi: '1-2.18',
-          beam: { loader: 'beam.mjs', threads: 'beam.emu.mjs', wasm: 'beam.wasm' },
+          beam: { loader: 'beam.mjs', wasm: 'beam.wasm' },
+          fs: layer(3, 'o1'),
         },
       },
       [ELIXIR]: {
@@ -32,7 +43,7 @@ function site(): SiteManifest {
         base: '../elixir-1.20.4@1.0.3/',
         files: {},
         peerDependencies: { [RUNTIME]: '^1.0.0' },
-        playground: { elixir: '1.20.4', requires: { otp: '^29.0.0' } },
+        playground: { elixir: '1.20.4', requires: { otp: '^29.0.0' }, fs: layer(2, 'e1') },
       },
       [TEMPLATE]: {
         version: '1.0.0',
@@ -57,8 +68,10 @@ function site(): SiteManifest {
         playground: {
           abi: { wasi: 1, processes: 1, crossterm: 1 },
           shell: 'brush.wasm',
-          tools: 'coreutils.wasm',
-          programs: { ls: 'coreutils.wasm', cat: 'coreutils.wasm' },
+          programs: {
+            ls: { module: 'coreutils.wasm', multicall: true },
+            cat: { module: 'coreutils.wasm', multicall: true },
+          },
         },
       },
       '@elixir-playground/git': {
@@ -66,7 +79,7 @@ function site(): SiteManifest {
         base: '../git@1.1.0/',
         files: { 'git.wasm': file },
         peerDependencies: { [RUNTIME]: '^1.0.0' },
-        playground: { abi: { wasi: 1, processes: 1 }, programs: { git: 'git.wasm' } },
+        playground: { abi: { wasi: 1, processes: 1 }, programs: { git: { module: 'git.wasm' } } },
       },
       '@elixir-playground/tls': {
         version: '1.0.0',
@@ -76,11 +89,9 @@ function site(): SiteManifest {
         playground: { abi: { wasi: 1, tls: 1 }, tls: { module: 'tls.wasm', roots: 'roots.pem' } },
       },
     },
-    fs: {
-      base: '../boot@1/',
-      format: 1,
-      version: 'v1',
-      boots: ['boot', 'boot-phoenix'],
+    boot: {
+      base: '../../../boot/b1/',
+      images: ['boot', 'boot-phoenix'],
       packages: { [OTP]: '1.2.0', [ELIXIR]: '1.0.3', [TEMPLATE]: '1.0.0' },
     },
     nif: { base: '../nif/', nifAbi: '1-2.18', libraries: ['bcrypt_elixir-3.3.2'] },
@@ -99,9 +110,9 @@ describe('the site manifest', () => {
     expect(packages.shell()!.href).toBe(
       'https://u.test/npm/@elixir-playground/shell@1.0.0/brush.wasm',
     );
-    expect(packages.fs('bundles/3.tar').href).toBe(
-      'https://u.test/npm/@elixir-playground/boot@1/bundles/3.tar',
-    );
+    expect(packages.boot('boot-phoenix').href).toBe('https://u.test/boot/b1/boot-phoenix.tar.gz');
+    expect(packages.boots()).toEqual(['boot', 'boot-phoenix']);
+    expect(() => packages.boot('boot-livebook')).toThrow('no boot image boot-livebook');
     expect(packages.tls()).toEqual({
       module: 'https://u.test/npm/@elixir-playground/tls@1.0.0/tls.wasm',
       roots: 'https://u.test/npm/@elixir-playground/tls@1.0.0/roots.pem',
@@ -114,9 +125,47 @@ describe('the site manifest', () => {
   it('registers every package’s programs, the tools’ module apart', () => {
     const programs = at().programs();
     expect([...programs.keys()].sort()).toEqual(['cat', 'git', 'ls']);
-    expect(programs.get('ls')).toMatchObject({ tool: true });
-    expect(programs.get('git')).toMatchObject({ tool: false });
+    expect(programs.get('ls')).toMatchObject({ multicall: true });
+    expect(programs.get('git')).toMatchObject({ multicall: false });
+    expect(at().multicall()!.pathname).toBe('/npm/@elixir-playground/shell@1.0.0/coreutils.wasm');
     expect(programs.get('git')!.url.pathname).toBe('/npm/@elixir-playground/git@1.1.0/git.wasm');
+  });
+
+  it('numbers the layers’ bundles one after another, and finds each', async () => {
+    const packages = at();
+    const listed: Record<string, Manifest> = {
+      'otp-29.1.2@1.2.0': [
+        ['rotp/lib/kernel/ebin/kernel.app', 10, 1, 0],
+        ['rotp/lib/stdlib/ebin/lists.beam', 20, 1, 2],
+      ],
+      'elixir-1.20.4@1.0.3': [['rotp/lib/elixir/ebin/elixir.app', 30, 1, 1]],
+    };
+    const tree = await packages.tree(async (url) => listed[url.pathname.split('/').at(-3)!] ?? []);
+    expect(tree).toEqual([
+      ['rotp/lib/kernel/ebin/kernel.app', 10, 1, 0],
+      ['rotp/lib/stdlib/ebin/lists.beam', 20, 1, 2],
+      ['rotp/lib/elixir/ebin/elixir.app', 30, 1, 4],
+    ]);
+    expect(packages.bundle(2).pathname).toBe(
+      '/npm/@elixir-playground/otp-29.1.2@1.2.0/fs/bundles/2.tar',
+    );
+    expect(packages.bundle(4).pathname).toBe(
+      '/npm/@elixir-playground/elixir-1.20.4@1.0.3/fs/bundles/1.tar',
+    );
+    expect(() => packages.bundle(5)).toThrow('no bundle 5');
+  });
+
+  it('names what kept changes were made over by the layers’ versions', () => {
+    const before = at().fsVersion();
+    expect(before).toMatch(/^[0-9a-f]{16}$/);
+    expect(at().fsVersion()).toBe(before);
+    const rebuilt = site();
+    rebuilt.packages[ELIXIR].playground.fs!.version = 'e2';
+    expect(at(rebuilt).fsVersion()).not.toBe(before);
+    // Not the packages' other files.
+    const other = site();
+    other.packages[OTP].files['beam.wasm'] = { size: 2, sha256: '11' };
+    expect(at(other).fsVersion()).toBe(before);
   });
 
   it('names only the NIF libraries it bundles', () => {
@@ -181,11 +230,11 @@ describe('the load-time check', () => {
   it('refuses a template whose packages are missing or of another major', () => {
     const manifest = site();
     delete manifest.packages[ELIXIR];
-    delete manifest.fs!.packages[ELIXIR];
+    delete manifest.boot!.packages[ELIXIR];
     expect(checkSite(manifest)).toEqual([`${TEMPLATE}@1.0.0 needs ${ELIXIR} ^1, which is missing`]);
     const other = site();
     other.packages[OTP].version = '2.0.0';
-    other.fs!.packages[OTP] = '2.0.0';
+    other.boot!.packages[OTP] = '2.0.0';
     expect(checkSite(other)).toEqual([`${TEMPLATE}@1.0.0 needs ${OTP} ^1, not 2.0.0`]);
   });
 
@@ -199,13 +248,17 @@ describe('the load-time check', () => {
     expect(checkSite(patched)).toEqual([]);
   });
 
-  it('refuses an fs image recorded with other packages', () => {
+  it('refuses boot images recorded with other packages, and files of another fs format', () => {
     const manifest = site();
     manifest.packages[OTP].version = '1.2.1';
-    expect(checkSite(manifest)).toEqual([`the fs image was made with ${OTP}@1.2.0, not 1.2.1`]);
+    expect(checkSite(manifest)).toEqual([
+      `the boot images were recorded with ${OTP}@1.2.0, not 1.2.1`,
+    ]);
     const format = site();
-    format.fs!.format = 2;
-    expect(checkSite(format)).toEqual(['the fs image is format 2; this runtime reads 1']);
+    format.packages[ELIXIR].playground.fs!.format = 1;
+    expect(checkSite(format)).toEqual([
+      `${ELIXIR}@1.0.3's files are fs format 1; this runtime reads 2`,
+    ]);
   });
 
   it('refuses NIF libraries of another NIF ABI, not of another BEAM build', () => {
@@ -238,8 +291,8 @@ describe('the load-time check', () => {
   });
 
   it('reads only the manifest versions it knows', () => {
-    expect(checkSite({ ...site(), manifest: 2 })).toEqual([
-      'site.json is manifest 2; this runtime reads 1',
+    expect(checkSite({ ...site(), manifest: 1 })).toEqual([
+      'site.json is manifest 1; this runtime reads 2',
     ]);
   });
 

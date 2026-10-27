@@ -60,7 +60,7 @@ export type Proto = 'tcp' | 'udp';
 // of a page gone, a closed tab too, by it), `take` to take the port from
 // the project that shares it.
 export type Request =
-  | { kind: 'hello'; wasm: string }
+  | { kind: 'hello'; wasm: string; glue: string }
   | { kind: 'act'; id: number; action: Action }
   | { kind: 'dial'; host: string; port: number; proto: Proto }
   | { kind: 'expose'; port: number; lock: string; take?: boolean }

@@ -1,7 +1,8 @@
 // The Emscripten BEAM (beam/run.ts) in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
-// SITE is a site build.py made (target/site), or one of its
-// runtimes (r/RID). Standard input is read whole first and then ends.
+// SITE is a site build.py made (target/site: the manifest its index.html
+// names), or a site manifest (site/ID.json). Standard input is read whole
+// first and then ends.
 import { readFile } from 'node:fs/promises';
 import {
   existsSync,
@@ -26,12 +27,14 @@ import { GIT_DASHED } from './git-remote';
 import { Processes, portProgram, wasmProgram } from './processes';
 
 const [site, ...args] = process.argv.slice(2);
-// A versioned site's runtime (r/RID/: the BEAM, fs/, nif/; build.py), or
-// a flat site.
-const runtimes = existsSync(`${site}/fs`) ? [] : readdirSync(`${site}/r`);
-const dir = runtimes.length ? `${site}/r/${runtimes[0]}` : site;
-// Its packages (site.json, build.py): the fs image, the BEAM, the programs.
-const siteJson = `${dir}/site.json`;
+// Its packages (the site manifest, build.py): the nodes' files, the BEAM,
+// the programs.
+const named = site.endsWith('.json')
+  ? null
+  : readFileSync(`${site}/index.html`, 'utf8').match(
+      /<meta name="playground-site" content="([^"]+)"/,
+    );
+const siteJson = named ? `${site}${named[1]}` : site;
 const packages = new Site({
   url: pathToFileURL(siteJson).href,
   manifest: JSON.parse(readFileSync(siteJson, 'utf8')) as SiteManifest,
@@ -42,7 +45,7 @@ const t0 = performance.now();
 let t2 = Infinity;
 const root = new Dir();
 const hostFiles = new Map<string, string>();
-mount(JSON.parse(await readFile(local(packages.fs('manifest.json')), 'utf8')), root);
+mount(await packages.tree(async (url) => JSON.parse(await readFile(local(url), 'utf8'))), root);
 // MOUNT=VFSDIR:HOSTDIR (comma-separated): a host directory's files, read
 // when first opened.
 for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
@@ -67,12 +70,11 @@ for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
   };
   walk(host, '');
 }
-// BOOT=NAME,...: the boot images (fs/NAME.tar.gz) to unpack, by default
-// every one the site has.
-const boots = process.env.BOOT ? process.env.BOOT.split(',') : (packages.manifest.fs?.boots ?? []);
+// BOOT=NAME,...: the boot images (NAME.tar.gz) to unpack, by default
+// every one the site has (none: every file comes lazily).
+const boots = process.env.BOOT ? process.env.BOOT.split(',') : packages.boots();
 let files = 0;
-for (const boot of boots)
-  files += await untar(await readFile(local(packages.fs(`${boot}.tar.gz`))), root);
+for (const boot of boots) files += await untar(await readFile(local(packages.boot(boot))), root);
 let fetched = 0;
 const recorded: string[] = [];
 prepare(root);
@@ -80,7 +82,7 @@ const t1 = performance.now();
 const input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 // Mounted host files, or the site's bundles.
 const fromBundles = bundled(
-  (bundle) => new Uint8Array(readFileSync(local(packages.fs(`bundles/${bundle}.tar`)))),
+  (bundle) => new Uint8Array(readFileSync(local(packages.bundle(bundle)))),
 );
 function fetchFile(source: string, bundle: number): Uint8Array {
   fetched++;

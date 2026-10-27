@@ -24,7 +24,12 @@ test("the project runs in an exec frame of the usercontent domain's", async ({
   const id = await newProject(page, 'empty');
   await prompted(page, 1);
   const src = await page.locator('iframe[src*="/exec.html"]').getAttribute('src');
-  expect(src).toBe(`http://e-${id}.${USERCONTENT}/exec.html`);
+  // The runtime package's page (docs/packages.md).
+  expect(src).toMatch(
+    new RegExp(
+      `^http://e-${id}\\.${USERCONTENT.replace(/\./g, '\\.')}/npm/@elixir-playground/runtime@[^/]+/exec\\.html$`,
+    ),
+  );
   // Playwright reaches no frame of another site in Firefox.
   if (browserName === 'firefox') return;
   const exec = page.frames().find((frame) => frame.url().includes('/exec.html'))!;

@@ -427,7 +427,7 @@ export class Node {
           )
         : null,
       brush,
-      siteModule(packages.tools()),
+      siteModule(packages.multicall()),
       siteModule(packages.beam()?.wasm ?? null),
     ]).then(([boot, module, coreutils, beam]) => {
       const images = boot && names.every((name) => boot.images[name]);

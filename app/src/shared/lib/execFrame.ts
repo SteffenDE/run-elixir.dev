@@ -2,6 +2,7 @@
 // frames/exec.ts), started from the page that drives it: the IDE's
 // (project/lib/playground.ts) or embed.html's (embed/host.ts).
 import { Rpc } from './rpc';
+import { BUILD } from './build';
 
 // A frame on the screen but unseen: a pixel, transparent, out of the way.
 // Not `hidden`: WebKit slowed a hidden frame's workers (the nodes') until
@@ -52,7 +53,7 @@ export async function startExecFrame(
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const element = unseen(document.createElement('iframe'));
-    element.src = `${origin}/exec.html`;
+    element.src = `${origin}${BUILD}exec.html`;
     const cleanup = () => {
       removeEventListener('message', loaded);
       signal.removeEventListener('abort', cancelled);

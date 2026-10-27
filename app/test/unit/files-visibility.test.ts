@@ -33,9 +33,9 @@ async function filesWorker(records: KeptRecord[] = []) {
     site: {
       url: 'https://runtime.test/site.json',
       manifest: {
-        manifest: 1,
+        manifest: 2,
         packages: {},
-        fs: { base: 'fs/', format: 1, version: '', boots: [], packages: {} },
+        boot: null,
         nif: null,
       },
     },

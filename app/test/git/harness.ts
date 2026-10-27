@@ -38,7 +38,7 @@ function coreutilsTools(): Set<string> {
     if (!existsSync(path)) continue;
     const manifest = JSON.parse(readFileSync(path, 'utf8')) as SiteManifest;
     const programs = new Site({ url: pathToFileURL(path).href, manifest }).programs();
-    return new Set([...programs].filter(([, entry]) => entry.tool).map(([name]) => name));
+    return new Set([...programs].filter(([, entry]) => entry.multicall).map(([name]) => name));
   }
   throw new Error(`no ${runtimes}/*/site.json: build the site first (runtime/build.py)`);
 }

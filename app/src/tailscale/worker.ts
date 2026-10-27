@@ -10,7 +10,6 @@
 // signed out since), or when the Tailscale page asks; before that its
 // WebAssembly (about 30 MB) is not loaded. Two builds' pages make two
 // workers (a worker is its script's URL); a lock lets one run the node.
-import '../../../tailscale/wasm_exec.js';
 import { CONTROL_URL, HOSTNAME, SHARE_LOCK, TAG } from './protocol';
 import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
 
@@ -127,15 +126,17 @@ function publish(next: Status): void {
   for (const page of pages) page.postMessage(reply);
 }
 
-// The node's WebAssembly, as the first page names it (its build's).
-let wasm: (url: string) => void;
-const wasmUrl = new Promise<string>((resolve) => (wasm = resolve));
+// The node's WebAssembly and Go's glue for it (wasm_exec.js, the tailscale
+// package's: the Go that built it has its own), as the first page names
+// them (its build's).
+let wasm: (urls: { wasm: string; glue: string }) => void;
+const wasmUrl = new Promise<{ wasm: string; glue: string }>((resolve) => (wasm = resolve));
 
 let starting: Promise<Node> | null = null;
 function node(): Promise<Node> {
   starting ??= (async () => {
     await settled;
-    const url = await wasmUrl;
+    const { wasm: url, glue } = await wasmUrl;
     // One node per browser: another build's worker may hold it.
     const waiting = setTimeout(() => publish({ ...status, state: 'waiting' }), 500);
     await new Promise<void>((held) => {
@@ -146,6 +147,8 @@ function node(): Promise<Node> {
     });
     clearTimeout(waiting);
     publish({ ...status, state: 'loading' });
+    // It defines globalThis.Go.
+    await import(/* @vite-ignore */ glue);
     const go = new global.Go();
     const { instance } = await WebAssembly.instantiateStreaming(fetch(url), go.importObject);
     void go.run(instance);
@@ -351,7 +354,7 @@ self.addEventListener('connect', (event) => {
   pages.add(page);
   page.onmessage = ({ data, ports }: MessageEvent<Request>) => {
     if (data.kind === 'hello') {
-      wasm(data.wasm);
+      wasm({ wasm: data.wasm, glue: data.glue });
       page.postMessage({ kind: 'status', status } satisfies Reply);
       void settled.then(() => {
         if (configured) void node();

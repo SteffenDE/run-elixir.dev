@@ -549,7 +549,7 @@ async function changes(hidden: string[]): Promise<Omit<Shared, 'name' | 'templat
   return {
     v: 1,
     kind: start!.kind === 'phoenix' ? 'phoenix' : 'empty',
-    site: site.manifest.fs?.version ?? '',
+    site: new Site(site).fsVersion(),
     files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
     removed: removed.map(relative),
   };
