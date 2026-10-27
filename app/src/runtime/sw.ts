@@ -10,7 +10,12 @@
 // client that navigated it (its referrer), or of the only (or focused)
 // host. Which client has which key is kept in IndexedDB too, since a
 // service worker is stopped when idle and starts again without its memory.
+//
+// What it says to its hosts is protocol 1 (swProtocol.ts, docs/packages.md):
+// a host names the protocol it speaks as it announces itself, and the
+// worker answers { kind: 'hosted', protocol } (null: not one it speaks).
 import type { PreviewResponse } from './bridge';
+import { announcedProtocol, hosted, isOwnFrame } from './swProtocol';
 
 // What this worker uses of its scope, which the app's DOM library leaves
 // out.
@@ -62,9 +67,6 @@ const ISOLATION = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'cross-origin',
 };
-// The site's own frames: a preview origin's relay to its IDE
-// (frames/relay.ts), whose page is this worker's host there.
-const FRAMES = ['/relay.html', '/exec.html'];
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
 // client id → key (hosts, preview windows, the app's documents), and
@@ -72,6 +74,8 @@ const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 
 // frames), whose requests go to the app.
 const keys = new Map<string, string>();
 const hosts = new Map<string, string>();
+// key → the protocol its host speaks (1 for a host that does not say).
+const protocols = new Map<string, number>();
 const previews = new Set<string>();
 let loading: Promise<void> | null = null;
 let loaded = false;
@@ -97,6 +101,8 @@ function load(): Promise<void> {
             for (const [key, id] of request.result?.hosts ?? [])
               if (!hosts.has(key)) hosts.set(key, id);
             for (const id of request.result?.previews ?? []) previews.add(id);
+            for (const [key, protocol] of request.result?.protocols ?? [])
+              if (!protocols.has(key)) protocols.set(key, protocol);
             resolve();
           };
           request.onerror = () => resolve();
@@ -137,7 +143,15 @@ function save(): void {
       const db = await database();
       db.transaction('clients', 'readwrite')
         .objectStore('clients')
-        .put({ keys: [...keys], hosts: [...hosts], previews: [...previews] }, 'routes');
+        .put(
+          {
+            keys: [...keys],
+            hosts: [...hosts],
+            previews: [...previews],
+            protocols: [...protocols],
+          },
+          'routes',
+        );
     })
     .catch(() => {});
 }
@@ -167,7 +181,11 @@ self.addEventListener('message', (event) => {
   }
   const { kind, key } = event.data ?? {};
   if (kind === 'host') {
+    const answer = hosted(key, announcedProtocol(event.data));
+    event.source.postMessage(answer);
+    if (answer.protocol === null) return;
     hosts.set(key, event.source.id);
+    protocols.set(key, answer.protocol);
     remember(event.source.id, key);
   } else if (kind === 'preview') remember(event.source.id, key);
 });
@@ -220,8 +238,8 @@ self.addEventListener('fetch', (event) => {
   }
   if (request.mode === 'navigate') {
     if (request.destination !== 'iframe') return;
-    // The site's own frames (frames.ts), never a preview.
-    if (FRAMES.includes(new URL(request.url).pathname)) return;
+    // The site's own frames (frames.ts, swProtocol.ts), never a preview.
+    if (isOwnFrame(url.pathname)) return;
     previews.add(event.resultingClientId);
     save();
     event.respondWith(app(event, true));

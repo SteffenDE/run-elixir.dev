@@ -12,6 +12,7 @@
 // connects to the node and speaks the protocol (RFC 6455) for it.
 import { COOKIES, cookieShim, setCookie } from './cookies';
 import type { Connection as NodeConnection } from './host/node';
+import { HOST_PROTOCOL, type Hosted } from './swProtocol';
 import { trace } from './trace';
 
 // A connection to the app: a node's, or one through a live session's
@@ -550,16 +551,28 @@ export class Bridge {
   // routes a preview's requests by it), once it controls the page, and
   // again when another worker takes over.
   static async register(url = 'sw.js', scope = './', key = 'default'): Promise<void> {
-    await navigator.serviceWorker.register(url, { scope });
+    const registration = await navigator.serviceWorker.register(url, { scope });
+    // A worker that does not speak this host's protocol (swProtocol.ts):
+    // the newest sw.js, which announces again once it takes over.
+    navigator.serviceWorker.addEventListener('message', (event) => {
+      const answer = event.data as Hosted | undefined;
+      if (answer?.kind === 'hosted' && answer.key === key && answer.protocol === null)
+        void registration.update();
+    });
     // A forced reload (shift-reload) loads the page uncontrolled; the
     // active worker takes it over when asked.
     const { active } = await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller) active!.postMessage('claim');
-    await Bridge.announce({ kind: 'host', key });
+    await Bridge.announce({ kind: 'host', key, protocol: HOST_PROTOCOL });
   }
 
-  // Tell the service worker who this page is: { kind: 'host' | 'preview', key }.
-  static async announce(message: { kind: 'host' | 'preview'; key: string }): Promise<void> {
+  // Tell the service worker who this page is: { kind: 'host' | 'preview',
+  // key }, a host with the protocol it speaks.
+  static async announce(message: {
+    kind: 'host' | 'preview';
+    key: string;
+    protocol?: number;
+  }): Promise<void> {
     if (!navigator.serviceWorker.controller) {
       await new Promise((resolve) =>
         navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }),
