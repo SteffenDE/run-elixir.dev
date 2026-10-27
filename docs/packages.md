@@ -17,113 +17,50 @@ npm install @elixir-playground/api @elixir-playground/otp-29.1.2 \
   @elixir-playground/git @elixir-playground/claude
 ```
 
-Tidewave's `/web`, which uses `embed.js` today ([embed.md](embed.md)), is
-the first embedder this is for. run-elixir.dev becomes the first consumer
-of the packages.
+Tidewave's `/web`, which uses `embed.js` ([embed.md](embed.md)), is the
+first embedder this is for. run-elixir.dev is the first consumer of the
+packages.
 
-Most of this document is a proposal. [What is implemented](#what-is-implemented)
-lists what exists in the repository today: the site manifest, the
-load-time check, `target/packages/`, and the numbered service worker
-protocol. Nothing is published.
+Publishing, the build plugin and the hosted mirror are proposals. The
+site itself is already laid out as these packages, and the runtime runs
+from them: [What is implemented](#what-is-implemented) has the details.
+Nothing is published.
 
 ## Packages
 
 Each package's `package.json` has a `playground` field ([below](#the-playground-field)).
 Every package except `runtime` peer-depends on `@elixir-playground/runtime`.
+Sizes are of the 2026-10-27 build, on disk.
 
-| Package | Contents | Peer dependencies |
-| --- | --- | --- |
-| `runtime` | Node, files, git and Node.js workers; `sw.js`; the program registry; Node.js and npm; the RPC protocol; the frames' pages (`exec.html`, `relay.html`, `claude.html`) | none |
-| `api` | `create()`, `fs`, `spawn`, `connect`, `serve`. Runs in the embedder's page. | `runtime` |
-| `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (Emscripten build and glue); OTP's applications as fs bundles. Declares `beamAbi` and `nifAbi`. | `runtime` |
-| `elixir-X` | Elixir's applications, Hex, rebar3 and phx_new as fs bundles. | `runtime` |
-| `phoenix-template` | The phx.new app with `deps/` and its `_build`, compiled for one OTP and Elixir pair. | `runtime`, `otp-X ^N`, `elixir-Y ^N` |
-| `shell` | `brush.wasm` (the shell) and `coreutils.wasm` (78 tools). The terminfo entry. | `runtime` |
-| `git` | `git.wasm`; its shell-script commands (`usr/libexec/git-core/`). | `runtime` |
-| `ripgrep` | `rg.wasm`. | `runtime` |
-| `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find`. | `runtime` |
-| `tls` | `tls.wasm` (a Node.js process's TLS client) and `roots.pem`. The nodes' CA bundle. | `runtime` |
-| `tailscale` | `tailscale.wasm` (the apex's Tailscale node). | `runtime` |
-| `claude` | The preparer (Bun graph → CommonJS) and the Claude Code range it was tested with. No Claude Code. | `runtime` |
-| `vite` | A build plugin, and a CLI for sites that don't use Vite. | `runtime` |
+| Package | Contents | Peer dependencies | Size |
+| --- | --- | --- | --- |
+| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `nodejs.js`, `tailscale.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `claude.html`, `frames/`, the exec frame's worker among them) | none | 14 MB |
+| `api` | `embed.js`, the embedding API's client | `runtime` | 16 KB |
+| `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (the Emscripten build and its glue); OTP's applications (an fs layer, 831 files) | `runtime` | 39 MB |
+| `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3 (an fs layer, 604 files) | `runtime` | 14 MB |
+| `phoenix-template` | The phx.new app at `/work/playground`, with `deps/` and its `_build`, compiled for one OTP and Elixir pair (an fs layer, 4,640 files) | `runtime`, `otp-X ^N`, `elixir-Y ^N` | 47 MB |
+| `shell` | `brush.wasm` (the shell), `coreutils.wasm` (78 tools); the terminfo entry (an fs layer) | `runtime` | 11 MB |
+| `git` | `git.wasm`; its shell-script commands (an fs layer, 13 files) | `runtime` | 3.8 MB |
+| `ripgrep` | `rg.wasm` | `runtime` | 2.9 MB |
+| `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find` | `runtime` | 5.3 MB |
+| `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
+| `tailscale` | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
+| `claude` | The Claude Code range the preparer was tested with; no Claude Code | `runtime` | 8 KB |
+| `vite` (proposed) | A build plugin, and a CLI for sites that don't use Vite | `runtime` | |
 
-`tailscale` is not in the first list of packages the embedders asked for.
-It is a package of its own because it is 29 MB, and only the apex's
-Tailscale worker uses it.
+`tailscale` is a package of its own because it is 29 MB, and only the
+apex's Tailscale worker uses it.
 
-### What maps onto today's artifacts
+What is still not where it belongs:
 
-`runtime/build.py` writes `target/packages/NAME/` for the packages whose
-files are already separate in the site (2026-10-27 build):
-
-| Package | Files | Size |
-| --- | --- | --- |
-| `runtime` | `worker.js`, `files.js`, `git.js`, `nodejs.js`, `tailscale.js`, `chunks/`, `sw.js` | 0.8 MB |
-| `api` | `embed.js` | 16 KB |
-| `otp-29.1.2` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` | 6.6 MB |
-| `shell` | `brush.wasm`, `coreutils.wasm` | 11 MB |
-| `git` | `git.wasm` | 3.7 MB |
-| `ripgrep` | `rg.wasm` | 2.9 MB |
-| `gnu-tools` | 8 modules | 5.3 MB |
-| `tls` | `tls.wasm`, `roots.pem` | 0.9 MB |
-| `tailscale` | `tailscale.wasm` | 28 MB |
-
-These packages do not map cleanly yet:
-
-- **`elixir-X` and `phoenix-template`** have no files of their own. Their
-  files are in the site's one fs image (below). They appear in the site
-  manifest with their `playground` fields only.
-- **`otp-X`** has its emulator but not OTP's applications, which are in the
-  fs image.
-- **`git`, `tls` and `shell`** each have files in the fs image too: git's
-  13 shell-script commands, the nodes' CA bundle, and the terminfo entry.
-- **`runtime`** lacks the frames' pages. `exec.html`, `relay.html` and
-  `claude.html` are entries of the app's Vite build. Their scripts are
-  chunks in `_playground/`, shared with the IDE.
-- **`api`** is only the client (`embed.js`). The host it drives is
-  `embed.html`, which is part of the app.
-- **`claude`**: the preparer is part of the app's build
-  (`project/lib/programs/claude/`), so the package has no files.
-- **`tailscale`**: its glue, Go's `wasm_exec.js`, is bundled into the
-  runtime's `tailscale.js`. That glue must match the Go version that built
-  `tailscale.wasm`, so it belongs in the `tailscale` package.
-
-### The fs image
-
-Today one fs image holds the files of six packages (2026-10-27 build,
-6,090 files):
-
-| Package | Files |
-| --- | --- |
-| `phoenix-template` | 4,640 |
-| `otp-29.1.2` | 831 |
-| `elixir-1.20.4` | 604 |
-| `git` | 13 |
-| `shell` | 1 |
-| `tls` | 1 |
-
-The image is `fs/boot.tar.gz` (7.2 MB), `fs/boot-phoenix.tar.gz`
-(10.1 MB), `fs/manifest.json`, and 688 bundles of the 5,885 files not in
-`boot.tar.gz` (41 MB gzipped). [build.md](build.md#what-the-site-is)
-describes how it is made.
-
-Splitting it per package needs fs format 2:
-
-- **Bundle numbers are global.** A manifest entry is `[path, size, mtime,
-  bundle]`, and `bundle` is an index into one `fs/bundles/`. Format 2 needs
-  one manifest and set of bundles per package, mounted together, or
-  package-qualified bundle references.
-- **The boot images mix every package's files.** They are recordings of
-  what IEx and the Phoenix server read first. That is a property of the
-  installed set, not of one package. They are combination outputs (below).
-- **The template's build is made by a recording.** Mix records absolute
-  paths, so `build.py` compiles the template again at `/work/playground`
-  inside the node, under the Node harness. The template package can only
-  be built by running the `runtime`, `otp-X` and `elixir-Y` it is for.
-- **One version for all of it.** A project's kept changes note `fs/version`.
-  When it changes, `files.js` drops the template's `_build`, and the
-  project recompiles over the new one. Per package, the template package's
-  version would decide that, not a digest of everything.
+- **`claude`'s preparer** (Bun graph → CommonJS) is part of the runtime
+  package's frames (`claude.html`'s worker), so `claude` holds only the
+  range.
+- **`api` is the client only.** The host it drives is `embed.html`, part
+  of the app on the apex. Moving the host into `api` makes the embedder's
+  page the apex ([below](#keeping-embedhtml)).
+- **esbuild's WebAssembly** (12 MB, the page program `esbuild`) is in the
+  runtime package's frames; it could be a package of its own.
 
 ## Versioning
 
@@ -146,11 +83,54 @@ Splitting it per package needs fs format 2:
   in its `playground` field instead, and only the load-time check enforces
   it.
 
-The repository's packages are all `1.0.0` today (`PACKAGES` in
-`build.py`; `app/src/runtime/packages/host.json` for the runtime). A
-publishing job would compare each package's file digests (site.json's
-`sha256`) with the published version's, and bump the patch when they
-differ.
+The repository's packages are all `1.0.0` (`PACKAGES` in `build.py`;
+`app/src/runtime/packages/host.json` for the runtime). The site build
+names each package's directory `NAME@VERSION+ID`, ID a digest of what is
+in it: unpublished, the same version may be another build, and the path
+must still be immutable. A published package would be `NAME@VERSION`. A
+publishing job would compare each package's digest with the published
+version's and bump the patch when they differ.
+
+## The site's layout
+
+```
+npm/@elixir-playground/NAME@VERSION+ID/   a package: package.json, its files, its fs layer (fs/)
+boot/ID/                                  the boot recordings: boot.tar.gz, boot-phoenix.tar.gz
+nif/ABI/                                  bundled NIF libraries, for NIF ABI ABI
+site/ID.json                              the site manifest
+```
+
+Each of these is immutable. The pages (`index.html`, `preview.html`,
+`embed.html`, `storage.html`), `sw.js`, `embed.js` and `playground.json`
+keep their names. Each page names the runtime package's path and the
+site manifest's (`<meta name="playground-runtime">`, `<meta
+name="playground-site">`); the runtime finds everything else through the
+manifest. [build.md](build.md#what-the-site-is) has the whole tree.
+
+### fs layers (fs format 2)
+
+A package with files in the nodes' tree has an fs layer: `fs/manifest.json`
+lists them (`[path, size, mtime, bundle]`) and `fs/bundles/N.tar` holds
+them (uncompressed tars of up to 512 KB of one directory's files). The
+runtime merges the layers into one tree, and numbers the layers' bundles
+one after another in the manifest's order (`Site.tree`, `Site.bundle`),
+so a lazy file is `(source, bundle)` as before.
+
+- **A layer's `version`** is a digest of its files' paths and bytes,
+  without mtimes and without Mix's records of a compile
+  (`_build/ENV/lib/APP/.mix/`, which note when it ran). A kept project
+  notes the layers' versions it was made over (`Site.fsVersion`); when
+  they change, `files.js` drops the template's `_build` from the kept
+  records, and the project recompiles over the new one.
+- **The boot recordings are not a package.** They are what IEx and the
+  Phoenix server read first, recorded for an installed set: the site
+  manifest's `boot`, with the packages (and versions) they were recorded
+  with. Without them every file comes lazily, and boot is slower.
+- **The template's build is made by a recording.** Mix records absolute
+  paths, so `build.py` compiles the template again at `/work/playground`
+  in the node, under the Node harness, and lays out the template package
+  with that build. A template package can only be built by running the
+  `runtime`, `otp-X` and `elixir-Y` it is for.
 
 ## The `playground` field
 
@@ -159,23 +139,25 @@ Every key is optional. A package sets the keys that describe it.
 | Key | In | Meaning |
 | --- | --- | --- |
 | `abi` | artifacts | `{ seam: version }`: the host ABI seams its files use ([below](#abi-seams)). |
-| `programs` | `shell`, `git`, `ripgrep`, `gnu-tools` | `{ name: file }`: programs the shell and nodes find by name. The program runs with `name` as `argv[0]`. Several names may share a multi-call module. |
-| `shell`, `tools` | `shell` | The shell's module (`brush.wasm`) and the tools' multi-call module (`coreutils.wasm`), which the exec frame compiles once for every node. |
-| `otp`, `beamAbi`, `nifAbi`, `beam` | `otp-X` | OTP's version, the build's id, the NIF ABI it loads, and `{ loader, threads, wasm }`. |
+| `programs` | `shell`, `git`, `ripgrep`, `gnu-tools` | `{ name: { module, multicall? } }`: programs the shell and nodes find by name, run with `name` as `argv[0]`. A `multicall` module (`coreutils.wasm`) serves several names; the exec frame compiles it once for every node, and it runs on its caller's thread. Others run as processes of the worker's table. |
+| `shell` | `shell` | The shell's module (`brush.wasm`). |
+| `otp`, `beamAbi`, `nifAbi`, `beam` | `otp-X` | OTP's version, the build's id, the NIF ABI it loads, and `{ loader, wasm }`. |
 | `elixir`, `requires.otp` | `elixir-X` | Elixir's version, and the OTP range it runs on. |
-| `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build. `otp` and `elixir` are the pair it was compiled with. |
+| `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build; `otp` and `elixir` are the pair it was compiled with. |
+| `fs` | packages with files in the nodes' tree | `{ format, manifest, bundles, count, version }`: its fs layer. |
 | `tls` | `tls` | `{ module, roots }`. |
-| `tailscale` | `tailscale` | Its module. |
+| `tailscale` | `tailscale` | `{ module, glue }`. |
 | `claudeCode` | `claude` | The tested Claude Code range ([below](#claude-code)). |
 | `apiVersions` | `api` | The embedding API versions its client speaks. |
 | `provides` | `runtime` | `{ seam: [versions] }`: what the runtime speaks. |
 
-For example (from today's build):
+From today's build:
 
 ```json
 "playground": {
   "abi": { "wasi": 1, "processes": 1 },
-  "programs": { "git": "git.wasm" }
+  "programs": { "git": { "module": "git.wasm" } },
+  "fs": { "format": 2, "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": 1, "version": "…" }
 }
 ```
 
@@ -185,50 +167,50 @@ For example (from today's build):
   "otp": "29.1.2",
   "beamAbi": "a51ebfdb010b7d3e",
   "nifAbi": "1-2.18",
-  "beam": { "loader": "beam.mjs", "threads": "beam.emu.mjs", "wasm": "beam.wasm" }
+  "beam": { "loader": "beam.mjs", "wasm": "beam.wasm" },
+  "fs": { "format": 2, "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": 101, "version": "…" }
 }
 ```
 
-### The site manifest (`site.json`)
+### The site manifest
 
 The runtime does not read `node_modules`. It reads a site manifest that
-the build step writes for the installed set:
+the build step writes for the installed set (`site/ID.json`, manifest
+version 2):
 
 ```json
 {
-  "manifest": 1,
+  "manifest": 2,
   "packages": {
     "@elixir-playground/git": {
       "version": "1.0.0",
-      "base": "./",
-      "files": { "git.wasm": { "size": 3849103, "sha256": "…" } },
+      "base": "../npm/@elixir-playground/git@1.0.0+05f3ba702001/",
+      "files": { "git.wasm": { "size": 3845749, "sha256": "…" } },
       "peerDependencies": { "@elixir-playground/runtime": "^1.0.0" },
-      "playground": { "abi": { "wasi": 1, "processes": 1 }, "programs": { "git": "git.wasm" } }
+      "playground": { "abi": { "wasi": 1, "processes": 1 }, "programs": { "git": { "module": "git.wasm" } }, "fs": { … } }
     }
   },
-  "fs": {
-    "base": "fs/", "format": 1, "version": "fedf4ac562a937a6",
-    "boots": ["boot", "boot-phoenix"],
-    "packages": { "@elixir-playground/otp-29.1.2": "1.0.0" }
+  "boot": {
+    "base": "../boot/8736843503d5/",
+    "images": ["boot", "boot-phoenix"],
+    "packages": { "@elixir-playground/otp-29.1.2": "1.0.0", "…": "…" }
   },
-  "nif": { "base": "nif/", "nifAbi": "1-2.18", "libraries": ["bcrypt_elixir-3.3.2"] }
+  "nif": { "base": "../nif/1-2.18/", "nifAbi": "1-2.18", "libraries": ["bcrypt_elixir-3.3.2", "…"] }
 }
 ```
 
-- **`base`** is relative to `site.json`. Today every base is `./`, because
-  `site.json` is in `r/RID/` beside the files. In an npm layout it is
-  `../NAME@VERSION/`.
-- **`fs`** is the fs image, a combination output. `fs.packages` lists the
-  packages whose files it holds, at the exact versions it was made from.
+- **`base`** is relative to the manifest.
+- **`boot`** names the recordings, and the exact versions they were made
+  with.
 - **`nif`** lists the NIF libraries the site bundles. `make` asks the
   backend for any other library without first requesting a missing file
   from the site.
 
-The `runtime` package is not in `site.json`. The running JavaScript is
-the runtime, and it knows its own version and seams (`host.json`). This
-matters today because `build.py app` rebuilds the JavaScript and keeps
-`r/RID/`. A JavaScript build that breaks an ABI then meets older
-artifacts, and the check catches it.
+The `runtime` package is not in the manifest. The running JavaScript is
+the runtime, and it knows its own version and seams (`host.json`).
+`build.py app` rebuilds the JavaScript over the packages a full build
+made; a JavaScript build that breaks an ABI meets older artifacts, and
+the check catches it.
 
 ## The load-time check
 
@@ -237,23 +219,22 @@ lockfile can still hold a set that does not fit, for example after
 `--force` or `--legacy-peer-deps`, or with a hand-written site manifest.
 So the exec frame checks the site manifest again as it starts
 (`app/src/runtime/packages/check.ts`). A mismatch fails `start` with
-`ERUNTIME`, as `create()`'s OTP and Elixir check does
-([embed.md](embed.md#the-handshake-and-versions)). It checks:
+`ERUNTIME`. It checks:
 
 - the manifest version is one the runtime reads (`provides.manifest`);
 - each package's peer dependencies are present and in range. That
   includes `runtime`, whose version is the running JavaScript's;
 - each `abi` seam is at a version the runtime `provides`;
+- each fs layer's format (`provides.fs`);
 - one OTP package and one Elixir package at most;
 - Elixir's `requires.otp` against OTP's version. OTP's four-part versions
   such as `26.2.5.3` are compared on their first three parts;
 - the template's `otp` and `elixir` against the installed ones;
-- the fs image's format, and each of its `packages` at exactly the
-  installed version;
+- the boot recordings' packages at exactly the installed versions;
 - OTP's NIF ABI against the layers the runtime loads (`provides.nif`), and
-  the bundled NIF libraries' NIF ABI against OTP's.
+  the bundled NIF libraries' against OTP's.
 
-`build.py` checks each module's imports when it writes the manifest. Every
+`build.py` checks each module's imports when it lays out a package. Every
 import module must belong to a seam the package's `abi` names:
 `wasi_snapshot_preview1` → `wasi`, `processes` → `processes`, `crossterm`
 → `crossterm`, `gojs` → `tailscale`. `beam.wasm`'s imports (`env`,
@@ -267,26 +248,25 @@ of each.
 
 | Seam | Between | Today | A break | Bumps |
 | --- | --- | --- | --- | --- |
-| `manifest` | the build step and the runtime | 1 | `site.json`'s schema, the `playground` keys, how `programs` run (`argv[0]`, the multi-call rule) | `runtime` major (registry) |
-| `fs` | the fs image and `files.js`, the node workers and the Node harness | 1 | manifest entries `[path, size, mtime, bundle]`, bundles as uncompressed USTAR, boot images as gzipped USTAR | `runtime` major; every package with fs files |
+| `manifest` | the build step and the runtime | 2 | the site manifest's schema, the `playground` keys, how `programs` run | `runtime` major |
+| `fs` | fs layers and `files.js`, the node workers and the Node harness | 2 | layer manifests' entries, bundles as uncompressed USTAR, boot images as gzipped USTAR | `runtime` major; every package with an fs layer |
 | `wasi` | a WASI module and the runtime's shim (`wasi/`) | 1 | a call the shim stops answering, a changed meaning | `runtime` major |
 | `processes` | `brush.wasm`, `git.wasm`, the GNU tools, and `processes.ts` | 1 | `pipe`, `spawn` (its NUL-separated request), `wait`, `kill`, `dup`, `dup2`; git's task export (`wasi_run_async`, `__stack_pointer`) | `runtime` major, and the minor of each artifact that needs a new call |
 | `crossterm` | `brush.wasm` and `worker/brush.ts` | 1 | `raw_mode`, `size`, `read` | `runtime` major, `shell` |
 | `tls` | `tls.wasm`'s exports and `nodejs/tls.ts` | 1 | its 19 exports (`tls_client`, `tls_alpn`, …) | `tls` major or `runtime` major |
-| `tailscale` | `tailscale.wasm` and `wasm_exec.js` plus the Tailscale worker | 1 | Go's version (the glue), the worker's calls into the node | `tailscale`; moving `wasm_exec.js` into `tailscale` leaves only the worker's calls |
+| `tailscale` | `tailscale.wasm` with its `wasm_exec.js`, and the Tailscale worker | 1 | the worker's calls into the node | `tailscale` major or `runtime` major |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
-| `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings and keyed caches follow |
+| `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings follow |
 | `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
 | template pair | `phoenix-template` and OTP plus Elixir | exact versions | another OTP or Elixir | a new template build |
-| recordings | the boot images and the installed set | exact versions | any package with fs files changing | a new recording |
-| embedding API | `api` (`embed.js`) and the host (`embed.html`) | apiVersion 1 | [embed.md](embed.md#the-handshake-and-versions) | apiVersion 2, with 1 still answered |
+| recordings | the boot images and the installed set | exact versions | a package with an fs layer changing | a new recording |
+| embedding API | `api` (`embed.js`) and the host (`embed.html`) | apiVersion 2 | [embed.md](embed.md#the-handshake-and-versions) | a new apiVersion |
+| process API | `embed.html` and the IDE, and the exec frame | not numbered | `exec/host.ts` `spawn`, `input`, `closeInput`, `resize`, `signal`, `stopForeground`; `processOutput`, `processStatus`, `processExit` | numbered once `api` drives the exec frame itself |
 
-`beamAbi` is computed by `build.py`. It is a digest of OTP's tag and the
-patch stack (`beam/build.sh`'s `.stamp-patched`), the output of
-`emcc --version`, and `beam.wasm`'s imports and exports. The runtime
-cannot range-check a digest, so the runtime-facing interface is the
-numbered `beam` seam. `beamAbi` identifies a build for what is keyed by
-it.
+`beamAbi` is computed by `build.py`: a digest of OTP's tag and the patch
+stack (`beam/build.sh`'s `.stamp-patched`), the output of `emcc --version`,
+and `beam.wasm`'s imports and exports. The runtime cannot range-check a
+digest, so the runtime-facing interface is the numbered `beam` seam.
 
 **The NIF ABI is not the BEAM's.** A NIF library is a WASI reactor in an
 instance of its own ([nif.md](nif.md#the-nif-abi)). It does not link
@@ -300,22 +280,22 @@ new `beamAbi` and keeps every NIF library built so far.
 The `vite` package's plugin (and its CLI for other sites) writes what
 depends on the installed set, which npm cannot provide:
 
-- **`site.json`** for the installed packages, with `base` pointing at
-  `/npm/@elixir-playground/NAME@VERSION/`.
-- **Boot recordings:** `boot*.tar.gz`, recorded with the Node harness for
-  the installed set. They are optional. Without them, the node fetches
-  every file lazily, and boot is slower.
+- **The site manifest** for the installed packages, with `base` pointing
+  at `/npm/@elixir-playground/NAME@VERSION/`.
+- **Boot recordings,** recorded with the Node harness for the installed
+  set. They are optional.
 - **`apex/`**, copied into the embedder's app: the `api` entry and the
   apex-side files (PGlite, the claude frame's host, the Tailscale worker).
-- **`usercontent/`**, for a second site: the exec, relay and claude
-  frames, `sw.js`, and the artifacts under immutable paths:
-  `/npm/@elixir-playground/NAME@VERSION/…`. These paths replace `b/ID` and
-  `r/RID`.
+- **`usercontent/`**, for a second site: `sw.js` and the packages under
+  `/npm/@elixir-playground/NAME@VERSION/` (the frames are the runtime
+  package's).
 - **Header configurations** for Caddy, nginx and `_headers` (Netlify,
-  Cloudflare Pages): COOP, COEP, CORP, `frame-ancestors`, and caching
-  (immutable under `/npm/`, `no-cache` for `sw.js` and the pages).
+  Cloudflare Pages): COOP, COEP, CORP, `frame-ancestors`, the Node.js
+  worker's CSP, and caching (immutable under `/npm/`, `/boot/`, `/site/`,
+  `/nif/`; `no-cache` for `sw.js` and the pages).
 
-NIF libraries stay a backend service (`/api/v1/nif/`, keyed by `nifAbi`).
+`runtime/build.py` does the same for run-elixir.dev from the repository's
+own builds ([build.md](build.md)).
 
 ## Usercontent: hosted or self-hosted
 
@@ -334,7 +314,7 @@ which the plugin bakes in.
 
 **Self-hosted.** The embedder serves `usercontent/` from its own second
 domain, with the generated headers and a wildcard certificate. The disk
-layout is the same as the mirror's.
+layout is the same as the mirror's, and as run-elixir.dev's own.
 
 **The trust cost of hosted usercontent.** The hosted domain serves the
 code that runs every project, for every embedder that uses it. Whoever
@@ -353,9 +333,9 @@ So that origin's `sw.js` must be root-scoped, and one worker serves every
 version of the host on it. It is the one shared, unversioned piece.
 
 - It is a router. It passes a preview's requests and WebSockets to its host
-  page, the versioned `relay.html`.
-- Its protocol is numbered. The host announces `{ kind: 'host', key,
-  protocol: N }`, and the worker answers in that protocol.
+  page, the runtime package's `relay.html`.
+- Its protocol is numbered. The host announces `{ kind: 'host', protocol:
+  N }`, and the worker answers in that protocol.
 - Changes within a protocol are additive only. A new `sw.js` keeps
   speaking every protocol in its support window: at least 12 months after
   the next protocol's release.
@@ -367,8 +347,9 @@ version of the host on it. It is the one shared, unversioned piece.
 
 ### Protocol 1
 
-This is what `runtime/sw.ts` and its host (`frames/relay.ts` with
-`runtime/bridge.ts`) exchange as of 2026-10-27.
+What `runtime/sw.ts`, its host (`frames/relay.ts` with `runtime/bridge.ts`)
+and the preview's documents exchange (`runtime/swProtocol.ts`, as of
+2026-10-27).
 
 **Host → worker** (to `navigator.serviceWorker.controller`, or to the
 active worker):
@@ -376,30 +357,30 @@ active worker):
 | Message | Meaning |
 | --- | --- |
 | `'claim'` (a string) | The page is uncontrolled (a forced reload). The worker calls `clients.claim()`. |
-| `{ kind: 'host', key, protocol? }` | The page hosts `key` (always `'default'` on a preview origin). Sent on registration and again on every `controllerchange`. No `protocol`: protocol 1. |
-| `{ kind: 'preview', key }` | A popped-out preview window shows `key`. No page sends it on a preview origin today; the worker still accepts it. |
+| `{ kind: 'host', protocol }` | The page hosts the origin. Sent on registration and again on every `controllerchange`. A host that names no protocol is refused. |
 
 **Worker → host:**
 
 | Message | Meaning |
 | --- | --- |
-| `{ kind: 'hosted', key, protocol, protocols }` | The answer to an announce: the protocol it will speak, or `null` with the protocols it does speak. A host gets no answer from a worker older than this field and treats that as protocol 1. On `null`, the host calls `registration.update()` and announces again when the new worker takes over. |
-| `{ kind: 'http', method, path, headers, body, destination, port? }` + a reply port | A preview request. `headers` is `[name, value][]`; `body` is an `ArrayBuffer` or `null` (GET, HEAD); `destination` is the request's; `port` only for a sibling origin (below). The reply on the port is `{ status, reason, headers, body, cookies? }` (`PreviewResponse`). |
-| `{ kind: 'websocket', path, protocols }` + a port | A preview document's WebSocket, passed on as the document sent it. |
+| `{ kind: 'hosted', protocol, protocols }` | The answer to an announce: the protocol it will speak, or `null` with the protocols it does speak. On `null`, the host calls `registration.update()` and announces again when the new worker takes over. |
+| `{ kind: 'http', method, path, headers, body, destination, port? }` + a reply port | A preview request (`HttpRequest`). `headers` is `[name, value][]`; `body` is an `ArrayBuffer` or `null` (GET, HEAD); `destination` is the request's; `port` only for a sibling origin (below). The reply on the port is `{ status, reason, headers, body, cookies? }` (`PreviewResponse`). |
+| `{ kind: 'websocket', protocol, path, subprotocols }` + a port | A preview document's WebSocket, passed on as the document sent it. |
 
-**Preview document → worker:** `{ kind: 'websocket', path, protocols }`
-with a port, from the WebSocket shim the bridge injects. The worker sends
-it to the host of the document's key. With no host, it closes the port
-with `{ close: { code: 1006, reason: '', clean: false } }`. After the
-handoff, the port carries the shim's and the bridge's messages
+**Preview document → worker:** `{ kind: 'websocket', protocol, path,
+subprotocols }` (`WebSocketRequest`) with a port, from the WebSocket shim
+the bridge injects, which the host gives its protocol. The worker passes
+it to its host when the host speaks that protocol; else it closes the
+port with `{ close: { code: 1006, reason: '', clean: false } }`. After
+the handoff, the port carries the shim's and the bridge's messages
 (`{ send }`, `{ close }` in; `{ open }`, `{ message }`, `{ close }` out).
 Both ends are the host's version, so the worker never reads them.
 
 **What the worker does:**
 
 - **Navigations:** it answers iframe navigations only. The site's own
-  pages go to the network: `/relay.html`, `/exec.html`, and every path
-  under `/npm/@elixir-playground/`. It remembers each document it
+  pages go to the network: every path under `/npm/@elixir-playground/`
+  (the runtime package's `relay.html`). It remembers each document it
   answered.
 - **Requests:** it sends to the host the requests from the documents it
   answered. Before its routes are loaded, it loads them first. Everything
@@ -407,9 +388,7 @@ Both ends are the host's version, so the worker never reads them.
 - **Sibling origins:** a preview document's request to another of the
   project's preview origins (same ID, same domain) goes to its own host
   with that origin's `port`.
-- **Keys:** a request's key is its document's, else that of the client its
-  referrer names, else the only host's, else the focused host's, else the
-  last host's.
+- **One host:** the origin's host is the last page to announce itself.
 - **Responses:** for a non-navigation, it turns a 3xx with `location` into
   `Response.redirect`. It drops `connection`, `keep-alive`,
   `transfer-encoding`, `content-length` and `set-cookie`, and sends no body
@@ -417,42 +396,29 @@ Both ends are the host's version, so the worker never reads them.
   `cross-origin` to every answer, its own 503 ("The project is not
   running.") included.
 - **State:** IndexedDB `playground-sw` version 1, store `clients`, record
-  `routes`: `{ keys: [[client, key]], hosts: [[key, client]], previews:
-  [client], protocols: [[key, protocol]] }`. Above 256 entries, it drops
-  clients that are gone. Every version of the worker reads and writes this
-  record, so its schema is frozen too, and fields are only added.
-- It never calls `clients.get()` on a request's path, because of a Firefox
-  deadlock with a node's synchronous bundle fetch ([runtime.md](runtime.md#the-preview-swjs-bridgets)).
+  `routes-1` (`Routes`): `{ host, protocol, previews }`. Every version of
+  the worker reads and writes it, so fields are only added; another
+  protocol's record has another key.
+- It never calls `clients.get()` for a request's client, because of a
+  Firefox deadlock with a node's synchronous bundle fetch
+  ([runtime.md](runtime.md#the-preview-swjs-bridgets)).
 - **Lifecycle:** `skipWaiting()` on install, `clients.claim()` on activate.
 
-**What moved, and what stays.** The audit found the worker already close
-to a router. One piece of site knowledge had to change: a fixed list of
-page paths (`/relay.html`, `/exec.html`). A versioned relay at
-`/npm/@elixir-playground/runtime@V/relay.html` would have been answered as
-a preview. The rule now also passes the whole package prefix, so the
-versioned relay works with today's worker. This change must be deployed
-before any host lives at a versioned path. Nothing moved to the host:
+**What stays in the worker, and why.** The response shaping (redirects,
+dropped headers, empty bodies) is what the Fetch standard requires of a
+constructed `Response`, not app policy. The isolation headers are a
+property of the origin, and the worker needs them for its own 503, when
+there is no host to ask. Cookies already live in the host (`cookies.ts`,
+the relay's local storage). The rest is routing.
 
-- **The response shaping** (redirects, dropped headers, empty bodies) is
-  what the Fetch standard requires of a constructed `Response`, not app
-  policy.
-- **The isolation headers** are a property of the origin. The worker
-  also needs them for its own 503, when there is no host to ask.
-- **Key routing and sibling origins** are routing.
-- **Cookies** already live in the host (`cookies.ts`, the relay's local
-  storage).
-- **Per protocol,** the worker can't drop protocol 1's behaviour while
-  protocol 1 hosts exist. Moving work to the host only pays off in
-  protocol 2.
-
-**What makes the frozen protocol harder:**
+**What makes a frozen protocol harder:**
 
 - **The shim posts to whatever worker controls the document.** That is
-  the shared worker, so the shim's first message (`kind: 'websocket'`)
-  is part of the protocol, even though the host injects the shim.
+  the shared worker, so the shim's message is part of the protocol, even
+  though the host injects the shim.
 - **Version skew on update.** A new relay registers `sw.js`, and the old
-  worker controls the page until the new one activates. So a new host must
-  keep working with the previous worker for that moment: it must speak
+  worker controls the page until the new one activates. A new host must
+  keep working with the previous worker for that moment, so it must speak
   every protocol the previous worker might, until it gets a `hosted`
   answer.
 - **The routing record is shared** by every version of the worker (above).
@@ -477,36 +443,33 @@ The browser always fetches Claude Code from npm. We never republish it.
   pass, it publishes a patch of the claude package with a wider range.
 
 Today the app pins one version with its integrity (`CLAUDE_CODE` in
-`project/lib/programs/claude/build.ts`). The site manifest's claude
-package has `">=2.1.306 <=2.1.306"`.
+`project/lib/programs/claude/build.ts`), and the claude package's range
+is `">=2.1.306 <=2.1.306"`. The range is not read yet.
 
 ## Backend services
 
 These stay servers: the TCP relay (`/relay`, [relay.md](relay.md)), NIF
-builds (`/api/nif/`, [nif.md](nif.md)), the `/hex/` and `/git/` proxies,
-and live sessions (`/socket`).
+builds ([nif.md](nif.md)), the `/hex/` and `/git/` proxies, and live
+sessions (`/socket`).
 
 - **Use run-elixir.dev's.** Each embedder's origins go on per-service
   allowlists, as `PLAYGROUND_EMBEDDERS` does for `embed.html` today.
 - **Mount them.** The backend could become a Hex package an embedder adds
   to its own Phoenix app.
-- **Version the endpoints.** An embedder's lockfile can hold an `api` for
+- **Versioned endpoints.** An embedder's lockfile can hold an `api` for
   months. NIF builds are at `/api/v1/nif/NAME/VERSION?abi=NIF_ABI`
-  ([backend.md](backend.md#building-a-nif-library)).
-- NIF builds are keyed by `nifAbi`; the backend builds for one and refuses
-  others (409).
+  ([backend.md](backend.md#building-a-nif-library)): the backend builds
+  for one NIF ABI and refuses others (409).
 
-## Keeping apiVersion 1 and `embed.html`
+## Keeping embed.html
 
 Once `api` runs in the embedder's page, the embedder's page is the apex:
-PGlite, the stores, and the frames' parent. `embed.html` becomes a
-compatibility wrapper. It loads `api` from the site's own installed
-packages and answers apiVersion 1 over its MessagePort, as today. Its
-handshake, `hello`, its `ERUNTIME` check, and its `frame-ancestors` and
-`PLAYGROUND_EMBEDDERS` stay. Storage stays where it is (partitioned under
-`embed.html`'s origin), so kept projects survive. An embedder can move to
-`api` at its own pace, but the move changes the apex, so kept projects do
-not come along. A move needs an export or import, or must start fresh.
+PGlite, the stores, and the frames' parent. `embed.html` then becomes a
+wrapper that answers the current apiVersion over its MessagePort, as
+today, for embedders that frame it. Storage stays where it is
+(partitioned under `embed.html`'s origin), so its kept projects survive.
+An embedder that moves to `api` changes its apex, so kept projects do not
+come along: a move needs an export and import, or starts fresh.
 
 ## Open questions
 
@@ -516,58 +479,82 @@ not come along. A move needs an export or import, or must start fresh.
   acceptable-use policy says it limits single-file size, file count and
   package size, but it gives no numbers. A third-party listing says 100 MB
   per npm package. None of this is verified, and these CDNs also don't send
-  COEP-compatible CORP headers for every file, or our `frame-ancestors`.
-  Such a mode probably needs the hosted mirror anyway.
-- **npm package size.** The fs-bundle packages would be large. Today's
-  whole fs image (boot images and bundles, mostly `phoenix-template`'s
-  4,640 files and OTP's applications) is 100 MB on disk. Its bundles are
-  41 MB gzipped. npm documents no tarball limit
-  that I found. Large tarballs slow every `npm install`. Splitting
-  rarely used OTP applications (`mnesia`, `os_mon`, `xmerl`) into their own
-  packages is an option.
+  COEP-compatible CORP headers for every file, the Node.js worker's CSP,
+  or our `frame-ancestors`. Such a mode probably needs the hosted mirror
+  anyway.
+- **npm package size.** `phoenix-template` is 47 MB on disk (570
+  bundles) and `otp-29.1.2` 39 MB. npm documents no tarball limit that I
+  found. Large tarballs slow every `npm install`. Rarely used OTP
+  applications (`mnesia`, `os_mon`, `xmerl`) could be packages of their
+  own.
 - **The template's identity.** `phoenix-template` is compiled for one pair.
   Two pairs cannot both be `phoenix-template@1.x`. Either the pair goes in
   the name (`phoenix-template-otp-29.1.2-elixir-1.20.4`), or the major
   encodes it.
-- **fs format 2:** per-package manifests and bundles, and how a project's
-  kept changes note what they were made over.
+- **Stable package IDs across full builds.** `beam/build.sh` installs OTP
+  anew each time, and the recording run compiles the template anew, so
+  their files' mtimes change, and with them their bundles' tar headers:
+  a full build makes new `otp-X` and `phoenix-template` directories even
+  when nothing changed (their layers' `version`s stay). Fixed mtimes
+  would keep them, where Mix allows it.
 - **Recordings for embedders without the plugin:** ship a recording with
   the template package for its own pair, or boot lazily.
-- **The frames' pages in `runtime`:** a Vite build of their own, so they do
-  not share chunks with the IDE.
-- **Where `site.json` lives** for the hosted mirror: the plugin bakes it
-  into `api`, or the page passes it to the exec frame. A site manifest
-  under `/npm/` names exact versions, so it can be cached forever.
+- **Where the site manifest lives** for the hosted mirror: the plugin
+  bakes it into `api`, or the page passes it to the exec frame.
 - **Who runs the check first.** Today it is the exec frame. The apex could
   run it before it creates any frame, to fail faster with a clearer
   message.
+- **The process API's version.** It is not numbered, because only the
+  same build's apex drives it. Once `api` runs in the embedder's page, it
+  is a seam between two packages.
 - **Support window length** for `sw.js` protocols, and whether a major also
   needs a new usercontent host level for the claude frame's cache.
 
 ## What is implemented
 
-As of 2026-10-27, on the `sd-packages` branch:
+As of 2026-10-27, on the `sd-packages` branch, unpushed:
 
-- **The site manifest.** `runtime/build.py` writes `site.json` into
-  `r/RID/`, with every package above but `runtime`, `api` and `vite`.
-  It replaces `runtime.json` and `fs/templates.json`. `build.py app`
-  reuses the facts only a full build knows (`beamAbi`, the template id,
-  the fs version) from the site manifest it replaces.
-- **The runtime reads it.** The exec frame, the node workers, `files.js`,
-  the IDE's git, Node.js's TLS, the Tailscale worker, the template list,
-  `embed.html`'s OTP and Elixir check and the Node harness all find
-  their files through `site.json` (`app/src/runtime/packages/manifest.ts`).
-  The program registry (`coreutils.ts` `REGISTRY`) is built from the
-  packages' `programs`. coreutils' tool list moved from TypeScript to
-  `build.py`. `shared/lib/build.ts` `SITE` is `${RUNTIME}site.json`.
+- **The site is laid out as the packages** (`runtime/build.py`): each in
+  `npm/@elixir-playground/NAME@VERSION+ID/` with its package.json (each
+  `"private": true`), the recordings in `boot/ID/`, the NIF libraries in
+  `nif/ABI/`, the site manifest in `site/ID.json`. `b/ID/` and `r/RID/` are
+  gone. `build.py app` lays every package out again over a full build's
+  fs layers and recordings; with nothing changed, the same names.
+- **fs format 2:** a layer per package, merged by the runtime; the
+  layers' versions are what kept projects were made over.
+- **The runtime reads the manifest.** The exec frame, the node workers,
+  `files.js`, the IDE's git, Node.js's TLS, the Tailscale worker (and Go's
+  glue), the template list, `embed.html`'s OTP and Elixir check and the
+  Node harness all find their files through it
+  (`app/src/runtime/packages/manifest.ts`). The program registry
+  (`coreutils.ts` `REGISTRY`) is the packages' `programs`.
+- **The frames are the runtime package's** (`vite.frames.config.ts`):
+  their own build, with a relative base, sharing nothing with the IDE.
 - **The load-time check** (`check.ts`), run by the exec frame's `start`,
   and `build.py`'s import check.
-- **`target/packages/NAME/`** for the nine packages in [the table above](#what-maps-onto-todays-artifacts).
-  Each `package.json` is `"private": true`.
-- **Protocol 1 of the service worker** with the `protocol` field, the
-  `hosted` answer, and the `/npm/@elixir-playground/` pass-through
-  (`runtime/swProtocol.ts`).
+- **The NIF ABI** (`nifAbi`): the layer numbers its protocol, `nif.ts`
+  refuses a library of another, and the backend's `/api/v1/nif/` builds
+  for one ([nif.md](nif.md#the-nif-abi)).
+- **Protocol 1 of the service worker** (`runtime/swProtocol.ts`): one host
+  per origin, the `hosted` answer, the shim's protocol, the
+  `/npm/@elixir-playground/` pass-through, the `routes-1` record.
+- **apiVersion 2 of the embedding API**, over one process API in the exec
+  frame for the IDE and embedders ([embed.md](embed.md)).
+- **The deploy** (`deploy/upload.sh`, `deploy/server/playground-deploy`):
+  a new package's directory is seeded from the live one's, and the
+  newest releases' packages, recordings and manifests are kept. Tested
+  against a local `SITE` (2026-10-27), not against the server.
+
+**Deploying it** needs, besides the release:
+
+- Caddy's matchers ([deploy.md](deploy.md#caddy)): the Node.js worker's
+  CSP on `/npm/@elixir-playground/runtime@…/nodejs.js` and `chunks/`, the
+  immutable paths (`/npm/*`, `/boot/*`, `/nif/*`, `/site/*`), and the
+  proxies' `/api/v1/nif/*`;
+- the backend deployed with `/api/v1/nif/` and a root disk built anew
+  (`sandbox/build`), whose `manifest.json` has `nif_abi`;
+- Tidewave's `/web` moved to apiVersion 2: `embed.html` no longer answers 1.
 
 Not built: publishing, the Vite plugin and CLI, the npm-backed mirror,
-moving the host from `embed.html` into `api`, the `.r4.` host level,
-fs format 2, and the Claude CI job.
+moving the host from `embed.html` into `api`, the `.r4.` host level, the
+claude package's range in use, and the Claude CI job.

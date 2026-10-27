@@ -18,22 +18,26 @@ Forgejo runner and makes it live on the server as a new release
    that may embed it: [embed.md](embed.md)).
 2. **Upload** (`upload.sh SITE user@host`): the server seeds
    `releases/RID.partial` with the live release's files, hard-linked, and
-   this build's `b/ID/` and runtime's `r/RID/` with the live ones' (a
-   runtime the live release has already is there as it is); rsync then sends what
-   differs by checksum and deletes what is gone. A changed file is a new
+   each package directory the build names and the live release lacks
+   (`npm/@elixir-playground/NAME@VERSION+ID/`, `boot/ID/`) with the live
+   one's of the same package (one the live release has already is there as
+   it is); rsync then sends what differs by checksum and deletes what is
+   gone, but the older packages, recordings and site manifests. A changed file is a new
    file (rsync renames it into place), so the live release is never
    written to.
 3. **Activate** (`playground-deploy activate RID`, on the server): the
-   release must hold the pages, its build's `worker.js`, its runtime's
-   `beam.wasm` and `fs/`, and a `playground.json` naming `DOMAIN`. It
-   keeps the builds and runtimes of the newest `KEEP_BUILDS` releases
-   (`b/ID/`, `r/RID/`, for pages loaded before),
-   then `current` is pointed at it in one rename. The site is checked as
-   served (the isolation headers, the page naming this build, the pages
-   and `sw.js` no-cache, its runtime's `beam.wasm` as WebAssembly and
-   immutable, and with a usercontent domain an exec frame's headers there
-   and its Node.js worker's `Content-Security-Policy`, and `embed.html`'s
-   and `embed.js`'s headers, [embed.md](embed.md));
+   release must hold the pages, its runtime package's `worker.js` and
+   `exec.html`, its site manifest and every directory that names, and a
+   `playground.json` naming `DOMAIN`. It keeps what the newest
+   `KEEP_BUILDS` releases run with (their packages, recordings and site
+   manifests, for pages loaded before; a release of the layout before
+   packages, its `b/ID/` and `r/RID/`), then `current` is pointed at it in
+   one rename. The site is checked as served (the isolation headers, the
+   page naming this runtime, the pages and `sw.js` no-cache, the site
+   manifest and its OTP package's `beam.wasm` immutable, `beam.wasm` as
+   WebAssembly, and with a usercontent domain an exec frame's headers
+   there and its Node.js worker's `Content-Security-Policy`, and
+   `embed.html`'s and `embed.js`'s headers, [embed.md](embed.md));
    if that fails, the previous release is live again and the deploy fails.
    Then Cloudflare drops its copies of the apex's pages (if configured), and
    releases beyond `KEEP_RELEASES` go.
@@ -160,26 +164,28 @@ and preview host has its own cached URLs.
   browsers.
 - **Compression.** `beam.wasm`, the JavaScript and the bundles (`.tar`,
   uncompressed on purpose: the node reads them synchronously) should be
-  compressed in transit. `fs/boot.tar.gz` is gzipped already. Caddy does not
+  compressed in transit. The boot images (`boot/ID/*.tar.gz`) are gzipped already. Caddy does not
   compress `application/x-tar` or `application/wasm` by default.
 - **Caching.**
-  - `_playground/` (the IDE's Vite assets) is content-hashed, `b/ID/`
-    (the runtime's JavaScript) and `r/RID/` (`beam*`, `fs/`, `nif/`) are
-    named by digests of their contents ([build.md](build.md#what-the-site-is)):
-    all can be cached for good, and a deploy of JavaScript alone keeps
-    `r/RID/`.
-  - The pages (`index.html`, `preview.html`, `relay.html`, `exec.html`,
-    `storage.html`, `claude.html`, `embed.html`), `embed.js`, `sw.js`, `playground.json` and `app/public`'s files
+  - `_playground/` (the IDE's Vite assets) is content-hashed; the packages
+    (`npm/`), the recordings (`boot/`), the NIF libraries (`nif/ABI/`) and
+    the site manifests (`site/`) are named by digests of their contents
+    ([build.md](build.md#what-the-site-is)): all can be cached for good,
+    and a deploy of JavaScript alone keeps the other packages' names.
+  - The pages (`index.html`, `preview.html`, `storage.html`, `embed.html`),
+    `embed.js`, `sw.js`, `playground.json` and `app/public`'s files
     (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
     names, so they are served `Cache-Control: no-cache`: they revalidate
     (ETag or Last-Modified, which Caddy's file_server sends) at the
-    browser and at Cloudflare. A page names its build and runtime, so it never mixes an older
-    build's files with a newer one's.
-  - Keep the previous build's `b/ID/` and `r/RID/` for a while after a deploy: a tab
-    opened before it keeps loading from there.
+    browser and at Cloudflare. A page names its runtime package and site
+    manifest, so it never mixes an older build's files with a newer one's.
+  - Keep the previous builds' packages for a while after a deploy: a tab
+    opened before it keeps loading from them.
 - **Projects outlive deploys.** They are kept in the browser, over the
-  template of the site that made them; a new build changes `fs/version`,
-  and a project's next start drops its template build records
+  template of the site that made them; a build whose fs layers' files
+  differ (the template's, OTP's, Elixir's: their `version`s in the site
+  manifest) changes what they were made over, and a project's next start
+  drops its template build records
   ([projects.md](projects.md#what-is-kept)).
 
 ## The two domains
@@ -241,10 +247,10 @@ starts no project: its pages say so.
 		Cross-Origin-Resource-Policy cross-origin
 	}
 	# A Node.js process's worker and its chunks (nodejs.md, The worker's
-	# policy): its own scripts and the runtime's files, no other network.
+	# policy): its own scripts and the packages' files, no other network.
 	# serve.py sends the same.
-	@nodejs path_regexp nodejs ^/b/([^/]+)/(nodejs\.js|chunks/[^/]+\.js)$
-	header @nodejs Content-Security-Policy "default-src 'none'; script-src https://{host}/b/{re.nodejs.1}/nodejs.js https://{host}/b/{re.nodejs.1}/chunks/ 'unsafe-eval' 'wasm-unsafe-eval'; worker-src https://{host}/b/{re.nodejs.1}/nodejs.js https://{host}/b/{re.nodejs.1}/chunks/ blob:; connect-src https://{host}/r/ data: blob:"
+	@nodejs path_regexp nodejs ^(/npm/@elixir-playground/runtime@[^/]+)/(nodejs\.js|chunks/[^/]+\.js)$
+	header @nodejs Content-Security-Policy "default-src 'none'; script-src https://{host}{re.nodejs.1}/nodejs.js https://{host}{re.nodejs.1}/chunks/ 'unsafe-eval' 'wasm-unsafe-eval'; worker-src https://{host}{re.nodejs.1}/nodejs.js https://{host}{re.nodejs.1}/chunks/ blob:; connect-src https://{host}/npm/@elixir-playground/ data: blob:"
 }
 
 # The proxies answer the site's own pages and frames, not another site's
@@ -266,9 +272,9 @@ starts no project: its pages say so.
 	# pages, sw.js, playground.json, every route's index.html) keeps its
 	# name: revalidated each time, at the browser and at Cloudflare, so a
 	# deploy needs no purge.
-	@versioned path /_playground/* /b/* /r/*
+	@versioned path /_playground/* /npm/* /boot/* /nif/* /site/* /b/* /r/*
 	header @versioned Cache-Control "public, max-age=31536000, immutable"
-	@named not path /_playground/* /b/* /r/*
+	@named not path /_playground/* /npm/* /boot/* /nif/* /site/* /b/* /r/*
 	header @named Cache-Control no-cache
 	# Never application/gzip: PGlite takes a gzip Content-Encoding for its
 	# extension archives' own gzip and does not unpack them ("File is

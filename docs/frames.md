@@ -24,7 +24,9 @@ are migrated when a project opens or the home page lists it.
 
 ## Previews on another site
 
-The apex's page frames `v-ID-PORT.USERCONTENT/relay.html` for every port
+The apex's page frames `v-ID-PORT.USERCONTENT/RUNTIME/relay.html` (`RUNTIME`
+the runtime package's path, `/npm/@elixir-playground/runtime@VERSION+ID`:
+[packages.md](packages.md)) for every port
 its app serves (`previewOrigins.ts`). The relay registers its origin's
 service worker and forwards requests to the exec host's bridge through
 a MessagePort supplied by the IDE. The preview's own frame then
@@ -46,7 +48,7 @@ preview, which is an apex page (`preview.html`) framing it the same way.
 
 ## The exec frame
 
-The IDE's page frames `e-ID.USERCONTENT/exec.html` (`allow="cross-origin-
+The IDE's page frames `e-ID.USERCONTENT/RUNTIME/exec.html` (`allow="cross-origin-
 isolated"`, which Chromium asks for: the nodes' threads need it). Its page
 only starts a worker (`exec/host.ts`) and hands it the port the IDE gave:
 a hidden frame's page has its timers slowed, a worker's are not. The frame
@@ -102,7 +104,7 @@ does not store or execute Claude Code.
 
 - **Frame creation:** when a project first runs `claude`,
   `programs/claude/frame.ts` creates an invisible iframe at
-  `claude.USERCONTENT/claude.html`, using the same approach as the exec
+  `claude.USERCONTENT/RUNTIME/claude.html`, using the same approach as the exec
   frame. `frames/claude.ts` starts the worker in
   `programs/claude/worker.ts` and forwards ports received from the IDE.
   It accepts ports only from the IDE's origin.

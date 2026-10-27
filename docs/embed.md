@@ -149,14 +149,13 @@ exits, `on…` methods that return their unsubscribe for the streams'
 
 **The runtime's versions** are the contract for an embedder's code:
 OTP 29.1.2 and Elixir 1.20.4 today (the OTP and Elixir packages in
-`r/RID/site.json`, written by `build.py` from the installation:
+the site manifest, `site/ID.json`, written by `build.py` from the installation:
 [packages.md](packages.md)). An embedder's `.beam` files compiled
 natively with that pair run on any later build of it; `requires` says
 which OTP and Elixir they need, and `create()` fails (`ERUNTIME`) when
 the deployed runtime is outside it. The exec frame also checks the
 site's packages against its runtime as it starts, and fails with
-`ERUNTIME`. Older builds and runtimes (`b/ID/`, `r/RID/`) need not stay
-online for embedders.
+`ERUNTIME`. Older builds' packages need not stay online for embedders.
 
 ## Who may embed it
 

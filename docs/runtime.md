@@ -14,8 +14,10 @@ formatting checks.
 origin. The apex owns persistent stores, PGlite, the Hex cache, and
 Tailscale credentials. Older module names still use “page” for the host.
 
-Vite emits runtime scripts under `b/BUILD/`, with shared chunks alongside
-them. The service worker stays at `/sw.js`; Node harnesses are emitted
+The runtime's scripts, with their shared chunks, and the usercontent
+domain's frames are the runtime package
+(`/npm/@elixir-playground/runtime@VERSION+ID/`, [packages.md](packages.md)).
+The service worker stays at `/sw.js`; Node harnesses are emitted
 separately as `.mjs` files. See [build.md](build.md#steps).
 
 WASI call wrappers are created once per instance, so TypeScript adds no
@@ -462,16 +464,17 @@ the line from a little before the match, at most `limit` (1000) of them.
 
 ## The preview (`sw.js`, `bridge.ts`)
 
-`Bridge.register(url, scope, key)` installs the service worker and
-announces the page as the host of `key` (a stored project's id, a
-temporary IEx's own), with the protocol it speaks
-([packages.md](packages.md#protocol-1) has protocol 1). A page that a forced reload left uncontrolled asks the active
-worker to claim it first. `Bridge.announce({ kind: 'preview', key })` is the
-popped-out preview window's. Both announce again when another worker takes
-over. The service worker:
+`Bridge.register(url, scope)` installs a preview origin's service worker
+and announces the page (its relay) as the origin's host, with the
+protocol it speaks ([packages.md](packages.md#protocol-1)). A page that a
+forced reload left uncontrolled asks the active worker to claim it
+first. It announces again when another worker takes over, and asks for
+the newest `sw.js` when the worker answers that it does not speak its
+protocol. The service worker:
 
-- answers iframe navigations (but the site's own frames), and requests
-  from the documents those made, whose ids it keeps;
+- answers iframe navigations (but the site's own pages, under
+  `/npm/@elixir-playground/`), and requests from the documents those
+  made, whose ids it keeps;
 - lets everything else go to the network without passing through it; until
   it has read its routes (it just started), it fetches the rest itself;
 - never asks a client what it is (`clients.get`): Firefox answers that for a
@@ -479,13 +482,11 @@ over. The service worker:
   synchronous request for a bundle (and that request comes here). Once the
   service worker had stopped (idle, about 30 s) and asked, the two waited on
   each other for minutes, and with them the whole node;
-- routes each request by key: a document's own (taken when it was
-  navigated), else that of the client its referrer names (the project page,
-  the popped-out window, or the app's previous document), else the only or
-  the focused host's;
-- keeps which client has which key, each key's host, and the preview's
-  documents in IndexedDB (`playground-sw`), so a restart keeps routing;
-- answers 503 when the key's page is gone;
+- sends each request to its origin's host, the last page to announce
+  itself, and passes the preview's WebSockets on to it;
+- keeps the host and the preview's documents in IndexedDB
+  (`playground-sw`, record `routes-1`), so a restart keeps routing;
+- answers 503 when the host is gone;
 - adds `Cross-Origin-Embedder-Policy: require-corp` and
   `Cross-Origin-Resource-Policy: cross-origin` to every answer, including
   errors, so the apex can frame the preview on the usercontent domain.
@@ -522,7 +523,7 @@ several ports show at once (Livebook's page and its iframe endpoint's
 outputs, on another port) and each is kept from the IDE's origin and
 from the others':
 
-- the IDE has a hidden `relay.html` frame on each port's origin
+- the IDE has a hidden `relay.html` frame (the runtime package's) on each port's origin
   (`project/lib/previewOrigins.ts`, made as a server listens there); its
   page (`frames/relay.ts`) registers that origin's service worker, is its
   host, and passes the preview's requests and WebSockets to the IDE on a
@@ -566,8 +567,8 @@ way, its relays' requests answered by the guest page's bridge
 **WebSockets.** A service worker sees no WebSocket connection. The
 injected `WebSocket` (the browser's API: `onopen`/`onmessage`/`onclose`,
 `send`, `close`, `binaryType`, the state constants) sends
-`{ kind: 'websocket', path, protocols }` with a MessagePort to the service
-worker, which passes it to its project's page. There `Bridge.websocket`
+`{ kind: 'websocket', protocol, path, subprotocols }` with a MessagePort to
+the service worker, which passes it to its origin's host. There `Bridge.websocket`
 connects to the app, sends the opening handshake (with the cookies and an
 `origin` of `http://localhost:PORT`), and after `101` speaks RFC 6455:
 client frames masked, fragments joined, pings answered with pongs, close
