@@ -1,7 +1,7 @@
 ---
 kind: design
 status: proposal
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 ---
 
 # Distributing the playground as npm packages
@@ -542,7 +542,7 @@ come along: a move needs an export and import, or starts fresh.
 
 ## What is implemented
 
-As of 2026-10-27, on the `sd-packages` branch, unpushed:
+As of 2026-10-28:
 
 - **The site is laid out as the packages** (`runtime/build.py`): each in
   `npm/@elixir-playground/NAME@VERSION+ID/` with its package.json (each
@@ -583,7 +583,7 @@ As of 2026-10-27, on the `sd-packages` branch, unpushed:
 
 - Caddy's matchers ([deploy.md](deploy.md#caddy)): the Node.js worker's
   CSP on `/npm/@elixir-playground/runtime@…/nodejs.js` and `chunks/`, the
-  immutable paths (`/npm/*`, `/boot/*`, `/nif/*`, `/site/*`), and the
+  immutable paths (`/npm/*`, `/boot/*`, `/site/*`), and the
   proxies' `/api/v1/nif/*`;
 - the backend deployed with `/api/v1/nif/` and a root disk built anew
   (`sandbox/build`), whose `manifest.json` has `nif_abi`;
