@@ -72,6 +72,14 @@ class Publish(unittest.TestCase):
             self.assertEqual(descriptor["base"], "/npm/@elixir-playground/git@1.0.3/")
             self.assertTrue(text.startswith("// The package.\nexport default {"))
 
+    def test_registry_answers(self):
+        # npm 11: an object, or the version alone; npm 12: a list of them.
+        self.assertEqual(publish.viewed({"version": "1.0.0", "playgroundDigest": "d1"}), ("1.0.0", "d1"))
+        self.assertEqual(publish.viewed("1.0.0"), ("1.0.0", None))
+        self.assertEqual(publish.viewed([{"version": "1.0.0", "playgroundDigest": "d1"}]), ("1.0.0", "d1"))
+        self.assertEqual(publish.viewed(["1.0.0"]), ("1.0.0", None))
+        self.assertEqual(publish.viewed([]), (None, None))
+
     def test_dependencies_first(self):
         packages = {
             "@elixir-playground/standard": (None, {"dependencies": {"@elixir-playground/shell": "^1.0.0"}}),
