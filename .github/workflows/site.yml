@@ -229,15 +229,14 @@ jobs:
           cat "$RUNNER_TEMP/backend.log"
           exit 1
 
-      # tests/run.sh runs Playwright in its pinned image over the app's
-      # node_modules.
+      # tests/run.sh runs Playwright in its pinned image over the
+      # workspace's node_modules.
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-        working-directory: app
       # WebKit is the slowest here: with a third worker its Phoenix boots
       # starve each other into timeouts. A failed test runs once more; one
       # that passes then is reported flaky.

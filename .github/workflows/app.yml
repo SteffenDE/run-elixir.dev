@@ -1,5 +1,5 @@
-# The app's checks without a built site (docs/testing.md): oxlint, oxfmt,
-# tsc and the unit tests (vitest, test/unit), and the license logic's. GitHub only: Forgejo reads
+# The npm workspace's checks without a built site (docs/testing.md): oxlint,
+# oxfmt, tsc and the unit tests (vitest), and the license logic's. GitHub only: Forgejo reads
 # .forgejo/workflows and ignores this directory.
 name: app
 
@@ -18,7 +18,7 @@ permissions:
 
 defaults:
   run:
-    working-directory: app
+    working-directory: .
 
 jobs:
   lint:
@@ -30,7 +30,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm run lint
       - run: npm run format:check
@@ -44,9 +44,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-      - run: npx tsc --noEmit
+      - run: npm run typecheck
 
   unit:
     runs-on: ubuntu-24.04
@@ -57,7 +57,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
       - run: npm test
 

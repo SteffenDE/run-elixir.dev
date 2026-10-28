@@ -6,11 +6,13 @@
 // whose package.json names no license.
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import type { Plugin } from 'vite';
 
 const LICENSE_FILE = /^(licen[cs]e|copying|copyright|notice|unlicense|patents)([-._].*)?$/i;
 const CODE = /\.(js|mjs|cjs|ts|d\.ts|map|json)$/;
-const VITE = new URL('./node_modules/vite', import.meta.url).pathname;
+// Vite's directory, wherever the workspace installed it.
+const VITE = fileURLToPath(import.meta.resolve('vite')).replace(/(\/node_modules\/vite)\/.*$/, '$1');
 
 interface Component {
   name: string;

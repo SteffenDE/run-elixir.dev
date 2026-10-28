@@ -478,13 +478,14 @@ def fs_layers(app):
     }
 
 
-def vite_build(source):
-    """A site's Vite app into its dist/, with Node in Docker. Its
+def vite_build(root):
+    """The npm workspace's builds (the root's package.json: packages/ and
+    app/, each into its dist directories), with Node in Docker. Its
     node_modules is installed afresh when package-lock.json changed since
     the last install (a stamp in node_modules has its digest)."""
-    with open(os.path.join(source, "package-lock.json"), "rb") as lock:
+    with open(os.path.join(root, "package-lock.json"), "rb") as lock:
         digest = hashlib.sha256(lock.read()).hexdigest()
-    stamp = os.path.join(source, "node_modules", ".playground-lock")
+    stamp = os.path.join(root, "node_modules", ".playground-lock")
     try:
         with open(stamp) as f:
             installed = f.read().strip() == digest
@@ -494,8 +495,7 @@ def vite_build(source):
     if not installed:
         script = f"npm ci --no-audit --no-fund && echo {digest} > node_modules/.playground-lock && {script}"
     subprocess.run(DOCKER + ["run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
-                             "-v", f"{os.path.dirname(source)}:/p", "-w", f"/p/{os.path.basename(source)}",
-                             NODE_IMAGE, "sh", "-c", script], check=True)
+                             "-v", f"{root}:/p", "-w", "/p", NODE_IMAGE, "sh", "-c", script], check=True)
 
 
 def record(out, site, boot, snapshot, versions):
@@ -572,7 +572,7 @@ def page(out):
     frames, whose directory it answers (and dist-api/, the JavaScript
     packages, beside it); and the Node harness into NODE."""
     source = os.path.join(ROOT, "app")
-    vite_build(source)
+    vite_build(ROOT)
     # What an earlier build left at the root: its assets and scripts.
     shutil.rmtree(os.path.join(out, "_playground"), ignore_errors=True)
     for name in os.listdir(out) if os.path.isdir(out) else ():

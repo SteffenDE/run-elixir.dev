@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit && vite build && vite build -c vite.runtime.config.ts && vite build -c vite.frames.config.ts && vite build -c vite.api.config.ts --mode api && vite build -c vite.api.config.ts --mode pglite && vite build -c vite.runtime.config.ts --mode node",
+    "typecheck": "tsc --noEmit",
     "lint": "oxlint src test",
     "format": "oxfmt src test",
     "format:check": "oxfmt --check src test",
