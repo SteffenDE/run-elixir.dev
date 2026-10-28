@@ -112,11 +112,15 @@ def vendored(otp_tree):
 
 
 def emscripten():
-    """Emscripten's directory: the emcc on PATH's."""
+    """Emscripten's directory: the emcc on PATH's, else ~/emsdk's, where
+    beam/build.sh finds it (CI puts no emsdk on PATH)."""
     emcc = shutil.which("emcc")
-    if not emcc:
-        raise SystemExit("emcc: not on PATH (beam/build.sh's emsdk)")
-    return os.path.dirname(os.path.realpath(emcc))
+    if emcc:
+        return os.path.dirname(os.path.realpath(emcc))
+    directory = os.path.join(os.path.expanduser("~"), "emsdk", "upstream", "emscripten")
+    if not os.path.exists(os.path.join(directory, "emcc")):
+        raise SystemExit("emcc: not on PATH, and no ~/emsdk (beam/build.sh's emsdk)")
+    return directory
 
 
 def otp(otp_version):
