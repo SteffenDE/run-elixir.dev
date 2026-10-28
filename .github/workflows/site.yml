@@ -5,7 +5,8 @@
 # GitHub only: Forgejo reads .forgejo/workflows and ignores this directory.
 #
 #   wasm (one job per tool) ── site ─┬─ nif-layer
-#   test-nif ────────────────────────┴─ e2e (browser × shard)
+#                                    ├─ vite-site
+#   test-nif ────────────────────────┴─ e2e (browser × shard) ── publish (main)
 #
 # Each tool's build script skips its work when its stamp matches, so
 # restoring a tool's output and stamp from the cache makes it a no-op.
@@ -170,6 +171,28 @@ jobs:
       - run: tar -xf site.tar && tar -xf test-nif.tar
       - run: python3 -I tests/nif/layer.py
 
+  # A site built with @elixir-playground/vite over the site's packages, as
+  # npm installs them: its own usercontent domain, `elixir -e` in Chromium
+  # (tests/vite-site/run.sh).
+  vite-site:
+    needs: site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: site
+      - run: tar -xf site.tar
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: tests/vite-site/run.sh
+
   e2e:
     name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/4)
     needs: [site, test-nif]
@@ -263,7 +286,7 @@ jobs:
   # when the packages name this workflow on npmjs.com; else the NPM_TOKEN
   # secret.
   publish:
-    needs: [site, nif-layer, e2e]
+    needs: [site, nif-layer, vite-site, e2e]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-24.04
     timeout-minutes: 30

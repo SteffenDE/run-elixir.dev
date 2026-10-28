@@ -23,7 +23,8 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
   Postgres, and the release image.
 - **site:** each WebAssembly tool and the tests' NIF libraries
   (`tests/nif/build.py`) in jobs of their own, then the site
-  (`runtime/build.py`), then `tests/nif/layer.py` and the Playwright
+  (`runtime/build.py`), then `tests/nif/layer.py`, `tests/vite-site/run.sh`
+  (a site built with the Vite plugin) and the Playwright
   suite in each browser, in four shards, with the backend
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
   Each shard's `target/tests` is an artifact. A failed test runs once
