@@ -20,10 +20,11 @@ existing site, without the recording runs (seconds instead of a minute).
 
 The site runs OTP's own emulator built with Emscripten
 ([`../beam/README.md`](../beam/README.md#in-the-playground)): `build.py`
-builds it (`beam/build.sh release`), lays out its installation in
-`target/otp` (OTP from that build, the host's Elixir, Hex, phx_new and
-rebar3), and builds the template with the host's Mix in
-`target/cache-otp`.
+builds it (`beam/build.sh release`), lays out OTP's installation from
+that build in `target/otp`, takes Elixir, Hex, phx_new and rebar3 from
+the host's installation, and builds the template with the host's Mix in
+`target/cache-otp`. Each package's fs layer comes from its own source
+(`fs_layers` in `build.py`).
 
 ## Requirements
 
@@ -152,9 +153,11 @@ needs them.
 
 The filesystem holds:
 
-- `/rotp` (the name is Rust-OTP's): `target/otp`'s `bin/*.boot`,
-  `releases/`, `mix/archives/`, `mix/rebar3` and the applications a
-  playground needs (`APPS` in `build.py`);
+- `/rotp` (the name is Rust-OTP's): the `otp-X` package's layer is
+  `target/otp`'s `bin/*.boot`, `releases/` and the applications a
+  playground needs (`APPS` in `build.py`); the `elixir-X` package's is
+  the host's Elixir applications (`ELIXIR_APPS`), Mix's archives at
+  `mix/archives/` and `mix/rebar3`;
 - `/work/playground`: the Phoenix template's app, which only a Phoenix
   project mounts.
 
@@ -196,7 +199,9 @@ The filesystem holds:
      runs the page's `inotifywait` (`programs/inotifywait.ts`, fed the
      node's and the editor's changes), and Phoenix reloads the preview and
      swaps its CSS. A cache from before gets the block back.
-4. **Files.** The installation, then the app:
+4. **Files.** Each package's layer from its source: OTP's installation,
+   the host's Elixir and Mix archives, git's scripts, the CA bundle, the
+   terminfo entry, and the app:
    - `_build_otp` becomes `_build`;
    - links in the build (each dependency's `priv`, some `src`) are copied in
      place;

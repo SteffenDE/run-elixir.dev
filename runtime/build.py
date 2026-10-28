@@ -20,7 +20,8 @@ in it), with its package.json and its files:
 An fs layer is fs/manifest.json (each file's path, size, mtime and
 bundle, for stat and readdir) and fs/bundles/N.tar (a directory's files in
 bundles of up to 512 KB, fetched whole by the node when it first opens one
-of them). Beside the packages:
+of them). Each package's files come from its own build or installation
+(fs_layers). Beside the packages:
 
 - boot/ID/: boot.tar.gz, what IEx reads first, recorded by running it in
   the WebAssembly node under Node (docker run node:24) with every file
@@ -87,10 +88,14 @@ BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
 # runs and tests/nif/layer.py run it.
 NODE = os.path.join(ROOT, "target", "node")
-# Applications by name prefix: Elixir, IEx and Mix, and what they use.
-APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
-        "ex_unit", "crypto-", "asn1-", "public_key-", "ssl-", "inets-", "runtime_tools-",
-        "syntax_tools-", "parsetools-", "sasl-", "tools-", "xmerl-", "os_mon-", "mnesia-")
+# OTP's applications by name prefix: what Elixir, IEx and Mix use (the
+# otp-X package's fs layer, otp_files).
+APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "crypto-", "asn1-", "public_key-", "ssl-",
+        "inets-", "runtime_tools-", "syntax_tools-", "parsetools-", "sasl-", "tools-", "xmerl-",
+        "os_mon-", "mnesia-")
+# Elixir's applications, the host installation's (the elixir-X package's
+# fs layer, elixir_files).
+ELIXIR_APPS = ("elixir", "eex", "ex_unit", "iex", "logger", "mix")
 PHX_NEW = "1.8.15"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
@@ -137,9 +142,6 @@ def installed(relative):
         return relative.endswith(".boot")
     if parts[0] == "releases":
         return True
-    if parts[0] == "mix":
-        # Mix archives (Hex, phx_new), and rebar3.
-        return len(parts) > 2 and parts[1] == "archives" or relative == "mix/rebar3"
     return False
 
 
@@ -179,17 +181,12 @@ def host_mix():
 def otp_install():
     """The Emscripten BEAM (beam/build.sh, release) and its
     installation in INSTALL: lib/APP/{ebin,priv,
-    include}, bin/*.boot, releases/, mix/archives and mix/rebar3."""
+    include}, bin/*.boot and releases/. OTP's alone: Elixir's
+    applications and Mix's archives are the host's (elixir_files)."""
     subprocess.run([os.path.join(ROOT, "beam", "build.sh"), "release"], check=True,
                    env=dict(os.environ, OPT="-O2", DIST=BEAM_DIST))
     shutil.rmtree(INSTALL, ignore_errors=True)
     shutil.copytree(os.path.join(BEAM_DIST, "otp", "lib"), os.path.join(INSTALL, "lib"))
-    elixir = host_elixir()
-    for app in ("elixir", "eex", "ex_unit", "iex", "logger", "mix"):
-        for part in ("ebin", "priv", "include"):
-            here = os.path.join(elixir, "lib", app, part)
-            if os.path.isdir(here):
-                shutil.copytree(here, os.path.join(INSTALL, "lib", app, part))
     os.makedirs(os.path.join(INSTALL, "bin"))
     tree = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp")
     for boot in ("start", "start_clean", "no_dot_erlang"):
@@ -199,15 +196,46 @@ def otp_install():
     os.makedirs(os.path.join(INSTALL, "releases", version.split(".")[0]))
     with open(os.path.join(INSTALL, "releases", version.split(".")[0], "OTP_VERSION"), "w") as f:
         f.write(version + "\n")
-    # Mix's archives and rebar3 as the host's Mix installs them (the same
-    # OTP runs them).
-    host_archives, rebar3 = host_mix()
-    archives = os.path.join(INSTALL, "mix", "archives")
-    os.makedirs(archives)
-    for name in os.listdir(host_archives):
+
+
+def walk(top, relative_to=None):
+    """Every file below `top`, sorted: (path relative to `relative_to`,
+    by default `top`; path here)."""
+    out = []
+    for directory, dirs, names in os.walk(top):
+        dirs.sort()
+        for name in sorted(names):
+            here = os.path.join(directory, name)
+            if os.path.isfile(here):
+                out.append((os.path.relpath(here, relative_to or top), here))
+    return out
+
+
+def otp_files():
+    """The otp-X package's fs layer: the installation (otp_install) at
+    /rotp, the applications a playground needs (APPS)."""
+    return [("rotp/" + relative, here) for relative, here in walk(INSTALL) if installed(relative)]
+
+
+def elixir_files():
+    """The elixir-X package's fs layer: the host's Elixir applications
+    (ELIXIR_APPS: ebin, priv, include) at /rotp/lib, and Mix's archives
+    (Hex, phx_new) and rebar3 as the host's Mix installs them (the same OTP
+    runs them) at /rotp/mix."""
+    elixir = host_elixir()
+    out = []
+    for app in ELIXIR_APPS:
+        for part in ("ebin", "priv", "include"):
+            here = os.path.join(elixir, "lib", app, part)
+            if os.path.isdir(here):
+                out += [(f"rotp/lib/{app}/{part}/{relative}", path) for relative, path in walk(here)]
+    archives, rebar3 = host_mix()
+    for name in sorted(os.listdir(archives)):
         if name.startswith(("hex-", f"phx_new-{PHX_NEW}")):
-            shutil.copytree(os.path.join(host_archives, name), os.path.join(archives, name))
-    shutil.copy(rebar3, os.path.join(INSTALL, "mix", "rebar3"))
+            out += [(f"rotp/mix/archives/{name}/{relative}", path)
+                    for relative, path in walk(os.path.join(archives, name))]
+    out.append(("rotp/mix/rebar3", rebar3))
+    return out
 
 
 # The playground's settings for a phx.new app's config/dev.exs: one
@@ -384,6 +412,27 @@ def app_files(app):
     return out
 
 
+def fs_layers(app):
+    """Each package's files in the nodes' tree, by key (PACKAGES'), as its
+    own build or installation has them: [(path in the node, path here)].
+    `app`: the template (phoenix_app)."""
+    return {
+        "otp-{otp}": otp_files(),
+        "elixir-{elixir}": elixir_files(),
+        "phoenix-template": app_files(app),
+        # git's commands that are shell scripts (tools/git/build.py), at
+        # git.wasm's exec path (its prefix is /usr).
+        "git": [("usr/libexec/git-core/" + relative, here)
+                for relative, here in walk(os.path.join(ROOT, "target", "git", "libexec"))],
+        # The nodes' CA bundle, where OTP looks for the system's.
+        "tls": [("etc/ssl/certs/ca-certificates.crt", cacerts())],
+        # The terminal's terminfo entry (setup.ts sets TERM): IEx's line
+        # editing needs it.
+        "shell": [("usr/share/terminfo/x/xterm-256color",
+                   os.path.join(ROOT, "runtime", "terminfo", "x", "xterm-256color"))],
+    }
+
+
 def vite_build(source):
     """A site's Vite app into its dist/, with Node in Docker. Its
     node_modules is installed afresh when package-lock.json changed since
@@ -519,11 +568,11 @@ EMBEDDERS = "https://tidewave.ai https://tidewave.steffend.me http://localhost:4
 
 
 def runtime_versions():
-    """The installation's OTP and Elixir versions: {otp, elixir}."""
+    """The installation's OTP version and the host's Elixir's: {otp, elixir}."""
     releases = os.path.join(INSTALL, "releases")
     with open(os.path.join(releases, os.listdir(releases)[0], "OTP_VERSION")) as f:
         otp = f.read().strip()
-    with open(os.path.join(INSTALL, "lib", "elixir", "ebin", "elixir.app")) as f:
+    with open(os.path.join(host_elixir(), "lib", "elixir", "ebin", "elixir.app")) as f:
         elixir = re.search(r'\{vsn,\s*"([^"]+)"\}', f.read()).group(1)
     return {"otp": otp, "elixir": elixir}
 
@@ -552,8 +601,8 @@ GNU_TOOLS = {"sed": "sed.wasm", "grep": "grep.wasm", "diff": "diff.wasm", "cmp":
 own = lambda module: {"module": module}
 multicall = lambda module: {"module": module, "multicall": True}
 # Each package: its version, its files (by name: sources()), the packages
-# it needs besides the runtime (by key) and its `playground` field. Those
-# of FS_PACKAGES also have files in the nodes' tree (fs_package).
+# it needs besides the runtime (by key) and its `playground` field. Some
+# also have files in the nodes' tree, an fs layer each (fs_layers).
 PACKAGES = {
     "otp-{otp}": {
         "version": "1.0.0",
@@ -590,29 +639,9 @@ PACKAGES = {
                                  "tailscale": {"module": "tailscale.wasm", "glue": "wasm_exec.js"}}},
     "claude": {"version": "1.0.0", "files": [], "playground": {}},
 }
-# The packages with files in the nodes' tree, each an fs layer (fs_package).
-FS_PACKAGES = ("otp-{otp}", "elixir-{elixir}", "phoenix-template", "git", "tls", "shell")
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
                 "gojs": "tailscale"}
-
-
-def fs_package(path):
-    """The package (PACKAGES' key) a file in the nodes' tree comes from."""
-    if path.startswith("work/playground/"):
-        return "phoenix-template"
-    if path.startswith(("rotp/lib/elixir/", "rotp/lib/eex/", "rotp/lib/ex_unit/", "rotp/lib/iex/",
-                        "rotp/lib/logger/", "rotp/lib/mix/", "rotp/mix/")):
-        return "elixir-{elixir}"
-    if path.startswith("rotp/"):
-        return "otp-{otp}"
-    if path.startswith("usr/libexec/git-core/"):
-        return "git"
-    if path.startswith("etc/ssl/"):
-        return "tls"
-    if path.startswith("usr/share/terminfo/"):
-        return "shell"
-    sys.exit(f"{path}: no package's (fs_package)")
 
 
 def wasm_interface(path):
@@ -1045,24 +1074,9 @@ def main():
     versions = runtime_versions()
     runtime = page(out)
 
-    files = []  # (path in the node, path here)
-    for directory, dirs, names in os.walk(INSTALL):
-        dirs.sort()
-        for name in sorted(names):
-            relative = os.path.relpath(os.path.join(directory, name), INSTALL)
-            if installed(relative):
-                files.append(("rotp/" + relative, os.path.join(INSTALL, relative)))
-    files.append(("etc/ssl/certs/ca-certificates.crt", cacerts()))
-    # The terminal's terminfo entry (setup.ts sets TERM): IEx's line
-    # editing needs it.
-    files.append(("usr/share/terminfo/x/xterm-256color",
-                  os.path.join(ROOT, "runtime", "terminfo", "x", "xterm-256color")))
-    # git's commands that are shell scripts (tools/git/build.py), at git.wasm's
-    # exec path (its prefix is /usr).
-    libexec = os.path.join(ROOT, "target", "git", "libexec")
-    for name in sorted(os.listdir(libexec)):
-        files.append(("usr/libexec/git-core/" + name, os.path.join(libexec, name)))
-    files += app_files(phoenix_app())
+    # Each package's files in the nodes' tree, from its own build or
+    # installation.
+    layers = fs_layers(phoenix_app())
 
     # Every package laid out, its files lazy, to record what each boot
     # image's command fetches; only the Phoenix run's writes (the template,
@@ -1070,9 +1084,7 @@ def main():
     licensed = {**tool_notices(), **{key: compute() for key, compute in full_notices(versions).items()}}
     found = sources(wasm)
     facts = {"beamAbi": beam_abi(found["beam.wasm"]), "nifAbi": nif_abi(), "template": ""}
-    by_package = lambda: {key: [(path, here) for path, here in files if fs_package(path) == key]
-                          for key in FS_PACKAGES}
-    entries = lay_packages(out, versions, facts, found, by_package(), licensed)
+    entries = lay_packages(out, versions, facts, found, layers, licensed)
     recording = write_site(out, entries, None, name="recording")
     fetched = {}
     for boot in RECORD:
@@ -1080,24 +1092,24 @@ def main():
         shutil.rmtree(snapshot, ignore_errors=True)
         fetched[boot] = record(out, recording, boot, snapshot)
     os.remove(os.path.join(out, recording.lstrip("/")))
-    # What the Phoenix run wrote replaces what was there.
-    written = {}
-    for directory, _, names in os.walk(os.path.join(CACHE, "boot-phoenix-snapshot")):
-        for name in names:
-            here = os.path.join(directory, name)
-            written["work/" + os.path.relpath(here, os.path.join(CACHE, "boot-phoenix-snapshot"))] = here
-    files = [(path, written.get(path, here)) for path, here in files] + sorted(
-        (path, here) for path, here in written.items() if path not in {p for p, _ in files})
+    # What the Phoenix run wrote (below /work: the template's) replaces
+    # what was there.
+    snapshot = os.path.join(CACHE, "boot-phoenix-snapshot")
+    written = {"work/" + relative: here for relative, here in walk(snapshot)}
+    template_files = layers["phoenix-template"]
+    layers["phoenix-template"] = [(path, written.get(path, here)) for path, here in template_files] + sorted(
+        (path, here) for path, here in written.items() if path not in {p for p, _ in template_files})
     # Which template a project was made from: its files (not its build,
     # which changes with the runtime), and what it is.
     template = hashlib.sha256()
-    for path, here in sorted(files):
-        if path.startswith("work/playground/") and not path.startswith("work/playground/_build/"):
+    for path, here in sorted(layers["phoenix-template"]):
+        if not path.startswith("work/playground/_build/"):
             template.update(path.encode() + b"\0")
             with open(here, "rb") as f:
                 template.update(f.read())
     facts["template"] = template.hexdigest()[:12]
-    entries = lay_packages(out, versions, facts, found, by_package(), licensed)
+    entries = lay_packages(out, versions, facts, found, layers, licensed)
+    files = [pair for layer in layers.values() for pair in layer]
 
     # The boot images: what each run fetched. The template's files go only
     # in the Phoenix image; an empty project has none of them.
@@ -1117,7 +1129,7 @@ def main():
     boot = os.path.join("boot", tree_digest(scratch))
     os.rename(scratch, os.path.join(out, boot))
     # Made with exactly these packages.
-    made = {f"{SCOPE}/{key.format(**versions)}": PACKAGES[key]["version"] for key in FS_PACKAGES}
+    made = {f"{SCOPE}/{key.format(**versions)}": PACKAGES[key]["version"] for key in layers}
     site = write_site(out, entries, {"base": f"../{boot}/", "images": list(RECORD), "packages": made})
     runtime, api = lay_runtime(out, runtime)
     name_pages(out, runtime, site)
@@ -1128,11 +1140,8 @@ def main():
     print(f"{out}: " + "; ".join(
         f"{name} {len(images[name])} files ({len(fetched[name])} recorded), "
         f"{mb(os.path.join(out, boot, name + '.tar.gz'))}" for name in RECORD))
-    owners = {}
-    for path, _ in files:
-        owner = fs_package(path).format(**versions)
-        owners[owner] = owners.get(owner, 0) + 1
-    print(f"{out}: fs layers' files by package: " + ", ".join(f"{key} {n}" for key, n in sorted(owners.items())))
+    print(f"{out}: fs layers' files by package: " + ", ".join(
+        f"{key.format(**versions)} {len(layer)}" for key, layer in sorted(layers.items())))
     print(f"{out}: runtime {runtime}, site {site}")
 
 
