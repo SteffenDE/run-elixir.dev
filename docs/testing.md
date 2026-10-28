@@ -16,8 +16,9 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
 
 - **app:** lint, format, `tsc --noEmit`, the unit tests, license checks,
   release preparation (`python3 -I tests/deploy.py`, using temporary
-  releases) and the site build's deterministic layers and images
-  (`python3 -I tests/build.py`).
+  releases), the site build's deterministic layers and images
+  (`python3 -I tests/build.py`) and the publishing job's versions
+  (`python3 -I tests/publish.py`).
 - **backend:** formatting, a compile without warnings, `mix test` against
   Postgres, and the release image.
 - **site:** each WebAssembly tool and the tests' NIF libraries

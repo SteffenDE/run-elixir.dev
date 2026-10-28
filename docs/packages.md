@@ -36,10 +36,11 @@ const sandbox = await create({
 The playground's IDE runs its projects through the same `create()`.
 Tidewave's `/web` is the first other site this is for.
 
-Publishing and the hosted mirror are proposals. The
-site itself is laid out as these packages, the runtime runs from them,
-and `create()` takes them: [What is implemented](#what-is-implemented)
-has the details. Nothing is published.
+The site is laid out as these packages, the runtime runs from them, and
+`create()` takes them: [What is implemented](#what-is-implemented) has
+the details. `runtime/publish.py` can publish them, but nothing is
+published yet ([Publishing](#publishing)). The hosted mirror is a
+proposal.
 
 ## Packages
 
@@ -111,9 +112,30 @@ in `build.py`; `packages/runtime/src/packages/host.json` for the runtime). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
-`NAME@VERSION`, which is the `base` its descriptor names. A publishing
-job would compare each package's digest with the published version's
-and bump the patch when they differ.
+`NAME@VERSION`, which is the `base` its descriptor names.
+
+### Publishing
+
+`runtime/publish.py` publishes a build's packages, but the playground's
+own (`"private"`), in dependency order. Without `--publish` it only
+stages them and prints what it would publish. For each package:
+
+- **Its digest** is of its files with its version set aside (in
+  `package.json`, and in a descriptor's `index.js`, whose `base` names it
+  too), so the same files make the same digest at any version. A
+  published version records it in `package.json`'s `playgroundDigest`.
+- **Its version:** unpublished, the repository's own (`1.0.0`); the same
+  digest as the registry's latest, nothing; another, the next patch after
+  the latest, or the repository's version when its major or minor is
+  newer.
+- **Staged** in `target/publish/NAME/` at that version, and published from
+  there (`npm publish --access public`, with npm's credentials).
+
+Dependencies name ranges of majors (`^1.0.0`), so a patch of one package
+needs no new version of another. A dry run on 2026-10-28 staged 13
+packages; the largest, `otp-29.1.2`, is 25 MB packed (40 MB unpacked).
+Nothing is published: the npm organization `elixir-playground` does not
+exist yet.
 
 ## The site's layout
 
@@ -618,6 +640,5 @@ As of 2026-10-28:
   (`sandbox/build`), whose `manifest.json` has `nif_abi`;
 - Tidewave's `/web` moved to `create()` (`embed.html` is gone).
 
-Not built: publishing, a CLI beside the Vite plugin, the npm-backed
-mirror, the `.r4.` host level, the claude package's range in
+Not built: a CLI beside the Vite plugin, the npm-backed mirror, the `.r4.` host level, the claude package's range in
 use, and the Claude CI job.

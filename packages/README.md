@@ -5,7 +5,9 @@ The playground ships as npm packages under `@elixir-playground/`
 have source here. The others hold WebAssembly builds and file trees, and
 `runtime/build.py` makes them from other build outputs.
 
-Nothing is published yet. `build.py` lays every package out in the site
+Nothing is published yet; `runtime/publish.py` publishes a build's
+packages ([docs/packages.md](../docs/packages.md#publishing)). `build.py`
+lays every package out in the site
 at `npm/@elixir-playground/NAME@VERSION+ID/` and writes its published
 `package.json` there. The `package.json` files in this directory are for
 the npm workspace only. They are `"private"`, so npm never publishes them
