@@ -190,6 +190,10 @@ export function HomePage() {
             ))}
           </ul>
         )}
+        <p className="muted home-footer">
+          <a href="/licenses/">Licenses</a>: the playground&apos;s code is Apache-2.0; what it
+          bundles is under each component&apos;s own license.
+        </p>
       </main>
     </div>
   );

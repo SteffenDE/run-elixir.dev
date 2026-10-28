@@ -115,7 +115,13 @@ target/site/
                                boot-phoenix.tar.gz (what the Phoenix server reads beyond it)
   site/ID.json               the site manifest (packages.md): each package's version, files,
                                peer dependencies and `playground` field, the recordings
+  licenses/                  the licenses page (index.html) and the IDE's bundle's texts
+                               (apex/): licenses.md
 ```
+
+Every package also has `NOTICE.md`, `licenses/` and its `license` field,
+`LICENSE` when the playground's own code is in it, and `source/` when a
+component's license asks for its source ([licenses.md](licenses.md)).
 
 A package's `fs/` is its layer of the nodes' tree: `fs/manifest.json`
 lists its files (`[path, size, mtime, bundle]`) and `fs/bundles/N.tar`

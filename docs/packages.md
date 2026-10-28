@@ -513,7 +513,8 @@ As of 2026-10-27, on the `sd-packages` branch, unpushed:
 
 - **The site is laid out as the packages** (`runtime/build.py`): each in
   `npm/@elixir-playground/NAME@VERSION+ID/` with its package.json (each
-  `"private": true`), the recordings in `boot/ID/`, the site manifest in
+  `"private": true`, its `license`, `NOTICE.md` and `licenses/`:
+  [licenses.md](licenses.md)), the recordings in `boot/ID/`, the site manifest in
   `site/ID.json`. The site ships no NIF libraries (2026-10-28): the
   backend builds them all. `b/ID/` and `r/RID/` are
   gone. `build.py app` lays every package out again over a full build's

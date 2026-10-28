@@ -62,6 +62,21 @@ import tarfile
 import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def load(path):
+    """A module of the repository's, by path (python3 -I leaves the
+    script's directory off sys.path)."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(os.path.splitext(os.path.basename(path))[0],
+                                                  os.path.join(ROOT, path))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Each package's licenses, and the site's licenses page (docs/licenses.md).
+notices = load("runtime/notices.py")
 INSTALL = os.path.join(ROOT, "target", "otp")
 CACHE = os.path.join(ROOT, "target", "cache-otp")
 # The template's build directory, the host Mix's own (the node runs the
@@ -768,13 +783,14 @@ def write_layer(fs, files):
             "version": layer_version(files)}
 
 
-def lay(out, name, version, files, playground, peers, layer=None, own=()):
+def lay(out, name, version, files, playground, peers, layer=None, own=(), licensed=None):
     """A package's directory, npm/@elixir-playground/NAME@VERSION+ID/: its
     `files` ({name: path here}, a directory too), its fs layer (`layer`: the
     files in the nodes' tree, [(path there, path here)], or a directory
-    that holds one already, with its `playground` field), and its
-    package.json. Each module's imports must belong to a seam `playground`
-    names (`own`: what its own glue answers). Its site manifest entry."""
+    that holds one already, with its `playground` field), its licenses
+    (`licensed`: (inventory, sources), notices.write) and its package.json.
+    Each module's imports must belong to a seam `playground` names (`own`:
+    what its own glue answers). Its site manifest entry."""
     for file, here in files.items():
         if file.endswith(".wasm"):
             imports, _ = wasm_interface(here)
@@ -795,8 +811,10 @@ def lay(out, name, version, files, playground, peers, layer=None, own=()):
     elif layer:
         path, playground["fs"] = layer
         shutil.copytree(path, os.path.join(scratch, "fs"), copy_function=link_or_copy)
-    package = {"name": f"{SCOPE}/{name}", "version": version,
-               "files": sorted([*files, *(["fs"] if layer else [])]),
+    inventory, sources = licensed
+    added, expression = notices.write(scratch, f"{SCOPE}/{name}", inventory, sources)
+    package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
+               "files": sorted([*files, *(["fs"] if layer else []), *added]),
                **({"peerDependencies": peers} if peers else {}), "playground": playground,
                # Not for publishing yet (docs/packages.md).
                "private": True}
@@ -833,11 +851,11 @@ def write_site(out, packages, boot, name=None):
     return "/" + path
 
 
-def lay_packages(out, versions, facts, sources, layers):
+def lay_packages(out, versions, facts, sources, layers, licensed):
     """Every package of PACKAGES: `sources` names each file's path here,
-    `layers` each package's fs layer (lay's `layer`), by key; `facts` what
-    a full build found (beamAbi, the template's id). Their site manifest
-    entries, by name."""
+    `layers` each package's fs layer (lay's `layer`), `licensed` its
+    licenses (lay's), by key; `facts` what a full build found (beamAbi, the
+    template's id). Their site manifest entries, by name."""
     with open(HOST) as f:
         host = json.load(f)
     otp, elixir = versions["otp"], versions["elixir"]
@@ -857,7 +875,8 @@ def lay_packages(out, versions, facts, sources, layers):
             peers[f"{SCOPE}/{named(peer)}"] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
         _, entries[f"{SCOPE}/{named(key)}"] = lay(
             out, named(key), package["version"], {file: sources[file] for file in package["files"]},
-            {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()))
+            {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()),
+            licensed[key])
     return entries
 
 
@@ -869,10 +888,38 @@ def lay_runtime(out, runtime):
         host = json.load(f)
     name = host["name"].split("/")[1]
     files = {file: os.path.join(runtime, file) for file in sorted(os.listdir(runtime))}
-    directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {})
+    # The runtime's scripts and frames, and embed.js: the playground's own,
+    # with what their Vite builds bundled (app/vite-licenses.ts).
+    runtime_licensed = notices.own().extend(notices.npm("runtime")).extend(notices.npm("frames"))
+    directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {},
+                       licensed=(runtime_licensed, {}))
     api, _ = lay(out, "api", "1.0.0", {"embed.js": os.path.join(out, "embed.js")}, {"apiVersions": [2]},
-                 {host["name"]: "^%s.0.0" % host["version"].split(".")[0]})
+                 {host["name"]: "^%s.0.0" % host["version"].split(".")[0]},
+                 licensed=(notices.own().extend(notices.npm("embed")), {}))
     return f"/{directory}/", api
+
+
+def tool_notices():
+    """The licenses of the packages of tools (lay's `licensed`, by key):
+    each tool build's inventory (target/NAME/licenses) and source."""
+    return {
+        "shell": notices.shell(),
+        "git": notices.tool("git"),
+        "ripgrep": notices.tool("rg", "ripgrep"),
+        "gnu-tools": notices.gnu_tools(["sed", "grep", "diffutils", "gawk", "findutils"]),
+        "tls": notices.tls(cacerts()),
+        "tailscale": (notices.tool("tailscale")[0].extend(notices.own()), {}),
+        # Only its package.json: Claude Code comes from npm (docs/packages.md).
+        "claude": (notices.own(), {}),
+    }
+
+
+def licenses_page(out):
+    """/licenses/: the site's pages and every package it has (prune has
+    left those its manifest and pages name)."""
+    top = os.path.join(out, NPM)
+    packages = [os.path.join(NPM, name) for name in sorted(os.listdir(top)) if not name.startswith(".")]
+    notices.page(out, packages, notices.own().extend(notices.npm("apex")))
 
 
 def name_pages(out, runtime, site):
@@ -956,12 +1003,34 @@ def app(out, wasm):
         entry = by.get(f"{SCOPE}/{key.format(**versions)}")
         if entry and "fs" in entry["playground"]:
             layers[key] = (os.path.join(here(entry), "fs"), entry["playground"]["fs"])
-    entries = lay_packages(out, versions, facts, found, layers)
+    # The full build's packages' licenses, as their fs layers: theirs, or
+    # (a site from before licenses/) worked out again.
+    licensed = tool_notices()
+    for key, compute in full_notices(versions).items():
+        directory = os.path.join(here(by[f"{SCOPE}/{key.format(**versions)}"]), "licenses")
+        licensed[key] = ((notices.licenses.Inventory.read(directory), {}) if os.path.isdir(directory)
+                         else compute())
+    entries = lay_packages(out, versions, facts, found, layers, licensed)
     site = write_site(out, entries, before["boot"])
     runtime, api = lay_runtime(out, runtime)
     name_pages(out, runtime, site)
     prune(out, (runtime, api), site)
+    licenses_page(out)
     print(f"{out}: runtime {runtime}, site {site}")
+
+
+def full_notices(versions):
+    """The licenses of the packages a full build makes (lay's `licensed`,
+    by key, each a function): OTP's, Elixir's and the template's."""
+    archives, rebar3 = host_mix()
+    hex_version = next(name.split("-", 1)[1] for name in os.listdir(archives) if name.startswith("hex-"))
+    licensed = os.path.join(CACHE, "licenses")
+    return {
+        "otp-{otp}": lambda: (notices.otp(versions["otp"]), {}),
+        "elixir-{elixir}": lambda: (notices.elixir({**versions, "hex": hex_version, "phx_new": PHX_NEW},
+                                                   rebar3, licensed), {}),
+        "phoenix-template": lambda: (notices.template(os.path.join(CACHE, "playground"), PHX_NEW, licensed), {}),
+    }
 
 
 def main():
@@ -998,11 +1067,12 @@ def main():
     # Every package laid out, its files lazy, to record what each boot
     # image's command fetches; only the Phoenix run's writes (the template,
     # built at /work/playground) are kept, and the template laid again.
+    licensed = {**tool_notices(), **{key: compute() for key, compute in full_notices(versions).items()}}
     found = sources(wasm)
     facts = {"beamAbi": beam_abi(found["beam.wasm"]), "nifAbi": nif_abi(), "template": ""}
     by_package = lambda: {key: [(path, here) for path, here in files if fs_package(path) == key]
                           for key in FS_PACKAGES}
-    entries = lay_packages(out, versions, facts, found, by_package())
+    entries = lay_packages(out, versions, facts, found, by_package(), licensed)
     recording = write_site(out, entries, None, name="recording")
     fetched = {}
     for boot in RECORD:
@@ -1027,7 +1097,7 @@ def main():
             with open(here, "rb") as f:
                 template.update(f.read())
     facts["template"] = template.hexdigest()[:12]
-    entries = lay_packages(out, versions, facts, found, by_package())
+    entries = lay_packages(out, versions, facts, found, by_package(), licensed)
 
     # The boot images: what each run fetched. The template's files go only
     # in the Phoenix image; an empty project has none of them.
@@ -1052,6 +1122,7 @@ def main():
     runtime, api = lay_runtime(out, runtime)
     name_pages(out, runtime, site)
     prune(out, (runtime, api), site)
+    licenses_page(out)
 
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
     print(f"{out}: " + "; ".join(

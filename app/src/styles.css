@@ -988,6 +988,11 @@ button {
   margin: 0 0 28px;
 }
 
+.home-footer {
+  margin: 40px 0 0;
+  font-size: 12px;
+}
+
 .home h2 {
   margin: 28px 0 10px;
   font-size: 13px;
