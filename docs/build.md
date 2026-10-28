@@ -24,7 +24,8 @@ builds it (`beam/build.sh release`), lays out OTP's installation from
 that build in `target/otp`, takes Elixir, Hex, phx_new and rebar3 from
 the host's installation, and builds the template with the host's Mix in
 `target/cache-otp`. Each package's fs layer comes from its own source
-(`fs_layers` in `build.py`).
+(`fs_layers` in `build.py`), with every mtime fixed (`MTIME`), so the same
+files make the same package directory across builds.
 
 ## Requirements
 

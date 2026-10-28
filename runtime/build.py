@@ -21,7 +21,9 @@ An fs layer is fs/manifest.json (each file's path, size, mtime and
 bundle, for stat and readdir) and fs/bundles/N.tar (a directory's files in
 bundles of up to 512 KB, fetched whole by the node when it first opens one
 of them). Each package's files come from its own build or installation
-(fs_layers). Beside the packages:
+(fs_layers). A layer's bundles and the boot images are the same bytes for
+the same files (MTIME, header), so a package's directory keeps its name
+across builds. Beside the packages:
 
 - boot/ID/: boot.tar.gz, what IEx reads first, recorded by running it in
   the WebAssembly node under Node (docker run node:24) with every file
@@ -96,6 +98,16 @@ APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "crypto-", "asn1-", "public_
 # Elixir's applications, the host installation's (the elixir-X package's
 # fs layer, elixir_files).
 ELIXIR_APPS = ("elixir", "eex", "ex_unit", "iex", "logger", "mix")
+# The mtime of every file in an fs layer and a boot image (2000-01-01),
+# and of nothing a node writes (now). The same files then make the same
+# bundles and images, byte for byte, and a package keeps its directory's
+# name (ID) across builds. Mix compares mtimes with > alone (a source
+# against its manifest, mix.exs and config/ against what the manifest
+# recorded), and the recording run sees this mtime too, so what the
+# template's manifests record is what a node finds, and nothing is stale
+# at boot. Not 0: the runtime takes 0 for none (wasi/fs.ts mount), and Mix
+# takes it for a missing file.
+MTIME = 946684800
 PHX_NEW = "1.8.15"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
@@ -723,8 +735,8 @@ def nif_abi():
     speaks (host.json's provides.nif: nif.ts and the BEAM's patch 0021)
     and the BEAM build's erl_nif.h. The backend builds for it from its own
     copy of the layer (backend/nif/), and refuses another."""
-    header = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", "erts", "emulator", "beam", "erl_nif.h")
-    with open(header) as f:
+    erl_nif_h = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", "erts", "emulator", "beam", "erl_nif.h")
+    with open(erl_nif_h) as f:
         text = f.read()
     version = ".".join(re.search(rf"^#define ERL_NIF_{part}_VERSION (\d+)$", text, re.M).group(1)
                        for part in ("MAJOR", "MINOR"))
@@ -770,11 +782,9 @@ def tree_digest(top, skip=lambda path: False):
 
 def layer_version(files):
     """A digest of a layer's files ((path in the node, path here)), their
-    paths and bytes. Not their mtimes: each build compiles the template
-    again in the recording run, so its build's mtimes are new every time
-    while its files are the same. Nor Mix's own records of that compile
-    (_build/ENV/lib/APP/.mix/), which note when it ran: three builds in a
-    row differed in those alone."""
+    paths and bytes. Not Mix's own records of the template's compile
+    (_build/ENV/lib/APP/.mix/): they are of the recording run, not of what
+    a project is made over."""
     hashed = hashlib.sha256()
     for path, here in sorted(files):
         if re.search(r"/_build/[^/]+/lib/[^/]+/\.mix/", path):
@@ -804,8 +814,8 @@ def write_layer(fs, files):
     for number, group in enumerate(groups):
         with tarfile.open(os.path.join(fs, "bundles", f"{number}.tar"), "w", format=tarfile.USTAR_FORMAT) as tar:
             for path, here in group["files"]:
-                tar.add(here, arcname=path, recursive=False)
-                manifest.append([path, os.path.getsize(here), int(os.path.getmtime(here)), number])
+                tar.add(here, arcname=path, recursive=False, filter=header)
+                manifest.append([path, os.path.getsize(here), MTIME, number])
     with open(os.path.join(fs, "manifest.json"), "w") as f:
         json.dump(manifest, f, separators=(",", ":"))
     return {"format": 2, "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": len(groups),
@@ -1151,13 +1161,25 @@ def main():
 BUNDLE = 512 * 1024
 
 
+def header(info):
+    """A tar entry's header as every fs layer and boot image has it
+    (write_layer, write_image): MTIME, no owner, and of its mode the
+    executable bit alone. The same files then make the same tar."""
+    info.mtime = MTIME
+    info.uid = info.gid = 0
+    info.uname = info.gname = ""
+    info.mode = 0o755 if info.mode & 0o111 else 0o644
+    return info
+
+
 def write_image(path, files):
     """A boot image: a gzipped tar of `files` ((path in the node, path here)),
-    the same bytes for the same files (gzip's header has no time)."""
+    the same bytes for the same files (gzip's header has no time, the
+    tar's entries are header's)."""
     with open(path, "wb") as raw, gzip.GzipFile(fileobj=raw, mode="wb", mtime=0) as zipped, \
             tarfile.open(fileobj=zipped, mode="w", format=tarfile.USTAR_FORMAT) as tar:
         for name, here in files:
-            tar.add(here, arcname=name, recursive=False)
+            tar.add(here, arcname=name, recursive=False, filter=header)
 
 
 def link_or_copy(source, target):
@@ -1168,4 +1190,5 @@ def link_or_copy(source, target):
 
 
 
-main()
+if __name__ == "__main__":
+    main()

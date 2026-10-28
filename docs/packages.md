@@ -116,9 +116,17 @@ runtime merges the layers into one tree, and numbers the layers' bundles
 one after another in the manifest's order (`Site.tree`, `Site.bundle`),
 so a lazy file is `(source, bundle)` as before.
 
+- **Every file's mtime is 2000-01-01** (`MTIME` in `build.py`), in the
+  layer manifests, the bundles and the boot images, whose tar headers
+  also carry no owner and only the executable bit of a mode. The same
+  files then make the same bytes, and a package keeps its `+ID` across
+  builds, though `beam/build.sh` installs OTP anew and the recording run
+  compiles the template anew. Mix compares mtimes with `>` alone, and
+  the recording run sees the same mtime, so the template's compile
+  manifests record what a node finds and nothing is stale at boot.
 - **A layer's `version`** is a digest of its files' paths and bytes,
-  without mtimes and without Mix's records of a compile
-  (`_build/ENV/lib/APP/.mix/`, which note when it ran). A kept project
+  without Mix's records of the recording run's compile
+  (`_build/ENV/lib/APP/.mix/`). A kept project
   notes the layers' versions it was made over (`Site.fsVersion`); when
   they change, `files.js` drops the template's `_build` from the kept
   records, and the project recompiles over the new one.
@@ -496,12 +504,6 @@ come along: a move needs an export and import, or starts fresh.
   Two pairs cannot both be `phoenix-template@1.x`. Either the pair goes in
   the name (`phoenix-template-otp-29.1.2-elixir-1.20.4`), or the major
   encodes it.
-- **Stable package IDs across full builds.** `beam/build.sh` installs OTP
-  anew each time, and the recording run compiles the template anew, so
-  their files' mtimes change, and with them their bundles' tar headers:
-  a full build makes new `otp-X` and `phoenix-template` directories even
-  when nothing changed (their layers' `version`s stay). Fixed mtimes
-  would keep them, where Mix allows it.
 - **Recordings for embedders without the plugin:** ship a recording with
   the template package for its own pair, or boot lazily.
 - **Where the site manifest lives** for the hosted mirror: the plugin
