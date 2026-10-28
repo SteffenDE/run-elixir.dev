@@ -13,6 +13,8 @@ import type { Channel } from './channel';
 
 export interface BeamRun {
   module: string;
+  // OTP's root in the tree (Site.otp): erl's -root.
+  root_otp: string;
   argv: string[];
   env: Record<string, string>;
   cwd: string;
@@ -53,7 +55,7 @@ export async function runBeam(run: BeamRun): Promise<number> {
   const { channel } = run;
   const node = startBeam({
     module: run.module,
-    args: beamArgs(run.argv, run.env.HOME),
+    args: beamArgs(run.argv, { home: run.env.HOME, root: run.root_otp }),
     env: { ...run.env, ERL_INETRC: '/etc/inetrc' },
     cwd: run.cwd,
     root: run.root,

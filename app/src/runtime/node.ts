@@ -15,7 +15,7 @@ import {
 import { Exit } from './wasi';
 import { Dir, File, untar, mount, bundled, type FsNode } from './wasi/fs';
 import { Network } from './wasi/net';
-import { ENV, prepare, programs } from './setup';
+import { environment, prepare, programs } from './setup';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { register } from './coreutils';
 import { Site, type SiteManifest } from './packages/manifest';
@@ -77,7 +77,7 @@ let files = 0;
 for (const boot of boots) files += await untar(await readFile(local(packages.boot(boot))), root);
 let fetched = 0;
 const recorded: string[] = [];
-prepare(root);
+prepare(root, { bin: packages.bin() });
 const t1 = performance.now();
 const input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 // Mounted host files, or the site's bundles.
@@ -165,7 +165,7 @@ const pump = () => {
 // harness's own work (pump) runs on a timer.
 // VM_NAME=VALUE: NAME=VALUE in the node's environment.
 const env: Record<string, string> = {
-  ...ENV,
+  ...environment(packages),
   PWD: process.env.CWD || '/work',
   ERL_INETRC: '/etc/inetrc',
   ...Object.fromEntries(
@@ -193,7 +193,7 @@ const processes: Processes = new Processes((program) => {
 });
 const beam = startBeam({
   module: packages.beam()!.loader.href,
-  args: beamArgs(args, env.HOME),
+  args: beamArgs(args, { home: env.HOME, root: packages.otp()!.root }),
   env,
   cwd: env.PWD,
   root,

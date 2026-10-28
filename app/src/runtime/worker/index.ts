@@ -23,7 +23,7 @@ import {
 } from '../wasi/fs';
 import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
-import { ENV, prepare, programs } from '../setup';
+import { environment, prepare, programs } from '../setup';
 import { vfs } from '../vfs';
 import { words } from '../sh';
 import type { NifSource } from '../programs';
@@ -48,7 +48,7 @@ import {
 import { OutputLimitError } from './output';
 import type { Descriptor } from '../wasi/descriptors';
 import { artifacts, setSite } from './site';
-import type { SiteRef } from '../packages/manifest';
+import type { Site, SiteRef } from '../packages/manifest';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
 // A WebAssembly module from the site, compiled; null when the site has none
@@ -118,22 +118,35 @@ function join(cwd: string, path: string): string {
 }
 
 // Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix), and
-// escript's (bin/escript, with the flags of the script's %%! line). The Hex
-// esbuild and tailwind packages run the page's programs (their :path,
-// unless a project's config sets one), so no project downloads them.
-const ELIXIR = [
-  '-noshell',
-  '-elixir_root',
-  '/rotp/lib',
-  '-pa',
-  '/rotp/lib/elixir/ebin',
-  '-esbuild',
-  'path',
-  '<<"/usr/bin/esbuild">>',
-  '-tailwind',
-  'path',
-  '<<"/usr/bin/tailwind">>',
-];
+// escript's (bin/escript, with the flags of the script's %%! line), from
+// where the site's packages are (setLaunch): Elixir's root (lib/APP/ebin
+// below it), Mix's script (the elixir package's bin/mix, /usr/bin/mix) and
+// OTP's root (its boot scripts). The Hex esbuild and tailwind packages
+// run the page's programs (their :path, unless a project's config sets
+// one), so no project downloads them.
+let ELIXIR: string[] = [];
+let MIX = '/usr/bin/mix';
+let NO_DOT_ERLANG = '';
+function setLaunch(packages: Site): void {
+  const elixir = packages.elixir();
+  const otp = packages.otp();
+  if (!elixir || !otp) throw new Error('this site has no OTP and Elixir packages with files');
+  ELIXIR = [
+    '-noshell',
+    '-elixir_root',
+    `${elixir.root}/lib`,
+    '-pa',
+    `${elixir.root}/lib/elixir/ebin`,
+    '-esbuild',
+    'path',
+    '<<"/usr/bin/esbuild">>',
+    '-tailwind',
+    'path',
+    '<<"/usr/bin/tailwind">>',
+  ];
+  MIX = packages.bin().get('mix') ?? '/usr/bin/mix';
+  NO_DOT_ERLANG = `${otp.root}/bin/no_dot_erlang`;
+}
 // bin/elixir's options, up to the first argument that is none: those for
 // erl (--sname a, --cookie c, --hidden, --erl "flags", …) as erl's, and
 // the others, with what follows, for Elixir's CLI.
@@ -226,12 +239,12 @@ function command(
     }
     case 'mix': {
       const { erl, cli } = launcher(args);
-      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', '/rotp/bin/mix', ...cli];
+      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', MIX, ...cli];
     }
     case 'iex': {
       const { erl, cli } = launcher(args);
       // iex -S mix ARGS runs Mix's script under IEx.
-      const rest = cli[0] === '-S' && cli[1] === 'mix' ? ['/rotp/bin/mix', ...cli.slice(2)] : cli;
+      const rest = cli[0] === '-S' && cli[1] === 'mix' ? [MIX, ...cli.slice(2)] : cli;
       return [...ELIXIR, ...erl, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
     }
     case 'escript':
@@ -240,7 +253,7 @@ function command(
         '+B',
         '-noshell',
         '-boot',
-        '/rotp/bin/no_dot_erlang',
+        NO_DOT_ERLANG,
         ...escriptFlags(read(args[0])),
         '-run',
         'escript',
@@ -290,6 +303,8 @@ onmessage = async ({
 }: MessageEvent<Start>) => {
   setSite(siteRef);
   const packages = artifacts();
+  setLaunch(packages);
+  const ENV = environment(packages);
   const boots = packages.boots(requestedBoots);
   try {
     say('status', 'Loading OTP and Elixir…');
@@ -317,6 +332,7 @@ onmessage = async ({
     prepare(root, {
       dns: udpPorts.includes(53),
       inotifywait: pagePrograms.includes('inotifywait'),
+      bin: packages.bin(),
     });
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
@@ -400,6 +416,7 @@ onmessage = async ({
       try {
         return await runBeam({
           module: packages.beam()!.loader.href,
+          root_otp: packages.otp()!.root,
           argv: ['+S', String(SCHEDULERS), ...cookie(argv, vars), ...argv],
           env: { ...ENV, ...vars, PWD: cwd },
           cwd,

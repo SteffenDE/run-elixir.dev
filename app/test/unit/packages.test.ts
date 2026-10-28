@@ -11,9 +11,10 @@ const file = { size: 1, sha256: '00' };
 
 // A site as runtime/build.py writes it, in a layout of npm's: each package
 // under its own name and version.
-// A package's fs layer: `count` bundles.
-const layer = (count: number, version: string) => ({
-  format: 2,
+// A package's fs layer: `count` bundles, below `root`.
+const layer = (count: number, version: string, root: string) => ({
+  format: 3,
+  root,
   manifest: 'fs/manifest.json',
   bundles: 'fs/bundles/',
   count,
@@ -35,7 +36,8 @@ function site(): SiteManifest {
           beamAbi: 'b1',
           nifAbi: '1-2.18',
           beam: { loader: 'beam.mjs', wasm: 'beam.wasm' },
-          fs: layer(3, 'o1'),
+          env: { ROOTDIR: '.' },
+          fs: layer(3, 'o1', '/opt/otp/29.1.2'),
         },
       },
       [ELIXIR]: {
@@ -43,7 +45,13 @@ function site(): SiteManifest {
         base: '../elixir-1.20.4@1.0.3/',
         files: {},
         peerDependencies: { [RUNTIME]: '^1.0.0' },
-        playground: { elixir: '1.20.4', requires: { otp: '^29.0.0' }, fs: layer(2, 'e1') },
+        playground: {
+          elixir: '1.20.4',
+          requires: { otp: '^29.0.0' },
+          bin: { mix: 'bin/mix' },
+          env: { MIX_ARCHIVES: 'mix/archives', MIX_REBAR3: 'mix/rebar3' },
+          fs: layer(2, 'e1', '/opt/elixir/1.20.4'),
+        },
       },
       [TEMPLATE]: {
         version: '1.0.0',
@@ -58,6 +66,7 @@ function site(): SiteManifest {
             otp: '29.1.2',
             elixir: '1.20.4',
           },
+          fs: layer(1, 't1', '/work/playground'),
         },
       },
       '@elixir-playground/shell': {
@@ -125,8 +134,6 @@ describe('the site manifest', () => {
       roots: 'https://u.test/npm/@elixir-playground/tls@1.0.0/roots.pem',
     });
     expect(packages.versions()).toEqual({ otp: '29.1.2', elixir: '1.20.4' });
-    expect(packages.template('phoenix')).toEqual({ id: 't1', label: 'phx.new 1.8.15' });
-    expect(packages.template('empty')).toBeNull();
   });
 
   it('registers every package’s programs, the tools’ module apart', () => {
@@ -142,16 +149,17 @@ describe('the site manifest', () => {
     const packages = at();
     const listed: Record<string, Manifest> = {
       'otp-29.1.2@1.2.0': [
-        ['rotp/lib/kernel/ebin/kernel.app', 10, 1, 0],
-        ['rotp/lib/stdlib/ebin/lists.beam', 20, 1, 2],
+        ['lib/kernel/ebin/kernel.app', 10, 1, 0],
+        ['lib/stdlib/ebin/lists.beam', 20, 1, 2],
       ],
-      'elixir-1.20.4@1.0.3': [['rotp/lib/elixir/ebin/elixir.app', 30, 1, 1]],
+      'elixir-1.20.4@1.0.3': [['lib/elixir/ebin/elixir.app', 30, 1, 1]],
     };
     const tree = await packages.tree(async (url) => listed[url.pathname.split('/').at(-3)!] ?? []);
+    // Each layer's files below its root.
     expect(tree).toEqual([
-      ['rotp/lib/kernel/ebin/kernel.app', 10, 1, 0],
-      ['rotp/lib/stdlib/ebin/lists.beam', 20, 1, 2],
-      ['rotp/lib/elixir/ebin/elixir.app', 30, 1, 4],
+      ['opt/otp/29.1.2/lib/kernel/ebin/kernel.app', 10, 1, 0],
+      ['opt/otp/29.1.2/lib/stdlib/ebin/lists.beam', 20, 1, 2],
+      ['opt/elixir/1.20.4/lib/elixir/ebin/elixir.app', 30, 1, 4],
     ]);
     expect(packages.bundle(2).pathname).toBe(
       '/npm/@elixir-playground/otp-29.1.2@1.2.0/fs/bundles/2.tar',
@@ -159,7 +167,36 @@ describe('the site manifest', () => {
     expect(packages.bundle(4).pathname).toBe(
       '/npm/@elixir-playground/elixir-1.20.4@1.0.3/fs/bundles/1.tar',
     );
-    expect(() => packages.bundle(5)).toThrow('no bundle 5');
+    expect(() => packages.bundle(6)).toThrow('no bundle 6');
+  });
+
+  it('places OTP, Elixir and the template where their packages say', () => {
+    const packages = at();
+    expect(packages.otp()).toEqual({ version: '29.1.2', root: '/opt/otp/29.1.2' });
+    expect(packages.elixir()).toEqual({ version: '1.20.4', root: '/opt/elixir/1.20.4' });
+    expect(packages.template('phoenix')).toEqual({
+      id: 't1',
+      label: 'phx.new 1.8.15',
+      root: '/work/playground',
+    });
+    expect(packages.template('empty')).toBeNull();
+    // The commands and variables the packages declare, as paths of their
+    // layers.
+    expect([...packages.bin()]).toEqual([['mix', '/opt/elixir/1.20.4/bin/mix']]);
+    expect(packages.environment()).toEqual({
+      ROOTDIR: '/opt/otp/29.1.2',
+      MIX_ARCHIVES: '/opt/elixir/1.20.4/mix/archives',
+      MIX_REBAR3: '/opt/elixir/1.20.4/mix/rebar3',
+    });
+  });
+
+  it('refuses a layer without an absolute, normalized root', () => {
+    for (const root of ['opt/otp', '/', '/opt/otp/', '/opt/../otp', '/opt/./otp']) {
+      const manifest = site();
+      manifest.packages[OTP].playground.fs!.root = root;
+      expect(checkSite(manifest).join(' ')).toContain('no absolute root');
+    }
+    expect(checkSite(site())).toEqual([]);
   });
 
   it('names what kept changes were made over by the layers’ versions', () => {
@@ -257,7 +294,7 @@ describe('the load-time check', () => {
     const format = site();
     format.packages[ELIXIR].playground.fs!.format = 1;
     expect(checkSite(format)).toEqual([
-      `${ELIXIR}@1.0.3's files are fs format 1; this runtime reads 2`,
+      `${ELIXIR}@1.0.3's files are fs format 1; this runtime reads 3`,
     ]);
   });
 

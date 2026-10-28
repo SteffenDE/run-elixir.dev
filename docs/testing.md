@@ -141,7 +141,7 @@ files are fetched. For example, IEx with input:
 ```sh
 printf '1 + 1\n' | docker run --rm -i -v $PWD/target/node:/w:ro \
   -v $PWD/target/site:/d:ro -e BOOT=boot node:24 node /w/node.mjs /d \
-  -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
+  -noshell -elixir_root /opt/elixir/1.20.4/lib -pa /opt/elixir/1.20.4/lib/elixir/ebin \
   -user elixir -extra --no-halt +iex
 ```
 

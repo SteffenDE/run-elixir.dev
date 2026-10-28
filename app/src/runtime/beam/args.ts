@@ -1,8 +1,8 @@
 // erl's command line as the playground gives it (worker/index.ts,
 // build.py), for the Emscripten BEAM, which takes the emulator's own: what
 // erlexec would pass. `+Flag value` before -extra becomes the
-// emulator's `-Flag value`, and init gets the installation's root (/rotp),
-// boot script and home, gen_tcp the socket backend (beam/
+// emulator's `-Flag value`, and init gets the installation's root (the
+// otp package's, Site.otp), boot script and home, gen_tcp the socket backend (beam/
 // socket), and distribution, for a node given -sname or -name, its carrier
 // over the socket module (docs/distribution.md).
 
@@ -15,7 +15,10 @@ const BARE = new Set(['+B', '+Bc', '+Bd', '+Bi', '+c', '+d', '+r']);
 // mimalloc takes each allocation itself.
 const EMULATOR = ['-Mea', 'min'];
 
-export function beamArgs(args: string[], home = '/work'): string[] {
+export function beamArgs(
+  args: string[],
+  { home = '/work', root }: { home?: string; root: string },
+): string[] {
   const emulator = [...EMULATOR];
   const init: string[] = [];
   let extra = false;
@@ -31,14 +34,14 @@ export function beamArgs(args: string[], home = '/work'): string[] {
       if (!BARE.has(arg) && next !== undefined && !/^[-+]/.test(next)) emulator.push(args[++i]);
     } else init.push(arg);
   }
-  const boot = init.includes('-boot') ? [] : ['-boot', '/rotp/bin/start'];
+  const boot = init.includes('-boot') ? [] : ['-boot', `${root}/bin/start`];
   return [
     ...emulator,
     '--',
     '-root',
-    '/rotp',
+    root,
     '-bindir',
-    '/rotp/bin',
+    `${root}/bin`,
     '-progname',
     'erl',
     '-home',

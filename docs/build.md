@@ -154,13 +154,21 @@ needs them.
 
 The filesystem holds:
 
-- `/rotp` (the name is Rust-OTP's): the `otp-X` package's layer is
-  `target/otp`'s `bin/*.boot`, `releases/` and the applications a
-  playground needs (`APPS` in `build.py`); the `elixir-X` package's is
-  the host's Elixir applications (`ELIXIR_APPS`), Mix's archives at
-  `mix/archives/` and `mix/rebar3`;
+- `/opt/otp/29.1.2`: the `otp-X` package's layer, `target/otp`'s
+  `bin/*.boot`, `releases/` and the applications a playground needs
+  (`APPS` in `build.py`);
+- `/opt/elixir/1.20.4`: the `elixir-X` package's layer, the host's Elixir
+  applications (`ELIXIR_APPS`) under `lib/`, Mix's archives at
+  `mix/archives/`, `mix/rebar3`, and Mix's script `bin/mix` (its `mix`
+  command, linked from `/usr/bin/mix`);
 - `/work/playground`: the Phoenix template's app, which only a Phoenix
-  project mounts.
+  project mounts;
+- `/usr/libexec/git-core`, `/etc/ssl`, `/usr/share/terminfo`: the git,
+  tls and shell packages' layers.
+
+Each root is the package's own (`root` in `PACKAGES`,
+[packages.md](packages.md#fs-layers-fs-format-3)): the runtime takes
+OTP's and Elixir's from the site manifest.
 
 ## Steps
 
@@ -266,9 +274,12 @@ For example:
 ```sh
 docker run --rm -i -e CWD=/work/playground -e HTTP=4000/ -e STOP_AFTER=20000 -e NO_EOF=1 \
   -v $PWD/target/node:/w:ro -v $PWD/target/site:/d:ro node:24 \
-  node /w/node.mjs /d -noshell -elixir_root /rotp/lib -pa /rotp/lib/elixir/ebin \
-  -user elixir -extra --no-halt +iex /rotp/bin/mix phx.server </dev/null
+  node /w/node.mjs /d -noshell -elixir_root /opt/elixir/1.20.4/lib -pa /opt/elixir/1.20.4/lib/elixir/ebin \
+  -user elixir -extra --no-halt +iex /opt/elixir/1.20.4/bin/mix phx.server </dev/null
 ```
+
+The paths are the Elixir package's root (`record_args` in `build.py`
+takes them from `PACKAGES`).
 
 The harness runs the node with its whole filesystem local: no `files.js`, no
 page programs. It is the recording run's environment.

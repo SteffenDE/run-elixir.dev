@@ -32,8 +32,15 @@ export interface Playground {
   elixir?: string;
   requires?: { otp?: string };
   // A template: its kind, id (a digest of its files, without its build),
-  // label, and the OTP and Elixir it was compiled with.
+  // label, and the OTP and Elixir it was compiled with. Its files are its
+  // fs layer's, at the layer's root.
   template?: { kind: string; id: string; label: string; otp: string; elixir: string };
+  // Commands: each a file of the package's fs layer (relative to its
+  // root), which the runtime links from /usr/bin/NAME.
+  bin?: Record<string, string>;
+  // Variables every node gets, each a path of the package's fs layer
+  // (relative to its root; "." the root itself).
+  env?: Record<string, string>;
   // tls: a Node.js process's TLS client and the roots it trusts.
   tls?: { module: string; roots: string };
   // tailscale: the apex's Tailscale node, and Go's glue for it (the Go
@@ -47,12 +54,14 @@ export interface Playground {
   fs?: FsLayer;
 }
 
-// A package's files in the nodes' tree (fs format 2): `manifest` lists
-// them, [path, size, mtime, bundle] (wasi/fs.ts Manifest), each `bundle`
-// one of the package's `count` tars in `bundles` (N.tar). `version`: a
-// digest of the files' paths and bytes.
+// A package's files in the nodes' tree (fs format 3), below `root` (an
+// absolute path the package chooses: /opt/otp/29.1.2, /usr/libexec/git-core):
+// `manifest` lists them relative to it, [path, size, mtime, bundle]
+// (wasi/fs.ts Manifest), each `bundle` one of the package's `count` tars
+// in `bundles` (N.tar). `version`: a digest of the files' paths and bytes.
 export interface FsLayer {
   format: number;
+  root: string;
   manifest: string;
   bundles: string;
   count: number;
@@ -193,18 +202,64 @@ export class Site {
     return out;
   }
 
-  // The nodes' tree without its bytes: every layer's manifest, its
-  // bundles numbered as the site's. `load` reads one (fetch, or a file).
+  // The nodes' tree without its bytes: every layer's manifest, its paths
+  // below the layer's root (without the leading slash, as the tree lists
+  // them), its bundles numbered as the site's. `load` reads one (fetch, or
+  // a file).
   async tree(load: (url: URL) => Promise<Manifest> = fetchJson): Promise<Manifest> {
     const layers = await Promise.all(
       this.layers().map(async ({ name, layer, first }) =>
         (await load(this.file(name, layer.manifest))).map(
           ([path, size, mtime, bundle]): Manifest[number] =>
-            bundle === undefined ? [path, size, mtime] : [path, size, mtime, first + bundle],
+            bundle === undefined
+              ? [below(layer.root, path), size, mtime]
+              : [below(layer.root, path), size, mtime, first + bundle],
         ),
       ),
     );
     return layers.flat();
+  }
+
+  // OTP as installed: its version and its root (the otp package's layer:
+  // bin/*.boot, lib/, releases/ below it), which erl starts from.
+  otp(): { version: string; root: string } | null {
+    const otp = this.find('otp');
+    const root = otp?.entry.playground.fs?.root;
+    return otp && root ? { version: otp.value, root } : null;
+  }
+
+  // Elixir as installed: its version and its root (lib/APP/ebin below it:
+  // elixir's launchers' -elixir_root and -pa).
+  elixir(): { version: string; root: string } | null {
+    const elixir = this.find('elixir');
+    const root = elixir?.entry.playground.fs?.root;
+    return elixir && root ? { version: elixir.value, root } : null;
+  }
+
+  // Every package's commands: /usr/bin/NAME → the file's path in the
+  // tree. A name two packages give is the first one's.
+  bin(): Map<string, string> {
+    const out = new Map<string, string>();
+    for (const entry of Object.values(this.manifest.packages)) {
+      const root = entry.playground.fs?.root;
+      if (!root) continue;
+      for (const [name, file] of Object.entries(entry.playground.bin ?? {}))
+        if (!out.has(name)) out.set(name, at(root, file));
+    }
+    return out;
+  }
+
+  // The variables the packages give every node (ROOTDIR, MIX_ARCHIVES, …),
+  // each an absolute path in the tree.
+  environment(): Record<string, string> {
+    const out: Record<string, string> = {};
+    for (const entry of Object.values(this.manifest.packages)) {
+      const root = entry.playground.fs?.root;
+      if (!root) continue;
+      for (const [name, file] of Object.entries(entry.playground.env ?? {}))
+        out[name] ??= at(root, file);
+    }
+    return out;
   }
 
   // The site's bundle `n`: its layer's tar.
@@ -263,14 +318,25 @@ export class Site {
     return otp && elixir ? { otp, elixir } : null;
   }
 
-  template(kind: string): { id: string; label: string } | null {
+  // A template of `kind`: its id and label, and its root in the tree
+  // (/work/playground), where its files are.
+  template(kind: string): { id: string; label: string; root: string } | null {
     for (const entry of Object.values(this.manifest.packages)) {
       const template = entry.playground.template;
-      if (template?.kind === kind) return { id: template.id, label: template.label };
+      const root = entry.playground.fs?.root;
+      if (template?.kind === kind && root) return { id: template.id, label: template.label, root };
     }
     return null;
   }
 }
+
+// A layer's file as the tree lists it: below the layer's root, without
+// the leading slash.
+const below = (root: string, path: string) => `${root.replace(/^\/+/, '')}/${path}`;
+
+// An absolute path of a layer's file: its root, or `file` below it.
+const at = (root: string, file: string) =>
+  file === '.' || file === '' ? root : `${root.replace(/\/+$/, '')}/${file}`;
 
 async function fetchJson(url: URL): Promise<Manifest> {
   const response = await fetch(url);

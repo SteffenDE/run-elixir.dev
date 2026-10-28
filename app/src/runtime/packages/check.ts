@@ -73,11 +73,15 @@ export function checkSite(site: SiteManifest, host: Host = HOST): string[] {
   }
   for (const [name, entry] of all) {
     const layer = entry.playground.fs;
-    if (layer && !host.provides.fs?.includes(layer.format))
+    if (!layer) continue;
+    if (!host.provides.fs?.includes(layer.format))
       problems.push(
         `${name}@${entry.version}'s files are fs format ${layer.format}; ` +
           `this runtime reads ${host.provides.fs}`,
       );
+    // Where its files go: an absolute, normalized path, not the root.
+    if (!/^\/[^/]/.test(layer.root) || /\/$|\/\.\.?(\/|$)/.test(layer.root))
+      problems.push(`${name}@${entry.version}'s files have no absolute root: ${layer.root}`);
   }
   // The boot images were recorded with exactly these packages.
   for (const [name, version] of Object.entries(site.boot?.packages ?? {}))

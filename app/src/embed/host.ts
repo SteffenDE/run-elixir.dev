@@ -15,7 +15,7 @@ import { serveStore } from '@/runtime/overlay';
 import { fits } from '@/runtime/packages/check';
 import { listed } from '@/runtime/relay';
 import { claudePort } from '@/project/lib/programs/claude/frame';
-import { PHOENIX_APP, type WorkspaceKind } from '@/project/lib/kinds';
+import type { WorkspaceKind } from '@/project/lib/kinds';
 import { forgetRelays, previewRelay } from '@/project/lib/previewOrigins';
 import { apexServices, type ApexServices } from '@/project/lib/services';
 import { BUILD, SITE, siteManifest } from '@/shared/lib/build';
@@ -127,7 +127,8 @@ class Sandbox {
     const kind: WorkspaceKind =
       'template' in source && source.template === 'phoenix' ? 'phoenix' : 'empty';
     this.key = source.id ? await keyFor(source.id) : newId();
-    this.root = kind === 'phoenix' ? PHOENIX_APP : '/work';
+    // The project's directory: its template's (the package's root), else /work.
+    this.root = (await siteManifest().then((ref) => new Site(ref).template(kind)?.root)) ?? '/work';
     this.env = { ...options.env };
     this.relayHosts = [...(options.relay ?? [])];
     const origin = execOrigin(this.key);

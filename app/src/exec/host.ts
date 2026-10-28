@@ -17,7 +17,7 @@ import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
 import { Git, type GitOptions } from '@/runtime/host/git';
-import { ENV } from '@/runtime/setup';
+import { environment } from '@/runtime/setup';
 import { quote } from '@/runtime/sh';
 import { SIGNALS, SIGNAL_NAMES } from '@/runtime/signals';
 import { REPORT, lineDiscipline, onlcr } from '@/runtime/terminal';
@@ -434,7 +434,7 @@ function nodeServices() {
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),
-      rebar3: rebar3Program(startNode),
+      rebar3: rebar3Program(startNode, environment(new Site(site)).MIX_REBAR3),
       ...Object.fromEntries(
         ['mix', 'elixir', 'iex', 'erl', 'escript'].map((name) => [
           name,
@@ -580,7 +580,11 @@ const handlers = {
       base: start.build,
       site,
       boots: setup.boots,
-      template: setup.template,
+      // The template's directory below /work (its package's root), if the
+      // project starts from one.
+      template: [new Site(site).template(options.kind)?.root].filter(
+        (root): root is string => !!root,
+      ),
       archive: options.archive ?? null,
       storePort: options.store,
       sharedPort: options.shared ?? null,
@@ -726,7 +730,14 @@ const handlers = {
       cwd,
       boots: setup.boots,
       // The caller's environment under the playground's own.
-      env: { ...env, ...ENV, ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv(), PWD: cwd },
+      env: {
+        ...env,
+        ...environment(new Site(site)),
+        ...hexEnv,
+        PLAYGROUND_COOKIE: COOKIE,
+        ...previewEnv(),
+        PWD: cwd,
+      },
       tty: [!!tty, !!tty],
     });
   },

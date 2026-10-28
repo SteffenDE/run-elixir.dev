@@ -107,14 +107,34 @@ site manifest's (`<meta name="playground-runtime">`, `<meta
 name="playground-site">`); the runtime finds everything else through the
 manifest. [build.md](build.md#what-the-site-is) has the whole tree.
 
-### fs layers (fs format 2)
+### fs layers (fs format 3)
 
-A package with files in the nodes' tree has an fs layer: `fs/manifest.json`
-lists them (`[path, size, mtime, bundle]`) and `fs/bundles/N.tar` holds
-them (uncompressed tars of up to 512 KB of one directory's files). The
-runtime merges the layers into one tree, and numbers the layers' bundles
-one after another in the manifest's order (`Site.tree`, `Site.bundle`),
-so a lazy file is `(source, bundle)` as before.
+A package with files in the nodes' tree has an fs layer, and says where
+it goes: `fs.root`, an absolute path. `fs/manifest.json` lists the files
+below it (`[path, size, mtime, bundle]`, `path` relative to the root) and
+`fs/bundles/N.tar` holds them (uncompressed tars of up to 512 KB of one
+directory's files). The runtime merges the layers into one tree at their
+roots, and numbers the layers' bundles one after another in the
+manifest's order (`Site.tree`, `Site.bundle`), so a lazy file is
+`(source, bundle)` as before.
+
+- **OTP and Elixir carry their version in the path:** `/opt/otp/29.1.2`,
+  `/opt/elixir/1.20.4`, so that a project may one day install two side
+  by side. The tools go where their programs expect them: git's scripts
+  at `/usr/libexec/git-core` (git.wasm's exec path), the CA bundle under
+  `/etc/ssl`, the terminfo entry under `/usr/share/terminfo`; the
+  template at `/work/playground`.
+- **The runtime finds OTP and Elixir by their packages' roots**
+  (`Site.otp`, `Site.elixir`): erl's `-root`, `-bindir` and `-boot`, and
+  the launchers' `-elixir_root` and `-pa`. It has no path of its own.
+- **A package's commands are its `bin`:** files of its layer, which the
+  runtime links from `/usr/bin/NAME` (Elixir's `mix`, Mix's script). The
+  programs the runtime itself runs (the launchers `elixir`, `iex`, `erl`,
+  `escript`; the page's `node`, `claude`, …; the WebAssembly programs)
+  keep empty stand-ins there.
+- **A package's variables are its `env`:** each a path of its layer,
+  which every node gets: OTP's `ROOTDIR`, Elixir's `MIX_ARCHIVES` and
+  `MIX_REBAR3`.
 
 - **Every file's mtime is 2000-01-01** (`MTIME` in `build.py`), in the
   layer manifests, the bundles and the boot images, whose tar headers
@@ -153,8 +173,10 @@ Every key is optional. A package sets the keys that describe it.
 | `shell` | `shell` | The shell's module (`brush.wasm`). |
 | `otp`, `beamAbi`, `nifAbi`, `beam` | `otp-X` | OTP's version, the build's id, the NIF ABI it loads, and `{ loader, wasm }`. |
 | `elixir`, `requires.otp` | `elixir-X` | Elixir's version, and the OTP range it runs on. |
-| `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build; `otp` and `elixir` are the pair it was compiled with. |
-| `fs` | packages with files in the nodes' tree | `{ format, manifest, bundles, count, version }`: its fs layer. |
+| `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build; `otp` and `elixir` are the pair it was compiled with. Its files are its fs layer's, at the layer's root. |
+| `fs` | packages with files in the nodes' tree | `{ format, root, manifest, bundles, count, version }`: its fs layer, and where it goes ([above](#fs-layers-fs-format-3)). |
+| `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`. |
+| `env` | `otp-X`, `elixir-X` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |
 | `tls` | `tls` | `{ module, roots }`. |
 | `tailscale` | `tailscale` | `{ module, glue }`. |
 | `claudeCode` | `claude` | The tested Claude Code range ([below](#claude-code)). |
@@ -167,7 +189,7 @@ From today's build:
 "playground": {
   "abi": { "wasi": 1, "processes": 1 },
   "programs": { "git": { "module": "git.wasm" } },
-  "fs": { "format": 2, "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": 1, "version": "…" }
+  "fs": { "format": 3, "root": "/usr/libexec/git-core", "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": 1, "version": "…" }
 }
 ```
 
@@ -178,7 +200,8 @@ From today's build:
   "beamAbi": "a51ebfdb010b7d3e",
   "nifAbi": "1-2.18",
   "beam": { "loader": "beam.mjs", "wasm": "beam.wasm" },
-  "fs": { "format": 2, "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": 101, "version": "…" }
+  "env": { "ROOTDIR": "." },
+  "fs": { "format": 3, "root": "/opt/otp/29.1.2", "manifest": "fs/manifest.json", "bundles": "fs/bundles/", "count": 101, "version": "…" }
 }
 ```
 
@@ -257,7 +280,7 @@ of each.
 | Seam | Between | Today | A break | Bumps |
 | --- | --- | --- | --- | --- |
 | `manifest` | the build step and the runtime | 2 | the site manifest's schema, the `playground` keys, how `programs` run | `runtime` major |
-| `fs` | fs layers and `files.js`, the node workers and the Node harness | 2 | layer manifests' entries, bundles as uncompressed USTAR, boot images as gzipped USTAR | `runtime` major; every package with an fs layer |
+| `fs` | fs layers and `files.js`, the node workers and the Node harness | 3 | layer manifests' entries (paths below `root`), bundles as uncompressed USTAR, boot images as gzipped USTAR | `runtime` major; every package with an fs layer |
 | `wasi` | a WASI module and the runtime's shim (`wasi/`) | 1 | a call the shim stops answering, a changed meaning | `runtime` major |
 | `processes` | `brush.wasm`, `git.wasm`, the GNU tools, and `processes.ts` | 1 | `pipe`, `spawn` (its NUL-separated request), `wait`, `kill`, `dup`, `dup2`; git's task export (`wasi_run_async`, `__stack_pointer`) | `runtime` major, and the minor of each artifact that needs a new call |
 | `crossterm` | `brush.wasm` and `worker/brush.ts` | 1 | `raw_mode`, `size`, `read` | `runtime` major, `shell` |
@@ -529,8 +552,10 @@ As of 2026-10-27, on the `sd-packages` branch, unpushed:
   backend builds them all. `b/ID/` and `r/RID/` are
   gone. `build.py app` lays every package out again over a full build's
   fs layers and recordings; with nothing changed, the same names.
-- **fs format 2:** a layer per package, merged by the runtime; the
-  layers' versions are what kept projects were made over.
+- **fs format 3:** a layer per package at the root the package names,
+  merged by the runtime, with the package's commands (`bin`) and
+  variables (`env`); the layers' versions are what kept projects were
+  made over. The runtime names no path of OTP's or Elixir's itself.
 - **The runtime reads the manifest.** The exec frame, the node workers,
   `files.js`, the IDE's git, Node.js's TLS, the Tailscale worker (and Go's
   glue), the template list, `embed.html`'s OTP and Elixir check and the

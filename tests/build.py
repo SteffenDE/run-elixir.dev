@@ -38,7 +38,7 @@ def tree(directory, mtime):
         path.write_bytes(data)
         os.chmod(path, 0o755 if name == "bin/run" else 0o640)
         os.utime(path, (mtime, mtime))
-        out.append(("rotp/" + name, str(path)))
+        out.append((name, str(path)))
     return out
 
 
@@ -51,8 +51,8 @@ class Deterministic(unittest.TestCase):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             first = tree(Path(a) / "files", 1_700_000_000)
             second = tree(Path(b) / "files", 1_800_000_000)
-            layer_a = build.write_layer(Path(a) / "fs", first)
-            layer_b = build.write_layer(Path(b) / "fs", second)
+            layer_a = build.write_layer(Path(a) / "fs", first, "/opt/otp/29.1.2")
+            layer_b = build.write_layer(Path(b) / "fs", second, "/opt/otp/29.1.2")
             self.assertEqual(layer_a, layer_b)
             self.assertEqual(layer_bytes(Path(a) / "fs"), layer_bytes(Path(b) / "fs"))
             self.assertEqual(build.tree_digest(Path(a) / "fs"), build.tree_digest(Path(b) / "fs"))
@@ -62,10 +62,14 @@ class Deterministic(unittest.TestCase):
 
     def test_manifest_has_the_fixed_mtime(self):
         with tempfile.TemporaryDirectory() as a:
-            build.write_layer(Path(a) / "fs", tree(Path(a) / "files", 1_700_000_000))
+            layer = build.write_layer(Path(a) / "fs", tree(Path(a) / "files", 1_700_000_000), "/opt/otp/29.1.2")
             manifest = json.loads((Path(a) / "fs" / "manifest.json").read_text())
             self.assertEqual({entry[2] for entry in manifest}, {build.MTIME})
             self.assertTrue(build.MTIME > 0)
+            # The layer's paths are below its root, which its field names.
+            self.assertEqual(layer["format"], 3)
+            self.assertEqual(layer["root"], "/opt/otp/29.1.2")
+            self.assertEqual(sorted(entry[0] for entry in manifest), ["bin/run", "lib/app/ebin/a.beam", "lib/app/ebin/b.beam"])
 
     def test_layer_version_ignores_mtimes(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
