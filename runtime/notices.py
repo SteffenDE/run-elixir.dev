@@ -134,10 +134,10 @@ def otp(otp_version):
     inventory.add("popcorn", POPCORN[:12], "Apache-2.0", "https://github.com/software-mansion/popcorn", {},
                   note="Software Mansion's patches to OTP and Emscripten glue, which beam/ starts from.")
     inventory.add("OpenSSL", "3.0.15", "Apache-2.0", "https://www.openssl.org",
-                  licenses.license_files(os.path.join(beam, "openssl-3.0.15")),
+                  licenses.license_files(os.path.join(beam, "openssl", "licenses")),
                   note="Linked into beam.wasm (crypto, public_key, ssl).")
     inventory.add("ncurses", "6.5", "X11-distribute-modifications-variant", "https://invisible-island.net/ncurses/",
-                  licenses.license_files(os.path.join(beam, "ncurses-6.5")), note="Linked into beam.wasm.")
+                  licenses.license_files(os.path.join(beam, "ncurses", "licenses")), note="Linked into beam.wasm.")
     em = emscripten()
     with open(os.path.join(em, "emscripten-version.txt")) as f:
         version = f.read().strip().strip('"')
