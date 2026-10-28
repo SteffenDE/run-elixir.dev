@@ -67,16 +67,24 @@ jobs:
         with:
           path: |
             target/${{ matrix.out }}/*.wasm
+            target/${{ matrix.out }}/*.js
             target/${{ matrix.out }}/stamp
             target/${{ matrix.out }}/libexec
-          key: wasm-${{ matrix.name }}-${{ hashFiles(format('{0}/**', matrix.src), 'tools/wasi-compat/**') }}
+            target/${{ matrix.out }}/licenses
+            target/${{ matrix.out }}/source
+          # The inventory's stamp is tools/licenses.py's and its texts' too.
+          key: wasm-${{ matrix.name }}-${{ hashFiles(format('{0}/**', matrix.src), 'tools/wasi-compat/**', 'tools/licenses.py', 'tools/license-texts/**') }}
       - run: python3 -I ${{ matrix.script }}
       # A tar keeps the paths below target/ and git's executable scripts.
       - name: Pack target/${{ matrix.out }}
         run: |
           shopt -s nullglob
-          paths=(target/${{ matrix.out }}/*.wasm)
+          # (*.js: Go's glue, which the tailscale package ships.)
+          paths=(target/${{ matrix.out }}/*.wasm target/${{ matrix.out }}/*.js)
           [ -d target/${{ matrix.out }}/libexec ] && paths+=(target/${{ matrix.out }}/libexec)
+          # Its licenses (tools/licenses.py) and, for a GPL tool, its source.
+          paths+=(target/${{ matrix.out }}/licenses)
+          [ -d target/${{ matrix.out }}/source ] && paths+=(target/${{ matrix.out }}/source)
           tar -cf wasm-${{ matrix.name }}.tar "${paths[@]}"
       - uses: actions/upload-artifact@v4
         with:

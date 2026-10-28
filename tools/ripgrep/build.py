@@ -12,6 +12,7 @@ it first runs rg.
 """
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -49,6 +50,23 @@ def stamp():
     return hashed.hexdigest()
 
 
+def load_licenses():
+    """tools/licenses.py, by path (python3 -I leaves the script's directory off sys.path)."""
+    spec = importlib.util.spec_from_file_location("licenses", os.path.join(ROOT, "tools", "licenses.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def licensed(cargo, work):
+    """target/rg/licenses: the crates rg.wasm links (tools/licenses.py)."""
+    licenses = load_licenses()
+    if not licenses.current(OUT, stamp()):
+        inventory = licenses.cargo(DOCKER, IMAGE, {cargo: "/cargo", work: "/src"}, "/src", "",
+                                   patched={"/src": "With the playground's patches (tools/ripgrep/patches/)."})
+        licenses.finish(inventory, OUT, stamp())
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     built = os.path.join(OUT, "stamp")
@@ -56,7 +74,7 @@ def main():
     if os.path.exists(wasm) and os.path.exists(built):
         with open(built) as f:
             if f.read() == stamp():
-                return
+                return licensed(os.path.join(OUT, "cargo"), os.path.join(OUT, "src"))
     archive = os.path.join(OUT, f"ripgrep-{VERSION}.tar.gz")
     fetch(archive)
     work = os.path.join(OUT, "src")
@@ -86,6 +104,7 @@ def main():
     shutil.copy(os.path.join(build, "wasm32-wasip1", "release-lto", "rg.wasm"), wasm)
     with open(built, "w") as f:
         f.write(stamp())
+    licensed(cargo, work)
     print(f"{wasm}: {os.path.getsize(wasm) / 1e6:.1f} MB")
 
 

@@ -17,6 +17,7 @@ submodule's commit or the patches change.
 """
 
 import hashlib
+import importlib.util
 import io
 import os
 import shutil
@@ -55,6 +56,26 @@ def stamp():
     return hashed.hexdigest()
 
 
+def load_licenses():
+    """tools/licenses.py, by path (python3 -I leaves the script's directory off sys.path)."""
+    spec = importlib.util.spec_from_file_location("licenses", os.path.join(ROOT, "tools", "licenses.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def licensed(cargo, work):
+    """target/brush/licenses: the crates brush.wasm links (tools/licenses.py)."""
+    licenses = load_licenses()
+    if not licenses.current(OUT, stamp()):
+        patched = "With the playground's patches (brush/patches/{}/)."
+        inventory = licenses.cargo(
+            DOCKER, IMAGE, {cargo: "/cargo", work: "/work"}, "/work/brush",
+            "-p brush-shell --no-default-features --features minimal,reedline",
+            patched={f"/work/{name}": patched.format(name) for name in SOURCES})
+        licenses.finish(inventory, OUT, stamp())
+
+
 def main():
     for name in SOURCES:
         if not os.path.exists(os.path.join(HERE, "src", name, "Cargo.toml")):
@@ -64,7 +85,7 @@ def main():
     if os.path.exists(os.path.join(OUT, "brush.wasm")) and os.path.exists(built):
         with open(built) as f:
             if f.read() == stamp():
-                return
+                return licensed(os.path.join(OUT, "cargo"), os.path.join(OUT, "work"))
     # Each submodule's commit, untouched, with our patches on a copy of it.
     work = os.path.join(OUT, "work")
     shutil.rmtree(work, ignore_errors=True)
@@ -99,6 +120,7 @@ def main():
                 os.path.join(OUT, "brush.wasm"))
     with open(built, "w") as f:
         f.write(stamp())
+    licensed(cargo, work)
     print(f"{OUT}/brush.wasm: {os.path.getsize(os.path.join(OUT, 'brush.wasm')) / 1e6:.1f} MB")
 
 

@@ -13,6 +13,7 @@ app bundles it); a new image whose copy differs stops the build.
 
 import filecmp
 import hashlib
+import importlib.util
 import os
 import subprocess
 
@@ -40,6 +41,27 @@ def stamp():
     return hashed.hexdigest()
 
 
+def load_licenses():
+    """tools/licenses.py, by path (python3 -I leaves the script's directory off sys.path)."""
+    spec = importlib.util.spec_from_file_location("licenses", os.path.join(ROOT, "tools", "licenses.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def licensed(cache):
+    """target/tailscale/licenses: the Go modules tailscale.wasm links, and
+    Go's own (tools/licenses.py); main.go is the playground's."""
+    licenses = load_licenses()
+    if not licenses.current(OUT, stamp()):
+        inventory = licenses.go(DOCKER, IMAGE, {HERE: "/src", cache: "/cache"},
+                                {"GOOS": "js", "GOARCH": "wasm", "GOFLAGS": "-mod=readonly",
+                                 "GOMODCACHE": "/cache/mod", "GOCACHE": "/cache/build"},
+                                "/src", ",".join(f"ts_omit_{name}" for name in OMIT), "/cache/mod",
+                                "playground/tailscale")
+        licenses.finish(inventory, OUT, stamp())
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     built = os.path.join(OUT, "stamp")
@@ -47,7 +69,7 @@ def main():
     if os.path.exists(wasm) and os.path.exists(built):
         with open(built) as f:
             if f.read() == stamp():
-                return
+                return licensed(os.path.join(OUT, "gomod"))
     # Go's module and build caches, kept between builds.
     cache = os.path.join(OUT, "gomod")
     os.makedirs(cache, exist_ok=True)
@@ -67,6 +89,7 @@ def main():
         raise SystemExit(f"{OUT}/wasm_exec.js: the image's Go has another; copy it to tailscale/wasm_exec.js")
     with open(built, "w") as f:
         f.write(stamp())
+    licensed(cache)
     print(f"{wasm}: {os.path.getsize(wasm) / 1e6:.1f} MB")
 
 

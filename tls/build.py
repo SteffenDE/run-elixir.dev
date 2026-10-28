@@ -10,6 +10,7 @@ for ring's C and assembly. The site serves it beside the BEAM
 """
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -32,6 +33,23 @@ def stamp():
     return hashed.hexdigest()
 
 
+def load_licenses():
+    """tools/licenses.py, by path (python3 -I leaves the script's directory off sys.path)."""
+    spec = importlib.util.spec_from_file_location("licenses", os.path.join(ROOT, "tools", "licenses.py"))
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def licensed(cargo):
+    """target/tls/licenses: the crates tls.wasm links (tools/licenses.py); the
+    crate itself is the playground's own."""
+    licenses = load_licenses()
+    if not licenses.current(OUT, stamp()):
+        inventory = licenses.cargo(DOCKER, IMAGE, {cargo: "/cargo", HERE: "/src"}, "/src", "", own={"tls"})
+        licenses.finish(inventory, OUT, stamp())
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     built = os.path.join(OUT, "stamp")
@@ -39,7 +57,7 @@ def main():
     if os.path.exists(wasm) and os.path.exists(built):
         with open(built) as f:
             if f.read() == stamp():
-                return
+                return licensed(os.path.join(OUT, "cargo"))
     # Cargo's registry and build, kept between builds.
     cargo = os.path.join(OUT, "cargo")
     build = os.path.join(OUT, "cargo-target")
@@ -62,6 +80,7 @@ def main():
     shutil.copy(os.path.join(build, "wasm32-wasip1", "release", "tls.wasm"), wasm)
     with open(built, "w") as f:
         f.write(stamp())
+    licensed(cargo)
     print(f"{wasm}: {os.path.getsize(wasm) / 1e6:.2f} MB")
 
 
