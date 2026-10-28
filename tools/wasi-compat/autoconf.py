@@ -28,7 +28,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 COMPAT = os.path.dirname(os.path.abspath(__file__))
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# wasi-sdk 33 (clang 23), as nif/build.py's and tools/git/build.py's.
+# wasi-sdk 33 (clang 23), as the backend's NIF toolchain and tools/git/build.py.
 IMAGE = "ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
 CC = "/opt/wasi-sdk/bin/clang --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/share/wasi-sysroot"
 # wasi-libc's emulations (signal, raise, clock, getpid, mmap), as git's.

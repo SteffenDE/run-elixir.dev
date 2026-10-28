@@ -4,7 +4,7 @@ shell and the nodes (docs/git.md).
     python3 -I tools/git/build.py   # → target/git/git.wasm
 
 git's release with patches/ applied, and zlib, built with wasi-sdk in
-Docker (nif/build.py's image). WASI preview 1 lacks processes, users,
+Docker (backend/Dockerfile's wasi-sdk). WASI preview 1 lacks processes, users,
 modes, terminals and sockets: tools/wasi-compat/ (every C tool's) declares what
 git asks of them and stubs it (stubs.c), its processes the playground's
 host's (the `processes` imports, app/src/runtime/processes.ts:
@@ -26,7 +26,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 COMPAT = os.path.join(ROOT, "tools", "wasi-compat")
 OUT = os.path.join(ROOT, "target", "git")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# wasi-sdk 33 (clang 23), as nif/build.py's.
+# wasi-sdk 33 (clang 23), as the backend's NIF toolchain (backend/Dockerfile).
 IMAGE = "ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
 GIT = ("2.56.0", "https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz",
        "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3")
