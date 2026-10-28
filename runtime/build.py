@@ -835,7 +835,10 @@ def write_layer(fs, files, root):
     bundles/N.tar (uncompressed: the server compresses, and the node reads
     them synchronously), a directory's files in tars of up to BUNDLE bytes,
     and manifest.json listing each (its path below the root) with its
-    size, mtime and bundle. Its `playground` field (manifest.ts FsLayer)."""
+    size, mtime and bundle. A tar names each file by its path in the tree
+    (the root's without the leading slash, then the file's), which is how
+    the runtime asks for it (manifest.ts below). Its `playground` field
+    (manifest.ts FsLayer)."""
     os.makedirs(os.path.join(fs, "bundles"))
     groups = []
     for path, here in sorted(files):
@@ -847,10 +850,11 @@ def write_layer(fs, files, root):
         group["size"] += size
         group["files"].append((path, here))
     manifest = []
+    top = root.strip("/")
     for number, group in enumerate(groups):
         with tarfile.open(os.path.join(fs, "bundles", f"{number}.tar"), "w", format=tarfile.USTAR_FORMAT) as tar:
             for path, here in group["files"]:
-                tar.add(here, arcname=path, recursive=False, filter=header)
+                tar.add(here, arcname=f"{top}/{path}", recursive=False, filter=header)
                 manifest.append([path, os.path.getsize(here), MTIME, number])
     with open(os.path.join(fs, "manifest.json"), "w") as f:
         json.dump(manifest, f, separators=(",", ":"))

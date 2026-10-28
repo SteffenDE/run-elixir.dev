@@ -113,7 +113,8 @@ A package with files in the nodes' tree has an fs layer, and says where
 it goes: `fs.root`, an absolute path. `fs/manifest.json` lists the files
 below it (`[path, size, mtime, bundle]`, `path` relative to the root) and
 `fs/bundles/N.tar` holds them (uncompressed tars of up to 512 KB of one
-directory's files). The runtime merges the layers into one tree at their
+directory's files, each named by its path in the tree: the root without
+its leading slash, then the file's path). The runtime merges the layers into one tree at their
 roots, and numbers the layers' bundles one after another in the
 manifest's order (`Site.tree`, `Site.bundle`), so a lazy file is
 `(source, bundle)` as before.

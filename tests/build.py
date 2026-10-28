@@ -70,6 +70,15 @@ class Deterministic(unittest.TestCase):
             self.assertEqual(layer["format"], 3)
             self.assertEqual(layer["root"], "/opt/otp/29.1.2")
             self.assertEqual(sorted(entry[0] for entry in manifest), ["bin/run", "lib/app/ebin/a.beam", "lib/app/ebin/b.beam"])
+            # The bundles name each file by its path in the tree, as the
+            # runtime asks for it (manifest.ts below).
+            import tarfile
+            names = set()
+            for bundle in sorted((Path(a) / "fs" / "bundles").iterdir()):
+                with tarfile.open(bundle) as tar:
+                    names.update(tar.getnames())
+            self.assertEqual(sorted(names), ["opt/otp/29.1.2/bin/run", "opt/otp/29.1.2/lib/app/ebin/a.beam",
+                                             "opt/otp/29.1.2/lib/app/ebin/b.beam"])
 
     def test_layer_version_ignores_mtimes(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
