@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-28
 ---
 
 # Deploying the site
@@ -128,8 +128,9 @@ their names across releases. Serve them with `Cache-Control: no-cache`
 and configure the CDN to honor revalidation. A cache rule that overrides
 these headers can leave users on an older release.
 
-Files under `b/`, `r/` and `_playground/` have content-based names and can
-be cached as immutable. The optional apex purge uses `CF_ZONE_ID` and
+Files under `npm/`, `boot/`, `site/` and `_playground/` (and `b/` and `r/`,
+of releases before the packages) have content-based names and can be
+cached as immutable. The optional apex purge uses `CF_ZONE_ID` and
 `CF_API_TOKEN`. Usercontent hosts also rely on revalidation: each exec
 and preview host has its own cached URLs.
 
@@ -313,10 +314,11 @@ starts no project: its pages say so.
 		}
 		respond 403
 	}
-	# Everything else: files, and the page for every route. (In a handle of
-	# its own: try_files, a rewrite, would otherwise run before @hex.)
+	# Everything else: files, a directory's index.html (/licenses/), and
+	# the page for every route. (In a handle of its own: try_files, a
+	# rewrite, would otherwise run before @hex.)
 	handle {
-		try_files {path} /index.html
+		try_files {path} {path}/index.html /index.html
 		file_server
 	}
 }
