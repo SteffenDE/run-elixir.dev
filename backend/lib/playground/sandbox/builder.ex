@@ -4,8 +4,7 @@ defmodule Playground.Sandbox.Builder do
 
   They are stages of the project's Dockerfile, which the release image copies
   too, so the only requirement on the host is a Docker installation with
-  Buildx. `DOCKER` names the command (`sudo -n docker`, say), as for
-  nif/build.py.
+  Buildx. `DOCKER` names the command (`sudo -n docker`, say).
 
   In production, the image ships the artifacts, so this module is only
   meant to be used in development and tests.
@@ -15,11 +14,6 @@ defmodule Playground.Sandbox.Builder do
 
   @project_dir Path.expand("../../..", __DIR__)
   @output_dir Path.join(@project_dir, "priv/sandbox")
-
-  # The Dockerfile's named contexts, from the repository.
-  @contexts [
-    nif: Path.expand("../nif", @project_dir)
-  ]
 
   @doc """
   Builds the Linux kernel the VM boots.
@@ -98,7 +92,6 @@ defmodule Playground.Sandbox.Builder do
     args =
       ["buildx", "build", "--platform", Keyword.get_lazy(opts, :platform, &default_platform/0)] ++
         Enum.flat_map(build_args, &["--build-arg", &1]) ++
-        Enum.flat_map(@contexts, fn {name, path} -> ["--build-context", "#{name}=#{path}"] end) ++
         [
           "--file",
           Path.join(@project_dir, "Dockerfile"),

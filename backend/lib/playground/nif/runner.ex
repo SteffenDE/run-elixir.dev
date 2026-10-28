@@ -3,30 +3,25 @@ defmodule Playground.Nif.Runner do
   Builds a package version with a recipe in a sandbox VM.
 
   The workspace holds the package's sources (`src/`), the recipe
-  (`recipe.sh`) and `build.sh`,
-  which runs it in `src/` with its output on stderr, then writes the app's
-  `priv` directory to stdout as a tar archive. So stderr is the build's log.
+  (`recipe.sh`) and `build.sh` (`priv/nif/build.sh`), which runs it in
+  `src/` with its output on stderr, then writes the app's `priv` directory
+  to stdout as a tar archive. So stderr is the build's log.
 
   What comes back is checked before anyone gets it: regular files under
   `priv/` only, and at least one `.so`, all of them WebAssembly. The archive
-  is written anew from those files (`ustar`, as nif/build.py's),
-  which the playground's `make` unpacks into the app's directory.
+  is written anew from those files (`ustar`), which the playground's `make`
+  unpacks into the app's directory.
   """
 
   alias Playground.Hex
   alias Playground.Nif.Recipe
   alias Playground.Sandbox
 
-  @build_sh """
-  mkdir -p "$APP"
-  cd "$SRC"
-  sh -eu /workspace/recipe.sh >&2
-  if [ ! -d "$APP/priv" ]; then
-    echo "build.sh: the recipe left no $APP/priv" >&2
-    exit 3
-  fi
-  tar -cf - -C "$APP" priv
-  """
+  # The job's script, which the repository's tests run the same way
+  # (tests/nif/build.py).
+  @build_sh_path Path.expand("../../../priv/nif/build.sh", __DIR__)
+  @external_resource @build_sh_path
+  @build_sh File.read!(@build_sh_path)
 
   @max_library 64 * 1024 * 1024
   @log_tail 65_536

@@ -37,7 +37,7 @@ of `tools/` (`build.py`, `patches/`, `config.site`), beside
 `tools/coreutils/`, `tools/ripgrep/` and the shared C layer,
 `tools/wasi-compat/`; what each builds goes to `target/NAME/`.
 
-- **The image:** wasi-sdk 33's (`nif/build.py`'s, pinned by digest); a
+- **The image:** wasi-sdk 33's (the backend's NIF toolchain's, pinned by digest); a
   release tarball by URL and SHA-256, `patches/` applied, the tool's own
   `configure --host=wasm32-wasip1`, then `make`, `-Oz`.
   `tools/wasi-compat/autoconf.py` does it for the GNU tools (sed's, grep's,

@@ -168,8 +168,7 @@ and preview host has its own cached URLs.
   compress `application/x-tar` or `application/wasm` by default.
 - **Caching.**
   - `_playground/` (the IDE's Vite assets) is content-hashed; the packages
-    (`npm/`), the recordings (`boot/`), the NIF libraries (`nif/ABI/`) and
-    the site manifests (`site/`) are named by digests of their contents
+    (`npm/`), the recordings (`boot/`) and the site manifests (`site/`) are named by digests of their contents
     ([build.md](build.md#what-the-site-is)): all can be cached for good,
     and a deploy of JavaScript alone keeps the other packages' names.
   - The pages (`index.html`, `preview.html`, `storage.html`, `embed.html`),
@@ -272,9 +271,9 @@ starts no project: its pages say so.
 	# pages, sw.js, playground.json, every route's index.html) keeps its
 	# name: revalidated each time, at the browser and at Cloudflare, so a
 	# deploy needs no purge.
-	@versioned path /_playground/* /npm/* /boot/* /nif/* /site/* /b/* /r/*
+	@versioned path /_playground/* /npm/* /boot/* /site/* /b/* /r/*
 	header @versioned Cache-Control "public, max-age=31536000, immutable"
-	@named not path /_playground/* /npm/* /boot/* /nif/* /site/* /b/* /r/*
+	@named not path /_playground/* /npm/* /boot/* /site/* /b/* /r/*
 	header @named Cache-Control no-cache
 	# Never application/gzip: PGlite takes a gzip Content-Encoding for its
 	# extension archives' own gzip and does not unpack them ("File is

@@ -36,7 +36,6 @@ async function filesWorker(records: KeptRecord[] = []) {
         manifest: 2,
         packages: {},
         boot: null,
-        nif: null,
       },
     },
     boots: [],

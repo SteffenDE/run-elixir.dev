@@ -262,7 +262,7 @@ covered in [frames.md](frames.md) and [embed.md](embed.md).
 ## git.wasm: git itself
 
 `tools/git/build.py` builds git 2.56.0 (with `tools/git/patches/`) and zlib with
-wasi-sdk 33 in Docker (`nif/build.py`'s image) for `wasm32-wasip1`:
+wasi-sdk 33 in Docker (the image the backend's NIF toolchain starts from) for `wasm32-wasip1`:
 `target/git/git.wasm`, 3.8 MB (1.5 MB gzipped, `-Oz`). The site serves it
 beside `rg.wasm`; the shell runs it as a process of the worker's
 ([runtime.md](runtime.md#processes-processests)), over the node's tree

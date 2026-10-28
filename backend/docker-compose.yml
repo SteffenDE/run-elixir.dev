@@ -39,10 +39,6 @@ services:
   app:
     build:
       context: .
-      # The erl_nif layer and OTP's headers, from the repository (the
-      # Dockerfile's sandbox stages use them; the release does not).
-      additional_contexts:
-        nif: ../nif
     restart: unless-stopped
     depends_on:
       db:

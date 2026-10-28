@@ -96,7 +96,6 @@ version's and bump the patch when they differ.
 ```
 npm/@elixir-playground/NAME@VERSION+ID/   a package: package.json, its files, its fs layer (fs/)
 boot/ID/                                  the boot recordings: boot.tar.gz, boot-phoenix.tar.gz
-nif/ABI/                                  bundled NIF libraries, for NIF ABI ABI
 site/ID.json                              the site manifest
 ```
 
@@ -194,17 +193,16 @@ version 2):
     "base": "../boot/8736843503d5/",
     "images": ["boot", "boot-phoenix"],
     "packages": { "@elixir-playground/otp-29.1.2": "1.0.0", "…": "…" }
-  },
-  "nif": { "base": "../nif/1-2.18/", "nifAbi": "1-2.18", "libraries": ["bcrypt_elixir-3.3.2", "…"] }
+  }
 }
 ```
 
 - **`base`** is relative to the manifest.
 - **`boot`** names the recordings, and the exact versions they were made
   with.
-- **`nif`** lists the NIF libraries the site bundles. `make` asks the
-  backend for any other library without first requesting a missing file
-  from the site.
+
+The site has no NIF libraries: `make` asks the backend for each, naming
+OTP's `nifAbi` ([nif.md](nif.md)).
 
 The `runtime` package is not in the manifest. The running JavaScript is
 the runtime, and it knows its own version and seams (`host.json`).
@@ -231,8 +229,7 @@ So the exec frame checks the site manifest again as it starts
   such as `26.2.5.3` are compared on their first three parts;
 - the template's `otp` and `elixir` against the installed ones;
 - the boot recordings' packages at exactly the installed versions;
-- OTP's NIF ABI against the layers the runtime loads (`provides.nif`), and
-  the bundled NIF libraries' against OTP's.
+- OTP's NIF ABI against the layers the runtime loads (`provides.nif`).
 
 `build.py` checks each module's imports when it lays out a package. Every
 import module must belong to a seam the package's `abi` names:
@@ -516,8 +513,9 @@ As of 2026-10-27, on the `sd-packages` branch, unpushed:
 
 - **The site is laid out as the packages** (`runtime/build.py`): each in
   `npm/@elixir-playground/NAME@VERSION+ID/` with its package.json (each
-  `"private": true`), the recordings in `boot/ID/`, the NIF libraries in
-  `nif/ABI/`, the site manifest in `site/ID.json`. `b/ID/` and `r/RID/` are
+  `"private": true`), the recordings in `boot/ID/`, the site manifest in
+  `site/ID.json`. The site ships no NIF libraries (2026-10-28): the
+  backend builds them all. `b/ID/` and `r/RID/` are
   gone. `build.py app` lays every package out again over a full build's
   fs layers and recordings; with nothing changed, the same names.
 - **fs format 2:** a layer per package, merged by the runtime; the

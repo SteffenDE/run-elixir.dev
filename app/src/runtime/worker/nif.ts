@@ -1,5 +1,5 @@
 // A package's NIF library built to WebAssembly, for make (programs.ts):
-// the site's, else the backend's.
+// the backend's.
 import type { Channel } from './channel';
 import { artifacts, site } from './site';
 
@@ -22,14 +22,6 @@ export function get(url: string | URL, binary = true): [number, Uint8Array | str
 const isTar = (bytes: Uint8Array | null): bytes is Uint8Array =>
   (bytes?.length as number) > 262 &&
   new TextDecoder().decode(bytes!.subarray(257, 262)) === 'ustar';
-
-// The site's own build of a package's NIF library, or null.
-export function siteNif(name: string, version: string): Uint8Array | null {
-  const url = artifacts().nif(name, version);
-  if (!url) return null;
-  const [status, tar] = get(url);
-  return status === 200 && isTar(tar) ? tar : null;
-}
 
 // What a backend build's status means, for the terminal.
 const NIF_STATUS: Record<string, string> = {

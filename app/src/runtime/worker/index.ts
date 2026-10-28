@@ -30,7 +30,7 @@ import type { NifSource } from '../programs';
 import type { FilesChannel } from '../host/files';
 import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
-import { backendNif, get, siteNif } from './nif';
+import { backendNif, get } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
 import { REGISTRY, isProgram, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
@@ -326,10 +326,9 @@ onmessage = async ({
     const fetchFile = bundled((bundle) => fetchBundle(packages.bundle(bundle)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
-    // site's (nif/NAME-VERSION.tar), else the backend's (/api/v1/nif/, on this
-    // origin, which may have to build it first: docs/backend.md).
-    const nif: NifSource = (name, version, report) =>
-      siteNif(name, version) ?? backendNif(channel, name, version, report);
+    // backend's (/api/v1/nif/, on this origin, which may have to build it
+    // first: docs/backend.md).
+    const nif: NifSource = (name, version, report) => backendNif(channel, name, version, report);
     // coreutils.wasm (coreutils.ts): the page's, else fetched and compiled
     // once a tool first runs; null when the site has none.
     let compiled: WebAssembly.Module | null | undefined = toolsModule;

@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-27
+last_updated: 2026-10-28
 ---
 
 # Building the site (`runtime/build.py`)
@@ -36,9 +36,6 @@ rebar3), and builds the template with the host's Mix in
   recording runs and the Vite build.
 - **Network access the first time,** for the template's Hex packages, two
   git dependencies and the native tailwind and esbuild binaries.
-- **NIF builds,** optional: `python3 -I nif/build.py` first
-  ([nif.md](nif.md)); the site takes what is in
-  `target/nif/libraries/ABI` (also `build.py app`).
 - **brush:** `python3 -I brush/build.py` first (the
   `brush/src/` submodules, `git submodule update --init brush/src`: brush,
   crossterm and fd-lock, each with `brush/patches/NAME/`, in Docker, about
@@ -116,11 +113,8 @@ target/site/
     claude@…/, api@…/          the Claude Code range tested (package.json); embed.js
   boot/ID/                   the recordings: boot.tar.gz (what IEx reads first),
                                boot-phoenix.tar.gz (what the Phoenix server reads beyond it)
-  nif/ABI/NAME-VERSION.tar   a package's NIF library built to WebAssembly (its priv),
-                               for the NIF ABI (nif.md)
   site/ID.json               the site manifest (packages.md): each package's version, files,
-                               peer dependencies and `playground` field, the recordings,
-                               the NIF libraries
+                               peer dependencies and `playground` field, the recordings
 ```
 
 A package's `fs/` is its layer of the nodes' tree: `fs/manifest.json`
@@ -170,8 +164,8 @@ The filesystem holds:
    nothing with the IDE) into `dist-runtime/`, the runtime package;
    `embed.js` (`vite.embed.config.ts`, one module with nothing to share);
    with `--mode node`, the Node harness (`node.ts` and `beam-node.ts`, as
-   `.mjs`) into `dist-node/`, which goes to `target/node`. The NIF
-   libraries go into `nif/ABI/`.
+   `.mjs`) into `dist-node/`, which goes to `target/node`. NIF libraries
+   are the backend's ([nif.md](nif.md)): the site has none.
 2. **The BEAM.** `beam/build.sh release` with `OPT=-O2` into
    `out/beam-wasm/site`; its `beam*` files go into the OTP package, its
    installation into `target/otp`.

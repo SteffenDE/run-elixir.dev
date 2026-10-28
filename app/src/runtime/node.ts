@@ -199,13 +199,7 @@ const beam = startBeam({
   root,
   fs: new TreeFs(root, fetchFile),
   network,
-  programs: Object.assign(
-    programs(vfs(root, fetchFile), (name, version) => {
-      const path = local(packages.nif(name, version));
-      return path && existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
-    }),
-    { git: portProgram(processes, 'git') },
-  ),
+  programs: Object.assign(programs(vfs(root, fetchFile)), { git: portProgram(processes, 'git') }),
   tty: !!process.env.TTY,
   size: [80, 24],
   onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,

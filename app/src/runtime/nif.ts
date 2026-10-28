@@ -1,6 +1,6 @@
 // NIF libraries for the node (/.nif, BeamOS.Nif): WebAssembly modules built
-// against nif/'s erl_nif, each in an instance of its own beside
-// the node, with its own memory. The node's WASI serves them too: while a
+// against the erl_nif layer (backend/nif/), each in an instance of its own
+// beside the node, with its own memory. The node's WASI serves them too: while a
 // library runs, the WASI calls work on its memory, so it reads the node's
 // files and environment and writes to its terminal.
 import { Exit, type WASI } from './wasi';
@@ -8,10 +8,10 @@ import type { Syscall } from './wasi/abi';
 import host from './packages/host.json';
 
 // The erl_nif layer's protocols this loader speaks (BEAMOS_NIF_ABI in
-// nif/beamos_nif.c; the NIF ABI's first part, docs/nif.md).
+// backend/nif/beamos_nif.c; the NIF ABI's first part, docs/nif.md).
 const LAYERS: number[] = host.provides.nif;
 
-// What a library exports (nif/'s erl_nif).
+// What a library exports (backend/nif/'s erl_nif layer).
 interface Library {
   memory: WebAssembly.Memory;
   _initialize?: () => void;

@@ -35,8 +35,8 @@ export function tailwind(process: Process, { args }: ProgramContext): void {
 }
 
 // make, as elixir_make runs it to build a Hex package's native code: the
-// package's NIF library built to WebAssembly (nif/), from the site
-// or the playground's backend, into the app's priv directory (MIX_APP_PATH).
+// package's NIF library built to WebAssembly, from the playground's
+// backend (docs/nif.md), into the app's priv directory (MIX_APP_PATH).
 // nif(name, version, say): that build's tar (priv/...), a string saying why
 // there is none, or null when nothing has one; say(text) tells the terminal
 // how a build it waits for is getting on.

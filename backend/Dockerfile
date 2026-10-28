@@ -3,13 +3,11 @@
 # Builds the playground backend's release, and the sandbox VM that it builds
 # NIF libraries in. The VM's artifacts are not in the release's image: they
 # are built on their own (sandbox/build, or mix sandbox.setup) and mounted.
-# Two named contexts come from the repository, besides this directory
-# (sandbox/build and Playground.Sandbox.Builder pass them):
-#
-#   * nif - nif/: the erl_nif layer and nifcc
 #
 # The sandbox stages, the only definition of the VM:
 #
+#   * nif-toolchain - wasi-sdk with the erl_nif layer (nif/) and nifcc, which
+#     the repository's tests build their NIF libraries with (tests/nif/)
 #   * sandbox-kernel - the Linux kernel the VM boots
 #   * sandbox-rootfs - the root disk, made from sandbox-image, the guest's userspace
 #   * sandbox-netd - sandbox-netd, which runs on the host next to the VM
@@ -25,18 +23,40 @@ ARG DEBIAN_VERSION=trixie-20261005
 ARG BUILDER_IMAGE="docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}-slim"
 ARG RUNNER_IMAGE="docker.io/debian:${DEBIAN_VERSION}-slim"
 
-# wasi-sdk 33 (clang 23), as nif/build.py pins it.
+# wasi-sdk 33 (clang 23).
 ARG WASI_SDK_IMAGE="ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
 
 ## Sandbox
 
-FROM ${WASI_SDK_IMAGE} AS wasi-sdk
+# wasi-sdk with the erl_nif layer: its headers (OTP's erl_nif.h, with our
+# sizes) in /nif/include, beamos_nif.o in /nif/lib, and nifcc and nifc++ in
+# /tools, the paths recipes use.
+FROM ${WASI_SDK_IMAGE} AS nif-toolchain
 
-# The guest's userspace: wasi-sdk with the erl_nif layer at the paths
-# nif/build.py uses (/nif/include, /nif/lib/beamos_nif.o,
-# /tools/nifcc and /tools/nifc++), so recipes carry over unchanged. Erlang is
-# there for Makefiles that ask erl where ERTS's headers are; build tools for
-# what packages bring along (CMake, autotools, git for those that clone).
+COPY nif/include/erl_nif.h nif/include/erl_nif_api_funcs.h nif/include/erl_drv_nif.h \
+  nif/include/erl_int_sizes_config.h /nif/include/
+COPY nif/beamos_nif.c /nif/src/
+RUN mkdir /nif/lib \
+    && /opt/wasi-sdk/bin/clang -O2 -Wall -Wextra -Wno-unused-parameter -I/nif/include \
+      -c /nif/src/beamos_nif.c -o /nif/lib/beamos_nif.o
+COPY --chmod=0755 nif/nifcc /tools/nifcc
+COPY --chmod=0755 nif/nifcc /tools/nifc++
+
+# What a library was built with: the layer, its headers, nifcc and wasi-sdk.
+# make-rootfs puts it in manifest.json, and builds are kept per toolchain.
+RUN cat /nif/include/* /nif/src/beamos_nif.c /tools/nifcc /opt/wasi-sdk/VERSION \
+      | sha256sum | cut -c1-16 >/nif/toolchain
+# What a library can be loaded by (docs/nif.md): the layer's protocol and
+# its erl_nif.h's version ("1-2.18"). Pages ask for builds of one, and this
+# backend makes only its own.
+RUN layer=$(sed -n 's/^#define BEAMOS_NIF_ABI \([0-9]*\)$/\1/p' /nif/src/beamos_nif.c) \
+    && major=$(sed -n 's/^#define ERL_NIF_MAJOR_VERSION \([0-9]*\)$/\1/p' /nif/include/erl_nif.h) \
+    && minor=$(sed -n 's/^#define ERL_NIF_MINOR_VERSION \([0-9]*\)$/\1/p' /nif/include/erl_nif.h) \
+    && echo "$layer-$major.$minor" >/nif/abi && grep -qx '[0-9][0-9]*-[0-9][0-9]*\.[0-9][0-9]*' /nif/abi
+
+# The guest's userspace: the NIF toolchain, and Erlang for Makefiles that
+# ask erl where ERTS's headers are; build tools for what packages bring
+# along (CMake, autotools, git for those that clone).
 FROM docker.io/hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION} AS sandbox-image
 
 RUN apt-get update \
@@ -45,28 +65,9 @@ RUN apt-get update \
       libtool ninja-build pkg-config python3 unzip xz-utils \
     && rm -rf /var/lib/apt/lists/*
 
-COPY --from=wasi-sdk /opt/wasi-sdk /opt/wasi-sdk
-
-COPY --from=nif include/erl_nif.h include/erl_nif_api_funcs.h include/erl_drv_nif.h \
-  include/erl_int_sizes_config.h /nif/include/
-COPY --from=nif beamos_nif.c /nif/src/
-RUN mkdir /nif/lib \
-    && /opt/wasi-sdk/bin/clang -O2 -Wall -Wextra -Wno-unused-parameter -I/nif/include \
-      -c /nif/src/beamos_nif.c -o /nif/lib/beamos_nif.o
-COPY --chmod=0755 --from=nif nifcc /tools/nifcc
-COPY --chmod=0755 --from=nif nifcc /tools/nifc++
-
-# What a library was built with: the layer, its headers, nifcc and wasi-sdk.
-# make-rootfs puts it in manifest.json, and builds are kept per toolchain.
-RUN cat /nif/include/* /nif/src/beamos_nif.c /tools/nifcc /opt/wasi-sdk/VERSION \
-      | sha256sum | cut -c1-16 >/nif/toolchain
-# What a library can be loaded by (docs/nif.md): the layer's protocol and
-# its erl_nif.h's version, as nif/build.py works it out ("1-2.18"). Pages
-# ask for builds of one, and this backend makes only its own.
-RUN layer=$(sed -n 's/^#define BEAMOS_NIF_ABI \([0-9]*\)$/\1/p' /nif/src/beamos_nif.c) \
-    && major=$(sed -n 's/^#define ERL_NIF_MAJOR_VERSION \([0-9]*\)$/\1/p' /nif/include/erl_nif.h) \
-    && minor=$(sed -n 's/^#define ERL_NIF_MINOR_VERSION \([0-9]*\)$/\1/p' /nif/include/erl_nif.h) \
-    && echo "$layer-$major.$minor" >/nif/abi && grep -qx '[0-9][0-9]*-[0-9][0-9]*\.[0-9][0-9]*' /nif/abi
+COPY --from=nif-toolchain /opt/wasi-sdk /opt/wasi-sdk
+COPY --from=nif-toolchain /nif /nif
+COPY --from=nif-toolchain /tools /tools
 
 # Jobs run as this user, in a tmpfs mounted at /workspace by the guest init.
 RUN groupadd --gid 1000 sandbox \

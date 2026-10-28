@@ -28,10 +28,9 @@ of them). Beside the packages:
   files, erts's preloaded modules); boot-phoenix.tar.gz, what
   `iex -S mix phx.server` in the template reads beyond that, recorded the
   same way, and the template's .app files;
-- nif/ABI/: packages' NIF libraries built to WebAssembly (nif/build.py);
 - site/ID.json: the site manifest: each package's version, files, peer
   dependencies and `playground` field (where its fs layer is, its
-  programs, its ABIs), the recordings and the NIF libraries. The runtime
+  programs, its ABIs) and the recordings. The runtime
   finds what it runs through it, and checks the packages against itself
   as a project starts;
 - playground.json: the apex and the usercontent domain,
@@ -71,7 +70,7 @@ BUILD = "_build_otp"
 # beam/build.sh's output for the site.
 BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
-# runs and nif/test/test.py run it.
+# runs and tests/nif/layer.py run it.
 NODE = os.path.join(ROOT, "target", "node")
 # Applications by name prefix: Elixir, IEx and Mix, and what they use.
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "elixir", "iex", "logger", "mix", "eex",
@@ -675,19 +674,19 @@ def beam_abi(wasm):
 
 
 def nif_abi():
-    """The NIF ABI (docs/nif.md): the erl_nif layer's protocol and the
-    erl_nif.h it is compiled with, "BEAMOS_NIF_ABI-MAJOR.MINOR" (1-2.18),
-    as nif/build.py has it. That erl_nif.h must be the BEAM build's own."""
-    version = lambda path: ".".join(
-        re.search(rf"^#define ERL_NIF_{part}_VERSION (\d+)$", open(path).read(), re.M).group(1)
-        for part in ("MAJOR", "MINOR"))
-    header = version(os.path.join(ROOT, "nif", "include", "erl_nif.h"))
-    beam = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", "erts", "emulator", "beam", "erl_nif.h")
-    if os.path.exists(beam) and version(beam) != header:
-        sys.exit(f"nif/include/erl_nif.h is NIF {header}, the BEAM's {version(beam)}: copy OTP's")
-    with open(os.path.join(ROOT, "nif", "beamos_nif.c")) as f:
-        layer = re.search(r"^#define BEAMOS_NIF_ABI (\d+)$", f.read(), re.M).group(1)
-    return f"{layer}-{header}"
+    """The NIF ABI (docs/nif.md) the BEAM build loads libraries of,
+    "LAYER-MAJOR.MINOR" (1-2.18): the newest erl_nif layer the runtime
+    speaks (host.json's provides.nif: nif.ts and the BEAM's patch 0021)
+    and the BEAM build's erl_nif.h. The backend builds for it from its own
+    copy of the layer (backend/nif/), and refuses another."""
+    header = os.path.join(ROOT, "out", "beam-wasm", "releaseO2", "otp", "erts", "emulator", "beam", "erl_nif.h")
+    with open(header) as f:
+        text = f.read()
+    version = ".".join(re.search(rf"^#define ERL_NIF_{part}_VERSION (\d+)$", text, re.M).group(1)
+                       for part in ("MAJOR", "MINOR"))
+    with open(HOST) as f:
+        layer = max(json.load(f)["provides"]["nif"])
+    return f"{layer}-{version}"
 
 
 def file_entry(path):
@@ -705,8 +704,8 @@ def claude_code():
 # The site's layout (docs/build.md): each package in a directory of its
 # own, NAME@VERSION+ID (ID a digest of what is in it: the repository's
 # versions are not published, so the same version may be another build),
-# the boot recordings in boot/ID/, the bundled NIF libraries in nif/ABI/,
-# and the site manifest at site/ID.json. Each of them is immutable.
+# the boot recordings in boot/ID/ and the site manifest at site/ID.json.
+# Each of them is immutable. NIF libraries are the backend's (/api/v1/nif/).
 NPM = os.path.join("npm", SCOPE)
 
 
@@ -821,14 +820,10 @@ def lay(out, name, version, files, playground, peers, layer=None, own=()):
 def write_site(out, packages, boot, name=None):
     """The site manifest, site/ID.json (`name`: another name, such as the
     recording runs'), its bases relative to it; its path from the root."""
-    nif = os.path.join(out, "nif", nif_abi())
     site = {
         "manifest": 2,
         "packages": dict(sorted(packages.items())),
         "boot": boot,
-        "nif": {"base": f"../nif/{nif_abi()}/", "nifAbi": nif_abi(),
-                "libraries": sorted(file[:-4] for file in os.listdir(nif) if file.endswith(".tar"))}
-        if os.path.isdir(nif) else None,
     }
     data = json.dumps(site, indent=1).encode() + b"\n"
     os.makedirs(os.path.join(out, "site"), exist_ok=True)
@@ -848,7 +843,7 @@ def lay_packages(out, versions, facts, sources, layers):
     otp, elixir = versions["otp"], versions["elixir"]
     named = lambda key: key.format(otp=otp, elixir=elixir)
     filled = {
-        "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"], "nifAbi": nif_abi()},
+        "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"], "nifAbi": facts["nifAbi"]},
         "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
         "phoenix-template": {"template": {"kind": "phoenix", "id": facts["template"],
                                           "label": f"phx.new {PHX_NEW}", "otp": otp, "elixir": elixir}},
@@ -910,15 +905,8 @@ def prune(out, laid, site):
     for name in os.listdir(os.path.join(out, "site")):
         if f"/site/{name}" != site:
             os.remove(os.path.join(out, "site", name))
-
-
-def copy_nifs(out):
-    """Packages' NIF libraries built to WebAssembly (nif/build.py) for this
-    NIF ABI, which the node's make fetches; others are another layer's."""
+    # NIF libraries an older build bundled.
     shutil.rmtree(os.path.join(out, "nif"), ignore_errors=True)
-    built = os.path.join(ROOT, "target", "nif", "libraries", nif_abi())
-    if os.path.isdir(built):
-        shutil.copytree(built, os.path.join(out, "nif", nif_abi()))
 
 
 def sources(wasm):
@@ -955,7 +943,9 @@ def app(out, wasm):
                 "elixir": next(entry["playground"]["elixir"] for entry in by.values()
                                if "elixir" in entry["playground"])}
     template = next(entry for entry in by.values() if "template" in entry["playground"])
-    facts = {"beamAbi": otp_entry["playground"]["beamAbi"], "template": template["playground"]["template"]["id"]}
+    # The emulator's, as a full build found them.
+    facts = {"beamAbi": otp_entry["playground"]["beamAbi"], "nifAbi": otp_entry["playground"]["nifAbi"],
+             "template": template["playground"]["template"]["id"]}
     here = lambda entry: os.path.normpath(os.path.join(out, "site", entry["base"]))
     found = sources(wasm)
     # The emulator a full build recorded with, not one built since.
@@ -966,7 +956,6 @@ def app(out, wasm):
         entry = by.get(f"{SCOPE}/{key.format(**versions)}")
         if entry and "fs" in entry["playground"]:
             layers[key] = (os.path.join(here(entry), "fs"), entry["playground"]["fs"])
-    copy_nifs(out)
     entries = lay_packages(out, versions, facts, found, layers)
     site = write_site(out, entries, before["boot"])
     runtime, api = lay_runtime(out, runtime)
@@ -986,7 +975,6 @@ def main():
     otp_install()
     versions = runtime_versions()
     runtime = page(out)
-    copy_nifs(out)
 
     files = []  # (path in the node, path here)
     for directory, dirs, names in os.walk(INSTALL):
@@ -1011,7 +999,7 @@ def main():
     # image's command fetches; only the Phoenix run's writes (the template,
     # built at /work/playground) are kept, and the template laid again.
     found = sources(wasm)
-    facts = {"beamAbi": beam_abi(found["beam.wasm"]), "template": ""}
+    facts = {"beamAbi": beam_abi(found["beam.wasm"]), "nifAbi": nif_abi(), "template": ""}
     by_package = lambda: {key: [(path, here) for path, here in files if fs_package(path) == key]
                           for key in FS_PACKAGES}
     entries = lay_packages(out, versions, facts, found, by_package())

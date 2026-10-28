@@ -1,8 +1,8 @@
 // The site manifest (site/ID.json, runtime/build.py; docs/packages.md):
 // the packages a site has, their versions, where their files are
 // (/npm/@elixir-playground/NAME@VERSION/), and what each declares in its
-// package.json's `playground` field; the boot recordings made for them,
-// and the NIF libraries the site bundles. The runtime finds the BEAM, its
+// package.json's `playground` field; and the boot recordings made for
+// them. The runtime finds the BEAM, its
 // programs and the nodes' files through it, never by a path of its own.
 import type { Manifest } from '../wasi/fs';
 
@@ -82,19 +82,10 @@ export interface Boot {
   packages: Record<string, string>;
 }
 
-// NIF libraries the site bundles (nif/NAME-VERSION.tar), built for the
-// NIF ABI `nifAbi`.
-export interface NifLibraries {
-  base: string;
-  nifAbi: string;
-  libraries: string[];
-}
-
 export interface SiteManifest {
   manifest: number;
   packages: Record<string, PackageEntry>;
   boot: Boot | null;
-  nif: NifLibraries | null;
 }
 
 // What goes from frame to worker: the manifest and its own URL, which its
@@ -243,15 +234,6 @@ export class Site {
         .sort()
         .join('\n'),
     );
-  }
-
-  // A bundled NIF library, or null (the backend's then).
-  nif(name: string, version: string): URL | null {
-    const nif = this.manifest.nif;
-    const library = `${name}-${version}`;
-    return nif?.libraries.includes(library)
-      ? new URL(`${library}.tar`, new URL(nif.base, this.url))
-      : null;
   }
 
   tls(): { module: string; roots: string } | null {

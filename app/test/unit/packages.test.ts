@@ -94,7 +94,6 @@ function site(): SiteManifest {
       images: ['boot', 'boot-phoenix'],
       packages: { [OTP]: '1.2.0', [ELIXIR]: '1.0.3', [TEMPLATE]: '1.0.0' },
     },
-    nif: { base: '../nif/', nifAbi: '1-2.18', libraries: ['bcrypt_elixir-3.3.2'] },
   };
 }
 
@@ -166,13 +165,6 @@ describe('the site manifest', () => {
     const other = site();
     other.packages[OTP].files['beam.wasm'] = { size: 2, sha256: '11' };
     expect(at(other).fsVersion()).toBe(before);
-  });
-
-  it('names only the NIF libraries it bundles', () => {
-    expect(at().nif('bcrypt_elixir', '3.3.2')!.pathname).toBe(
-      '/npm/@elixir-playground/nif/bcrypt_elixir-3.3.2.tar',
-    );
-    expect(at().nif('bcrypt_elixir', '3.3.1')).toBeNull();
   });
 
   it('has no BEAM or shell without their packages', () => {
@@ -261,10 +253,7 @@ describe('the load-time check', () => {
     ]);
   });
 
-  it('refuses NIF libraries of another NIF ABI, not of another BEAM build', () => {
-    const manifest = site();
-    manifest.nif!.nifAbi = '1-2.17';
-    expect(checkSite(manifest)).toEqual(['the NIF libraries are for NIF ABI 1-2.17, not 1-2.18']);
+  it('takes another BEAM build of the same NIF ABI', () => {
     const rebuilt = site();
     rebuilt.packages[OTP].playground.beamAbi = 'b2';
     expect(checkSite(rebuilt)).toEqual([]);
@@ -273,7 +262,6 @@ describe('the load-time check', () => {
   it('refuses an OTP whose NIF layer this runtime does not load', () => {
     const manifest = site();
     manifest.packages[OTP].playground.nifAbi = '2-2.18';
-    manifest.nif!.nifAbi = '2-2.18';
     expect(checkSite(manifest)).toEqual([
       `OTP's NIF ABI is 2-2.18; ${RUNTIME}@${HOST.version} loads layer 1`,
     ]);
@@ -298,9 +286,9 @@ describe('the load-time check', () => {
 
   it('fails with ERUNTIME', () => {
     const manifest = site();
-    manifest.nif!.nifAbi = '1-2.17';
+    manifest.packages[OTP].playground.nifAbi = '2-2.18';
     expect(() => assertSite(manifest)).toThrow(
-      expect.objectContaining({ code: 'ERUNTIME', message: expect.stringContaining('1-2.17') }),
+      expect.objectContaining({ code: 'ERUNTIME', message: expect.stringContaining('2-2.18') }),
     );
   });
 });

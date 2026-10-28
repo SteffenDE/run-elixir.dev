@@ -1,5 +1,6 @@
-# The templates of nif/build.py's recipes, for the packages the
-# site builds itself. Run again, it leaves templates that exist alone.
+# Recipes known to build, for packages Phoenix apps commonly use (the
+# template's lazy_html among them). Run again, it leaves templates that
+# exist alone.
 #
 #     mix run priv/repo/seeds.exs
 

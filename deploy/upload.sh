@@ -17,7 +17,7 @@ runtime=$(meta runtime)
 manifest=$(meta site)
 [ -s "$site$manifest" ] || { echo "upload.sh: $site/index.html names no site manifest" >&2; exit 1; }
 # What the release runs with: the runtime package, and what the site
-# manifest names (the packages, the recordings, the NIF libraries).
+# manifest names (the packages and the recordings).
 dirs=$(printf '%s\n' "$runtime" | sed 's|^/||; s|/$||'
        sed -n 's|.*"base": "\.\./\([^"]*\)/".*|\1|p' "$site$manifest")
 commit=${GITHUB_SHA:-$(git -C "$(dirname "$0")" rev-parse HEAD)}
@@ -31,6 +31,6 @@ rid=$(date -u +%Y%m%dT%H%M%SZ)-$(printf '%s' "$commit" | cut -c1-12)
 # shellcheck disable=SC2086 # one word each
 $ssh "$target" prepare "$rid" $dirs
 rsync -rlc --chmod=D755,F644 --delete --filter='P /npm/@elixir-playground/*' --filter='P /boot/*' \
-  --filter='P /site/*' --filter='P /nif/*' --filter='P /b/*' --filter='P /r/*' \
+  --filter='P /site/*' --filter='P /b/*' --filter='P /r/*' \
   -e "$ssh" "$site/" "$target:$rid.partial/"
 $ssh "$target" activate "$rid"

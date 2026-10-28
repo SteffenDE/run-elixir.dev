@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-28
 ---
 
 # The backend (`backend`)
@@ -32,8 +32,9 @@ can't load.
 The first request for a Hex release queues its build (`Playground.Nif`);
 the playground's `make` asks again while it is `queued`, `running` or
 `setting_up`, and the page shows the status ([nif.md](nif.md#in-the-node)). The
-archive is what [nif.md](nif.md)'s build.py makes, `priv/NAME.so` holding
-WebAssembly, for `make` to unpack into the app's directory. Responses carry
+archive is the app's `priv` files ([nif.md](nif.md#the-toolchain-backendnif)),
+`priv/NAME.so` holding WebAssembly, for `make` to unpack into the app's
+directory. Responses carry
 `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy:
 cross-origin`, so a page served elsewhere (a local build) can use them too.
 
@@ -49,7 +50,7 @@ meets the version (none: every version). A template's recipe
 (`Playground.Nif.Recipe`) is:
 
 - `script`: run with `sh -eu` in the unpacked sources, with
-  elixir_make's environment for the layer (as build.py gives it:
+  elixir_make's environment for the layer (`Playground.Nif.Runner`:
   `CC=/tools/nifcc`, `ERTS_INCLUDE_DIR=/nif/include`, `MIX_APP_PATH=$APP`,
   …), plus `SRC`, `APP`, `PKG_NAME`, `PKG_VERSION`. Its output goes to the
   log. A build that needs its dependencies' sources runs `mix deps.get`.
@@ -61,7 +62,8 @@ meets the version (none: every version). A template's recipe
 What the build leaves in `$APP/priv` must be regular files with at least
 one `.so`, every `.so` WebAssembly; the archive is written anew from them.
 The seed templates (`priv/repo/seeds.exs`, added on every start when
-missing) are build.py's four recipes.
+missing) are four recipes known to build, lazy_html's in
+`priv/nif/recipes/lazy_html.sh`.
 
 ### The agent
 
@@ -126,7 +128,8 @@ Playground.Relay`; only `PLAYGROUND_RELAY_ORIGINS` may open it
 and a read-only ext4 root disk built as stages of the backend's
 `Dockerfile` (`mix sandbox.setup` → `priv/sandbox` when developing;
 `sandbox/build DIR` for a deployment). The guest is the hexpm/elixir Debian image with wasi-sdk 33
-and the layer at build.py's paths (`/nif`, `/tools/nifcc`), and build
+and the layer from the Dockerfile's `nif-toolchain` stage (`/nif`,
+`/tools/nifcc`; [nif.md](nif.md#the-toolchain-backendnif)), and build
 tools (make, CMake, Ninja, autotools, git, curl, Python). Jobs run as an
 unprivileged user in a tmpfs `/workspace`; the workspace archive comes in
 over vsock, stdout and stderr go out (at most 64 MiB each).
@@ -195,24 +198,18 @@ fallback.
 The GitHub OAuth app's callback is
 `https://run-elixir.steffend.me/auth/github/callback`.
 
-## Plan: one source of NIF builds
+## The only source of NIF builds
 
-The site still ships its own builds of four packages (`nif/`, from
-build.py), and `make` takes those first. They are built for the site's
-NIF ABI (`target/nif/libraries/ABI/`). A request to the backend names the
-NIF ABI too (above), so the two can no longer drift apart silently. What
-is left, so that the backend is the only source:
+The site ships no NIF libraries: `make` in a page always asks the backend.
+So a NIF package needs it. Working on the playground locally,
+`runtime/serve.py` passes `/api/v1/nif/` to production's backend, or to
+another (`--api`); the browser tests answer it from their own builds
+(`--nif`, [nif.md](nif.md#tests-testsnif)).
 
-1. **One deploy for a layer change:** the site, and the backend's root
-   disk built anew (`sandbox/build`), from the same commit. Until both are
-   out, the backend answers the new pages 409.
-2. **Then no `nif/` on the site.** build.py builds the layer only (for
-   `test/test.py` and the Node harness); the browser tests use the
-   backend (production through `serve.py`, or stubbed); the four recipes
-   live on as the backend's seed templates.
-
-The cost: a NIF package needs the backend, so working on the playground
-locally needs the network or a local backend (`serve.py --api`).
+A change to the NIF layer is one deploy of two parts, from the same
+commit: the site, and the backend's root disk built anew
+(`sandbox/build`). Until both are out, the backend answers the new pages
+409.
 
 ## Not yet
 

@@ -95,8 +95,6 @@ export function checkSite(site: SiteManifest, host: Host = HOST): string[] {
           `${host.provides.nif?.join(', ') || 'none'}`,
       );
   }
-  if (site.nif && site.nif.nifAbi !== nifAbi)
-    problems.push(`the NIF libraries are for NIF ABI ${site.nif.nifAbi}, not ${nifAbi ?? 'none'}`);
   return problems;
 }
 

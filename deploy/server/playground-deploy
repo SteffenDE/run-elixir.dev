@@ -41,7 +41,7 @@ KEEP_BUILDS=${KEEP_BUILDS:-3}
 RELEASES=$SITE/releases
 # The pages and what keeps its name; everything else is immutable, under
 # npm/@elixir-playground/NAME@VERSION/ (the packages), boot/ID/ (the
-# recordings), nif/ABI/ and site/ID.json (the site manifest).
+# recordings) and site/ID.json (the site manifest).
 PAGES=(index.html preview.html storage.html sw.js playground.json embed.html embed.js)
 
 die() {
@@ -59,8 +59,8 @@ site_of() { meta_of "$1/index.html" site; }
 legacy_of() { meta_of "$1/index.html" build | grep -x '[0-9a-f]\{16\}' || true; }
 
 # What a release runs with, relative to it: its runtime package, its site
-# manifest, and what that names (the packages, the recordings, the NIF
-# libraries), one per line.
+# manifest, and what that names (the packages and the recordings), one per
+# line.
 named_by() {
   local site
   runtime_of "$1" | sed 's|^/||; s|/$||'
@@ -72,7 +72,7 @@ named_by() {
 
 valid_rid() { [[ $1 =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7,40}$ ]] || die "not a release: $1"; }
 valid_dir() {
-  [[ $1 =~ ^(npm/@elixir-playground/[a-z0-9.-]+@[0-9A-Za-z.+-]+|boot/[0-9a-f]{12}|nif/[0-9]+-[0-9]+\.[0-9]+)$ ]] ||
+  [[ $1 =~ ^(npm/@elixir-playground/[a-z0-9.-]+@[0-9A-Za-z.+-]+|boot/[0-9a-f]{12})$ ]] ||
     die "not a package's directory: $1"
 }
 
@@ -219,7 +219,7 @@ activate() {
   keep=$({ named_by "$partial"
            for name in $(releases | head -n "$((KEEP_BUILDS - 1))"); do named_by "$RELEASES/$name"; done
          } | sort -u)
-  for dir in "$partial"/npm/@elixir-playground/*/ "$partial"/boot/*/ "$partial"/nif/*/ "$partial"/site/*.json; do
+  for dir in "$partial"/npm/@elixir-playground/*/ "$partial"/boot/*/ "$partial"/site/*.json; do
     [ -e "$dir" ] || continue
     name=${dir#"$partial"/}
     name=${name%/}

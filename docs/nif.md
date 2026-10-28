@@ -1,10 +1,10 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-28
 ---
 
-# NIFs (`nif/`)
+# NIFs
 
 NIF libraries run as separate WebAssembly instances beside the BEAM.
 Package C or C++ code is compiled with wasi-sdk against the project's
@@ -12,13 +12,13 @@ Package C or C++ code is compiled with wasi-sdk against the project's
 terms with the library, so no native shared library is loaded into the
 browser's BEAM instance.
 
-The same library format is used by bundled builds and backend builds.
-The layer originated with the older Rust-OTP runtime, which is preserved
+The playground's backend builds every library, on request
+([backend.md](backend.md)); the site ships none. The layer originated with the older Rust-OTP runtime, which is preserved
 on the `rotp` branch.
 
-## The erl_nif layer (`beamos_nif.c`)
+## The erl_nif layer (`backend/nif/beamos_nif.c`)
 
-A NIF library is OTP's `erl_nif.h` (OTP 29.1.2's, in `nif/include` with
+A NIF library is OTP's `erl_nif.h` (OTP 29.1.2's, in `backend/nif/include` with
 `include/erl_int_sizes_config.h` for wasm32), linked with `beamos_nif.o`
 into a WASI reactor. The layer implements the API over terms of its own:
 
@@ -74,13 +74,16 @@ patch) keeps the NIF ABI, and with it every library built so far.
 - **The library says its layer:** `beamos_nif_abi()` returns it, and
   `nif.ts` refuses a library of another layer, or one without the export,
   before it runs (`erlang:load_nif` fails, saying which).
-- **The site names it:** the OTP package's `nifAbi` and the bundled
-  libraries' (`site.json`, [packages.md](packages.md)), which the
-  load-time check compares; `runtime/build.py` works it out from the
-  sources as `nif/build.py` does, and fails when `nif/include/erl_nif.h`
-  is not the BEAM build's own.
-- **The backend builds for one** and refuses requests for another
-  ([backend.md](backend.md#building-a-nif-library)).
+- **The site names it:** the OTP package's `nifAbi` (`site.json`,
+  [packages.md](packages.md)), which the load-time check compares with the
+  layers `nif.ts` loads. `runtime/build.py` works it out from `host.json`'s
+  newest `provides.nif` and the BEAM build's `erl_nif.h`.
+- **The backend builds for one,** its own (the Dockerfile's `/nif/abi`,
+  from `backend/nif/`), and refuses requests for another
+  ([backend.md](backend.md#building-a-nif-library)). Nothing checks its
+  copy of `erl_nif.h` against OTP's at build time: when OTP's NIF version
+  moves, pages ask for the new ABI and the backend answers 409 until
+  `backend/nif/include` is OTP's again and a new root disk is out.
 
 ## In the node
 
@@ -91,9 +94,9 @@ patch) keeps the NIF ABI, and with it every library built so far.
    playground's `make` (`src/runtime/programs.ts`) reads the package's name and
    version from its `hex_metadata.config` and unpacks that version's
    library into `MIX_APP_PATH`, so `priv/bcrypt_nif.so` is where the
-   Makefile would have put it: the site's `nif/NAME-VERSION.tar` when it
-   has one, else the backend's ([backend.md](backend.md)), asked for at
-   `/api/v1/nif/NAME/VERSION?abi=ABI` (the site's NIF ABI, above) on the page's origin (`worker.js`). While the
+   Makefile would have put it: the backend's build ([backend.md](backend.md)),
+   asked for at `/api/v1/nif/NAME/VERSION?abi=ABI` (the site's NIF ABI,
+   above) on the page's origin (`worker.js`). While the
    backend builds it (`queued`, `running`, or `setting_up` while an agent
    writes a recipe), `make` asks again every 2 s, and the page shows a
    dialog with the status (a `nif` message, `NifBuildDialog`) that can be
@@ -120,23 +123,18 @@ Calls go one at a time (`nifs.js` keeps one answer), on the module's
 main thread: a call blocks its scheduler while it runs, as a long NIF
 does on ERTS without dirty schedulers.
 
-## Building (`build.py`)
+## The toolchain (`backend/nif/`)
 
-```sh
-python3 -I nif/build.py [PACKAGE...]   # → target/nif
-```
+The Dockerfile's `nif-toolchain` stage is wasi-sdk 33 (pinned by digest)
+with the layer: its headers in `/nif/include`, `beamos_nif.o` in
+`/nif/lib`, and `nifcc` and `nifc++` in `/tools`. The backend's guest
+image (`sandbox-image`) carries it, and its recipes build with it
+(`Playground.Nif.Recipe`: a package's own Makefile, with the environment
+elixir_make gives it and `CC=nifcc`, `CXX=nifc++`). What the build puts in
+the app's `priv` becomes the library's archive: the library is the file
+ERTS would load (`priv/bcrypt_nif.so`), holding WebAssembly.
 
-`nif/build.py` writes them to `target/nif/libraries/ABI/`, `ABI` the
-[NIF ABI](#the-nif-abi) (`1-2.18`). The site build copies the site's own
-NIF ABI's to its `nif/` (`runtime/build.py`, also `build.py app`); those
-of another are left out.
-
-In the wasi-sdk image (Docker, pinned by digest): `beamos_nif.o`, then each
-package in `PACKAGES` from its Hex tarball, by its own Makefile with the
-environment elixir_make gives it (`ERTS_INCLUDE_DIR`, `MIX_APP_PATH`, …)
-and `CC=nifcc`, `CXX=nifc++`. What the build put in the app's `priv`
-becomes `packages/NAME-VERSION.tar`: the library is the file ERTS would
-load (`priv/bcrypt_nif.so`), holding WebAssembly. `nifcc` compiles for `wasm32-wasip1` and
+`nifcc` compiles for `wasm32-wasip1` and
 links a reactor with the layer where the Makefile asks for a shared library
 (it leaves out `-shared`, `-fPIC` and dynamic lookup). C++ gets
 WebAssembly exceptions (`-fwasm-exceptions`, libunwind) in their new
@@ -152,21 +150,37 @@ ends the call, as `proc_raise`), anonymous and read-only `mmap()`,
 `clock()`/`times()` and `getpid()` compile and link; a library takes only
 what it uses.
 
-A package's recipe in `PACKAGES` gives its make targets, its environment overrides
-per version (`versions`), Hex packages whose directories it names (`headers`, such as
-Fine's include directory) and `prepare`, what the Makefile would fetch and
-build itself (lazy_html's lexbor, cloned and built with cmake: here from
-GitHub's archive of the commit, with the wasi-sdk cmake toolchain).
+The backend's seed recipes (`backend/priv/repo/seeds.exs`) are known to
+build these (sizes from builds of 2026-10):
 
-**Adding a package** (or a version): a recipe in `PACKAGES`, then
-`build.py NAME`, the layer's and the package's checks, and a site build.
+| Package | Library |
+| --- | --- |
+| bcrypt_elixir 3.3.2 | `priv/bcrypt_nif.so`, 239 KB |
+| argon2_elixir 4.1.3 (Argon2's lanes in turn: `ARGON2_NO_THREADS`) | `priv/argon2_nif.so`, 250 KB |
+| picosat_elixir 0.2.3 (Ash's policy SAT solver; without `getrusage`) | `priv/picosat_nif.so`, 296 KB |
+| lazy_html 0.1.13 (Fine 0.1.6, lexbor 244b849; `priv/nif/recipes/lazy_html.sh`) | `priv/liblazy_html.so`, 1.6 MB |
+
 A library that does not link names the `enif_` functions the layer lacks.
-`make` looks a build up by the exact name and version in the project's
-`deps`, and requests a backend build when no bundled build exists. It fails only
-when neither source can provide a usable library.
 
-**Test.** `test/test.py` builds `test/layer.c` with `nifcc` and runs
-`test/layer.exs` in the Node harness over the built site: a resource made,
+## Tests (`tests/nif/`)
+
+```sh
+python3 -I tests/nif/build.py   # → target/test-nif
+python3 -I tests/nif/layer.py   # over the built site
+```
+
+`build.py` builds the backend's guest image and, in it, the tests' NIF
+libraries the way the backend's runner does (its `priv/nif/build.sh`, a
+recipe, the runner's environment): `nif_fixture` 0.1.0
+(`tests/nif/nif_fixture/`, a C++ NIF package of our own: a call, and a
+C++ exception raised as an Erlang error) and lazy_html 0.1.13 (the Phoenix
+template's test dependency, by the backend's recipe). They go to
+`target/test-nif/libraries/ABI/`, which `runtime/serve.py --nif` answers
+`/api/v1/nif/` from in the browser tests. And `layer.so`, from
+`layer.c`.
+
+`layer.py` runs `layer.exs` with `layer.so` in the Node harness over the
+built site: a resource made,
 bumped and given back, a message from `enif_send`, a map with an unsigned
 64-bit value, a term with a pid, a reference, a bitstring, bignums, a map
 and a fun echoed unchanged, and `badarg` for a bad argument and for a
@@ -177,13 +191,6 @@ signal handled, anonymous `mmap`, `getpid` and `clock`, `pwrite` then
 `pread` keeping the position (`fd_tell`), `fd_allocate`, `fd_datasync`
 and `clock_res_get`.
 
-| Package | Library |
-| --- | --- |
-| bcrypt_elixir 3.3.2 | `priv/bcrypt_nif.so`, 239 KB |
-| argon2_elixir 4.1.3 (Argon2's lanes in turn: `ARGON2_NO_THREADS`) | `priv/argon2_nif.so`, 250 KB |
-| picosat_elixir 0.2.3 (Ash's policy SAT solver; without `getrusage`) | `priv/picosat_nif.so`, 296 KB |
-| lazy_html 0.1.13 (Fine 0.1.6, lexbor 244b849) | `priv/liblazy_html.so`, 1.6 MB |
-
 ## Not yet
 
 - Releasing resources when the node collects their references, and the
@@ -191,7 +198,6 @@ and `clock_res_get`.
 - Rustler: rustler_precompiled downloads its build (its target is the
   node's `wasm32-unknown-emscripten`, which none lists); Rust NIFs need a recipe that builds the
   crate for `wasm32-wasip1` against the layer.
-- The backend as the only source of builds, the request naming the
-  page's layer ([backend.md](backend.md#plan-one-source-of-nif-builds));
-  and the template's test build prebuilt, so a Phoenix project's first
-  `mix test` does not compile for minutes.
+- The template's test build prebuilt, so a Phoenix project's first
+  `mix test` does not compile for minutes (nor ask the backend for
+  lazy_html).
