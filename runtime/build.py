@@ -939,6 +939,7 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
         added = [*added, "index.js", "index.d.ts"]
         fields = {**MODULE, **(fields or {})}
     package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
+               "repository": REPOSITORY,
                "files": sorted([*files, *(["fs"] if layer else []), *added]),
                **(fields or {}),
                **({"peerDependencies": peers} if peers else {}),
@@ -959,6 +960,9 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
     return directory, entry
 
 
+# Where every package is built from: npm's provenance (publish.py
+# --provenance) checks it against the repository CI ran in.
+REPOSITORY = {"type": "git", "url": "git+https://github.com/SteffenDE/run-elixir.dev.git"}
 # A JavaScript package's package.json fields: an ES module, its
 # declarations beside it.
 MODULE = {"type": "module", "types": "./index.d.ts",

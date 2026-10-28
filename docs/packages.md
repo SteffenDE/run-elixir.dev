@@ -138,7 +138,9 @@ site, the NIF layer test and the Playwright suite passed, one run at a
 time: `publish.py --publish --provenance`. It authenticates with npm's
 trusted publishing (OIDC, `id-token: write`) when each package names
 this repository and `site.yml` as its trusted publisher on npmjs.com,
-else with the repository's `NPM_TOKEN` secret.
+else with the repository's `NPM_TOKEN` secret. npm checks the provenance
+statement against each `package.json`'s `repository`, which `build.py`
+sets to this repository (`REPOSITORY`).
 
 ## The site's layout
 
