@@ -257,7 +257,7 @@ The current design uses a separate registrable usercontent domain rather
 than adding the project domain to the public suffix list. This separates
 project code from apex cookies while keeping the IDE and its stores on
 one origin. Storage partitioning for previews and embedded projects is
-covered in [frames.md](frames.md) and [embed.md](embed.md).
+covered in [frames.md](frames.md) and [api.md](api.md).
 
 ## git.wasm: git itself
 

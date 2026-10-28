@@ -87,7 +87,8 @@ apex's stays the apex's:
   hands the connection's port to that worker.
 - **The terminals.** Their screens are the IDE's; their line
   disciplines are the frame's, one per process on a terminal
-  (`exec/host.ts` `spawn`, the process API that `embed.html` uses too):
+  (`exec/host.ts` `spawn`, the process API that `create()` drives,
+  [api.md](api.md)):
   the IDE sends the keys, and the echo comes back with the output.
 - **What the IDE changes** (a save, the tree's operations) is kept before
   the frame answers: the page may go at once (a reload), and the frame
@@ -126,12 +127,14 @@ A live session's guest has no exec frame: its page's bridge answers the
 relays of its own preview origins, its connections tunnelled to the
 host ([collaboration.md](collaboration.md#the-preview)).
 
-## Embedded by another site
+## Projects run from another site
 
-`embed.html` is the apex's part of a project without the IDE, framed by
-another site (an embedder the site names) that drives it from
-`embed.js`; it frames the same exec, claude and relay frames, which
-still answer the apex alone ([embed.md](embed.md)).
+`create()` ([api.md](api.md)) makes the page that calls it the
+project's apex. Another site's page that calls it frames the same exec,
+claude and relay frames on the usercontent domain. Those frames take
+calls only from the apex and the `embedders` the domain's
+`playground.json` names; another parent gets `playground-exec-refused`
+(`EACCES`).
 
 ## Measurements (2026-10-19)
 

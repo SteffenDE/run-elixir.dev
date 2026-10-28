@@ -167,8 +167,10 @@ capabilities, not credentials*). So the node runs on the apex, which runs
 no project's code: that runs in the exec frame, on the usercontent
 domain ([frames.md](frames.md)).
 
-- **A shared worker on the apex** (`app/src/tailscale/worker.ts`, built
-  as the runtime package's `tailscale.js`): one node for every page of the apex that
+- **A shared worker on the apex** (`app/src/tailscale/worker.ts`, part
+  of the app's build, not a package's: only the playground's apex runs
+  it, and the IDE gives its projects the tailnet as a plugin of its own,
+  `tailscale/plugin.ts`): one node for every page of the apex that
   connects. It keeps the node's state (`state`: main.go's keys) and its
   settings (`settings`: the control server, whether it is set up) in the
   apex's IndexedDB, `playground-tailscale`. Two builds' pages make two

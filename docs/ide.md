@@ -31,7 +31,6 @@ entries, and the runtime package's three more:
   (`vite.frames.config.ts`, [packages.md](packages.md)): the project
   runtime frame, a preview origin's service-worker host, and Claude Code's
   preparation and cache.
-- `embed.html`: the runtime host for another site's IDE.
 - `storage.html`: migration from legacy project origins.
 
 Separate Vite configurations build the runtime workers, embed client,

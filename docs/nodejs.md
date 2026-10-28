@@ -183,7 +183,7 @@ initializer's package, `create-NAME`, `@scope/create`, by npx), and
   there, with its bin, runs as it is, without the registry (as npm's npx
   reuses its cache); a range, a tag or `latest` installs again, which the
   lock makes cheap (above): its package's metadata alone. An embedder
-  may run that bin itself once it is there ([embed.md](embed.md)).
+  may run that bin itself once it is there ([api.md](api.md)).
 
 ## child_process (`child.ts`)
 
