@@ -1,0 +1,21 @@
+{
+  "name": "@elixir-playground/vite",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The Vite plugin that lays out a site's usercontent domain for create() (docs/api.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "oxlint src test",
+    "format": "oxfmt src test",
+    "format:check": "oxfmt --check src test"
+  },
+  "peerDependencies": {
+    "vite": ">=7"
+  }
+}

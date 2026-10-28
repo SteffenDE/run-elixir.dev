@@ -19,16 +19,17 @@ sources.
 
 | Directory | Package | Contents | Built into |
 | --- | --- | --- | --- |
-| `runtime/` | `@elixir-playground/runtime` | The runtime's workers, the usercontent domain's frames (`exec.html`, `relay.html`, `claude.html`), the page programs, the service worker and its `/relay.html` bootstrap (`root/`) | `dist/`; the Node harness into `dist-node/` |
+| `runtime/` | `@elixir-playground/runtime` | The runtime's workers, the usercontent domain's frames (`exec.html`, `relay.html`, `claude.html`), the page programs, the service worker and its `/relay.html` bootstrap (`public/root/`, published as `root/`) | `dist/`; the Node harness into `dist-node/` |
 | `api/` | `@elixir-playground/api` | `create()` and its sandbox ([docs/api.md](../docs/api.md)) | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
 | `pglite/` | `@elixir-playground/pglite` | The pglite plugin: Postgres on port 5432 for the nodes | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
+| `vite/` | `@elixir-playground/vite` | The Vite plugin that lays out a site's usercontent domain | `dist/index.js`, `dist/index.d.ts` (tsc) |
 
 `api`'s and `pglite`'s declarations come from `tsc -p tsconfig.build.json`
 and `types.mjs` ([docs/api.md](../docs/api.md#types)).
 
 The runtime's version is `runtime/src/packages/host.json`'s, with the ABI
-seams it speaks. `api` and `pglite` take their versions from their
-`package.json`.
+seams it speaks. `api`, `pglite` and `vite` take their versions from
+their `package.json`.
 
 ## Packages `build.py` makes
 
@@ -61,4 +62,5 @@ npm run typecheck                # tsc --noEmit in each member
 npm test                         # vitest
 npm run test:git -w packages/runtime   # git's own suite against git.wasm
 python3 -I runtime/build.py app  # the site, its packages laid out
+tests/vite-site/run.sh           # a site built with the vite plugin, in Chromium
 ```

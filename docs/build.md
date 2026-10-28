@@ -182,15 +182,17 @@ OTP's and Elixir's from the site manifest.
    workspace: `packages/*`, then `app`), in Docker:
    - `packages/runtime`: the runtime's scripts (`vite.runtime.config.ts`:
      `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
-     names, the pages start them by URL, and `sw.js`, which goes to the
-     root with `root/relay.html`, the bootstrap) and the usercontent
+     names, the pages start them by URL; and `root/sw.js` with
+     `root/relay.html`, the bootstrap, which `build.py` copies to the
+     site's root) and the usercontent
      domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
      `claude.html`, with a relative base) into `dist/`, the runtime
      package; with `--mode node`, the Node harness (`node.ts` and
      `beam-node.ts`, as `.mjs`) into `dist-node/`, which goes to
      `target/node`;
    - `packages/api` and `packages/pglite`: one ES module each into
-     `dist/index.js` (their `vite.config.ts`);
+     `dist/index.js` (their `vite.config.ts`), with their declarations;
+   - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
    - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
      `dist/`, which goes to the site's root. NIF libraries
    are the backend's ([nif.md](nif.md)): the site has none.

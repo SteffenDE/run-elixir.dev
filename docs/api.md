@@ -136,6 +136,62 @@ load-time check compares them).
 Boot recordings (`boot`) are optional. Without them every file comes
 lazily, and the first boot is slower.
 
+## A site of your own: the Vite plugin
+
+A site that runs projects needs a second registrable domain for their
+code, the usercontent domain ([frames.md](frames.md)).
+`@elixir-playground/vite` (`packages/vite`) lays out what that domain
+serves:
+
+```js
+// vite.config.js
+import { defineConfig } from 'vite';
+import { elixirPlayground } from '@elixir-playground/vite';
+
+export default defineConfig({
+  plugins: [elixirPlayground({ apex: 'example.com', usercontent: 'example-usercontent.com' })],
+  optimizeDeps: { exclude: ['@electric-sql/pglite'] },
+});
+```
+
+| Option | Meaning |
+| --- | --- |
+| `apex` | The site's own host. The usercontent domain's frames take calls from its pages. Required to build; in dev, the dev server's. |
+| `usercontent` | The usercontent domain, with a port if any. |
+| `embedders` | Other sites whose pages may run projects on it. |
+| `packages` | Package directories that are not installed, such as a template of the site's own. |
+| `outDir` | Where `vite build` writes the usercontent domain's files: `dist-usercontent/` by default. |
+| `https` | The usercontent domain's scheme, for the Node.js worker's policy: `true` by default. |
+
+**`vite build`** writes:
+
+- `dist-usercontent/`, for the usercontent domain: the runtime package
+  and every installed package with a `playground` field at
+  `/npm/@elixir-playground/NAME@VERSION/` (where the descriptors' `base`
+  points); the runtime's `sw.js` and `/relay.html` bootstrap (its
+  `root/`); `playground.json`, naming the apex; and `_headers`
+  (Netlify, Cloudflare Pages): COEP and CORP everywhere, `/npm/`
+  immutable, and the Node.js worker's `Content-Security-Policy`, with a
+  wildcard host for the domain's subdomains;
+- in the apex's `dist/`: `playground.json` and, in each page, `<meta
+  name="playground-runtime">`, which `create()` reads by default.
+
+The apex's own pages must be served cross-origin isolated (COOP
+`same-origin`, COEP `require-corp`); that is the site's server's job.
+
+**`vite`** (dev) and **`vite preview`** answer the usercontent
+domain's hosts themselves (`usercontent.localhost:5173`, say: browsers
+resolve `*.localhost` to this machine), and send the apex's pages
+COOP and COEP.
+
+The backend's services (the TCP relay, NIF builds, the `/hex/` and
+`/git/` proxies) are not part of it ([packages.md](packages.md#backend-services)).
+
+`tests/vite-site/run.sh` builds a fixture site with the plugin over a
+built site's packages, serves it with `vite preview`, and runs
+`elixir -e` in Chromium (2026-10-28: `42` in 0.9 s, localhost).
+`packages/vite/test` checks the layout and the headers.
+
 ## How the IDE uses it
 
 The IDE (`project/lib/playground.ts`) creates a sandbox each time a
@@ -322,9 +378,6 @@ package.json.
 
 ## Not yet
 
-- **The Vite plugin** that lays out a site's usercontent folder (the
-  runtime and the installed packages under `/npm/`, `sw.js`,
-  `relay.html`, headers): [packages.md](packages.md#the-build-step-proposal).
 - **The claude frame** is the runtime package's; the claude package holds
   only the tested range.
 - **A real Safari**, and Tidewave's side (`/web` on the API).

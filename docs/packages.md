@@ -36,7 +36,7 @@ const sandbox = await create({
 The playground's IDE runs its projects through the same `create()`.
 Tidewave's `/web` is the first other site this is for.
 
-Publishing, the build plugin and the hosted mirror are proposals. The
+Publishing and the hosted mirror are proposals. The
 site itself is laid out as these packages, the runtime runs from them,
 and `create()` takes them: [What is implemented](#what-is-implemented)
 has the details. Nothing is published.
@@ -67,7 +67,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
 | `tailscale` (not published) | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
 | `claude` | The Claude Code range the preparer was tested with; no Claude Code | `runtime` | 8 KB |
-| `vite` (proposed) | A build plugin, and a CLI for sites that don't use Vite | `runtime` | |
+| `vite` | `index.js`: the Vite plugin that lays out a site's usercontent domain ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 9 KB |
 
 **Not published:** `phoenix-template` and `tailscale` are the
 playground's own (`"private": true`, `PACKAGES`' `publish` in
@@ -332,23 +332,22 @@ against `beam.wasm`. It depends on the erl_nif layer's protocol and on the
 `LAYER-MAJOR.MINOR`, such as `1-2.18`. An emsdk or patch change makes a
 new `beamAbi` and keeps every NIF library built so far.
 
-## The build step (proposal)
+## The build step
 
 The embedder's own bundler takes the JavaScript (`api`, `pglite`, the
-descriptors) like any npm dependency. The `vite` package's plugin (and
-its CLI for other sites) writes what a bundler does not:
+descriptors) like any npm dependency. The `vite` package's plugin writes
+what a bundler does not ([api.md](api.md#a-site-of-your-own-the-vite-plugin)):
+the usercontent domain's folder (the runtime and every installed package
+under `/npm/@elixir-playground/NAME@VERSION/`, `sw.js`, the `/relay.html`
+bootstrap, `playground.json`, `_headers`), and the apex's
+`playground.json` and `<meta name="playground-runtime">`.
 
-- **`usercontent/`**, for a second site: `sw.js`, the `/relay.html`
-  bootstrap, `playground.json` naming the embedder's apex, the runtime
-  package, and every installed package under
-  `/npm/@elixir-playground/NAME@VERSION/` (where their descriptors'
-  `base` points).
+Proposed beyond it:
+
 - **Boot recordings,** recorded with the Node harness for the installed
   set. They are optional.
-- **Header configurations** for Caddy, nginx and `_headers` (Netlify,
-  Cloudflare Pages): COOP, COEP, CORP, `frame-ancestors`, the Node.js
-  worker's CSP, and caching (immutable under `/npm/`, `/boot/`, `/site/`,
-  `/nif/`; `no-cache` for `sw.js` and the pages).
+- **A CLI** for sites that don't use Vite, and header configurations for
+  Caddy and nginx beside `_headers`.
 
 `runtime/build.py` does the same for run-elixir.dev from the repository's
 own builds ([build.md](build.md)).
@@ -615,6 +614,6 @@ As of 2026-10-28:
   (`sandbox/build`), whose `manifest.json` has `nif_abi`;
 - Tidewave's `/web` moved to `create()` (`embed.html` is gone).
 
-Not built: publishing, the packages' types, the Vite plugin and CLI, the
-npm-backed mirror, the `.r4.` host level, the claude package's range in
+Not built: publishing, a CLI beside the Vite plugin, the npm-backed
+mirror, the `.r4.` host level, the claude package's range in
 use, and the Claude CI job.
