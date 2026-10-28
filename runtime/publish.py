@@ -2,6 +2,7 @@
 
     python3 -I runtime/publish.py             # what it would publish
     python3 -I runtime/publish.py --publish   # publish (npm's credentials)
+    python3 -I runtime/publish.py --publish --provenance   # in CI (site.yml)
 
 It reads the packages a build laid out (target/site/npm/@elixir-playground/
 NAME@VERSION+ID/, runtime/build.py) and leaves out the playground's own
@@ -132,6 +133,8 @@ def next_version(ours, latest):
 
 def main():
     publish = "--publish" in sys.argv[1:]
+    # npm's provenance statement, from CI's OIDC token (trusted publishing).
+    provenance = ["--provenance"] if "--provenance" in sys.argv[1:] else []
     packages = laid()
     plan = []
     for name in order(packages):
@@ -150,7 +153,7 @@ def main():
         print(f"{len(plan)} to publish; staged in {STAGE} (--publish to publish them)")
         return
     for name, version, target in plan:
-        subprocess.run(["npm", "publish", "--access", "public"], cwd=target, check=True)
+        subprocess.run(["npm", "publish", "--access", "public", *provenance], cwd=target, check=True)
         print(f"{name}@{version}: published")
 
 

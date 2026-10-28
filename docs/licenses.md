@@ -18,8 +18,8 @@ records into the packages and onto the site's `/licenses/` page. A
 build fails when a component's license is unknown or missing a text, or
 when a copyleft component's source is not in its package.
 
-As of 2026-10-28 this exists on the `sd-packages` branch only. It is not
-deployed, and nothing is published to npm.
+Each published package carries its licenses (`@elixir-playground/*`,
+1.0.0 on npm since 2026-10-28).
 
 ## What a package carries
 

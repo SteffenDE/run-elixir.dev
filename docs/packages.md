@@ -38,9 +38,8 @@ Tidewave's `/web` is the first other site this is for.
 
 The site is laid out as these packages, the runtime runs from them, and
 `create()` takes them: [What is implemented](#what-is-implemented) has
-the details. `runtime/publish.py` can publish them, but nothing is
-published yet ([Publishing](#publishing)). The hosted mirror is a
-proposal.
+the details. They are on npm ([Publishing](#publishing)). The hosted
+mirror is a proposal.
 
 ## Packages
 
@@ -132,10 +131,16 @@ stages them and prints what it would publish. For each package:
   there (`npm publish --access public`, with npm's credentials).
 
 Dependencies name ranges of majors (`^1.0.0`), so a patch of one package
-needs no new version of another. A dry run on 2026-10-28 staged 13
-packages; the largest, `otp-29.1.2`, is 25 MB packed (40 MB unpacked).
-Nothing is published: the npm organization `elixir-playground` does not
-exist yet.
+needs no new version of another. The 13 packages were published at
+1.0.0 on 2026-10-28 (the largest, `otp-29.1.2`, is 25 MB packed, 40 MB
+unpacked).
+
+**In CI:** `site.yml`'s `publish` job runs on pushes to `main`, after the
+site, the NIF layer test and the Playwright suite passed, one run at a
+time: `publish.py --publish --provenance`. It authenticates with npm's
+trusted publishing (OIDC, `id-token: write`) when each package names
+this repository and `site.yml` as its trusted publisher on npmjs.com,
+else with the repository's `NPM_TOKEN` secret.
 
 ## The site's layout
 
