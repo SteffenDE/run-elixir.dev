@@ -46,6 +46,7 @@ import { askTrust } from './trust';
 import type { Shared } from '@/shared/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { setWorkspace, type Workspace } from './workspace';
+import { previewRelay } from './previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
 import { setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
@@ -306,8 +307,12 @@ export function connectServer(port: number): Connection | null {
 
 // The preview: a port's origin once its relay is ready (PreviewFrame's
 // prepare), and the port it went to by itself (onPort).
+// Its relay is made through the exec frame's port, which is there before
+// create() returns (the preview may ask first, after a reload).
+const serveRelay = (requests: MessagePort) =>
+  void exec?.call('relay', [requests], [requests]).catch(() => requests.close());
 const preview: PreviewHost = {
-  ready: (port) => sandbox?.relay(port) ?? Promise.resolve(),
+  ready: (port) => previewRelay(previewKey, port, serveRelay),
   shows: (port) => void exec?.call('previewShows', [port]),
 };
 
