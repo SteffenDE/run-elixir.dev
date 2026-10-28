@@ -73,6 +73,8 @@ const ISOLATION = {
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
 const routes: Routes = { host: null, protocol: 0, previews: [] };
+// How long a preview's request waits for a host before the 503.
+const HOST_WAIT = 3000;
 const previews = new Set<string>();
 let loading: Promise<void> | null = null;
 let loaded = false;
@@ -111,9 +113,26 @@ function load(): Promise<void> {
   return loading;
 }
 
+// Write the routes now, done once the transaction is.
+async function write(): Promise<void> {
+  const db = await database();
+  await new Promise<void>((resolve) => {
+    const transaction = db.transaction('clients', 'readwrite');
+    transaction
+      .objectStore('clients')
+      .put({ ...routes, previews: [...previews] } satisfies Routes, ROUTES);
+    transaction.oncomplete = () => resolve();
+    transaction.onerror = () => resolve();
+    transaction.onabort = () => resolve();
+  });
+}
+
 let saving: Promise<void> | null = null;
-// Keep the routes. Documents that are gone go once there are many: one
-// still loading is no client yet, and must stay.
+// Keep the routes, a moment later (the preview's documents come in
+// bursts). Documents that are gone go once there are many: one still
+// loading is no client yet, and must stay. A new host is written at once
+// instead (the message's waitUntil): a worker stopped before the moment
+// would start again without it, and answer its previews 503.
 function save(): void {
   saving ??= new Promise((resolve) => setTimeout(resolve, 200))
     .then(async () => {
@@ -127,12 +146,21 @@ function save(): void {
         for (const id of [...previews].slice(0, previews.size - 128))
           if (!live.has(id)) previews.delete(id);
       }
-      const db = await database();
-      db.transaction('clients', 'readwrite')
-        .objectStore('clients')
-        .put({ ...routes, previews: [...previews] } satisfies Routes, ROUTES);
+      await write();
     })
     .catch(() => {});
+}
+
+// What waits for a host (app()): resolved when one announces itself.
+const announced: (() => void)[] = [];
+function nextHost(timeout: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, timeout);
+    announced.push(() => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
 }
 
 self.addEventListener('message', (event) => {
@@ -156,7 +184,8 @@ self.addEventListener('message', (event) => {
     if (answer.protocol === null) return;
     routes.host = event.source.id;
     routes.protocol = answer.protocol;
-    save();
+    for (const resolve of announced.splice(0)) resolve();
+    event.waitUntil(write().catch(() => {}));
   }
 });
 
@@ -209,7 +238,13 @@ async function host(): Promise<Client | null> {
 // protocol 1; `port`: a sibling preview origin's.
 async function app(event: FetchEvent, port?: number): Promise<Response> {
   const { request } = event;
-  const page = await host();
+  let page = await host();
+  // A host may be announcing itself now: its message and this request
+  // come to the worker in either order.
+  if (!page) {
+    await nextHost(HOST_WAIT);
+    page = await host();
+  }
   // No host: the project stopped, or the page that hosts it is older than
   // this worker (an unnumbered announce, refused), which a reload fixes.
   if (!page) {

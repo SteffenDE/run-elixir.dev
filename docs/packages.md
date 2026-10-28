@@ -425,7 +425,7 @@ active worker):
 
 | Message | Meaning |
 | --- | --- |
-| `{ kind: 'hosted', protocol, protocols }` | The answer to an announce: the protocol it will speak, or `null` with the protocols it does speak. On `null`, the host calls `registration.update()` and announces again when the new worker takes over. |
+| `{ kind: 'hosted', protocol, protocols }` | The answer to an announce: the protocol it will speak, or `null` with the protocols it does speak. On `null`, the host calls `registration.update()` and announces again when the new worker takes over. The relay is ready (and its preview loads) once it has an answer in a protocol, or after 5 s without one. |
 | `{ kind: 'http', method, path, headers, body, destination, port? }` + a reply port | A preview request (`HttpRequest`). `headers` is `[name, value][]`; `body` is an `ArrayBuffer` or `null` (GET, HEAD); `destination` is the request's; `port` only for a sibling origin (below). The reply on the port is `{ status, reason, headers, body, cookies? }` (`PreviewResponse`). |
 | `{ kind: 'websocket', protocol, path, subprotocols }` + a port | A preview document's WebSocket, passed on as the document sent it. |
 
@@ -456,14 +456,18 @@ Both ends are the host's version, so the worker never reads them.
   `transfer-encoding`, `content-length` and `set-cookie`, and sends no body
   for HEAD, 101, 204, 205 and 304. It adds COEP `require-corp` and CORP
   `cross-origin` to every answer, its own 503 included.
-- **No host:** with no host page, it answers 503: "The project is not
-  running. If the playground was updated since you opened this page,
-  reload it." A page older than protocol 1 announces without a protocol
-  and is refused, so its previews get this answer until it reloads.
+- **No host:** a request that finds no host page waits up to 3 s for
+  one to announce itself (its message and the request come to the worker
+  in either order), then answers 503: "The project is not running. If
+  the playground was updated since you opened this page, reload it." A
+  page older than protocol 1 announces without a protocol and is
+  refused, so its previews get this answer until it reloads.
 - **State:** IndexedDB `playground-sw` version 1, store `clients`, record
   `routes-1` (`Routes`): `{ host, protocol, previews }`. Every version of
   the worker reads and writes it, so fields are only added; another
-  protocol's record has another key.
+  protocol's record has another key. A new host is written at once, in
+  the announce's `waitUntil` (a worker stopped before a later write would
+  start again without it); the previews, a moment after they come.
 - It never calls `clients.get()` for a request's client, because of a
   Firefox deadlock with a node's synchronous bundle fetch
   ([runtime.md](runtime.md#the-preview-swjs-bridgets)).

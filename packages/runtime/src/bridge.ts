@@ -248,6 +248,9 @@ function linkShim(port: number, origins: string | null, ide: string) {
   });
 }
 
+// How long the relay waits for its worker to answer its announce.
+const HOSTED_WAIT = 5000;
+
 // A preview's request for this path switches the bridge to the port, then
 // goes to the rest: the app's links and redirects to another of its ports,
 // and the path bar's localhost:PORT/….
@@ -553,6 +556,9 @@ export class Bridge {
   // Announce this page to the origin's service worker as its host, with
   // the protocol it speaks (swProtocol.ts), once it controls the page, and
   // again when another worker takes over.
+  // The relay registers the worker and announces itself as its host
+  // (frames/relay.ts), ready once the worker answers, or after HOSTED_WAIT
+  // without an answer (an older worker that answers none).
   static async register(url = 'sw.js', scope = './'): Promise<void> {
     const registration = await navigator.serviceWorker.register(url, { scope });
     // A worker that does not speak this host's protocol: the newest sw.js,
@@ -571,10 +577,24 @@ export class Bridge {
         navigator.serviceWorker.addEventListener('controllerchange', resolve, { once: true }),
       );
     }
+    // Hosting once the worker says so (its answer, in its protocol): the
+    // relay is ready then, and the preview's first request finds its host.
+    const answered = new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, HOSTED_WAIT);
+      const heard = (event: MessageEvent) => {
+        const answer = event.data as Hosted | undefined;
+        if (answer?.kind !== 'hosted' || answer.protocol === null) return;
+        navigator.serviceWorker.removeEventListener('message', heard);
+        clearTimeout(timer);
+        resolve();
+      };
+      navigator.serviceWorker.addEventListener('message', heard);
+    });
     navigator.serviceWorker.controller!.postMessage(announce);
     navigator.serviceWorker.addEventListener('controllerchange', () =>
       navigator.serviceWorker.controller?.postMessage(announce),
     );
+    await answered;
   }
 
   request({
