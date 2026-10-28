@@ -105,8 +105,8 @@ prepare() {
   for dir in "$@"; do
     [ -e "$partial/$dir" ] && continue
     case $dir in
-      npm/*) seed=$(ls -dt "$partial/${dir%%@[0-9]*}"@* 2>/dev/null | head -n 1) ;;
-      boot/*) seed=$(ls -dt "$partial"/boot/*/ 2>/dev/null | head -n 1) ;;
+      npm/*) seed=$(ls -dt "$partial/${dir%%@[0-9]*}"@* 2>/dev/null | head -n 1) || seed= ;;
+      boot/*) seed=$(ls -dt "$partial"/boot/*/ 2>/dev/null | head -n 1) || seed= ;;
       *) seed= ;;
     esac
     if [ -n "$seed" ]; then

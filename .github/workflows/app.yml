@@ -71,3 +71,14 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - run: python3 -I tests/licenses.py
+
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 -I tests/deploy.py
+
