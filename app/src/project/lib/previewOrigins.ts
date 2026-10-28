@@ -21,7 +21,10 @@ export function previewRelay(
   if (!ready) {
     ready = new Promise<void>((resolve, reject) => {
       const frame = document.createElement('iframe');
-      frame.src = `${origin}${BUILD}relay.html`;
+      // The previous worker exempts /relay.html, but would route a new
+      // package URL into the app. The bootstrap updates it before moving
+      // to this build's immutable relay.
+      frame.src = `${origin}/relay.html?runtime=${encodeURIComponent(BUILD)}`;
       frame.hidden = true;
       frame.setAttribute('aria-hidden', 'true');
       const timer = setTimeout(

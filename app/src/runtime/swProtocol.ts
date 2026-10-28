@@ -71,9 +71,11 @@ export interface HttpRequest {
 // The site's own pages on a preview origin, which the worker never answers
 // for the app: the packages' (/npm/@elixir-playground/NAME@VERSION/…:
 // the runtime's relay.html), immutable, under a prefix no app's route is
-// likely to have.
+// likely to have. /relay.html is the upgrade bootstrap, also exempted by
+// the unnumbered worker so it can update that worker before loading a package.
 const PACKAGES = '/npm/@elixir-playground/';
-export const isOwnFrame = (pathname: string) => pathname.startsWith(PACKAGES);
+export const isOwnFrame = (pathname: string) =>
+  pathname === '/relay.html' || pathname.startsWith(PACKAGES);
 
 // The worker's routes, kept in IndexedDB (playground-sw, store
 // `clients`) under ROUTES, as a worker is stopped when idle and starts

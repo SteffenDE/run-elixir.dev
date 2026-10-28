@@ -42,7 +42,7 @@ RELEASES=$SITE/releases
 # The pages and what keeps its name; everything else is immutable, under
 # npm/@elixir-playground/NAME@VERSION/ (the packages), boot/ID/ (the
 # recordings) and site/ID.json (the site manifest).
-PAGES=(index.html preview.html storage.html sw.js playground.json embed.html embed.js licenses/index.html)
+PAGES=(index.html preview.html storage.html sw.js playground.json embed.html embed.js relay.html licenses/index.html)
 
 die() {
   echo "playground-deploy: $*" >&2

@@ -100,7 +100,8 @@ site/ID.json                              the site manifest
 ```
 
 Each of these is immutable. The pages (`index.html`, `preview.html`,
-`embed.html`, `storage.html`), `sw.js`, `embed.js` and `playground.json`
+`embed.html`, `storage.html`, the `/relay.html` upgrade bootstrap), `sw.js`,
+`embed.js` and `playground.json`
 keep their names. Each page names the runtime package's path and the
 site manifest's (`<meta name="playground-runtime">`, `<meta
 name="playground-site">`); the runtime finds everything else through the
@@ -333,6 +334,11 @@ version of the host on it. It is the one shared, unversioned piece.
 
 - It is a router. It passes a preview's requests and WebSockets to its host
   page, the runtime package's `relay.html`.
+- The parent first loads `/relay.html`, a small bootstrap that updates
+  `sw.js` and waits for activation before navigating to the chosen runtime's
+  relay. The unnumbered worker already exempts this root path; it would
+  otherwise route the new package URL into the app. Both workers leave
+  the bootstrap to the network.
 - Its protocol is numbered. The host announces `{ kind: 'host', protocol:
   N }`, and the worker answers in that protocol.
 - Changes within a protocol are additive only. A new `sw.js` keeps

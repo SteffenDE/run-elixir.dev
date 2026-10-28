@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Elixir Playground</title>
+  </head>
+  <body>
+    <script type="module">
+      // The unnumbered service worker lets /relay.html through, but routes
+      // package pages into the app. Update it here before loading the relay
+      // from the runtime the parent chose (which may be an older build).
+      const runtime = new URL(location.href).searchParams.get('runtime');
+      if (!/^\/npm\/@elixir-playground\/runtime@[^/]+\/$/.test(runtime ?? ''))
+        throw new Error('no runtime package named');
+      const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+      await registration.update();
+      const worker = registration.installing ?? registration.waiting ?? registration.active;
+      if (!worker) throw new Error('no service worker');
+      if (worker.state !== 'activated') {
+        await new Promise((resolve, reject) => {
+          worker.addEventListener('statechange', () => {
+            if (worker.state === 'activated') resolve();
+            else if (worker.state === 'redundant') reject(new Error('service worker update failed'));
+          });
+        });
+      }
+      location.replace(`${runtime}relay.html`);
+    </script>
+  </body>
+</html>

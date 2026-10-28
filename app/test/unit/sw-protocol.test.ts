@@ -43,7 +43,7 @@ describe('the service worker protocol', () => {
 
   it('leaves the packages’ pages to the network, never the app’s paths', () => {
     expect(isOwnFrame('/npm/@elixir-playground/runtime@1.0.0+3f2a9c1b04de/relay.html')).toBe(true);
-    expect(isOwnFrame('/relay.html')).toBe(false);
+    expect(isOwnFrame('/relay.html')).toBe(true);
     expect(isOwnFrame('/')).toBe(false);
     expect(isOwnFrame('/npm/left-pad')).toBe(false);
     expect(isOwnFrame('/users/relay.html')).toBe(false);
