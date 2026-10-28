@@ -7,7 +7,7 @@ git's release with patches/ applied, and zlib, built with wasi-sdk in
 Docker (backend/Dockerfile's wasi-sdk). WASI preview 1 lacks processes, users,
 modes, terminals and sockets: tools/wasi-compat/ (every C tool's) declares what
 git asks of them and stubs it (stubs.c), its processes the playground's
-host's (the `processes` imports, app/src/runtime/processes.ts:
+host's (the `processes` imports, packages/runtime/src/processes.ts:
 run-command.c spawns instead of forking), and config.mak turns off the
 rest.
 """
@@ -133,7 +133,7 @@ def main():
         "cp zlib.h zconf.h /zlib/include/\n"
         "cd /src\n"
         # test-tool, GIT-BUILD-OPTIONS and templates/blt: for git's own tests
-        # (app/test/git).
+        # (packages/runtime/test/git).
         f"make -s -j$(nproc) {UNAME} git {' '.join(SCRIPTS)} t/helper/test-tool GIT-BUILD-OPTIONS >/dev/null\n"
         "make -s -C templates >/dev/null\n"
         f"chown -R {os.getuid()}:{os.getgid()} /src /zlib-src /zlib /wasi\n"

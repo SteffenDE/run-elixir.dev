@@ -7,7 +7,7 @@ sed's release built with wasi-sdk in Docker over tools/wasi-compat/
 (tools/wasi-compat/autoconf.py, as grep's and diffutils' are). Its `e` command
 and `s///e` run sh -c through popen: stubs.c's, a process of the
 playground's host's (the `processes` imports,
-app/src/runtime/processes.ts). Without ACLs or SELinux (WASI has
+packages/runtime/src/processes.ts). Without ACLs or SELinux (WASI has
 neither); config.site answers what configure cannot learn here.
 """
 

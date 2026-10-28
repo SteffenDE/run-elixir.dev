@@ -256,7 +256,7 @@ OTP's and Elixir's from the site manifest.
    - `build.py` prints the files and sizes of each image, the layers'
      files by package, and the runtime's and the site manifest's paths.
 
-## The Node harness (`src/runtime/node.ts`)
+## The Node harness (`packages/runtime/src/node.ts`)
 
 `node node.mjs SITE ERL-ARGS…` runs the site's node under Node as the
 browser's worker does (`beam/run.ts`), without a browser. It runs bundled

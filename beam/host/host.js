@@ -1,5 +1,5 @@
 // wasm_host.c's side: hard links through the mounted file system (the
-// playground's trees, app/src/runtime/beam/treefs.ts and sharedfs.ts, have
+// playground's trees, packages/runtime/src/beam/treefs.ts and sharedfs.ts, have
 // a link of their own; Emscripten's file system has none).
 addToLibrary({
   wasm_host_pid__proxy: 'sync',

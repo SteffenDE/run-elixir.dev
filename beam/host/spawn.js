@@ -1,5 +1,5 @@
 // wasm_spawn.c's side: programs for ports, run by the host
-// (Module.beamSpawn, app/src/runtime/beam/run.ts, over the playground's
+// (Module.beamSpawn, packages/runtime/src/beam/run.ts, over the playground's
 // programs), on the module's main thread (__proxy: 'sync'). When a
 // program writes or exits, the port's id goes into the C side's ring
 // (as socket.js's: control[0] written and notified, control[1] read,

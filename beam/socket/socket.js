@@ -1,5 +1,5 @@
 // prim_socket_nif.c's side in JavaScript: TCP and UDP over the
-// playground's Network (app/src/runtime/wasi/net.ts), which the host passes
+// playground's Network (packages/runtime/src/wasi/net.ts), which the host passes
 // as Module.beamNetwork. Every function runs on the module's main thread
 // (__proxy: 'sync'), where the Network lives; the C side holds its
 // socket's lock across each call.

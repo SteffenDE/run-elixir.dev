@@ -3,7 +3,7 @@
  * runs them in the playground: each library is a WASI reactor of its own
  * (nif/: its C or C++ against nif/beamos_nif.c's
  * erl_nif), in an instance beside the node, which the host keeps
- * (app/src/runtime/nif.ts, through nifs.js on the module's main thread).
+ * (packages/runtime/src/nif.ts, through nifs.js on the module's main thread).
  * Requests and answers cross as external terms:
  *
  *   {load, LoadInfo, Self}    -> {ok, Module, [{Name, Arity, Flags}], Messages}

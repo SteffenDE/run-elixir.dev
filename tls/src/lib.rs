@@ -1,4 +1,4 @@
-//! A TLS client for a Node.js process's `tls.connect` (app/src/runtime/nodejs/tls.ts):
+//! A TLS client for a Node.js process's `tls.connect` (packages/runtime/src/nodejs/tls.ts):
 //! rustls without I/O of its own. The process feeds it the bytes its socket
 //! read (`tls_feed`), writes what the program writes (`tls_write`), and sends what
 //! it gives to send (`tls_take`); what the program reads comes from `tls_read`.

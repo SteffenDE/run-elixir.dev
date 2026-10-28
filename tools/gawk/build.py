@@ -7,7 +7,7 @@ gawk's release with patches/ applied, built with wasi-sdk in Docker over
 tools/wasi-compat/ (tools/wasi-compat/autoconf.py, as sed's is). Without fork, its
 pipes (`cmd | getline`, `print | cmd`), coprocesses (`|&`) and system()
 start sh -c through wasi_spawn: a process of the playground's host's (the
-`processes` imports, app/src/runtime/processes.ts). Without dynamic
+`processes` imports, packages/runtime/src/processes.ts). Without dynamic
 extensions (WASI has no dlopen), MPFR (-M) or the persistent memory
 allocator. config.site answers what configure cannot learn here.
 """

@@ -1,7 +1,7 @@
 /*
  * The spawn driver for the Emscripten BEAM: open_port({spawn, ...}) and
  * {spawn_executable, ...} run the playground's programs (git, esbuild,
- * tailwind, make, sh, child nodes: app/src/runtime/programs.ts and the
+ * tailwind, make, sh, child nodes: packages/runtime/src/programs.ts and the
  * page's) instead of OS processes, which Emscripten has none of. Patch
  * 0018 puts this entry in place of sys_drivers.c's.
  *

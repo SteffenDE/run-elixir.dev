@@ -32,7 +32,7 @@ apex: React IDE, project storage, PGlite, Hex cache, Tailscale device
 
 A node is one Emscripten BEAM: OTP's erts built with Emscripten
 (`beam.mjs`, `beam.emu.mjs`, `beam.wasm`; [../beam/README.md](../beam/README.md)),
-loaded in a Web Worker (`src/runtime/worker/`, `src/runtime/beam/`). The
+loaded in a Web Worker (`packages/runtime/src/worker/`, `packages/runtime/src/beam/`). The
 node sees an ordinary filesystem (PROXYFS over the worker's tree), TCP,
 child processes, a clock, random bytes and a terminal.
 
@@ -69,7 +69,7 @@ child processes, a clock, random bytes and a terminal.
   compiled module reaches no worker of another site, [frames.md](frames.md)): each worker gets them with its start and builds
   its tree from the tars (tens of milliseconds), rather than fetching and
   compiling for itself.
-- **`/work`, `/tmp`, `/home`, and `/shared`** live in `src/runtime/files.ts`, a worker that runs no node
+- **`/work`, `/tmp`, `/home`, and `/shared`** live in `packages/runtime/src/files.ts`, a worker that runs no node
   and so is always free to answer. Nodes reach it synchronously: `wasi/shared.ts`
   sends each call on those paths through a SharedArrayBuffer channel and
   waits with `Atomics.wait`. The page reaches it with messages (the IDE's
@@ -89,7 +89,7 @@ child processes, a clock, random bytes and a terminal.
 2. The service worker forwards the request through the port's relay frame
    (`relay.html`) to the project's exec host. Each preview port has its own
    origin and service worker. Routes survive service-worker restarts.
-3. The bridge (`src/runtime/bridge.ts`) connects to the node listening on
+3. The bridge (`packages/runtime/src/bridge.ts`) connects to the node listening on
    that port and sends an HTTP/1.1 request. It adds cookies from the preview's
    cookie jar, including HttpOnly cookies that the bridge stores because
    service-worker responses cannot set them directly.
@@ -126,7 +126,7 @@ Hex uses a local HTTP adapter. The browser can fetch hex.pm's API
 directly, but repo.hex.pm's registry and tarballs need a proxy because
 they do not allow CORS. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
-`src/runtime/fetcher.ts`, which answers each request with a `fetch()`
+`packages/runtime/src/fetcher.ts`, which answers each request with a `fetch()`
 (`src/project/lib/hex.ts`):
 
 - `/repo/…` goes to the site's own proxy at `/hex/` (`serve.py`, Caddy in

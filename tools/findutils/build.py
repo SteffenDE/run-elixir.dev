@@ -1,6 +1,6 @@
 """GNU findutils' find built to WebAssembly (wasm32-wasip1): the shell's
 find (docs/tools.md). Its xargs is not taken: the shell's is
-app/src/runtime/utilities.ts's; nor locate.
+packages/runtime/src/utilities.ts's; nor locate.
 
     python3 -I tools/findutils/build.py   # → target/findutils/find.wasm
 
