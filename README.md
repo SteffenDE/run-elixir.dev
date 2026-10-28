@@ -31,3 +31,10 @@ PORT=8181 tests/run.sh --project=chromium
 Open `http://playground.localhost:8081/`. The separate usercontent domain
 is required to run projects. See [the documentation index](docs/README.md)
 for architecture, setup, and feature details.
+
+## License
+
+The playground's code is under the Apache License 2.0 ([LICENSE](LICENSE),
+[NOTICE](NOTICE)). What the site serves bundles third-party software under
+its own licenses: [docs/licenses.md](docs/licenses.md), and `/licenses/`
+on the site.

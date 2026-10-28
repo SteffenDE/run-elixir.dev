@@ -1,0 +1,11 @@
+Elixir Playground (run-elixir.dev)
+Copyright 2026 The Elixir Playground Authors
+
+Licensed under the Apache License, Version 2.0 (LICENSE), except where a
+file or directory says otherwise: tools/wasi-compat/ is MIT (its LICENSE),
+and the patches to third-party code (beam/patches/, brush/patches/,
+tools/*/patches/) are under the license of the code they patch.
+
+What the site serves bundles third-party software under its own licenses.
+Each package lists it in NOTICE.md and licenses/, and the site's
+/licenses/ page lists everything a deploy serves (docs/licenses.md).
