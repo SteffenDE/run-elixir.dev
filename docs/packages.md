@@ -276,7 +276,8 @@ which `build.py` writes and the IDE turns into plugins
   "boot": {
     "base": "../boot/8736843503d5/",
     "images": ["boot", "boot-phoenix"],
-    "packages": { "@elixir-playground/otp-29.1.2": "1.0.0", "…": "…" }
+    "packages": { "@elixir-playground/otp-29.1.2": "1.0.0", "…": "…" },
+    "layers": { "@elixir-playground/otp-29.1.2": "4c1a…", "…": "…" }
   }
 }
 ```
@@ -284,7 +285,7 @@ which `build.py` writes and the IDE turns into plugins
 - **`base`** is relative to the manifest's URL. `create()`'s manifest
   takes each package's `base` below the usercontent domain's root.
 - **`boot`** names the recordings, and the exact versions they were made
-  with.
+  with: the packages' (`packages`) and their fs layers' (`layers`).
 
 The site has no NIF libraries: `make` asks the backend for each, naming
 OTP's `nifAbi` ([nif.md](nif.md)).
@@ -313,7 +314,9 @@ A mismatch fails with `ERUNTIME`. It checks:
 - Elixir's `requires.otp` against OTP's version. OTP's four-part versions
   such as `26.2.5.3` are compared on their first three parts;
 - the template's `otp` and `elixir` against the installed ones;
-- the boot recordings' packages at exactly the installed versions;
+- the boot recordings' packages at exactly the installed versions, and
+  their fs layers at exactly the installed layers' versions (`layers`: a
+  package's version may stay while its files change);
 - OTP's NIF ABI against the layers the runtime loads (`provides.nif`).
 
 `build.py` checks each module's imports when it lays out a package. Every

@@ -83,12 +83,20 @@ export function checkSite(site: SiteManifest, host: Host = HOST): string[] {
     if (!/^\/[^/]/.test(layer.root) || /\/$|\/\.\.?(\/|$)/.test(layer.root))
       problems.push(`${name}@${entry.version}'s files have no absolute root: ${layer.root}`);
   }
-  // The boot images were recorded with exactly these packages.
+  // The boot images were recorded with exactly these packages, and these
+  // files of theirs (a layer's version is its files').
   for (const [name, version] of Object.entries(site.boot?.packages ?? {}))
     if (installed(name) !== version)
       problems.push(
         `the boot images were recorded with ${name}@${version}, not ${installed(name) ?? 'none'}`,
       );
+  for (const [name, version] of Object.entries(site.boot?.layers ?? {})) {
+    const layer = site.packages[name]?.playground.fs;
+    if (layer && layer.version !== version)
+      problems.push(
+        `the boot images were recorded with ${name}'s files ${version}, not ${layer.version}`,
+      );
+  }
   const nifAbi = otp?.playground.nifAbi;
   if (nifAbi) {
     // The layer's protocol, which nif.ts speaks.

@@ -1302,9 +1302,12 @@ def main():
         write_image(os.path.join(scratch, f"{boot}.tar.gz"), eager)
     boot = os.path.join("boot", tree_digest(scratch))
     os.rename(scratch, os.path.join(out, boot))
-    # Made with exactly these packages.
+    # Made with exactly these packages, and their files (each layer's
+    # version: the package's version stays while its files change).
     made = {f"{SCOPE}/{key.format(**versions)}": PACKAGES[key]["version"] for key in layers}
-    site = write_site(out, entries, {"base": f"../{boot}/", "images": list(RECORD), "packages": made})
+    files_of = {name: entries[name]["playground"]["fs"]["version"] for name in made}
+    site = write_site(out, entries, {"base": f"../{boot}/", "images": list(RECORD), "packages": made,
+                                     "layers": files_of})
     laid = lay_runtime(out, runtime)
     name_pages(out, laid[0], site)
     prune(out, laid, site)

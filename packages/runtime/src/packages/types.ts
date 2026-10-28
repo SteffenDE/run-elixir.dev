@@ -76,11 +76,14 @@ export interface PackageEntry {
 
 // What the nodes boot from: gzipped tars of the files IEx and the Phoenix
 // server read first (NAME.tar.gz, in `base`), recorded with exactly the
-// packages in `packages`, a combination of them, not a package.
+// packages in `packages`, a combination of them, not a package: their
+// versions, and (`layers`) their fs layers' versions, which name their
+// files whatever version the package is.
 export interface Boot {
   base: string;
   images: string[];
   packages: Record<string, string>;
+  layers?: Record<string, string>;
 }
 
 export interface SiteManifest {

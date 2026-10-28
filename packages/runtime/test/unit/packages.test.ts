@@ -298,6 +298,16 @@ describe('the load-time check', () => {
     ]);
   });
 
+  it("refuses boot images recorded with another package's files, at the same version", () => {
+    const manifest = site();
+    manifest.boot!.layers = { [OTP]: manifest.packages[OTP].playground.fs!.version };
+    expect(checkSite(manifest)).toEqual([]);
+    manifest.packages[OTP].playground.fs!.version = 'o2';
+    expect(checkSite(manifest)).toEqual([
+      `the boot images were recorded with ${OTP}'s files o1, not o2`,
+    ]);
+  });
+
   it('takes another BEAM build of the same NIF ABI', () => {
     const rebuilt = site();
     rebuilt.packages[OTP].playground.beamAbi = 'b2';
