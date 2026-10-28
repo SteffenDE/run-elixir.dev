@@ -101,6 +101,14 @@ const at = (manifest = site()) =>
   new Site({ url: 'https://u.test/npm/@elixir-playground/site/site.json', manifest });
 
 describe('the site manifest', () => {
+  it('uses available recordings in the requested order, or boots entirely lazily', () => {
+    expect(at().boots(['boot-phoenix', 'missing', 'boot'])).toEqual(['boot-phoenix', 'boot']);
+    const manifest = site();
+    manifest.boot = null;
+    expect(at(manifest).boots(['boot', 'boot-phoenix'])).toEqual([]);
+    expect(checkSite(manifest)).toEqual([]);
+  });
+
   it('finds each package’s files relative to site.json', () => {
     const packages = at();
     expect(packages.beam()!.loader.href).toBe(

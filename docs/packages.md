@@ -124,7 +124,9 @@ so a lazy file is `(source, bundle)` as before.
 - **The boot recordings are not a package.** They are what IEx and the
   Phoenix server read first, recorded for an installed set: the site
   manifest's `boot`, with the packages (and versions) they were recorded
-  with. Without them every file comes lazily, and boot is slower.
+  with. Without them every file comes lazily, and boot is slower. Browser
+  startup loads only the requested images present in the manifest, so a
+  site can omit all recordings or provide only some of them.
 - **The template's build is made by a recording.** Mix records absolute
   paths, so `build.py` compiles the template again at `/work/playground`
   in the node, under the Node harness, and lays out the template package

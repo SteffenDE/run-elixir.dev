@@ -412,8 +412,8 @@ export class Node {
     // coreutils.wasm):
     // posting copies the tars at memory speed, in place of each worker
     // fetching and gunzipping them. Without, the worker fetches them itself.
-    const names = boots ?? ['boot'];
     const packages = new Site(this.site);
+    const names = packages.boots(boots ?? ['boot']);
     const files = this.files;
     const brush =
       shell || command?.[0] === 'sh' || command?.[0] === 'bash'

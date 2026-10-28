@@ -221,8 +221,11 @@ export class Site {
     if (!boot?.images.includes(image)) throw new Error(`this site has no boot image ${image}`);
     return new URL(`${image}.tar.gz`, new URL(boot.base, this.url));
   }
-  boots(): string[] {
-    return this.manifest.boot?.images ?? [];
+  // Recordings are optional: keep the requested order, loading only
+  // images this site provides. Everything else comes from lazy bundles.
+  boots(requested?: readonly string[]): string[] {
+    const available = this.manifest.boot?.images ?? [];
+    return requested ? requested.filter((name) => available.includes(name)) : available;
   }
 
   // What a project's kept changes were made over: the layers' versions,

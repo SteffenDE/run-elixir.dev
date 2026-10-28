@@ -38,7 +38,8 @@ async function filesWorker(records: KeptRecord[] = []) {
         boot: null,
       },
     },
-    boots: [],
+    // No recordings, even though a Phoenix setup asks for both.
+    boots: ['boot', 'boot-phoenix'],
     sharedPort: {},
     doorbell: new SharedArrayBuffer(4),
   });

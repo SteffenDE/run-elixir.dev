@@ -280,7 +280,7 @@ onmessage = async ({
     pagePrograms = [],
     tty = [true, true],
     cwd: start = '/work',
-    boots = ['boot'],
+    boots: requestedBoots = ['boot'],
     images: tars,
     manifest: listed,
     brush: shellModule,
@@ -290,6 +290,7 @@ onmessage = async ({
 }: MessageEvent<Start>) => {
   setSite(siteRef);
   const packages = artifacts();
+  const boots = packages.boots(requestedBoots);
   try {
     say('status', 'Loading OTP and Elixir…');
     // The emulator (beam.mjs) loads itself as a node starts.

@@ -770,7 +770,7 @@ onmessage = async ({ data }) => {
       // template's (an embedder's app: docs/embed.md), their mtimes kept.
       const {
         site,
-        boots = ['boot'],
+        boots: requestedBoots = ['boot'],
         template: given = [],
         archive = null,
         store = null,
@@ -787,6 +787,7 @@ onmessage = async ({ data }) => {
         sharedPort?: MessagePort | null;
       } = data;
       const packages = new Site(site);
+      const boots = packages.boots(requestedBoots);
       const [images, manifest, version, archived] = await Promise.all([
         Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
         packages.tree(),
