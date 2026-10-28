@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vitest';
 
-const html = readFileSync(new URL('../../root/relay.html', import.meta.url), 'utf8');
+const html = readFileSync(new URL('../../public/root/relay.html', import.meta.url), 'utf8');
 const source = html.match(/<script type="module">([\s\S]*?)<\/script>/)![1];
 const run = new Function('navigator', 'location', `return (async () => {${source}})();`);
 const runtime = '/npm/@elixir-playground/runtime@1.0.0+abcdef/';

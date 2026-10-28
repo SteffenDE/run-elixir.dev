@@ -569,7 +569,7 @@ def prebuilt():
 def page(out):
     """The workspace's Vite builds: the apex's pages and assets (app/dist)
     into `out` (the site's root), with the runtime package's service worker
-    and its /relay.html bootstrap; the runtime package's scripts and
+    and its /relay.html bootstrap (its root/); the runtime package's scripts and
     frames (packages/runtime/dist), whose directory it answers; and the
     Node harness into NODE."""
     source = os.path.join(ROOT, "app")
@@ -584,9 +584,9 @@ def page(out):
     runtime = os.path.join(package, "dist")
     # One service worker for the site's every version, at the root for its
     # scope (docs/packages.md: its protocol), and the bootstrap that
-    # updates it before a package's relay.
-    shutil.move(os.path.join(runtime, "sw.js"), os.path.join(out, "sw.js"))
-    shutil.copy(os.path.join(package, "root", "relay.html"), os.path.join(out, "relay.html"))
+    # updates it before a package's relay: the runtime package's root/.
+    for name in ("sw.js", "relay.html"):
+        shutil.copy(os.path.join(runtime, "root", name), os.path.join(out, name))
     shutil.rmtree(NODE, ignore_errors=True)
     shutil.copytree(os.path.join(package, "dist-node"), NODE)
     # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
@@ -1065,7 +1065,13 @@ def lay_runtime(out, runtime):
                         f"{SCOPE}/pglite": major(pglite_source["version"])}
         standard, _ = lay(out, "standard", STANDARD_VERSION, {"index.js": index, "index.d.ts": declarations}, {}, {},
                           fields={**module, "dependencies": dependencies}, licensed=(notices.own(), {}))
-    return [f"/{path}/" for path in (directory, api, pglite, standard)]
+    # The Vite plugin that lays out a site's usercontent domain (Node's, not
+    # the browser's: tsc's output, declarations beside it).
+    vite_source = source("vite")
+    vite, _ = lay(out, "vite", vite_source["version"],
+                  {name: os.path.join(ROOT, "packages", "vite", "dist", name) for name in ("index.js", "index.d.ts")},
+                  {}, vite_source["peerDependencies"], fields=module, licensed=(notices.own(), {}))
+    return [f"/{path}/" for path in (directory, api, pglite, standard, vite)]
 
 
 # The preset's own version, and what @elixir-playground/standard installs
