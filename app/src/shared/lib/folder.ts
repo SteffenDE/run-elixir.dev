@@ -5,7 +5,7 @@
 // What the folder's .gitignore files ignore stays behind too.
 import { HIDDEN } from '@/project/lib/store';
 import { Ignores } from './gitignore';
-import { fileEntry, type Shared } from './share';
+import { fileEntry, type Shared } from '@elixir-playground/runtime/lib/share';
 
 // What a project may start with, past what is left out: it is read into
 // memory, kept in IndexedDB until the project starts, and then in the tree.

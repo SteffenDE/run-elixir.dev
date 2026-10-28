@@ -54,7 +54,7 @@ Its build instructions and measurements do not describe the current runtime.
 | [git.md](git.md) | Git commands, diffs, repository imports, GitHub push and planned account support. |
 | [tools.md](tools.md) | GNU sed, grep, diffutils, gawk, and findutils: builds, compatibility limits, and Git test results. |
 | [history.md](history.md) | Proposal for automatic file and database history; not implemented. |
-| [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
+| [runtime.md](runtime.md) | `packages/runtime/src`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
 | [../beam/README.md](../beam/README.md) | The runtime: OTP's own emulator built with Emscripten, its patches, build, benchmarks, how it runs in the playground. |
 | [tailscale.md](tailscale.md) | Tailnet setup, project permissions, network access and shared ports. |
 | [relay.md](relay.md) | HTTPS relay: allowed hosts, consent, protocol and resource limits. |

@@ -1,6 +1,6 @@
 import { RiArrowRightLine } from '@remixicon/react';
 import { useEffect } from 'react';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // A project this browser does not have (`project`), or an address that is
 // no project's (a path, or a name under either domain, site.ts): the way

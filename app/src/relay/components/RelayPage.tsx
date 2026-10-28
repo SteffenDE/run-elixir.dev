@@ -1,7 +1,7 @@
 import { RiArrowLeftLine, RiArrowRightLine } from '@remixicon/react';
 import { useEffect } from 'react';
 import list from '../../../../backend/priv/relay/hosts.json';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 import { TailscaleIcon } from '@/tailscale/components/TailscaleButton';
 
 // /relay on the apex: what the site's TCP relay is (docs/relay.md), which

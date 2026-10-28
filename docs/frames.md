@@ -104,7 +104,7 @@ result once per version for all projects, on a separate origin. The apex
 does not store or execute Claude Code.
 
 - **Frame creation:** when a project first runs `claude`,
-  `programs/claude/frame.ts` creates an invisible iframe at
+  `packages/api/src/claudeFrame.ts` creates an invisible iframe at
   `claude.USERCONTENT/RUNTIME/claude.html`, using the same approach as the exec
   frame. `frames/claude.ts` starts the worker in
   `programs/claude/worker.ts` and forwards ports received from the IDE.

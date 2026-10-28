@@ -15,7 +15,7 @@ connection metadata, but does not decrypt application traffic.
 The main implementation is in `backend/lib/playground/relay.ex`,
 `backend/lib/playground/relay/` and
 `backend/lib/playground_web/relay_socket.ex`. The browser transport is
-`app/src/runtime/relay.ts`; `app/src/exec/host.ts` selects the route and
+`packages/runtime/src/relay.ts`; `packages/runtime/src/exec/host.ts` selects the route and
 `app/src/relay/client.ts` manages consent on the apex.
 
 ## Which way a connection goes
@@ -65,7 +65,7 @@ continues to use `/git/` for cloning and fetching.
 Tests cover the backend relay and socket, browser transport, consent and
 end-to-end connections. See `backend/test/playground/relay*`,
 `backend/test/playground_web/relay_socket_test.exs`,
-`app/test/unit/relay*.test.ts` and `app/test/e2e/relay.spec.ts`.
+`packages/runtime/test/unit/relay*.test.ts`, `app/test/unit/relay-consent.test.ts` and `app/test/e2e/relay.spec.ts`.
 The browser integration tests require the backend at `BACKEND`
 (default `http://localhost:4000`) and skip if it is unavailable.
 

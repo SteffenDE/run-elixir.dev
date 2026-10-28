@@ -8,22 +8,22 @@
 // API's calls, and the IDE's own over the sandbox's port (sandbox.exec).
 import { Terminal } from '@xterm/xterm';
 import { EditStateManager } from '@pierre/diffs/edit';
-import type { ExecEvents } from '@/exec/host';
-import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
-import type { Connection, NifBuild } from '@/runtime/host/node';
-import type { GitOptions, GitOutput } from '@/runtime/host/git';
-import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
-import { PortConnection } from '@/runtime/portConnection';
-import { REPORT } from '@/runtime/terminal';
+import type { ExecEvents } from '@elixir-playground/runtime/exec/host';
+import type { Entry, SearchQuery, SearchResult } from '@elixir-playground/runtime/host/files';
+import type { Connection, NifBuild } from '@elixir-playground/runtime/host/node';
+import type { GitOptions, GitOutput } from '@elixir-playground/runtime/host/git';
+import { open as openStore, serveStore, sharedRecords } from '@elixir-playground/runtime/overlay';
+import { PortConnection } from '@elixir-playground/runtime/portConnection';
+import { REPORT } from '@elixir-playground/runtime/terminal';
 import { sitePackages } from '@/shared/lib/build';
-import type { Rpc } from '@/shared/lib/rpc';
-import { create, type Process, type Sandbox } from '@/api';
-import { PGLITE_PLUGIN, pglite, type PgliteInstance } from '@/api/pglite';
+import type { Rpc } from '@elixir-playground/runtime/lib/rpc';
+import { create, type Process, type Sandbox } from '@elixir-playground/api';
+import { PGLITE_PLUGIN, pglite, type PgliteInstance } from '@elixir-playground/pglite';
 import { tailscale } from '@/tailscale/plugin';
 import { connectTailscale, IEX, setTailnetProject, tailscaleBlocked } from '@/tailscale/client';
 import { relayWay, setRelayProject } from '@/relay/client';
-import { relayed } from '@/runtime/relay';
-import { previewOrigins, usercontentDomain } from '@/shared/lib/site';
+import { relayed } from '@elixir-playground/runtime/relay';
+import { previewOrigins, usercontentDomain } from '@elixir-playground/runtime/lib/site';
 import {
   closePopup,
   onPreviewMessage,
@@ -38,18 +38,18 @@ import { baseline, clone } from '@/project/lib/git';
 import { repositoryLabel } from '@/shared/lib/repository';
 import { filesChanged as changesHeard, watchChanges } from '@/project/lib/review';
 import { SHARED_STORE } from '@/shared/lib/storage';
-import type { KeptRecord } from '@/runtime/overlay';
+import type { KeptRecord } from '@elixir-playground/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
 import { applied, loadSettings, SETTINGS_CHANNEL, type Applied } from '@/shared/lib/settings';
 import { guestMayType, useLive } from '@/live/lib/store';
 import { askTrust } from './trust';
-import type { Shared } from '@/shared/lib/share';
+import type { Shared } from '@elixir-playground/runtime/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { setWorkspace, type Workspace } from './workspace';
-import { previewRelay } from './previewOrigins';
+import { previewRelay } from '@elixir-playground/api/previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
-import { setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
+import { setup as setupOf, type Setup, type WorkspaceKind } from '@elixir-playground/runtime/kinds';
 
 type Output = (text: string) => void;
 

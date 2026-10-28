@@ -11,7 +11,7 @@ import { RepositoryImport } from '@/home/components/RepositoryImport';
 import { KindChip } from '@/shared/components/KindChip';
 import { moveAllFormerStores } from '@/shared/lib/migrate';
 import { listProjects, type Project } from '@/shared/lib/projects';
-import { projectUrl } from '@/shared/lib/site';
+import { projectUrl } from '@elixir-playground/runtime/lib/site';
 import { whenReleased } from '@/shared/lib/lock';
 import { deleteProject, openProjects } from '@/shared/lib/storage';
 import { stopActive, useActive } from '@/project/lib/active';

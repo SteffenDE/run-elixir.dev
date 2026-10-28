@@ -20,7 +20,7 @@ import {
 } from '@/shared/lib/folder';
 import { navigate } from '@/shared/lib/navigate';
 import { importProject } from '@/shared/lib/projects';
-import { projectUrl } from '@/shared/lib/site';
+import { projectUrl } from '@elixir-playground/runtime/lib/site';
 
 const size = (bytes: number) =>
   bytes < 1024

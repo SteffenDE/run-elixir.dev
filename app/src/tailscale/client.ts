@@ -10,13 +10,21 @@
 // (TailscalePage).
 import { create } from 'zustand';
 import { guestMayType, useLive } from '@/live/lib/store';
-import { failure, NXDOMAIN, questionName } from '@/runtime/dns';
-import type { Connection } from '@/runtime/host/node';
-import { trace } from '@/runtime/trace';
+import { failure, NXDOMAIN, questionName } from '@elixir-playground/runtime/dns';
+import type { Connection } from '@elixir-playground/runtime/host/node';
+import { trace } from '@elixir-playground/runtime/trace';
 import { siteManifest } from '@/shared/lib/build';
-import { Site } from '@/runtime/packages/manifest';
-import { SHARE_LOCK } from './protocol';
-import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
+import { Site } from '@elixir-playground/runtime/packages/manifest';
+import { SHARE_LOCK } from '@elixir-playground/runtime/tailnet/protocol';
+import type {
+  Action,
+  Exposure,
+  Piece,
+  Proto,
+  Reply,
+  Request,
+  Status,
+} from '@elixir-playground/runtime/tailnet/protocol';
 
 // The setup hint (TailscaleDialog) was dismissed: in the apex's storage,
 // so it shows once in this browser, whichever project needed it.

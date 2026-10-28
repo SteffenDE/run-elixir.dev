@@ -104,7 +104,7 @@ See [runtime.md](runtime.md#the-preview-swjs-bridgets) for protocol details.
 ## The database
 
 Postgrex connects to `localhost:5432`. That port is served on the page:
-`src/runtime/postgres.ts` hands whole wire-protocol messages to PGlite's
+`packages/pglite/src/postgres.ts` hands whole wire-protocol messages to PGlite's
 `execProtocolRaw`. PGlite is a single session, so a pool's connections take
 turns: one that leaves the session in a transaction, or between a Parse and
 its Sync, holds it until a ReadyForQuery says idle, and the others wait

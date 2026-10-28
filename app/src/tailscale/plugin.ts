@@ -2,7 +2,7 @@
 // installs: docs/tailscale.md): the exec frame's tailnet calls, answered by
 // this page's Tailscale node as the user lets each project use it
 // (client.ts).
-import type { ApexPlugin } from '@/api/types';
+import type { ApexPlugin } from '@elixir-playground/api/types';
 import { tailnetDial, tailnetResolve } from './client';
 
 export const tailscale: ApexPlugin = {

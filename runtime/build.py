@@ -48,7 +48,7 @@ across builds. Beside the packages:
   as a project starts;
 - playground.json: the apex and the usercontent domain,
   PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
-  (app/src/shared/lib/site.ts, docs/frames.md), and the other sites whose
+  (packages/runtime/src/lib/site.ts, docs/frames.md), and the other sites whose
   pages may run projects on the usercontent domain, PLAYGROUND_EMBEDDERS
   (docs/api.md);
 - sw.js, one for the site's every version (docs/packages.md: its
@@ -567,11 +567,13 @@ def prebuilt():
 
 
 def page(out):
-    """The app's Vite builds: the apex's pages and assets and the service
-    worker into `out` (the site's root); the runtime package's scripts and
-    frames, whose directory it answers (and dist-api/, the JavaScript
-    packages, beside it); and the Node harness into NODE."""
+    """The workspace's Vite builds: the apex's pages and assets (app/dist)
+    into `out` (the site's root), with the runtime package's service worker
+    and its /relay.html bootstrap; the runtime package's scripts and
+    frames (packages/runtime/dist), whose directory it answers; and the
+    Node harness into NODE."""
     source = os.path.join(ROOT, "app")
+    package = os.path.join(ROOT, "packages", "runtime")
     vite_build(ROOT)
     # What an earlier build left at the root: its assets and scripts.
     shutil.rmtree(os.path.join(out, "_playground"), ignore_errors=True)
@@ -579,14 +581,16 @@ def page(out):
         if name.endswith((".js", ".html")):
             os.remove(os.path.join(out, name))
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
-    runtime = os.path.join(source, "dist-runtime")
+    runtime = os.path.join(package, "dist")
     # One service worker for the site's every version, at the root for its
-    # scope (docs/packages.md: its protocol).
+    # scope (docs/packages.md: its protocol), and the bootstrap that
+    # updates it before a package's relay.
     shutil.move(os.path.join(runtime, "sw.js"), os.path.join(out, "sw.js"))
+    shutil.copy(os.path.join(package, "root", "relay.html"), os.path.join(out, "relay.html"))
     shutil.rmtree(NODE, ignore_errors=True)
-    shutil.copytree(os.path.join(source, "dist-node"), NODE)
+    shutil.copytree(os.path.join(package, "dist-node"), NODE)
     # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
-    # app/src/shared/lib/site.ts).
+    # packages/runtime/src/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
     # And the domain whose subdomains run what a project's code does
     # (PLAYGROUND_USERCONTENT, another site; docs/frames.md).
@@ -630,8 +634,8 @@ def runtime_versions():
 # an ABI break, its minor a new capability, its patch a rebuild or a fix.
 SCOPE = "@elixir-playground"
 # The runtime's own version and the ABI seams it speaks, which its
-# JavaScript checks a site against (app/src/runtime/packages/check.ts).
-HOST = os.path.join(ROOT, "app", "src", "runtime", "packages", "host.json")
+# JavaScript checks a site against (packages/runtime/src/packages/check.ts).
+HOST = os.path.join(ROOT, "packages", "runtime", "src", "packages", "host.json")
 # The tools in coreutils.wasm (uutils 0.12.0's feat_wasm: `coreutils --list`).
 COREUTILS_TOOLS = (
     "arch b2sum base32 base64 basename basenc cat cksum comm cp csplit cut date dd dir "
@@ -808,7 +812,7 @@ def file_entry(path):
 
 def claude_code():
     """The Claude Code version the playground pins (CLAUDE_CODE in the app)."""
-    path = os.path.join(ROOT, "app", "src", "project", "lib", "programs", "claude", "build.ts")
+    path = os.path.join(ROOT, "packages", "runtime", "src", "programs", "claude", "build.ts")
     with open(path) as f:
         return re.search(r"CLAUDE_CODE = \{\s*version: '([^']+)'", f.read()).group(1)
 
@@ -997,10 +1001,11 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
 
 
 def lay_runtime(out, runtime):
-    """The runtime package (the Vite build's dist-runtime: its scripts and
-    frames) and the JavaScript packages an embedder installs (dist-api/:
-    api, pglite; and standard, a preset of the tools and pglite); their
-    paths, the runtime's first."""
+    """The runtime package (packages/runtime/dist: its scripts and
+    frames) and the JavaScript packages an embedder installs
+    (packages/api/dist, packages/pglite/dist, each at its package.json's
+    version; and standard, a preset of the tools and pglite); their paths,
+    the runtime's first."""
     with open(HOST) as f:
         host = json.load(f)
     name = host["name"].split("/")[1]
@@ -1011,16 +1016,18 @@ def lay_runtime(out, runtime):
     runtime_licensed = notices.own().extend(notices.npm("runtime")).extend(notices.npm("frames"))
     directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {},
                        licensed=(runtime_licensed, {}))
-    built = os.path.join(ROOT, "app", "dist-api")
     module = {"type": "module", "exports": {".": "./index.js", "./package.json": "./package.json"}}
-    api, _ = lay(out, "api", API_VERSION, {"index.js": os.path.join(built, "api", "index.js")}, {},
+    source = lambda key: json.load(open(os.path.join(ROOT, "packages", key, "package.json")))
+    built = lambda key: {"index.js": os.path.join(ROOT, "packages", key, "dist", "index.js")}
+    api_version = source("api")["version"]
+    api, _ = lay(out, "api", api_version, built("api"), {},
                  {host["name"]: major(host["version"])}, fields=module,
                  licensed=(notices.own().extend(notices.npm("api")), {}))
     # PGlite itself is the embedder's install, which its bundler lays out.
-    with open(os.path.join(ROOT, "app", "package.json")) as f:
-        pglite_version = json.load(f)["dependencies"]["@electric-sql/pglite"]
-    pglite, _ = lay(out, "pglite", API_VERSION, {"index.js": os.path.join(built, "pglite", "index.js")}, {},
-                    {f"{SCOPE}/api": major(API_VERSION)},
+    pglite_source = source("pglite")
+    pglite_version = pglite_source["dependencies"]["@electric-sql/pglite"]
+    pglite, _ = lay(out, "pglite", pglite_source["version"], built("pglite"), {},
+                    {f"{SCOPE}/api": major(api_version)},
                     fields={**module, "dependencies": {"@electric-sql/pglite": pglite_version}},
                     licensed=(notices.own().extend(notices.npm("pglite")), {}))
     # The preset: an array of the packages and plugins it names.
@@ -1034,15 +1041,15 @@ def lay_runtime(out, runtime):
             f.write(f"import pglite from '{SCOPE}/pglite';\n\n")
             f.write(f"export default [{', '.join(identifier(key) for key in tools)}, pglite()];\n")
         dependencies = {**{f"{SCOPE}/{key}": major(version) for key, version in tools.items()},
-                        f"{SCOPE}/pglite": major(API_VERSION)}
-        standard, _ = lay(out, "standard", API_VERSION, {"index.js": index}, {}, {},
+                        f"{SCOPE}/pglite": major(pglite_source["version"])}
+        standard, _ = lay(out, "standard", STANDARD_VERSION, {"index.js": index}, {}, {},
                           fields={**module, "dependencies": dependencies}, licensed=(notices.own(), {}))
     return [f"/{path}/" for path in (directory, api, pglite, standard)]
 
 
-# The JavaScript packages' version (app/src/api).
-API_VERSION = "1.0.0"
-# What @elixir-playground/standard installs besides pglite.
+# The preset's own version, and what @elixir-playground/standard installs
+# besides pglite (packages/api and packages/pglite name their own).
+STANDARD_VERSION = "1.0.0"
 STANDARD = ("shell", "git", "gnu-tools", "ripgrep", "tls")
 identifier = lambda key: re.sub(r"-(.)", lambda m: m.group(1).upper(), key)
 
@@ -1108,7 +1115,7 @@ def sources(wasm):
     """Where each package's files are here, by name (PACKAGES' files)."""
     return {**{f"{name}.wasm": path for name, path in wasm.items()},
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
-            # process's tls.rootCertificates (app/src/runtime/nodejs/tls.ts).
+            # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),

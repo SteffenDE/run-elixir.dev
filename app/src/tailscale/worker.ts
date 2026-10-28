@@ -10,8 +10,21 @@
 // signed out since), or when the Tailscale page asks; before that its
 // WebAssembly (about 30 MB) is not loaded. Two builds' pages make two
 // workers (a worker is its script's URL); a lock lets one run the node.
-import { CONTROL_URL, HOSTNAME, SHARE_LOCK, TAG } from './protocol';
-import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
+import {
+  CONTROL_URL,
+  HOSTNAME,
+  SHARE_LOCK,
+  TAG,
+} from '@elixir-playground/runtime/tailnet/protocol';
+import type {
+  Action,
+  Exposure,
+  Piece,
+  Proto,
+  Reply,
+  Request,
+  Status,
+} from '@elixir-playground/runtime/tailnet/protocol';
 
 interface Go {
   importObject: WebAssembly.Imports;

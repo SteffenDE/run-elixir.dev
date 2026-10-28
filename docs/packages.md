@@ -107,7 +107,7 @@ What is still not where it belongs:
   it.
 
 The repository's packages are all `1.0.0` (`PACKAGES` and `API_VERSION`
-in `build.py`; `app/src/runtime/packages/host.json` for the runtime). The
+in `build.py`; `packages/runtime/src/packages/host.json` for the runtime). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
@@ -276,7 +276,7 @@ npm's peer dependencies choose a compatible set at install time. A
 lockfile can still hold a set that does not fit, for example after
 `--force` or `--legacy-peer-deps`, or with a hand-written descriptor.
 So `create()` checks the manifest before any frame starts, and the exec
-frame checks it again as it starts (`app/src/runtime/packages/check.ts`).
+frame checks it again as it starts (`packages/runtime/src/packages/check.ts`).
 A mismatch fails with `ERUNTIME`. It checks:
 
 - the manifest version is one the runtime reads (`provides.manifest`);
@@ -549,7 +549,7 @@ sessions (`/socket`).
 - **The process API's version.** It is not numbered. `api` peer-depends
   on `runtime`'s major, so a break between them is a `runtime` major.
 - **Types.** The packages ship no `.d.ts` yet; `api`'s would come from
-  `app/src/api/types.ts`.
+  `packages/api/src/types.ts`.
 - **Support window length** for `sw.js` protocols, and whether a major also
   needs a new usercontent host level for the claude frame's cache.
 
@@ -580,7 +580,7 @@ As of 2026-10-28:
   `files.js`, the IDE's git, Node.js's TLS, the Tailscale worker (and Go's
   glue), the template list, `create()` and the Node harness all find
   their files through it
-  (`app/src/runtime/packages/manifest.ts`). The program registry
+  (`packages/runtime/src/packages/manifest.ts`). The program registry
   (`coreutils.ts` `REGISTRY`) is the packages' `programs`.
 - **The frames are the runtime package's** (`vite.frames.config.ts`):
   their own build, with a relative base, sharing nothing with the IDE.
@@ -599,7 +599,7 @@ As of 2026-10-28:
   the `embedders` as their parent.
 - **Descriptors and the JavaScript packages:** every published artifact
   package's `index.js`; `api`, `pglite` and `standard`
-  (`vite.api.config.ts`, `build.py` `lay_runtime`).
+  (`packages/api`, `packages/pglite`, `build.py` `lay_runtime`).
   `phoenix-template` and `tailscale` are `"private"`; the Tailscale
   worker is the app's.
 - **The deploy** (`deploy/upload.sh`, `deploy/server/playground-deploy`):

@@ -1,5 +1,5 @@
-import { newId } from '@/shared/lib/ids';
-import { previewOrigin } from '@/shared/lib/site';
+import { newId } from '@elixir-playground/runtime/lib/ids';
+import { previewOrigin } from '@elixir-playground/runtime/lib/site';
 
 // The IDE and a popped-out preview (preview.html) talk over this channel.
 export type PreviewMessage =

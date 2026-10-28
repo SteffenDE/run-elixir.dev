@@ -1,0 +1,21 @@
+{
+  "name": "@elixir-playground/api",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "create(): run an Elixir project from a page (docs/api.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*"
+  }
+}

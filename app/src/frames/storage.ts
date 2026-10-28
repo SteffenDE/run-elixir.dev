@@ -7,7 +7,7 @@
 // lets the frame through to the network (its other frames' it answers).
 import { copyDatabase, deleteDatabase } from '@/shared/lib/idbCopy';
 import { serve } from '@/shared/lib/frames';
-import { apexOrigin, formerProject, loadSite } from '@/shared/lib/site';
+import { apexOrigin, formerProject, loadSite } from '@elixir-playground/runtime/lib/site';
 import { filesStore, pgliteName } from '@/shared/lib/storage';
 
 await loadSite();

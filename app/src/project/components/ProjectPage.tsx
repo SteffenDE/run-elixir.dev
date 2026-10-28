@@ -29,7 +29,7 @@ import { NifBuildDialog } from '@/project/components/NifBuildDialog';
 import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
-import { setup } from '@/project/lib/kinds';
+import { setup } from '@elixir-playground/runtime/kinds';
 import { beginStart, hasBegun, start } from '@/project/lib/playground';
 import { workspace as current } from '@/project/lib/workspace';
 import { closePopup } from '@/project/lib/previewChannel';
@@ -37,7 +37,7 @@ import { useStore } from '@/project/lib/store';
 import { NarrowWorkspace } from '@/project/components/NarrowWorkspace';
 import { useNarrow } from '@/shared/lib/narrow';
 import type { Project } from '@/shared/lib/projects';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // Panels and their usual sizes (percent).
 type FilePanels = [PanelImperativeHandle | null, number][];

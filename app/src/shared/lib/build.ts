@@ -1,25 +1,19 @@
-import type { PackageDescriptor } from '@/api/types';
-import { loadManifest, type Boot, type SiteRef } from '@/runtime/packages/manifest';
+import type { PackageDescriptor } from '@elixir-playground/api/types';
+import {
+  loadManifest,
+  type Boot,
+  type SiteRef,
+} from '@elixir-playground/runtime/packages/manifest';
 
-// What this page's build runs with, as runtime/build.py names it in each
-// page: <meta name="playground-runtime">, the runtime package's path
-// (/npm/@elixir-playground/runtime@VERSION/: the workers, the frames'
-// pages), and <meta name="playground-site">, the site manifest's
-// (/site/ID.json, docs/packages.md: the other packages, and where their
-// files are). Both are immutable, so a page loaded before a deploy keeps
-// loading its own build's files, never a newer one's. A page that runs a
-// project through the API without them names the runtime itself
-// (create()'s `runtime`).
+// The site manifest this page's build runs with, as runtime/build.py
+// names it in each page: <meta name="playground-site"> (/site/ID.json,
+// docs/packages.md: the packages, and where their files are). It is
+// immutable, so a page loaded before a deploy keeps loading its own
+// build's files, never a newer one's. The runtime package's path is the
+// API's (api/runtimePath.ts).
 const meta = (name: string) =>
   document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content;
 export const SITE = meta('playground-site') ?? '/site.json';
-
-let runtime = meta('playground-runtime') ?? '/';
-// The runtime package's path on the usercontent domain (and the apex's).
-export const runtimePath = () => runtime;
-export function setRuntimePath(path: string): void {
-  runtime = path.endsWith('/') ? path : `${path}/`;
-}
 
 let site: Promise<SiteRef> | null = null;
 export function siteManifest(): Promise<SiteRef> {

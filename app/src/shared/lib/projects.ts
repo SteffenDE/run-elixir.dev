@@ -2,16 +2,17 @@
 // files and its database are stores of their own, named after its id
 // (storage.ts), so deleting a project deletes them whole.
 import Dexie, { type Table } from 'dexie';
-import { newId } from './ids';
+import { newId } from '@elixir-playground/runtime/lib/ids';
 import { randomName } from './names';
 import type { Repository } from './repository';
-import type { Shared } from './share';
+import type { Shared } from '@elixir-playground/runtime/lib/share';
 import { siteTemplate, type Template } from './templates';
 
 // phoenix: the phx.new template, its server and PGlite; empty: an empty
 // /work. A temporary IEx is an empty project that is not stored.
-export type Kind = 'phoenix' | 'empty';
-export type WorkspaceKind = Kind | 'iex';
+import type { Kind } from '@elixir-playground/runtime/kinds';
+
+export type { Kind, WorkspaceKind } from '@elixir-playground/runtime/kinds';
 export type Origin = 'link' | 'fork' | 'repository';
 
 // Presets seed ordinary project settings; runtime startup reads the
@@ -92,7 +93,7 @@ class Database extends Dexie {
 export const database = new Database();
 
 // A project's id (ids.ts).
-export { isId, newId } from './ids';
+export { isId, newId } from '@elixir-playground/runtime/lib/ids';
 
 export async function createProject(
   kind: Kind,

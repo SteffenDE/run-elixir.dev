@@ -114,7 +114,7 @@ of `tools/` (`build.py`, `patches/`, `config.site`), beside
 
 ## Measured by git's suite
 
-`npm run test:git` (`app/test/git`, [git.md](git.md#tests)) runs git's own
+`npm run test:git -w packages/runtime` (`packages/runtime/test/git`, [git.md](git.md#tests)) runs git's own
 `t/` with what the playground lacks borrowed from the host, and counts
 it per script (`Machine.hosted`: perl, getconf, gpg, …). The host's
 `find` there was bfs, not GNU's. Each tool, once built, joins the harness's resolver (as

@@ -116,7 +116,7 @@ target/site/
     tailscale@…/               tailscale.wasm (29.3 MB, 6.8 MB gzipped); not published
     claude@…/                  the Claude Code range tested (package.json)
     api@…/, pglite@…/          index.js: create() (api.md) and the pglite plugin, one ES
-                                 module each (vite.api.config.ts)
+                                 module each (packages/api, packages/pglite)
     standard@…/                index.js: the preset of shell, git, gnu-tools, ripgrep, tls
                                  and pglite
   boot/ID/                   the recordings: boot.tar.gz (what IEx reads first),
@@ -136,7 +136,7 @@ lists its files (`[path, size, mtime, bundle]`) and `fs/bundles/N.tar`
 holds them, uncompressed tars of up to 512 KB of one directory's files.
 The runtime merges the layers into one tree and numbers their bundles
 one after another (`Site.tree`, `Site.bundle`,
-`app/src/runtime/packages/manifest.ts`).
+`packages/runtime/src/packages/manifest.ts`).
 
 Every path but the pages', `sw.js`'s and `playground.json`'s is
 immutable: a package's directory is named by a
@@ -178,18 +178,21 @@ OTP's and Elixir's from the site manifest.
 
 ## Steps
 
-1. **Vite build.** `npm ci && npm run build` in `app`, in Docker:
-   `tsc --noEmit`; the apex's pages (`vite.config.ts`) into `dist/`, which
-   goes to the site's root; the runtime's scripts (`vite.runtime.config.ts`:
-   `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
-   names, the pages start them by URL, and `sw.js`, which goes to
-   the root) and the usercontent domain's frames (`vite.frames.config.ts`:
-   `exec.html`, `relay.html`, `claude.html`, with a relative base, sharing
-   nothing with the IDE) into `dist-runtime/`, the runtime package;
-   the JavaScript packages (`vite.api.config.ts`: `api` and `pglite`,
-   one module each, into `dist-api/`);
-   with `--mode node`, the Node harness (`node.ts` and `beam-node.ts`, as
-   `.mjs`) into `dist-node/`, which goes to `target/node`. NIF libraries
+1. **Vite build.** `npm ci && npm run build` at the root (the npm
+   workspace: `packages/*`, then `app`), in Docker:
+   - `packages/runtime`: the runtime's scripts (`vite.runtime.config.ts`:
+     `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
+     names, the pages start them by URL, and `sw.js`, which goes to the
+     root with `root/relay.html`, the bootstrap) and the usercontent
+     domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
+     `claude.html`, with a relative base) into `dist/`, the runtime
+     package; with `--mode node`, the Node harness (`node.ts` and
+     `beam-node.ts`, as `.mjs`) into `dist-node/`, which goes to
+     `target/node`;
+   - `packages/api` and `packages/pglite`: one ES module each into
+     `dist/index.js` (their `vite.config.ts`);
+   - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
+     `dist/`, which goes to the site's root. NIF libraries
    are the backend's ([nif.md](nif.md)): the site has none.
 2. **The BEAM.** `beam/build.sh release` with `OPT=-O2` into
    `out/beam-wasm/site`; its `beam*` files go into the OTP package, its

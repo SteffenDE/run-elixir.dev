@@ -1,6 +1,6 @@
 import { RiCheckLine, RiFileCopyLine } from '@remixicon/react';
 import { useState, type ReactNode } from 'react';
-import { TAG } from '@/tailscale/protocol';
+import { TAG } from '@elixir-playground/runtime/tailnet/protocol';
 
 // What the user adds to the tailnet's policy file: the tag, which its
 // members may give a device, and a grant that lets the tag use exit nodes

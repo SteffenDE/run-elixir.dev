@@ -9,7 +9,7 @@
 // else the relay once allowed; else, unless refused, the user is asked
 // (RelayDialog).
 import { create } from 'zustand';
-import { relayed } from '@/runtime/relay';
+import { relayed } from '@elixir-playground/runtime/relay';
 import { decide, offForGuests, useTailscale } from '@/tailscale/client';
 
 // Which projects (by id; the temporary IEx is `iex`) may use the relay,

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { whenReleased } from '@/shared/lib/lock';
 import type { Project } from '@/shared/lib/projects';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // The project runs in another tab: open it here instead (that tab keeps
 // its changes and stops), or go back. `moved`: this tab ran it until

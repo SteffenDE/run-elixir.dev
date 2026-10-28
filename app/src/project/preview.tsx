@@ -5,7 +5,7 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { PreviewFrame } from '@/project/components/PreviewFrame';
 import { dropFramesOnLeave } from '@/shared/lib/leave';
-import { loadSite } from '@/shared/lib/site';
+import { loadSite } from '@elixir-playground/runtime/lib/site';
 import {
   previewChannel,
   previewOriginOf,

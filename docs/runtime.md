@@ -4,7 +4,7 @@ status: live
 last_updated: 2026-10-27
 ---
 
-# The runtime (`app/src/runtime`)
+# The runtime (`packages/runtime/src`)
 
 The TypeScript runtime connects browser workers, the BEAM, WASI tools,
 project files, and preview traffic. It shares the app's type, lint, and
@@ -524,7 +524,7 @@ outputs, on another port) and each is kept from the IDE's origin and
 from the others':
 
 - the IDE has a hidden `relay.html` frame (the runtime package's) on each port's origin
-  (`project/lib/previewOrigins.ts`, made as a server listens there); its
+  (`packages/api/src/previewOrigins.ts`, made as a server listens there); its
   page (`frames/relay.ts`) registers that origin's service worker, is its
   host, and passes the preview's requests and WebSockets to the IDE on a
   MessagePort, with the port and the origin's cookies (its jar,

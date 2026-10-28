@@ -16,11 +16,10 @@
   "include": [
     "src",
     "test",
+    "../packages/*/src/**/*.d.ts",
     "vite.config.ts",
-    "vite.runtime.config.ts",
-    "vite.frames.config.ts",
     "vite.api.config.ts",
-    "vite-licenses.ts",
+    "../vite-licenses.ts",
     "playwright.config.ts",
     "vitest.config.ts"
   ]

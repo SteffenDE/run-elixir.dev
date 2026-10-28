@@ -17,7 +17,7 @@ restricted [TCP relay](relay.md) for allowed hosts. General outbound TCP,
 UDP, and DNS require Tailscale.
 
 Implementation: `tailscale/` builds the client, `app/src/tailscale/`
-hosts the device and permissions, and `app/src/runtime/https.ts` and
+hosts the device and permissions, and `packages/runtime/src/https.ts` and
 `dns.ts` route project requests. Browser coverage is in
 `tailscale.spec.ts` and `sockets.spec.ts`.
 

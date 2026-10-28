@@ -6,7 +6,7 @@ last_updated: 2026-10-28
 
 # The API: running a project from a page
 
-`create()` (the `@elixir-playground/api` package, `app/src/api/`) runs an
+`create()` (the `@elixir-playground/api` package, `packages/api/`) runs an
 Elixir project from the page that calls it. The playground's IDE runs
 every project through it, and another site's page can do the same.
 
@@ -146,7 +146,7 @@ project starts. It passes:
   (`tailscale/plugin.ts`);
 - `relay`, as a function that asks the user (`relay/client.ts`
   `relayWay`);
-- options of its own (`PlaygroundOptions` in `api/sandbox.ts`, not a
+- options of its own (`PlaygroundOptions` in `packages/api/src/sandbox.ts`, not a
   stable interface): `kind: 'iex'` for a temporary IEx, the `/shared`
   store's port, an abort signal, and `connected`, which gets the exec
   frame's port before the files start.

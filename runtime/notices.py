@@ -3,7 +3,7 @@ the site's licenses page, for runtime/build.py.
 
 Each package's inventory is put together here from what built its files:
 the tools' (target/NAME/licenses, tools/licenses.py), the Vite builds'
-(app/dist-licenses/NAME.json, app/vite-licenses.ts), OTP's sources and
+(dist-licenses/NAME.json, vite-licenses.ts), OTP's sources and
 build (out/beam-wasm), the releases of Elixir, Hex, phx_new and rebar3,
 and the template's dependencies. lay() writes it into the package:
 licenses/ (index.json and the texts), NOTICE.md, LICENSE when the
@@ -64,8 +64,8 @@ NPM_LICENSES = {"Remix Icon License 1.0": "LicenseRef-Remix-Icon-1.0"}
 
 
 def npm(name):
-    """What a Vite build bundled from node_modules (app/dist-licenses/NAME.json)."""
-    path = os.path.join(ROOT, "app", "dist-licenses", f"{name}.json")
+    """What a Vite build bundled from node_modules (dist-licenses/NAME.json, vite-licenses.ts)."""
+    path = os.path.join(ROOT, "dist-licenses", f"{name}.json")
     with open(path) as f:
         listed = json.load(f)
     inventory = licenses.Inventory()

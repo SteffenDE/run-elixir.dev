@@ -12,8 +12,8 @@ import { People } from '@/live/components/People';
 import type { HostProject } from '@/live/lib/host';
 import { useLive } from '@/live/lib/store';
 import { shareable } from '@/project/lib/playground';
-import { encodeShared } from '@/shared/lib/share';
-import { apexUrl } from '@/shared/lib/site';
+import { encodeShared } from '@elixir-playground/runtime/lib/share';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 interface Link {
   url: string;

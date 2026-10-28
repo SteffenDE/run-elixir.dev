@@ -1,7 +1,7 @@
 import { RiErrorWarningLine, RiHome5Line, RiRestartLine } from '@remixicon/react';
 import { useLayoutEffect, useRef } from 'react';
 import { useStore } from '@/project/lib/store';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // Why the project could not start, in a modal dialog in the top layer
 // (the bar is too narrow for a stack, and easy to miss). It can be closed

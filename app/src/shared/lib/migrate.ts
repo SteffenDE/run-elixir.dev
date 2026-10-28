@@ -6,7 +6,7 @@
 // layout finds nothing there.
 import { close, call } from './frames';
 import { restoreDatabase, type DatabaseCopy } from './idbCopy';
-import { formerStorage } from './site';
+import { formerStorage } from '@elixir-playground/runtime/lib/site';
 
 const MOVED = 'playground-moved';
 

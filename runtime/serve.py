@@ -1,8 +1,8 @@
 """Serve the playground site (build.py's output) on http://localhost:8080
 with the cross-origin isolation SharedArrayBuffer needs, index.html for
 paths that are no file (a project's /ID/), Hex's repository at /hex/
-(repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
-clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
+(repo.hex.pm sends no CORS headers; packages/runtime/src/hex.ts) and git
+clones at /git/HOST/ (packages/runtime/src/programs/git.ts), as Caddy
 does in production; and the backend's NIF builds at /api/v1/nif/ and its
 sockets at /socket (live sessions' relay, docs/collaboration.md) and
 /relay (the TCP relay, docs/relay.md), from
@@ -18,7 +18,7 @@ With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
 machine, and each is a site of its own), /playground.json names the apex,
 which has every page, and the domain whose subdomains run what a
-project's code does (app/src/shared/lib/site.ts, docs/frames.md),
+project's code does (packages/runtime/src/lib/site.ts, docs/frames.md),
 whatever the build says. The usercontent domain's hosts are framed by the
 apex's pages from another site (Cross-Origin-Resource-Policy:
 cross-origin) and open no window of their own isolated; the apex's former
@@ -268,7 +268,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 rest = (module.group(2) or "").lstrip("/") or "index.js"
                 return os.path.join(found, rest) if found else os.path.join(EMBEDDER_ROOT, relative)
             if relative.startswith("node_modules/@electric-sql/pglite/"):
-                return os.path.join(ROOT, "app", relative)
+                return os.path.join(ROOT, relative)
             return os.path.join(EMBEDDER_ROOT, relative or "index.html")
         # A package's published path: the directory build.py laid it out in.
         published = re.match(r"^npm/@elixir-playground/([^/@]+)@([0-9.]+)(/.*)?$", relative)

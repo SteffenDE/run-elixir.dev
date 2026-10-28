@@ -4,8 +4,8 @@ import { follow } from '@/live/lib/follow';
 import { fork, leaveSession } from '@/live/lib/guest';
 import { useLive } from '@/live/lib/store';
 import { importProject } from '@/shared/lib/projects';
-import type { Shared } from '@/shared/lib/share';
-import { apexUrl, projectUrl } from '@/shared/lib/site';
+import type { Shared } from '@elixir-playground/runtime/lib/share';
+import { apexUrl, projectUrl } from '@elixir-playground/runtime/lib/site';
 import { People } from './People';
 
 // A fork becomes a project of this browser's, in the apex's list (the

@@ -1,9 +1,9 @@
 // Where a project keeps its state, all named after its id, and the lock
 // its page holds while it runs it.
 import { removeProject } from './projects';
-import { filesStore, pgliteName, projectLock } from './stores';
+import { filesStore, pgliteName, projectLock } from '@elixir-playground/api/stores';
 
-export * from './stores';
+export * from '@elixir-playground/api/stores';
 
 function deleteDatabase(name: string): Promise<void> {
   return new Promise((resolve, reject) => {

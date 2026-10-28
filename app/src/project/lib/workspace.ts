@@ -1,4 +1,4 @@
-import type { SearchQuery, SearchResult } from '@/runtime/host/files';
+import type { SearchQuery, SearchResult } from '@elixir-playground/runtime/host/files';
 
 // What the IDE's components do to a project, wherever it runs: the nodes
 // in this page (playground.ts), or a live session's host, for a guest

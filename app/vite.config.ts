@@ -1,6 +1,6 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
-import { licenses } from './vite-licenses.ts';
+import { licenses } from '../vite-licenses.ts';
 
 // The apex's bundles (docs/licenses.md: the site's licenses page lists them).
 const bundled = licenses('apex');
@@ -31,8 +31,9 @@ export default defineConfig({
       },
     },
   },
-  // The relay's host list is the backend's (runtime/relay.ts).
-  server: { fs: { allow: ['.', '../backend/priv/relay/hosts.json'] } },
+  // The workspace's packages, and the relay's host list, the backend's
+  // (packages/runtime/src/relay.ts).
+  server: { fs: { allow: ['.', '../packages', '../backend/priv/relay/hosts.json'] } },
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
   worker: { format: 'es', plugins: bundled.worker },
 });

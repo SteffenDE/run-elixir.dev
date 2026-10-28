@@ -3,13 +3,11 @@
 // build) and what it is. A project notes the template it was made from,
 // so a project made from another one can say so.
 import type { Kind } from './projects';
+import type { Template } from '@elixir-playground/runtime/lib/share';
 import { siteManifest } from './build';
-import { Site } from '@/runtime/packages/manifest';
+import { Site } from '@elixir-playground/runtime/packages/manifest';
 
-export interface Template {
-  id: string;
-  label: string;
-}
+export type { Template };
 
 export function siteTemplate(kind: Kind): Promise<Template | null> {
   return siteManifest()

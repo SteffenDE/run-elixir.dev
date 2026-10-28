@@ -1,7 +1,7 @@
 import { RiArrowRightLine } from '@remixicon/react';
 import { useLayoutEffect, useRef } from 'react';
 import { decideRelay, exitNodeReady, useRelay } from '@/relay/client';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 import { useTailscale } from '@/tailscale/client';
 import { TailscaleIcon } from '@/tailscale/components/TailscaleButton';
 

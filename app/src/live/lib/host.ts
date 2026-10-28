@@ -16,14 +16,14 @@ import {
 } from '@/project/lib/playground';
 import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import type { WorkspaceKind } from '@/shared/lib/projects';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 import type { Template } from '@/shared/lib/templates';
 import { fragment, newKeys, randomId, storedKeys, utf8, type StoredKeys } from './crypto';
 import { PROTOCOL, Peer, type Message, type Received } from './peer';
 import { startFollowing } from './follow';
 import { setActiveSender, setCursorSender } from './presence';
-import type { SearchQuery } from '@/runtime/host/files';
-import type { Link } from '@/runtime/host/node';
+import type { SearchQuery } from '@elixir-playground/runtime/host/files';
+import type { Link } from '@elixir-playground/runtime/host/node';
 import type { Joined } from './relay';
 import {
   REMOTE,
