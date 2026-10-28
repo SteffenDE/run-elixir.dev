@@ -80,6 +80,18 @@ class Deterministic(unittest.TestCase):
             self.assertEqual(sorted(names), ["opt/otp/29.1.2/bin/run", "opt/otp/29.1.2/lib/app/ebin/a.beam",
                                              "opt/otp/29.1.2/lib/app/ebin/b.beam"])
 
+    def test_layer_version_ignores_mix_records(self):
+        # Paths below a layer's root (fs format 3): _build/ is at the start.
+        with tempfile.TemporaryDirectory() as a:
+            source = Path(a) / "x"
+            source.write_bytes(b"x")
+            record = Path(a) / "record"
+            record.write_bytes(b"1")
+            files = [("lib/app.ex", str(source)), ("_build/dev/lib/app/.mix/compile.elixir", str(record))]
+            before = build.layer_version(files)
+            record.write_bytes(b"2")
+            self.assertEqual(build.layer_version(files), before)
+
     def test_layer_version_ignores_mtimes(self):
         with tempfile.TemporaryDirectory() as a, tempfile.TemporaryDirectory() as b:
             self.assertEqual(build.layer_version(tree(a, 1_700_000_000)), build.layer_version(tree(b, 1_800_000_000)))

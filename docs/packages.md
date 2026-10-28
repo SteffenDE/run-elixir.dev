@@ -555,7 +555,14 @@ As of 2026-10-28:
   `site/ID.json`. The site ships no NIF libraries (2026-10-28): the
   backend builds them all. `b/ID/` and `r/RID/` are
   gone. `build.py app` lays every package out again over a full build's
-  fs layers and recordings; with nothing changed, the same names.
+  fs layers and recordings; with nothing changed, the same names. A full
+  build (checked twice in a row, 2026-10-28) gives every package the same
+  name but `phoenix-template` and the recordings. Mix's records of the
+  recording run's compile (`_build/dev/lib/playground/.mix/`) hold the
+  time of that compile. The template's layer version leaves them out, so
+  it stays the same, and kept projects keep their builds. The template
+  compiles with `ERL_COMPILER_OPTIONS=deterministic` on the host and in
+  the recording run, so its modules are the same bytes each build.
 - **fs format 3:** a layer per package at the root the package names,
   merged by the runtime, with the package's commands (`bin`) and
   variables (`env`); the layers' versions are what kept projects were

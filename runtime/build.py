@@ -112,6 +112,9 @@ ELIXIR_APPS = ("elixir", "eex", "ex_unit", "iex", "logger", "mix")
 # takes it for a missing file.
 MTIME = 946684800
 PHX_NEW = "1.8.16"
+# The template's compiles, on the host (mix_env) and in the recording run
+# (record_args).
+COMPILER_OPTIONS = "deterministic"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
 
@@ -135,8 +138,11 @@ def record_args(boot, versions):
            "-user", "elixir", "-extra", "--no-halt", "+iex"]
     if boot == "boot":
         return iex, "/work", {}, "1 + 1\n"
+    # The app is compiled once more in the node (record), as the host's is:
+    # deterministically.
     return (iex + [f"{elixir}/bin/mix", "phx.server"], root_of("phoenix-template", versions),
-            {"HTTP": "4000/", "STOP_SERVED": "5000", "STOP_AFTER": "120000", "NO_EOF": "1"}, "")
+            {"HTTP": "4000/", "STOP_SERVED": "5000", "STOP_AFTER": "120000", "NO_EOF": "1",
+             "VM_ERL_COMPILER_OPTIONS": COMPILER_OPTIONS}, "")
 
 
 # Mozilla's CA certificates (curl.se's extract), where OTP looks for the
@@ -173,8 +179,10 @@ def installed(relative):
 
 def mix_env():
     """The environment the template is made in: the host's Elixir with its
-    own build directory."""
-    return dict(os.environ, MIX_BUILD_ROOT=BUILD)
+    own build directory, compiling deterministically (Elixir encodes its
+    type checker's chunk, ExCk, in a fixed order only then), so the same
+    sources make the same template."""
+    return dict(os.environ, MIX_BUILD_ROOT=BUILD, ERL_COMPILER_OPTIONS=COMPILER_OPTIONS)
 
 
 def host_elixir():
@@ -335,9 +343,10 @@ def configure(app):
 
 
 def compiler_stamp():
-    """The host's OTP and Elixir, which compile the template."""
+    """The host's OTP and Elixir, which compile the template, and the
+    options they compile it with."""
     versions = subprocess.run(["elixir", "--version"], capture_output=True, check=True).stdout
-    return hashlib.sha256(versions).hexdigest()
+    return hashlib.sha256(versions + COMPILER_OPTIONS.encode()).hexdigest()
 
 
 def phoenix_app():
@@ -822,7 +831,7 @@ def layer_version(files):
     a project is made over."""
     hashed = hashlib.sha256()
     for path, here in sorted(files):
-        if re.search(r"/_build/[^/]+/lib/[^/]+/\.mix/", path):
+        if re.search(r"(^|/)_build/[^/]+/lib/[^/]+/\.mix/", path):
             continue
         with open(here, "rb") as f:
             hashed.update(path.encode() + b"\0" + hashlib.sha256(f.read()).digest())
