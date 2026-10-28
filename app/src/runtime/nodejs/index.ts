@@ -27,6 +27,7 @@ import { createThreads, nodeMessageChannel, type ThreadStart } from './threads';
 import { inspect } from './util';
 import { createWasi } from './wasi';
 import { processLock, sharedClient } from '../wasi/shared';
+import type { TlsFiles } from './tls';
 
 interface Start {
   kind: 'start';
@@ -44,8 +45,8 @@ interface Start {
   rows?: number;
   stdinTty?: boolean;
   thread?: ThreadStart;
-  // The site's runtime files (tls.wasm).
-  runtime?: string;
+  // The tls package's files (tls.wasm, its roots).
+  tls?: TlsFiles | null;
   // Bun's globals too (claude/bun.ts): Claude Code's process (programs/claude/claude.ts).
   bun?: boolean;
 }
@@ -241,7 +242,7 @@ async function run(start: Start) {
   });
   const ownThreads = threads;
   const wasi = createWasi(call, (fd, bytes) => io.write(fd, bytes), proc.end);
-  net = thread ? null : createNet(post, hold, start.runtime ?? '');
+  net = thread ? null : createNet(post, hold, start.tls ?? null);
   child = thread
     ? null
     : createChildProcess(post, hold, {
@@ -273,7 +274,7 @@ async function run(start: Start) {
     wasi: () => wasi,
     threads: () => ownThreads,
     net,
-    runtime: start.runtime ?? '',
+    tls: start.tls ?? null,
     child,
   });
   loader = createLoader({

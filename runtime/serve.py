@@ -3,14 +3,16 @@ with the cross-origin isolation SharedArrayBuffer needs, index.html for
 paths that are no file (a project's /ID/), Hex's repository at /hex/
 (repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
 clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
-does in production; and the backend's NIF builds at /api/nif/ and its
+does in production; and the backend's NIF builds at /api/v1/nif/ and its
 sockets at /socket (live sessions' relay, docs/collaboration.md) and
 /relay (the TCP relay, docs/relay.md), from
 production's unless --api names another backend (http://localhost:4000,
-say).
+say). With --nif DIR, NIF builds are DIR's instead, as the backend would
+answer for them (DIR/libraries/ABI/NAME-VERSION.tar: tests/nif/build.py's
+target/test-nif), and no other is built.
 
     python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
-        [--embedders "ORIGIN ..."] [--embedder-host HOST --embedder-root DIR]
+        [--nif DIR] [--embedders "ORIGIN ..."] [--embedder-host HOST --embedder-root DIR]
 
 With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
@@ -118,7 +120,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return True
 
     # The backend's NIF builds (docs/backend.md): its answers as they are.
-    API = re.compile(r"^/api/nif/[A-Za-z0-9_]+/[A-Za-z0-9_.+-]+(/library\.tar)?$")
+    API = re.compile(r"^/api/v1/nif/[A-Za-z0-9_]+/[A-Za-z0-9_.+-]+(/library\.tar)?$")
 
     def proxy_api(self):
         if not self.API.match(self.path.split("?")[0]):
@@ -126,6 +128,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if self.cross_site():
             self.send_error(403)
             return True
+        if NIF is not None:
+            return self.nif_fixture()
         request = urllib.request.Request(API + self.path, headers={"User-Agent": "playground-serve"})
         try:
             upstream = urllib.request.urlopen(request, timeout=60)
@@ -137,6 +141,49 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         data = upstream.read()
         self.send_response(upstream.status)
         self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/octet-stream"))
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+        return True
+
+    def nif_fixture(self):
+        """What the backend answers (PlaygroundWeb.NifController), for the
+        builds in --nif's directory."""
+        path, _, query = self.path.partition("?")
+        package, version, *library = path[len("/api/v1/nif/"):].split("/")
+        tar = os.path.join(NIF, "libraries", "{abi}", f"{package}-{version}.tar")
+        if library:
+            # The page asks without ?abi=, as the backend's url has none.
+            found = [abi for abi in sorted(os.listdir(os.path.join(NIF, "libraries")))
+                     if os.path.isfile(tar.format(abi=abi))]
+            if not found:
+                return self.json(404, {"error": "not built"})
+            with open(tar.format(abi=found[-1]), "rb") as f:
+                data = f.read()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/x-tar")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+            return True
+        abi = urllib.parse.parse_qs(query).get("abi", [None])[0]
+        built = sorted(os.listdir(os.path.join(NIF, "libraries")))
+        if abi is None:
+            return self.json(400, {"error": "name the NIF ABI the page loads (?abi=)"})
+        if abi not in built:
+            return self.json(409, {"error": f"this backend builds NIF libraries for NIF ABI "
+                                            f"{', '.join(built)}, not the page's {abi}"})
+        if not os.path.isfile(tar.format(abi=abi)):
+            return self.json(422, {"package": package, "version": version, "status": "failed",
+                                   "error": f"the tests' fixtures have no build of {package} {version} "
+                                            "(tests/nif/build.py)"})
+        return self.json(200, {"package": package, "version": version, "status": "succeeded",
+                               "url": f"/api/v1/nif/{package}/{version}/library.tar"})
+
+    def json(self, status, body):
+        data = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -263,21 +310,22 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         super().end_headers()
 
 
-# A Node.js process's worker (nodejs.js) and the chunks it imports.
-NODE_SCRIPT = re.compile(r"^/b/([^/]+)/(?:nodejs\.js|chunks/[^/]+\.js)$")
+# A Node.js process's worker (the runtime package's nodejs.js) and the
+# chunks it imports.
+NODE_SCRIPT = re.compile(r"^(/npm/@elixir-playground/runtime@[^/]+)/(?:nodejs\.js|chunks/[^/]+\.js)$")
 
 
-def node_policy(origin, build):
+def node_policy(origin, runtime):
     """A Node.js process's worker's policy (docs/nodejs.md, The worker's
     policy), as Caddy sends it: its own scripts (a module worker's imports
-    are worker scripts too) and the runtime's files (/r/: tls.wasm,
-    roots.pem), eval and WebAssembly, and threads from blobs, which inherit
-    it. No other network: a script reaches other hosts only by the
-    process's messages. Its chunks carry it too, so a worker started from
-    one of them is held the same."""
-    scripts = f"{origin}/b/{build}/nodejs.js {origin}/b/{build}/chunks/"
+    are worker scripts too) and the packages' files (/npm/@elixir-playground/:
+    the tls package's tls.wasm and roots.pem), eval and WebAssembly, and
+    threads from blobs, which inherit it. No other network: a script
+    reaches other hosts only by the process's messages. Its chunks carry it
+    too, so a worker started from one of them is held the same."""
+    scripts = f"{origin}{runtime}/nodejs.js {origin}{runtime}/chunks/"
     return (f"default-src 'none'; script-src {scripts} 'unsafe-eval' 'wasm-unsafe-eval'; "
-            f"worker-src {scripts} blob:; connect-src {origin}/r/ data: blob:")
+            f"worker-src {scripts} blob:; connect-src {origin}/npm/@elixir-playground/ data: blob:")
 
 
 def site_config():
@@ -293,13 +341,14 @@ def site_config():
 
 directory = os.path.join(ROOT, "target", "site")
 args = sys.argv[1:]
-OPTIONS = ("--domain", "--usercontent", "--api", "--embedders", "--embedder-host", "--embedder-root")
+OPTIONS = ("--domain", "--usercontent", "--api", "--nif", "--embedders", "--embedder-host", "--embedder-root")
 option = lambda name: args[args.index(name) + 1] if name in args else None
 DOMAIN = option("--domain")
 USERCONTENT = option("--usercontent")
 EMBEDDERS = option("--embedders")
 EMBEDDER_HOST = option("--embedder-host")
 EMBEDDER_ROOT = os.path.abspath(option("--embedder-root") or ".")
+NIF = option("--nif") and os.path.abspath(option("--nif"))
 OVERRIDES = {key: value for key, value in (("domain", DOMAIN), ("usercontent", USERCONTENT),
                                            ("embedders", EMBEDDERS and EMBEDDERS.split()))
              if value is not None}
@@ -307,5 +356,6 @@ API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir
 args = [arg for i, arg in enumerate(args)
         if arg not in OPTIONS and (i == 0 or args[i - 1] not in OPTIONS)]
 port = int(args[0]) if args else 8080
-print(f"http://localhost:{port}/ serving {directory}, NIF builds and live sessions from {API}")
+print(f"http://localhost:{port}/ serving {directory}, NIF builds from {NIF or API}, "
+      f"live sessions from {API}")
 http.server.ThreadingHTTPServer(("", port), functools.partial(Handler, directory=directory)).serve_forever()

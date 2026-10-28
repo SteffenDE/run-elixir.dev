@@ -12,6 +12,7 @@
 // With a `store`, what changes below /work is kept (overlay.ts): written
 // a second after it changes, and laid over the template when the files
 // start again.
+import { Site, type SiteRef } from './packages/manifest';
 import {
   Dir,
   File,
@@ -768,15 +769,16 @@ onmessage = async ({ data }) => {
       // archive: a gzipped tar's URL whose directories go below /work as a
       // template's (an embedder's app: docs/embed.md), their mtimes kept.
       const {
-        runtime,
-        boots = ['boot'],
+        site,
+        boots: requestedBoots = ['boot'],
         template: given = [],
         archive = null,
         store = null,
         storePort = null,
         sharedPort = null,
       }: {
-        runtime: string;
+        // The site manifest: where the fs image is.
+        site: SiteRef;
         boots?: string[];
         template?: string[];
         archive?: string | null;
@@ -784,14 +786,12 @@ onmessage = async ({ data }) => {
         storePort?: MessagePort | null;
         sharedPort?: MessagePort | null;
       } = data;
+      const packages = new Site(site);
+      const boots = packages.boots(requestedBoots);
       const [images, manifest, version, archived] = await Promise.all([
-        Promise.all(
-          boots.map((boot) =>
-            fetch(new URL(`fs/${boot}.tar.gz`, runtime)).then((r) => r.arrayBuffer()),
-          ),
-        ),
-        fetch(new URL('fs/manifest.json', runtime)).then((r) => r.json()),
-        fetch(new URL('fs/version', runtime)).then((r) => (r.ok ? r.text() : '')),
+        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+        packages.tree(),
+        packages.fsVersion(),
         archive
           ? fetch(archive).then(async (r) => {
               if (!r.ok) throw new Error(`${archive}: ${r.status} ${r.statusText}`);
@@ -811,7 +811,7 @@ onmessage = async ({ data }) => {
         `/${path}`.startsWith('/tmp/') ||
         template.some((prefix) => `/${path}/`.startsWith(`${prefix}/`));
       mount(
-        manifest.filter(([path]: [string]) => shared(path)),
+        manifest.filter(([path]) => shared(path)),
         root,
       );
       // Gunzipped once: the nodes' workers start from these tars (the
@@ -848,7 +848,7 @@ onmessage = async ({ data }) => {
         apply(records, false, true);
         keepers.push(keeperFor(KEPT_SHARED, sharedStore, '', records, true));
       }
-      fetchFile = bundled((bundle) => fetchBundle(new URL(`fs/bundles/${bundle}.tar`, runtime)));
+      fetchFile = bundled((bundle) => fetchBundle(packages.bundle(bundle)));
       doorbell = new Int32Array(data.doorbell);
       // The boot images, gunzipped, and the manifest, for the page to start
       // nodes with; files.js keeps no tar (its files are copies).

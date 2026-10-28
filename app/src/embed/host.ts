@@ -5,17 +5,21 @@
 // port its parent gave (protocol.ts). It frames the project's exec frame
 // (exec/host.ts), keeps what is the apex's (the project's stores, PGlite,
 // Hex's cache), makes the preview's relays, gives Claude Code's files
-// (programs/claude/frame.ts), keeps each terminal's line discipline, and
-// carries connections to the ports its embedder answers.
-import type { ExecEvents, ExecStart, SpawnStart } from '@/exec/host';
+// (programs/claude/frame.ts), and carries connections to the ports its
+// embedder answers. Processes are the exec frame's (its process API,
+// which keeps a terminal's line discipline): their calls go there as they
+// are.
+import type { ExecEvents, ExecStart, ProcessStart } from '@/exec/host';
 import type { Stat as FileStat } from '@/runtime/host/files';
 import { serveStore } from '@/runtime/overlay';
-import { REPORT, lineDiscipline } from '@/runtime/terminal';
+import { fits } from '@/runtime/packages/check';
+import { listed } from '@/runtime/relay';
 import { claudePort } from '@/project/lib/programs/claude/frame';
-import { PHOENIX_APP, type WorkspaceKind } from '@/project/lib/kinds';
+import type { WorkspaceKind } from '@/project/lib/kinds';
 import { forgetRelays, previewRelay } from '@/project/lib/previewOrigins';
 import { apexServices, type ApexServices } from '@/project/lib/services';
-import { BUILD, RUNTIME } from '@/shared/lib/build';
+import { BUILD, SITE, siteManifest } from '@/shared/lib/build';
+import { Site } from '@/runtime/packages/manifest';
 import { startExecFrame } from '@/shared/lib/execFrame';
 import { isId, newId } from '@/shared/lib/ids';
 import { Rpc } from '@/shared/lib/rpc';
@@ -30,8 +34,8 @@ import {
   type DirEntry,
   type Events,
   type Hello,
+  type ProcessRequest,
   type RuntimeVersions,
-  type SpawnOptions,
   type Stat,
   type WriteOptions,
 } from './protocol';
@@ -41,12 +45,11 @@ const encoder = new TextEncoder();
 // An error with POSIX's code, as the client throws it.
 const failure = (code: string, message: string) => Object.assign(new Error(message), { code });
 
-// The runtime's OTP and Elixir (runtime/build.py's runtime.json).
-let versions: Promise<RuntimeVersions | null> | null = null;
-const runtimeVersions = () =>
-  (versions ??= fetch(new URL('runtime.json', new URL(RUNTIME, location.href)))
-    .then((response) => (response.ok ? response.json() : null))
-    .catch(() => null));
+// The runtime's OTP and Elixir: its OTP and Elixir packages' (site.json).
+const runtimeVersions = (): Promise<RuntimeVersions | null> =>
+  siteManifest()
+    .then((ref) => new Site(ref).versions())
+    .catch(() => null);
 
 // An embedder's own name for a project as a project's key (ten letters
 // and digits, its origins' name): the same name is the same key.
@@ -64,42 +67,6 @@ async function sha256(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-const quote = (word: string) =>
-  /^[\w@%+=:,./-]+$/.test(word) ? word : `'${word.replace(/'/g, `'\\''`)}'`;
-
-// A terminal's output as a tty's ONLCR has it: a newline is CR LF (the
-// nodes write bare newlines; the IDE's xterm converts them itself).
-function onlcr(): (bytes: Uint8Array) => Uint8Array {
-  let carriage = false;
-  return (bytes) => {
-    let extra = 0;
-    for (let i = 0; i < bytes.length; i++)
-      if (bytes[i] === 10 && !(i ? bytes[i - 1] === 13 : carriage)) extra++;
-    if (!extra) {
-      if (bytes.length) carriage = bytes[bytes.length - 1] === 13;
-      return bytes;
-    }
-    const out = new Uint8Array(bytes.length + extra);
-    let at = 0;
-    for (let i = 0; i < bytes.length; i++) {
-      if (bytes[i] === 10 && !(i ? bytes[i - 1] === 13 : carriage)) out[at++] = 13;
-      out[at++] = bytes[i];
-    }
-    carriage = bytes[bytes.length - 1] === 13;
-    return out;
-  };
-}
-
-// A spawned command, as embed.html keeps it: a terminal's line
-// discipline and output conversion (with a tty), and how its keys decode.
-interface Spawned {
-  tty: boolean;
-  keys?: (data: string) => void;
-  raw?: (on: boolean, signals: boolean) => void;
-  output?: (bytes: Uint8Array) => Uint8Array;
-  decoder: TextDecoder;
-}
-
 // One project per embed.html: its client's calls.
 class Sandbox {
   exec: Rpc | null = null;
@@ -108,9 +75,9 @@ class Sandbox {
   key = '';
   root = '/work';
   env: Record<string, string> = {};
-  // The embedder let the project use the site's relay (CreateOptions).
-  relayAllowed = false;
-  spawned = new Map<number, Spawned>();
+  // The hosts the embedder lets the project reach through the site's relay
+  // (CreateOptions).
+  relayHosts: string[] = [];
   served = new Set<number>();
   startup: AbortController | null = null;
 
@@ -131,35 +98,39 @@ class Sandbox {
 
   async hello(): Promise<Hello> {
     const runtime = await runtimeVersions();
-    if (!runtime) throw new Error('this site names no runtime versions (runtime.json)');
+    if (!runtime) throw new Error('this site names no OTP and Elixir packages (site.json)');
     return { apiVersion: API_VERSION, apiVersions: [API_VERSION], runtime };
   }
 
   async create(options: CreateOptions): Promise<Created> {
     if (this.exec || this.startup) throw new Error('a project runs here already');
     const runtime = await runtimeVersions();
-    const wanted = options.runtime;
-    if (!runtime || runtime.otp !== wanted?.otp || runtime.elixir !== wanted?.elixir)
+    if (!runtime) throw failure('ERUNTIME', 'this site names no OTP and Elixir packages');
+    const { otp = '*', elixir = '*' } = options.requires ?? {};
+    if (!fits(runtime.otp, otp) || !fits(runtime.elixir, elixir))
       throw failure(
         'ERUNTIME',
-        `run-elixir.dev runs OTP ${runtime?.otp ?? '?'} and Elixir ${runtime?.elixir ?? '?'}, ` +
-          `not the OTP ${wanted?.otp} and Elixir ${wanted?.elixir} asked for`,
+        `run-elixir.dev runs OTP ${runtime.otp} and Elixir ${runtime.elixir}, ` +
+          `not OTP ${otp} and Elixir ${elixir} as asked for`,
       );
+    const source = options.project;
+    if (source.persist && !source.id)
+      throw failure('EINVAL', 'a kept project needs an id (project: { id, persist: true })');
     if (!crossOriginIsolated)
       throw new Error(
         'embed.html is not cross-origin isolated: the embedding page needs COOP same-origin and ' +
           'COEP require-corp, and its frame allow="cross-origin-isolated" (docs/embed.md)',
       );
-    const source = options.project;
     // An archive's app over an empty project: its URL as the embedder's
     // page resolves it (the exec frame fetches it: CORS).
     const archive = 'archive' in source ? new URL(source.archive, this.embedder).href : null;
     const kind: WorkspaceKind =
       'template' in source && source.template === 'phoenix' ? 'phoenix' : 'empty';
     this.key = source.id ? await keyFor(source.id) : newId();
-    this.root = kind === 'phoenix' ? PHOENIX_APP : '/work';
+    // The project's directory: its template's (the package's root), else /work.
+    this.root = (await siteManifest().then((ref) => new Site(ref).template(kind)?.root)) ?? '/work';
     this.env = { ...options.env };
-    this.relayAllowed = options.relay === true;
+    this.relayHosts = [...(options.relay ?? [])];
     const origin = execOrigin(this.key);
     if (!origin) throw new Error("this site names no usercontent domain (playground.json's)");
     this.startup = new AbortController();
@@ -170,7 +141,7 @@ class Sandbox {
         this.frame = element;
       });
       this.exec = exec;
-      const persist = options.persist === true;
+      const persist = source.persist === true;
       this.services = apexServices(persist ? this.key : null, {});
       this.listen(exec);
       let store: MessagePort | null = null;
@@ -191,7 +162,7 @@ class Sandbox {
             // where it is (bridge.ts).
             ide: this.embedder,
             build: BUILD,
-            runtime: RUNTIME,
+            site: SITE,
             store,
             shared: null,
             archive,
@@ -226,18 +197,10 @@ class Sandbox {
     });
     on('changed', (paths) => this.emit('changed', paths));
     on('warning', (message) => this.emit('warning', message));
-    on('spawnOutput', ({ id, fd, bytes }) => {
-      const spawned = this.spawned.get(id);
-      const out = spawned?.output ? spawned.output(bytes) : bytes;
-      // On a terminal both are the terminal (a shell draws its prompt on
-      // stderr, as bash does).
-      this.emit('output', { id, fd: spawned?.tty ? 1 : fd, bytes: out }, [out.buffer]);
-    });
-    on('spawnTerminal', ({ id, raw, signals }) => this.spawned.get(id)?.raw?.(raw, signals));
-    on('spawnExit', ({ id, code }) => {
-      this.spawned.delete(id);
-      this.emit('exit', { id, code });
-    });
+    on('processOutput', ({ id, fd, bytes }) =>
+      this.emit('output', { id, fd, bytes }, [bytes.buffer]),
+    );
+    on('processExit', ({ id, code, signal }) => this.emit('exit', { id, code, signal }));
     exec.handle({
       connect: (service: string, node: number, id: number, port: MessagePort) => {
         const embedder = service.match(/^port:(\d+)$/);
@@ -248,8 +211,9 @@ class Sandbox {
       // No tailnet here: other hosts are unreachable, HTTPS by fetch().
       tailnetDial: () => false,
       tailnetResolve: () => Promise.reject(new Error('no tailnet')),
-      // The site's relay for its hosts, as the embedder's `relay` says.
-      relayWay: () => (this.relayAllowed ? 'relay' : 'none'),
+      // The site's relay for the hosts the embedder's `relay` names.
+      relayWay: (host: unknown) =>
+        typeof host === 'string' && listed(host, this.relayHosts) ? 'relay' : 'none',
       claudePort,
     });
   }
@@ -322,56 +286,33 @@ class Sandbox {
       await this.copy(`${from}/${entry.name}`, `${to}/${entry.name}`);
   }
 
-  // A command: a shell line or its words, as id `id` (the client's).
-  async spawn(id: number, command: string | string[] | null, options: SpawnOptions = {}) {
-    const exec = this.running();
-    const tty = options.tty ?? null;
-    const line = Array.isArray(command) ? command.map(quote).join(' ') : command;
-    const spawned: Spawned = { tty: !!tty, decoder: new TextDecoder() };
-    if (tty) {
-      const input = (text: string) => void exec.call('spawnInput', [id, encoder.encode(text)]);
-      const discipline = lineDiscipline(
-        (text) => {
-          const bytes = encoder.encode(text);
-          this.emit('output', { id, fd: 1, bytes }, [bytes.buffer]);
-        },
-        { input, interrupt: () => void exec.call('spawnKill', [id, 2]) },
-      );
-      // A terminal's own reports (the cursor's position, which brush's
-      // line editor asks for) go to the program as they are.
-      spawned.keys = (data) => (REPORT.test(data) ? input(data) : discipline.keys(data));
-      spawned.raw = (on, signals) => discipline.raw(on, signals);
-      spawned.output = onlcr();
-    }
-    this.spawned.set(id, spawned);
-    await exec.call('spawn', [
+  // A process, as id `id` (the client's): the exec frame's, with the
+  // embedder's environment.
+  async spawn(id: number, { argv, line, cwd, env, tty }: ProcessRequest) {
+    await this.running().call('spawn', [
       id,
       {
-        line,
-        cwd: options.cwd ?? this.root,
+        argv: argv ?? null,
+        line: line ?? null,
+        cwd: cwd ?? this.root,
         env: {
           // Claude Code for the Agent SDK (claude-agent-acp): the
           // playground's `claude` (docs/embed.md).
           CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
           ...this.env,
-          ...options.env,
+          ...env,
         },
-        tty,
-      } satisfies SpawnStart,
+        tty: tty ?? null,
+      } satisfies ProcessStart,
     ]);
   }
 
-  input(id: number, bytes: Uint8Array) {
-    const spawned = this.spawned.get(id);
-    if (!spawned) return;
-    if (spawned.keys) spawned.keys(spawned.decoder.decode(bytes, { stream: true }));
-    else void this.running().call('spawnInput', [id, bytes], [bytes.buffer]);
-  }
-
-  closeStdin = (id: number) => void this.exec?.call('spawnEnd', [id]);
-  kill = (id: number, signal: number) => void this.exec?.call('spawnKill', [id, signal]);
+  input = (id: number, bytes: Uint8Array) =>
+    void this.exec?.call('input', [id, bytes], [bytes.buffer]);
+  closeInput = (id: number) => void this.exec?.call('closeInput', [id]);
+  signal = (id: number, signal: number) => void this.exec?.call('signal', [id, signal]);
   resize = (id: number, cols: number, rows: number) =>
-    void this.exec?.call('spawnResize', [id, cols, rows]);
+    void this.exec?.call('resize', [id, cols, rows]);
 
   // A connection to a server the sandbox runs on `port`, over `stream`.
   async connect(port: number, stream: MessagePort) {
@@ -385,10 +326,11 @@ class Sandbox {
     await this.running().call('serveRemote', [ports]);
   }
 
-  // Where the embedder frames port `port`'s preview, once its relay is up.
-  async previewOrigin(port: number): Promise<string> {
+  // Where the embedder frames port `port`'s page at `path`, once its relay
+  // is up.
+  async previewUrl(port: number, path = '/'): Promise<string> {
     await this.relay(port);
-    return previewOrigin(this.key, port)!;
+    return new URL(path, previewOrigin(this.key, port)!).href;
   }
 
   async shutdown() {
@@ -402,7 +344,6 @@ class Sandbox {
     forgetRelays();
     await this.services?.close();
     this.services = null;
-    this.spawned.clear();
   }
 
   handlers(): Record<string, (...args: never[]) => unknown> {
@@ -418,15 +359,14 @@ class Sandbox {
       remove: (path: string) => this.remove(path),
       rename: (from: string, to: string) => this.rename(from, to),
       copy: (from: string, to: string) => this.copy(from, to),
-      spawn: (id: number, command: string | string[] | null, options?: SpawnOptions) =>
-        this.spawn(id, command, options),
+      spawn: (id: number, request: ProcessRequest) => this.spawn(id, request),
       input: (id: number, bytes: Uint8Array) => this.input(id, bytes),
-      closeStdin: (id: number) => this.closeStdin(id),
-      kill: (id: number, signal: number) => this.kill(id, signal),
+      closeInput: (id: number) => this.closeInput(id),
+      signal: (id: number, signal: number) => this.signal(id, signal),
       resize: (id: number, cols: number, rows: number) => this.resize(id, cols, rows),
       connect: (port: number, stream: MessagePort) => this.connect(port, stream),
       serve: (ports: number[]) => this.serve(ports),
-      previewOrigin: (port: number) => this.previewOrigin(port),
+      previewUrl: (port: number, path?: string) => this.previewUrl(port, path),
       shutdown: () => this.shutdown(),
     };
   }

@@ -1,10 +1,13 @@
 import { defineConfig } from 'vite';
+import { licenses } from './vite-licenses.ts';
 
 // embed.js, the client an embedder's page imports (docs/embed.md): one
 // self-contained module at the site's root, under its own name, as sw.js
 // is (runtime/build.py keeps it there): a stable URL, no chunks to share.
 export default defineConfig({
   publicDir: false,
+  // The api package's embed.js (docs/licenses.md).
+  plugins: [licenses('embed').plugin],
   resolve: {
     alias: { '@': new URL('./src', import.meta.url).pathname },
   },

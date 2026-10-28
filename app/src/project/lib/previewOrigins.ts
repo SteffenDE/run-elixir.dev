@@ -5,6 +5,7 @@
 // project (`serve`: exec.ts hands it there), whose bridge answers them from
 // that port of the app. A port's preview loads once its relay is ready.
 import { previewOrigin } from '@/shared/lib/site';
+import { BUILD } from '@/shared/lib/build';
 
 const relays = new Map<number, Promise<void>>();
 
@@ -20,7 +21,10 @@ export function previewRelay(
   if (!ready) {
     ready = new Promise<void>((resolve, reject) => {
       const frame = document.createElement('iframe');
-      frame.src = `${origin}/relay.html`;
+      // The previous worker exempts /relay.html, but would route a new
+      // package URL into the app. The bootstrap updates it before moving
+      // to this build's immutable relay.
+      frame.src = `${origin}/relay.html?runtime=${encodeURIComponent(BUILD)}`;
       frame.hidden = true;
       frame.setAttribute('aria-hidden', 'true');
       const timer = setTimeout(

@@ -12,7 +12,7 @@ import type { Net } from './net';
 import { createDns } from './dns';
 import { createReadline } from './readline';
 import { signals } from './signals';
-import { createTls } from './tls';
+import { createTls, type TlsFiles } from './tls';
 import { createZlib } from './zlib';
 import { createUtil, inspect, isDeepStrictEqual, types } from './util';
 
@@ -102,8 +102,8 @@ export function createBuiltins(deps: {
   threads: () => Record<string, unknown>;
   // node:net on the project's TCP (net.ts); a worker thread has none.
   net: Net | null;
-  // The site's runtime files (tls.wasm, tls.ts).
-  runtime: string;
+  // The tls package's files (tls.wasm, tls.ts).
+  tls: TlsFiles | null;
   // node:child_process (child.ts); a worker thread has none.
   child: ChildProcesses | null;
 }) {
@@ -395,7 +395,7 @@ export function createBuiltins(deps: {
     'timers/promises': () => createTimersPromises(timers),
     tls: () =>
       deps.net
-        ? createTls(deps.net, deps.runtime, deps.env)
+        ? createTls(deps.net, deps.tls, deps.env)
         : missing('tls', ['connect', 'createServer', 'createSecureContext'], {
             rootCertificates: [],
           }),

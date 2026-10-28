@@ -166,7 +166,7 @@ test('playground environment defaults take precedence over user and project sett
   const check = async (greeting: string) => {
     const result = await run(page, 'echo "[$HOME][$PATH][$MIX_HOME][$TARGET_ARCH][$GREETING]"');
     expect(result).toContain(
-      `[/home/user][/usr/bin:/rotp/bin:/home/user/.mix/escripts][/home/user/.mix][wasm32][${greeting}]`,
+      `[/home/user][/usr/bin:/home/user/.mix/escripts][/home/user/.mix][wasm32][${greeting}]`,
     );
     expect(await run(page, 'node -p "process.env.TARGET_ARCH"')).toContain('wasm32');
   };

@@ -6,7 +6,7 @@ defmodule PlaygroundWeb.Router do
   end
 
   # The playground's pages fetch these from their own origin, through the
-  # proxy (*.run-elixir.dev/api/nif), or from another one when developing.
+  # proxy (*.run-elixir.dev/api/v1/nif), or from another one when developing.
   pipeline :public do
     plug :put_public_headers
   end
@@ -27,7 +27,7 @@ defmodule PlaygroundWeb.Router do
     delete "/logout", AuthController, :delete
   end
 
-  scope "/api/nif", PlaygroundWeb do
+  scope "/api/v1/nif", PlaygroundWeb do
     pipe_through [:public]
 
     get "/:package/:version", NifController, :show

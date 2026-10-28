@@ -1,5 +1,5 @@
 # The app's checks without a built site (docs/testing.md): oxlint, oxfmt,
-# tsc and the unit tests (vitest, test/unit). GitHub only: Forgejo reads
+# tsc and the unit tests (vitest, test/unit), and the license logic's. GitHub only: Forgejo reads
 # .forgejo/workflows and ignores this directory.
 name: app
 
@@ -60,3 +60,35 @@ jobs:
           cache-dependency-path: app/package-lock.json
       - run: npm ci
       - run: npm test
+
+  # The license inventories' logic (tools/licenses.py, runtime/notices.py).
+  licenses:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 -I tests/licenses.py
+
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 -I tests/deploy.py
+
+  # The site build's fs layers and boot images (runtime/build.py).
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v5
+      - run: python3 -I tests/build.py

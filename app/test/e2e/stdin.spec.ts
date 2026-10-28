@@ -18,8 +18,7 @@ async function started(page: Page, line: string, ready: string | RegExp): Promis
 }
 
 // Keys typed at the terminal (its line discipline's).
-const type = (page: Page, keys: string) =>
-  page.evaluate((k) => window.playground.sessions.get(1).discipline.keys(k), keys);
+const type = (page: Page, keys: string) => page.evaluate((k) => window.playground.keys(1, k), keys);
 
 test('a Node.js process reads the terminal: lines, readline, raw keys, a pipe', async ({
   page,

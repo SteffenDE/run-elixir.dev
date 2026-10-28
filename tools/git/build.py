@@ -4,7 +4,7 @@ shell and the nodes (docs/git.md).
     python3 -I tools/git/build.py   # → target/git/git.wasm
 
 git's release with patches/ applied, and zlib, built with wasi-sdk in
-Docker (nif/build.py's image). WASI preview 1 lacks processes, users,
+Docker (backend/Dockerfile's wasi-sdk). WASI preview 1 lacks processes, users,
 modes, terminals and sockets: tools/wasi-compat/ (every C tool's) declares what
 git asks of them and stubs it (stubs.c), its processes the playground's
 host's (the `processes` imports, app/src/runtime/processes.ts:
@@ -13,6 +13,7 @@ rest.
 """
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -26,7 +27,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 COMPAT = os.path.join(ROOT, "tools", "wasi-compat")
 OUT = os.path.join(ROOT, "target", "git")
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# wasi-sdk 33 (clang 23), as nif/build.py's.
+# wasi-sdk 33 (clang 23), as the backend's NIF toolchain (backend/Dockerfile).
 IMAGE = "ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
 GIT = ("2.56.0", "https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz",
        "26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3")
@@ -61,6 +62,28 @@ def stamp():
     return hashed.hexdigest()
 
 
+def licensed(git_archive, zlib_archive):
+    """target/git/licenses (tools/licenses.py) and target/git/source: git is
+    GPL-2.0, so its source goes with it: the releases, the patches and the
+    build's files, zlib's too (git links it)."""
+    spec = importlib.util.spec_from_file_location("licenses", os.path.join(ROOT, "tools", "licenses.py"))
+    licenses = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(licenses)
+    if licenses.current(OUT, stamp()):
+        return
+    fetch(GIT[1], GIT[2], git_archive)
+    fetch(ZLIB[1], ZLIB[2], zlib_archive)
+    zlib = licenses.Inventory().add("zlib", ZLIB[0], "Zlib", "https://zlib.net",
+                                    licenses.archive_texts(zlib_archive, f"zlib-{ZLIB[0]}", ["LICENSE"]))
+    sources = {os.path.basename(git_archive): git_archive, os.path.basename(zlib_archive): zlib_archive,
+               "tools/git/build.py": os.path.join(HERE, "build.py"),
+               "tools/git/config.mak": os.path.join(HERE, "config.mak"),
+               "tools/git/patches": os.path.join(HERE, "patches"), "tools/wasi-compat": COMPAT}
+    inventory = licenses.c_tool(OUT, "git", GIT[0], "GPL-2.0-only", "https://git-scm.com", git_archive,
+                                ["COPYING", "LGPL-2.1"], sources, "tools/git/build.py", [zlib])
+    licenses.finish(inventory, OUT, stamp())
+
+
 def unpack(archive, name, into):
     shutil.rmtree(into, ignore_errors=True)
     with tarfile.open(archive) as tar:
@@ -80,12 +103,12 @@ SCRIPTS = [
 def main():
     os.makedirs(OUT, exist_ok=True)
     built = os.path.join(OUT, "stamp")
+    git_archive = os.path.join(OUT, f"git-{GIT[0]}.tar.xz")
+    zlib_archive = os.path.join(OUT, f"zlib-{ZLIB[0]}.tar.gz")
     if os.path.exists(os.path.join(OUT, "git.wasm")) and os.path.exists(built):
         with open(built) as f:
             if f.read() == stamp():
-                return
-    git_archive = os.path.join(OUT, f"git-{GIT[0]}.tar.xz")
-    zlib_archive = os.path.join(OUT, f"zlib-{ZLIB[0]}.tar.gz")
+                return licensed(git_archive, zlib_archive)
     fetch(GIT[1], GIT[2], git_archive)
     fetch(ZLIB[1], ZLIB[2], zlib_archive)
     src = os.path.join(OUT, "src")
@@ -137,6 +160,7 @@ def main():
         f.write(text)
     with open(built, "w") as f:
         f.write(stamp())
+    licensed(git_archive, zlib_archive)
     print(f"{OUT}/git.wasm: {os.path.getsize(os.path.join(OUT, 'git.wasm')) / 1e6:.1f} MB")
 
 

@@ -2,11 +2,17 @@
    Rust-OTP in the playground.
 
    A NIF library is linked with this file into a WASI reactor of its own,
-   with its own memory. The node calls it through three exports:
+   with its own memory. The node calls it through four exports:
 
+     beamos_nif_abi()        this layer's protocol (BEAMOS_NIF_ABI)
      beamos_nif_input(size)  room for a request of `size` bytes
      beamos_nif_run(size)    run the request; the answer's size
      beamos_nif_output()     where the answer is
+
+   The NIF ABI (docs/nif.md) is that protocol and the erl_nif.h it was
+   compiled with: "BEAMOS_NIF_ABI-ERL_NIF_MAJOR_VERSION.ERL_NIF_MINOR_VERSION",
+   such as 1-2.18. A change to the exports or to the terms below is a new
+   BEAMOS_NIF_ABI.
 
    Requests and answers are external terms (term_to_binary):
 
@@ -2092,6 +2098,12 @@ static size_t input_cap;
 static buffer output;
 
 void *enif_priv_data(ErlNifEnv *env) { (void)env; return priv_data; }
+
+/* The layer's protocol: the exports and the terms they exchange. */
+#define BEAMOS_NIF_ABI 1
+
+__attribute__((export_name("beamos_nif_abi")))
+int beamos_nif_abi(void) { return BEAMOS_NIF_ABI; }
 
 __attribute__((export_name("beamos_nif_input")))
 unsigned char *beamos_nif_input(size_t size) {

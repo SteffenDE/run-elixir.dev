@@ -65,25 +65,29 @@ network goes (the gateway, the tailnet's gates). The process's worker
 therefore starts from `nodejs.js`'s URL, not a blob (`programs/nodejs.ts`).
 A worker from a URL takes the `Content-Security-Policy` its script was
 served with, and `serve.py` and Caddy ([deploy.md](deploy.md#caddy))
-answer `/b/ID/nodejs.js` and `/b/ID/chunks/*.js` with:
+answer the runtime package's `nodejs.js` and `chunks/*.js`
+(`RUNTIME` below: `/npm/@elixir-playground/runtime@VERSION+ID`,
+[packages.md](packages.md)) with:
 
 ```
 default-src 'none';
-script-src  ORIGIN/b/ID/nodejs.js ORIGIN/b/ID/chunks/ 'unsafe-eval' 'wasm-unsafe-eval';
-worker-src  ORIGIN/b/ID/nodejs.js ORIGIN/b/ID/chunks/ blob:;
-connect-src ORIGIN/r/ data: blob:
+script-src  ORIGIN/RUNTIME/nodejs.js ORIGIN/RUNTIME/chunks/ 'unsafe-eval' 'wasm-unsafe-eval';
+worker-src  ORIGIN/RUNTIME/nodejs.js ORIGIN/RUNTIME/chunks/ blob:;
+connect-src ORIGIN/npm/@elixir-playground/ data: blob:
 ```
 
 - **Its own scripts in `worker-src` too:** a module worker's imports are
   fetched as worker scripts, so `worker-src blob:` alone refuses its
-  chunks. Only those paths, not `/b/`: the build's other workers
+  chunks. Only those paths, not the runtime package's: its other workers
   (`worker.js`, `files.js`, `git.js`) carry no policy, and a script that
   started one from its URL would have their network. A worker started
   from `nodejs.js` or a chunk takes the same policy from its own response.
 - **Threads** (`threads.ts`) start from blobs, which inherit the policy.
-- **`connect-src`:** the runtime's files (`tls.wasm`, `roots.pem`), and
-  `data:` and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec
-  origin also serves `/git/`, `/hex/` and `/api/nif/`.
+- **`connect-src`:** the packages' files (the tls package's `tls.wasm`
+  and `roots.pem`, whose directory the server cannot tell from the
+  runtime's path: so every package's, public and immutable), and `data:`
+  and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin also
+  serves `/git/`, `/hex/` and `/api/v1/nif/`.
 - **`'unsafe-eval'`** for the loader's CommonJS wrapper, and
   **`'wasm-unsafe-eval'`** for tls.wasm and `node:wasi`.
 

@@ -22,13 +22,15 @@ npm run lint                 # oxlint src test
 npm run format               # oxfmt src test
 ```
 
-`build.py` runs the build in Docker. Vite has seven HTML entries:
+`build.py` runs the build in Docker. The app's Vite build has four HTML
+entries, and the runtime package's three more:
 
 - `index.html`: the IDE and app routes.
 - `preview.html`: a detached preview window.
-- `exec.html`: the project runtime frame.
-- `relay.html`: a preview origin's service-worker host.
-- `claude.html`: Claude Code preparation and cache.
+- `exec.html`, `relay.html` and `claude.html` are the runtime package's
+  (`vite.frames.config.ts`, [packages.md](packages.md)): the project
+  runtime frame, a preview origin's service-worker host, and Claude Code's
+  preparation and cache.
 - `embed.html`: the runtime host for another site's IDE.
 - `storage.html`: migration from legacy project origins.
 

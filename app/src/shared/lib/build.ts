@@ -1,14 +1,19 @@
-// Where this page's build keeps its runtime, files and WebAssembly:
-// /b/ID/, which runtime/build.py names in each page's
-// <meta name="playground-build">. A page loaded before a deploy keeps
-// loading its own build's files, never a newer one's. Without it (a site
-// laid out flat), the root.
+import { loadManifest, type SiteRef } from '@/runtime/packages/manifest';
+
+// What this page's build runs with, as runtime/build.py names it in each
+// page: <meta name="playground-runtime">, the runtime package's path
+// (/npm/@elixir-playground/runtime@VERSION/: the workers, the frames'
+// pages), and <meta name="playground-site">, the site manifest's
+// (/site/ID.json, docs/packages.md: the other packages, and where their
+// files are). Both are immutable, so a page loaded before a deploy keeps
+// loading its own build's files, never a newer one's.
 const meta = (name: string) =>
   document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`)?.content;
-const id = meta('playground-build');
-export const BUILD = id ? `/b/${id}/` : '/';
-// Where its BEAM, files and NIF libraries are: /r/RID/ (<meta
-// name="playground-runtime">), which changes only with them, so a deploy
-// of the JavaScript alone leaves them cached. Without it, the build's.
-const runtime = meta('playground-runtime');
-export const RUNTIME = runtime ? `/r/${runtime}/` : BUILD;
+export const BUILD = meta('playground-runtime') ?? '/';
+export const SITE = meta('playground-site') ?? '/site.json';
+
+let site: Promise<SiteRef> | null = null;
+export function siteManifest(): Promise<SiteRef> {
+  site ??= loadManifest(new URL(SITE, location.href));
+  return site;
+}

@@ -1,7 +1,8 @@
 // The Emscripten BEAM (beam/run.ts) in Node, as the browser runs it:
 //   node node.mjs SITE [erl args...] < input
-// SITE is a site build.py made (target/site), or one of its
-// runtimes (r/RID). Standard input is read whole first and then ends.
+// SITE is a site build.py made (target/site: the manifest its index.html
+// names), or a site manifest (site/ID.json). Standard input is read whole
+// first and then ends.
 import { readFile } from 'node:fs/promises';
 import {
   existsSync,
@@ -14,8 +15,10 @@ import {
 import { Exit } from './wasi';
 import { Dir, File, untar, mount, bundled, type FsNode } from './wasi/fs';
 import { Network } from './wasi/net';
-import { ENV, prepare, programs } from './setup';
-import { pathToFileURL } from 'node:url';
+import { environment, prepare, programs } from './setup';
+import { fileURLToPath, pathToFileURL } from 'node:url';
+import { register } from './coreutils';
+import { Site, type SiteManifest } from './packages/manifest';
 import { beamArgs } from './beam/args';
 import { startBeam } from './beam/run';
 import { TreeFs } from './beam/treefs';
@@ -24,15 +27,25 @@ import { GIT_DASHED } from './git-remote';
 import { Processes, portProgram, wasmProgram } from './processes';
 
 const [site, ...args] = process.argv.slice(2);
-// A versioned site's runtime (r/RID/: the BEAM, fs/, nif/; build.py), or
-// a flat site.
-const runtimes = existsSync(`${site}/fs`) ? [] : readdirSync(`${site}/r`);
-const dir = runtimes.length ? `${site}/r/${runtimes[0]}` : site;
+// Its packages (the site manifest, build.py): the nodes' files, the BEAM,
+// the programs.
+const named = site.endsWith('.json')
+  ? null
+  : readFileSync(`${site}/index.html`, 'utf8').match(
+      /<meta name="playground-site" content="([^"]+)"/,
+    );
+const siteJson = named ? `${site}${named[1]}` : site;
+const packages = new Site({
+  url: pathToFileURL(siteJson).href,
+  manifest: JSON.parse(readFileSync(siteJson, 'utf8')) as SiteManifest,
+});
+register(packages.programs());
+const local = (url: URL | null) => (url ? fileURLToPath(url) : '');
 const t0 = performance.now();
 let t2 = Infinity;
 const root = new Dir();
 const hostFiles = new Map<string, string>();
-mount(JSON.parse(await readFile(`${dir}/fs/manifest.json`, 'utf8')), root);
+mount(await packages.tree(async (url) => JSON.parse(await readFile(local(url), 'utf8'))), root);
 // MOUNT=VFSDIR:HOSTDIR (comma-separated): a host directory's files, read
 // when first opened.
 for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
@@ -57,23 +70,19 @@ for (const pair of (process.env.MOUNT || '').split(',').filter(Boolean)) {
   };
   walk(host, '');
 }
-// BOOT=NAME,...: the boot images (fs/NAME.tar.gz) to unpack, by default
-// every one the site has.
-const boots = process.env.BOOT
-  ? process.env.BOOT.split(',')
-  : readdirSync(`${dir}/fs`)
-      .filter((name) => /^boot.*\.tar\.gz$/.test(name))
-      .map((name) => name.slice(0, -7));
+// BOOT=NAME,...: the boot images (NAME.tar.gz) to unpack, by default
+// every one the site has (none: every file comes lazily).
+const boots = process.env.BOOT ? process.env.BOOT.split(',') : packages.boots();
 let files = 0;
-for (const boot of boots) files += await untar(await readFile(`${dir}/fs/${boot}.tar.gz`), root);
+for (const boot of boots) files += await untar(await readFile(local(packages.boot(boot))), root);
 let fetched = 0;
 const recorded: string[] = [];
-prepare(root);
+prepare(root, { bin: packages.bin() });
 const t1 = performance.now();
 const input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 // Mounted host files, or the site's bundles.
 const fromBundles = bundled(
-  (bundle) => new Uint8Array(readFileSync(`${dir}/fs/bundles/${bundle}.tar`)),
+  (bundle) => new Uint8Array(readFileSync(local(packages.bundle(bundle)))),
 );
 function fetchFile(source: string, bundle: number): Uint8Array {
   fetched++;
@@ -156,7 +165,7 @@ const pump = () => {
 // harness's own work (pump) runs on a timer.
 // VM_NAME=VALUE: NAME=VALUE in the node's environment.
 const env: Record<string, string> = {
-  ...ENV,
+  ...environment(packages),
   PWD: process.env.CWD || '/work',
   ERL_INETRC: '/etc/inetrc',
   ...Object.fromEntries(
@@ -167,9 +176,9 @@ const env: Record<string, string> = {
 };
 // git itself (git.wasm), as the worker has it: a process of a table of
 // its own, its dashed programs too (git-upload-pack).
-const gitModule = existsSync(`${dir}/git.wasm`)
-  ? new WebAssembly.Module(readFileSync(`${dir}/git.wasm`))
-  : null;
+const gitPath = local(packages.programs().get('git')?.url ?? null);
+const gitModule =
+  gitPath && existsSync(gitPath) ? new WebAssembly.Module(readFileSync(gitPath)) : null;
 const processes: Processes = new Processes((program) => {
   const name = program.split('/').pop()!;
   return gitModule && (name === 'git' || GIT_DASHED.has(name))
@@ -183,20 +192,14 @@ const processes: Processes = new Processes((program) => {
     : null;
 });
 const beam = startBeam({
-  module: pathToFileURL(`${dir}/beam.mjs`).href,
-  args: beamArgs(args, env.HOME),
+  module: packages.beam()!.loader.href,
+  args: beamArgs(args, { home: env.HOME, root: packages.otp()!.root }),
   env,
   cwd: env.PWD,
   root,
   fs: new TreeFs(root, fetchFile),
   network,
-  programs: Object.assign(
-    programs(vfs(root, fetchFile), (name, version) => {
-      const path = `${dir}/nif/${name}-${version}.tar`;
-      return existsSync(path) ? new Uint8Array(readFileSync(path)) : null;
-    }),
-    { git: portProgram(processes, 'git') },
-  ),
+  programs: Object.assign(programs(vfs(root, fetchFile)), { git: portProgram(processes, 'git') }),
   tty: !!process.env.TTY,
   size: [80, 24],
   onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,

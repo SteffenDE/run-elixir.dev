@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && vite build && vite build -c vite.runtime.config.ts && vite build -c vite.embed.config.ts && vite build -c vite.runtime.config.ts --mode node",
+    "build": "tsc --noEmit && vite build && vite build -c vite.runtime.config.ts && vite build -c vite.frames.config.ts && vite build -c vite.embed.config.ts && vite build -c vite.runtime.config.ts --mode node",
     "lint": "oxlint src test",
     "format": "oxfmt src test",
     "format:check": "oxfmt --check src test",

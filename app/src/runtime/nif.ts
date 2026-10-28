@@ -1,15 +1,21 @@
 // NIF libraries for the node (/.nif, BeamOS.Nif): WebAssembly modules built
-// against nif/'s erl_nif, each in an instance of its own beside
-// the node, with its own memory. The node's WASI serves them too: while a
+// against the erl_nif layer (backend/nif/), each in an instance of its own
+// beside the node, with its own memory. The node's WASI serves them too: while a
 // library runs, the WASI calls work on its memory, so it reads the node's
 // files and environment and writes to its terminal.
 import { Exit, type WASI } from './wasi';
 import type { Syscall } from './wasi/abi';
+import host from './packages/host.json';
 
-// What a library exports (nif/'s erl_nif).
+// The erl_nif layer's protocols this loader speaks (BEAMOS_NIF_ABI in
+// backend/nif/beamos_nif.c; the NIF ABI's first part, docs/nif.md).
+const LAYERS: number[] = host.provides.nif;
+
+// What a library exports (backend/nif/'s erl_nif layer).
 interface Library {
   memory: WebAssembly.Memory;
   _initialize?: () => void;
+  beamos_nif_abi?: () => number;
   beamos_nif_input(length: number): number;
   beamos_nif_run(length: number): number;
   beamos_nif_output(): number;
@@ -69,11 +75,22 @@ export class Nifs {
   create(bytes: Uint8Array<ArrayBuffer>): Uint8Array {
     try {
       const module = new WebAssembly.Module(bytes);
+      // A library of another layer's would misread the terms: refused
+      // before it runs, saying which (none: from before it was numbered).
+      const abi = WebAssembly.Module.exports(module).some(({ name }) => name === 'beamos_nif_abi');
       const instance = new WebAssembly.Instance(module, {
         wasi_snapshot_preview1: wasiFor(module, this.wasi.imports.wasi_snapshot_preview1),
       });
       // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a library's start.
-      this.within(instance, () => (instance.exports as unknown as Library)._initialize?.());
+      const exports = instance.exports as unknown as Library;
+      const layer = abi ? exports.beamos_nif_abi!() : null;
+      if (layer === null || !LAYERS.includes(layer))
+        throw new Error(
+          `built for ${layer === null ? 'an unnumbered erl_nif layer' : `erl_nif layer ${layer}`}, ` +
+            `not ${LAYERS.join(' or ')}: build it again`,
+        );
+      // oxlint-disable-next-line no-underscore-dangle -- WASI's name for a library's start.
+      this.within(instance, () => exports._initialize?.());
       const id = this.next++;
       this.instances.set(id, instance);
       return new TextEncoder().encode(String(id));

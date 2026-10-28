@@ -988,6 +988,22 @@ button {
   margin: 0 0 28px;
 }
 
+/* The licenses page's link, in the bottom left corner. */
+.home-licenses,
+.home-licenses:visited {
+  position: fixed;
+  left: 16px;
+  bottom: 12px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-decoration: none;
+}
+.home-licenses:hover {
+  color: var(--fg);
+}
+
 .home h2 {
   margin: 28px 0 10px;
   font-size: 13px;

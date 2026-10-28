@@ -7,9 +7,9 @@ name: backend
 on:
   push:
     branches: [main]
-    paths: [backend/**, nif/**, .github/workflows/backend.yml]
+    paths: [backend/**, .github/workflows/backend.yml]
   pull_request:
-    paths: [backend/**, nif/**, .github/workflows/backend.yml]
+    paths: [backend/**, .github/workflows/backend.yml]
   workflow_dispatch:
 
 concurrency:
@@ -70,7 +70,6 @@ jobs:
       - uses: docker/build-push-action@v6
         with:
           context: backend
-          build-contexts: nif=nif
           push: false
           cache-from: type=gha,scope=backend
           cache-to: type=gha,scope=backend,mode=max

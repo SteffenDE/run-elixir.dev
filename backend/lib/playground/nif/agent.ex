@@ -650,21 +650,14 @@ defmodule Playground.Nif.Agent do
     """
   end
 
+  @lazy_html Path.expand("../../../priv/nif/recipes/lazy_html.sh", __DIR__)
+  @external_resource @lazy_html
+  @lazy_html_script @lazy_html |> File.read!() |> String.trim_trailing()
+
   @doc """
-  lazy_html's recipe: the example in the prompt, and the seed's.
+  lazy_html's recipe: the example in the prompt, and the seed's. It is
+  `priv/nif/recipes/lazy_html.sh`, which the repository's tests build
+  their lazy_html with too (tests/nif/build.py).
   """
-  def lazy_html_script do
-    """
-    sha=$(sed -n 's/^ *@lexbor_git_sha "\\([0-9a-f]*\\)".*/\\1/p' mix.exs)
-    lexbor="$SRC/_build/c/third_party/lexbor/$sha"
-    mkdir -p "$lexbor"
-    curl -fsSL "https://codeload.github.com/lexbor/lexbor/tar.gz/$sha" | tar -xz --strip-components=1 -C "$lexbor"
-    cmake -S "$lexbor" -B "$lexbor/build" -G Ninja \\
-      -DCMAKE_TOOLCHAIN_FILE=/opt/wasi-sdk/share/cmake/wasi-sdk-p1.cmake -DCMAKE_BUILD_TYPE=Release \\
-      -DLEXBOR_BUILD_SHARED=OFF -DLEXBOR_BUILD_STATIC=ON -DLEXBOR_BUILD_SEPARATELY=OFF >/dev/null
-    cmake --build "$lexbor/build" >/dev/null
-    mix deps.get --only prod >/dev/null
-    LEXBOR_GIT_SHA="$sha" FINE_INCLUDE_DIR="$SRC/deps/fine/c_include" make\
-    """
-  end
+  def lazy_html_script, do: @lazy_html_script
 end

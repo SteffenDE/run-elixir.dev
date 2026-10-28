@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # One trusted origin, and frames for what a project's code runs
@@ -24,7 +24,9 @@ are migrated when a project opens or the home page lists it.
 
 ## Previews on another site
 
-The apex's page frames `v-ID-PORT.USERCONTENT/relay.html` for every port
+The apex's page frames `v-ID-PORT.USERCONTENT/RUNTIME/relay.html` (`RUNTIME`
+the runtime package's path, `/npm/@elixir-playground/runtime@VERSION+ID`:
+[packages.md](packages.md)) for every port
 its app serves (`previewOrigins.ts`). The relay registers its origin's
 service worker and forwards requests to the exec host's bridge through
 a MessagePort supplied by the IDE. The preview's own frame then
@@ -46,7 +48,7 @@ preview, which is an apex page (`preview.html`) framing it the same way.
 
 ## The exec frame
 
-The IDE's page frames `e-ID.USERCONTENT/exec.html` (`allow="cross-origin-
+The IDE's page frames `e-ID.USERCONTENT/RUNTIME/exec.html` (`allow="cross-origin-
 isolated"`, which Chromium asks for: the nodes' threads need it). Its page
 only starts a worker (`exec/host.ts`) and hands it the port the IDE gave:
 a hidden frame's page has its timers slowed, a worker's are not. The frame
@@ -83,8 +85,10 @@ apex's stays the apex's:
   the IDE's page for each connection through the tailnet and each name;
   the page decides (the project's answer, a live session's guests) and
   hands the connection's port to that worker.
-- **The terminals.** Their screens and line disciplines are the IDE's:
-  keys are echoed and edited there, and lines go to the node.
+- **The terminals.** Their screens are the IDE's; their line
+  disciplines are the frame's, one per process on a terminal
+  (`exec/host.ts` `spawn`, the process API that `embed.html` uses too):
+  the IDE sends the keys, and the echo comes back with the output.
 - **What the IDE changes** (a save, the tree's operations) is kept before
   the frame answers: the page may go at once (a reload), and the frame
   with it. What the nodes change is kept a second later, as before.
@@ -100,7 +104,7 @@ does not store or execute Claude Code.
 
 - **Frame creation:** when a project first runs `claude`,
   `programs/claude/frame.ts` creates an invisible iframe at
-  `claude.USERCONTENT/claude.html`, using the same approach as the exec
+  `claude.USERCONTENT/RUNTIME/claude.html`, using the same approach as the exec
   frame. `frames/claude.ts` starts the worker in
   `programs/claude/worker.ts` and forwards ports received from the IDE.
   It accepts ports only from the IDE's origin.
@@ -180,7 +184,7 @@ forever.
 
 A second site in Caddy for the usercontent domain, with a wildcard
 certificate of its own, its headers, the Hex and git proxies and
-`/api/nif/` ([deploy.md](deploy.md#the-two-domains)); `PLAYGROUND_USERCONTENT`
+`/api/v1/nif/` ([deploy.md](deploy.md#the-two-domains)); `PLAYGROUND_USERCONTENT`
 in the build, `USERCONTENT` in `playground-deploy`'s configuration, which
 checks an exec frame's headers there. The apex's subdomains stay for the
 former layout's addresses until their stores have moved.

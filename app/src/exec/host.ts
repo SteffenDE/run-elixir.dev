@@ -11,11 +11,16 @@
 // A worker, not the frame's page: a hidden frame of another site has its
 // page's timers slowed to a second (WebKit, Firefox), a worker's not.
 import { Bridge } from '@/runtime/bridge';
+import { assertSite } from '@/runtime/packages/check';
+import { Site, loadManifest, type SiteRef } from '@/runtime/packages/manifest';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
 import { Git, type GitOptions } from '@/runtime/host/git';
-import { ENV } from '@/runtime/setup';
+import { environment } from '@/runtime/setup';
+import { quote } from '@/runtime/sh';
+import { SIGNALS, SIGNAL_NAMES } from '@/runtime/signals';
+import { REPORT, lineDiscipline, onlcr } from '@/runtime/terminal';
 import {
   CHUNK,
   FRAME,
@@ -65,10 +70,10 @@ export interface ExecStart {
   key: string;
   // The IDE's origin, which the preview's pages answer.
   ide: string;
-  // The site's build and runtime paths (shared/lib/build.ts), on this
-  // frame's origin as on the apex's (the same site's files).
+  // The site's build path and its manifest's (shared/lib/build.ts BUILD,
+  // SITE), on this frame's origin as on the apex's (the same site's files).
   build: string;
-  runtime: string;
+  site: string;
   // Where the files keep their changes: a port to the apex's store, or
   // none (a temporary IEx keeps nothing).
   store: MessagePort | null;
@@ -80,36 +85,34 @@ export interface ExecStart {
   archive?: string | null;
 }
 
-// A shell's start (openShell).
-export interface ShellStart {
-  initial: string[];
-  // The user's environment and the project's (settings.ts), under the
-  // playground's own.
+// A process's start (spawn): `argv` (a program and its arguments) or
+// `line` (sh -c LINE), or neither for an interactive shell that types
+// `initial` first. With `tty`, its input and output are a terminal of that
+// size, with a line discipline (echo, editing, history seeded with
+// `initial`, Ctrl+C) and ONLCR; else pipes, its stderr apart. `env` is
+// under the playground's own variables.
+export interface ProcessStart {
+  argv?: string[] | null;
+  line?: string | null;
+  initial?: string[];
+  cwd?: string;
   env?: Record<string, string>;
-}
-
-// A command embed.html spawns for its embedder (docs/embed.md): `sh -c
-// LINE` in a node of its own, or (line null) an interactive shell; with
-// `tty`, its input and output are a terminal of that size (embed.html
-// keeps its line discipline, as the IDE keeps a shell's), else pipes,
-// its stderr apart from its stdout.
-export interface SpawnStart {
-  line: string | null;
-  cwd: string;
-  env: Record<string, string>;
-  tty: { cols: number; rows: number } | null;
+  tty?: { cols: number; rows: number } | null;
 }
 
 // What the host tells the IDE (events): see the handlers below.
 export type ExecEvents = {
-  output: { id: number; bytes: Uint8Array };
-  status: { id: number; text: string };
-  terminal: { id: number; raw: boolean; signals: boolean };
+  // A process's output (fd 1, or 2 without a tty), its status while it
+  // starts (text, then 'running'), and how it ended: its exit code, or
+  // the signal that ended it.
+  processOutput: { id: number; fd: number; bytes: Uint8Array };
+  processStatus: { id: number; text: string };
+  processExit: { id: number; code: number | null; signal: string | null };
   // scripts: the ports Node.js processes serve on (programs/nodejs.ts).
   serving: {
     ports: number[];
     port: number | null;
-    byShell: Record<number, number[]>;
+    byProcess: Record<number, number[]>;
     scripts: number[];
   };
   changed: string[];
@@ -119,10 +122,6 @@ export type ExecEvents = {
   nif: NifBuild;
   // Something a node could not reach without Tailscale (the setup hint).
   blocked: string;
-  // A spawned command's output (fd 1 or 2), exit, and terminal mode.
-  spawnOutput: { id: number; fd: number; bytes: Uint8Array };
-  spawnExit: { id: number; code: number };
-  spawnTerminal: { id: number; raw: boolean; signals: boolean };
 };
 
 const PREVIEW_PORT = 4000;
@@ -140,13 +139,22 @@ let files: Files | null = null;
 let git: Git | null = null;
 let setup: Setup = setupOf('empty');
 let start: ExecStart | null = null;
+// The site's packages (site.json), checked against this runtime.
+let site: SiteRef = null!;
 let bridge: Bridge | null = null;
 let chosenPort: number | null = null;
 let serveNames = serveEpmd(new EpmdRegistry());
-// Shells by id, and every node (shells and the commands they run).
-const shells = new Map<number, Node>();
-// The commands embed.html spawned, by id, and how each ends.
-const spawns = new Map<number, { node: Node; tty: boolean; end(code: number): void }>();
+// The processes by id (spawn), and every node (theirs and the commands
+// they run).
+interface Running {
+  node: Node;
+  tty: boolean;
+  input(bytes: Uint8Array): void;
+  discipline: ReturnType<typeof lineDiscipline> | null;
+  decoder: TextDecoder;
+  end(code: number | null, signal?: string | null): void;
+}
+const processes = new Map<number, Running>();
 // The ports the apex answers for the project beyond its services (an
 // embedder's serve(): docs/embed.md), carried there as Postgres is.
 const remote = new Set<number>();
@@ -418,7 +426,7 @@ function nodeServices() {
       tailwind,
       esbuild,
       inotifywait,
-      node: nodeProgram(start!.build, () => files, scriptPorts, start!.runtime, pagePrograms),
+      node: nodeProgram(start!.build, () => files, scriptPorts, new Site(site).tls(), pagePrograms),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
       // Its files from the claude frame, through the IDE's page.
@@ -426,7 +434,7 @@ function nodeServices() {
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),
-      rebar3: rebar3Program(startNode),
+      rebar3: rebar3Program(startNode, environment(new Site(site)).MIX_REBAR3),
       ...Object.fromEntries(
         ['mix', 'elixir', 'iex', 'erl', 'escript'].map((name) => [
           name,
@@ -445,7 +453,7 @@ const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal
   }
   const node = new Node({
     base: start.build,
-    runtime: start.runtime,
+    site,
     files,
     ...nodeServices(),
     onoutput(bytes, fd) {
@@ -484,9 +492,8 @@ const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal
 
 // Which node answers a port: the one listening on it.
 function nodeOn(port: number): Node | null {
-  for (const node of shells.values()) if (node.listening.has(port)) return node;
-  for (const { node } of spawns.values()) if (node.listening.has(port)) return node;
-  return shells.values().next().value ?? null;
+  for (const { node } of processes.values()) if (node.listening.has(port)) return node;
+  return processes.values().next().value?.node ?? null;
 }
 
 // What answers a port: a Node.js process listening there, or a node.
@@ -497,18 +504,17 @@ function listenerOn(port: number): Listener {
 // The ports servers listen on, in the order they started.
 let served: number[] = [];
 
-// The ports the shells' nodes and the Node.js processes serve on, and the
+// The ports the processes' nodes and the Node.js processes serve on, and the
 // one the preview shows: Phoenix's, else the server that started last
 // (Vite's, started after the backend it proxies to). Ephemeral listeners
 // (Mix's compile lock) are no server.
 function updateListening(): void {
   const ports = new Set<number>();
-  const byShell: Record<number, number[]> = {};
-  for (const [id, node] of shells) {
-    byShell[id] = [...node.serving];
+  const byProcess: Record<number, number[]> = {};
+  for (const [id, { node }] of processes) {
+    byProcess[id] = [...node.serving];
     for (const port of node.serving) ports.add(port);
   }
-  for (const { node } of spawns.values()) for (const port of node.serving) ports.add(port);
   const fromScripts = [...scripts].filter(([, { serving }]) => serving).map(([port]) => port);
   for (const port of fromScripts) ports.add(port);
   served = served.filter((port) => ports.has(port));
@@ -518,7 +524,7 @@ function updateListening(): void {
     ? null
     : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : served.at(-1)!));
   if (bridge && port !== null) bridge.port = port;
-  rpc.emit('serving', { ports: sorted, port, byShell, scripts: fromScripts });
+  rpc.emit('serving', { ports: sorted, port, byProcess, scripts: fromScripts });
 }
 
 // Where the preview shows a port, for the app (PLAYGROUND_PREVIEW_ORIGIN),
@@ -537,18 +543,13 @@ function previewEnv(): Record<string, string> {
 // name and template).
 async function changes(hidden: string[]): Promise<Omit<Shared, 'name' | 'template'>> {
   const work = '/work';
-  const [{ changed, removed }, site] = await Promise.all([
-    running().changes(hidden),
-    fetch(new URL('fs/version', new URL(start!.runtime, location.href))).then((response) =>
-      response.text(),
-    ),
-  ]);
+  const { changed, removed } = await running().changes(hidden);
   const relative = (path: string) => path.slice(work.length + 1);
   const written = changed.filter(({ path }) => !path.includes('/priv/static/assets/'));
   return {
     v: 1,
     kind: start!.kind === 'phoenix' ? 'phoenix' : 'empty',
-    site: site.trim(),
+    site: new Site(site).fsVersion(),
     files: Object.fromEntries(written.map(({ path, data }) => [relative(path), fileEntry(data)])),
     removed: removed.map(relative),
   };
@@ -566,16 +567,24 @@ const handlers = {
     start = {
       ...options,
       build: new URL(options.build, location.origin).href,
-      runtime: new URL(options.runtime, location.origin).href,
+      site: new URL(options.site, location.origin).href,
     };
+    // The packages fit this runtime and each other, or nothing starts
+    // (ERUNTIME, docs/packages.md).
+    site = await loadManifest(start.site);
+    assertSite(site.manifest);
     setup = setupOf(options.kind);
     if (options.archive) setup = { ...setup, boots: setupOf('phoenix').boots };
     await loadSite();
     files = new Files({
       base: start.build,
-      runtime: start.runtime,
+      site,
       boots: setup.boots,
-      template: setup.template,
+      // The template's directory below /work (its package's root), if the
+      // project starts from one.
+      template: [new Site(site).template(options.kind)?.root].filter(
+        (root): root is string => !!root,
+      ),
       archive: options.archive ?? null,
       storePort: options.store,
       sharedPort: options.shared ?? null,
@@ -629,7 +638,7 @@ const handlers = {
   // git for the IDE itself (runtime/git.ts), not a node's: its output whole.
   async git(args: string[], options: GitOptions = {}) {
     if (!files || !start) throw new Error('no project');
-    git ??= new Git({ base: start.build, runtime: start.runtime, files });
+    git ??= new Git({ base: start.build, site, files });
     const result = await git.run(args, options);
     return transfer(result, [result.stdout.buffer, result.stderr.buffer]);
   },
@@ -654,110 +663,111 @@ const handlers = {
   saved: (path: string) => filesChanged([path]),
 
   // A shell (terminal tab `id`): its node, which runs the shell.
-  openShell(id: number, { initial, env = {} }: ShellStart) {
+  // A process (ProcessStart), as id `id`: the IDE's terminals and
+  // embed.html's commands alike, each a node of its own.
+  spawn(
+    id: number,
+    { argv = null, line = null, initial = [], cwd = '/work', env = {}, tty = null }: ProcessStart,
+  ) {
     if (!files || !start) throw new Error('the playground is not running');
-    const node = new Node({
-      base: start.build,
-      runtime: start.runtime,
-      files,
-      ...nodeServices(),
-      onoutput: (bytes) => rpc.emit('output', { id, bytes }),
-      onstatus: (text) => rpc.emit('status', { id, text }),
-      onlistening() {
-        updateListening();
-        updatePeers();
-      },
-      onterminal: (raw, signals) => rpc.emit('terminal', { id, raw, signals }),
-    });
-    shells.set(id, node);
-    nodes.add(node);
-    updatePeers();
-    node.start({
-      shell: true,
-      initial,
-      cwd: '/work',
-      boots: setup.boots,
-      env: { ...env, ...ENV, ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv() },
-    });
-  },
-  input: (id: number, text: string) => shells.get(id)?.input(text),
-  interrupt: (id: number) => shells.get(id)?.interrupt(),
-  terminate: (id: number) => shells.get(id)?.terminate(),
-  resize: (id: number, columns: number, rows: number) => shells.get(id)?.resize(columns, rows),
-  closeShell(id: number) {
-    const node = shells.get(id);
-    node?.stop();
-    if (node) nodes.delete(node);
-    shells.delete(id);
-    updatePeers();
-    updateListening();
-  },
-
-  // A command for embed.html's embedder (SpawnStart), as id `id`.
-  spawn(id: number, { line, cwd, env, tty }: SpawnStart) {
-    if (!files || !start) throw new Error('the playground is not running');
+    if (processes.has(id)) throw new Error(`process ${id} runs already`);
     let over = false;
-    const end = (code: number) => {
+    const end = (code: number | null, signal: string | null = null) => {
       if (over) return;
       over = true;
       node.stop();
       nodes.delete(node);
-      spawns.delete(id);
+      processes.delete(id);
       updatePeers();
       updateListening();
-      rpc.emit('spawnExit', { id, code });
+      rpc.emit('processExit', { id, code, signal });
+    };
+    // On a terminal, its output and errors are one stream, with a newline
+    // as CR LF (a tty's ONLCR), and what is typed goes through the line
+    // discipline, which echoes into that stream.
+    const toTerminal = tty ? onlcr() : null;
+    const output = (bytes: Uint8Array, fd: number) => {
+      const out = toTerminal ? toTerminal(bytes) : bytes;
+      rpc.emit('processOutput', { id, fd: tty ? 1 : fd, bytes: out }, [out.buffer]);
     };
     const node = new Node({
       base: start.build,
-      runtime: start.runtime,
+      site,
       files,
       ...nodeServices(),
-      onoutput: (bytes, fd) => rpc.emit('spawnOutput', { id, fd, bytes }, [bytes.buffer]),
+      onoutput: output,
       onstatus(text) {
+        rpc.emit('processStatus', { id, text });
         if (!text.startsWith('failed')) return;
-        rpc.emit('spawnOutput', { id, fd: 2, bytes: encoder.encode(`${text}\n`) });
+        output(encoder.encode(`${text}\n`), 2);
         end(1);
       },
-      onexit: end,
+      onexit: (code) => end(code),
       onlistening() {
         updateListening();
         updatePeers();
       },
-      onterminal: (raw, signals) => rpc.emit('spawnTerminal', { id, raw, signals }),
+      onterminal: (raw, signals) => processes.get(id)?.discipline?.raw(raw, signals),
     });
-    spawns.set(id, { node, tty: !!tty, end });
+    const input = (bytes: Uint8Array) => {
+      for (let at = 0; at < bytes.length; at += CHUNK)
+        node.frame(FRAME.INPUT, tty ? 0 : 1, bytes.subarray(at, at + CHUNK));
+    };
+    const discipline = tty
+      ? lineDiscipline(
+          (text) => output(encoder.encode(text), 1),
+          { input: (text) => input(encoder.encode(text)), interrupt: () => node.interrupt() },
+          initial,
+        )
+      : null;
+    processes.set(id, { node, tty: !!tty, input, discipline, decoder: new TextDecoder(), end });
     nodes.add(node);
     updatePeers();
     if (tty) node.resize(tty.cols, tty.rows);
+    const command = argv ? argv.map(quote).join(' ') : line;
     node.start({
-      ...(line === null ? { shell: true } : { command: ['sh', '-c', line] }),
+      ...(command === null ? { shell: true, initial } : { command: ['sh', '-c', command] }),
       cwd,
       boots: setup.boots,
-      env: { ...hexEnv, PLAYGROUND_COOKIE: COOKIE, ...previewEnv(), ...env, PWD: cwd },
+      // The caller's environment under the playground's own.
+      env: {
+        ...env,
+        ...environment(new Site(site)),
+        ...hexEnv,
+        PLAYGROUND_COOKIE: COOKIE,
+        ...previewEnv(),
+        PWD: cwd,
+      },
       tty: [!!tty, !!tty],
     });
   },
-  // Its input: a terminal's keys (as embed.html's line discipline passes
-  // them), or a pipe's bytes; and their end.
-  spawnInput(id: number, bytes: Uint8Array) {
-    const spawned = spawns.get(id);
-    if (!spawned) return;
-    for (let at = 0; at < bytes.length; at += CHUNK)
-      spawned.node.frame(FRAME.INPUT, spawned.tty ? 0 : 1, bytes.subarray(at, at + CHUNK));
+  // Its input: what a terminal typed (through its line discipline; a
+  // terminal's own reports, such as the cursor's position, as they are),
+  // or a pipe's bytes.
+  input(id: number, bytes: Uint8Array) {
+    const child = processes.get(id);
+    if (!child?.discipline) return child?.input(bytes);
+    const text = child.decoder.decode(bytes, { stream: true });
+    if (REPORT.test(text)) child.input(bytes);
+    else child.discipline.keys(text);
   },
-  spawnEnd(id: number) {
-    const spawned = spawns.get(id);
-    if (spawned?.tty) spawned.node.frame(FRAME.INPUT, 0, Uint8Array.of(4));
-    else spawned?.node.frame(FRAME.INPUT, 2);
+  // The end of its input: a terminal's Ctrl+D, or the pipe's end.
+  closeInput(id: number) {
+    const child = processes.get(id);
+    if (child?.tty) child.node.frame(FRAME.INPUT, 0, Uint8Array.of(4));
+    else child?.node.frame(FRAME.INPUT, 2);
   },
-  spawnResize: (id: number, cols: number, rows: number) => spawns.get(id)?.node.resize(cols, rows),
+  resize: (id: number, cols: number, rows: number) => processes.get(id)?.node.resize(cols, rows),
   // A signal: SIGINT is Ctrl+C's (a node's break, a program's stop);
-  // another stops it at once, its status 128 + the signal's.
-  spawnKill(id: number, signal: number) {
-    const spawned = spawns.get(id);
-    if (signal === 2) spawned?.node.interrupt();
-    else spawned?.end(128 + signal);
+  // another ends the process at once ({ code: null, signal }).
+  signal(id: number, signal: number) {
+    const child = processes.get(id);
+    if (signal === SIGNALS.SIGINT) child?.node.interrupt();
+    else child?.end(null, SIGNAL_NAMES[signal] ?? `SIG${signal}`);
   },
+  // Stop what a shell runs now at once, the shell staying (the IDE's
+  // server restart).
+  stopForeground: (id: number) => processes.get(id)?.node.terminate(),
   // The ports the apex answers (embed.html's embedder's serve()).
   serveRemote(ports: number[]) {
     remote.clear();
@@ -773,7 +783,7 @@ const handlers = {
       carry(script.listener.connect(port), through);
       return true;
     }
-    for (const node of [...shells.values(), ...[...spawns.values()].map((each) => each.node)])
+    for (const { node } of processes.values())
       if (node.serving.has(port)) {
         carry(node.connect(port), through);
         return true;
@@ -798,7 +808,7 @@ const handlers = {
   },
   debug: () => ({
     bridge: bridge?.debug(),
-    nodes: Object.fromEntries([...shells].map(([id, node]) => [id, node.debug()])),
+    nodes: Object.fromEntries([...processes].map(([id, { node }]) => [id, node.debug()])),
     commands: [...commands].map(([node, command]) => ({
       command,
       output: tails.get(node) ?? '',
@@ -812,11 +822,10 @@ const handlers = {
     await files?.flush().catch(() => {});
     for (const node of nodes) node.stop();
     nodes.clear();
-    spawns.clear();
+    processes.clear();
     remote.clear();
     scripts.clear();
     scriptUdp.clear();
-    shells.clear();
     git?.stop();
     git = null;
     files?.worker.terminate();

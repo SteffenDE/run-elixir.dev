@@ -23,16 +23,16 @@ import {
 } from '../wasi/fs';
 import { Network } from '../wasi/net';
 import { sharedClient, type Shared } from '../wasi/shared';
-import { ENV, prepare, programs } from '../setup';
+import { environment, prepare, programs } from '../setup';
 import { vfs } from '../vfs';
 import { words } from '../sh';
 import type { NifSource } from '../programs';
 import type { FilesChannel } from '../host/files';
 import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
-import { backendNif, get, siteNif } from './nif';
+import { backendNif, get } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
-import { PROGRAMS, TOOLS, withCoreutils, type CoreutilsOptions } from '../coreutils';
+import { REGISTRY, isProgram, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
 import { UTILITIES } from '../utilities';
 import {
@@ -47,12 +47,14 @@ import {
 } from '../processes';
 import { OutputLimitError } from './output';
 import type { Descriptor } from '../wasi/descriptors';
-import { runtime, setRuntime } from './site';
+import { artifacts, setSite } from './site';
+import type { Site, SiteRef } from '../packages/manifest';
 import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 
 // A WebAssembly module from the site, compiled; null when the site has none
 // (it answers with its page).
-async function loadModule(url: URL): Promise<WebAssembly.Module | null> {
+async function loadModule(url: URL | null): Promise<WebAssembly.Module | null> {
+  if (!url) return null;
   const response = await fetch(url);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return null;
@@ -62,8 +64,9 @@ async function loadModule(url: URL): Promise<WebAssembly.Module | null> {
 // What the page starts a node with (host/node.ts Node.start).
 interface Start {
   shared: SharedArrayBuffer;
-  // Where the BEAM, the files and the NIF libraries are.
-  runtime: string;
+  // The site manifest: where the BEAM, the files, the programs and the
+  // NIF libraries are.
+  site: SiteRef;
   files: FilesChannel | null;
   shell: boolean;
   args?: string[];
@@ -115,22 +118,35 @@ function join(cwd: string, path: string): string {
 }
 
 // Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix), and
-// escript's (bin/escript, with the flags of the script's %%! line). The Hex
-// esbuild and tailwind packages run the page's programs (their :path,
-// unless a project's config sets one), so no project downloads them.
-const ELIXIR = [
-  '-noshell',
-  '-elixir_root',
-  '/rotp/lib',
-  '-pa',
-  '/rotp/lib/elixir/ebin',
-  '-esbuild',
-  'path',
-  '<<"/usr/bin/esbuild">>',
-  '-tailwind',
-  'path',
-  '<<"/usr/bin/tailwind">>',
-];
+// escript's (bin/escript, with the flags of the script's %%! line), from
+// where the site's packages are (setLaunch): Elixir's root (lib/APP/ebin
+// below it), Mix's script (the elixir package's bin/mix, /usr/bin/mix) and
+// OTP's root (its boot scripts). The Hex esbuild and tailwind packages
+// run the page's programs (their :path, unless a project's config sets
+// one), so no project downloads them.
+let ELIXIR: string[] = [];
+let MIX = '/usr/bin/mix';
+let NO_DOT_ERLANG = '';
+function setLaunch(packages: Site): void {
+  const elixir = packages.elixir();
+  const otp = packages.otp();
+  if (!elixir || !otp) throw new Error('this site has no OTP and Elixir packages with files');
+  ELIXIR = [
+    '-noshell',
+    '-elixir_root',
+    `${elixir.root}/lib`,
+    '-pa',
+    `${elixir.root}/lib/elixir/ebin`,
+    '-esbuild',
+    'path',
+    '<<"/usr/bin/esbuild">>',
+    '-tailwind',
+    'path',
+    '<<"/usr/bin/tailwind">>',
+  ];
+  MIX = packages.bin().get('mix') ?? '/usr/bin/mix';
+  NO_DOT_ERLANG = `${otp.root}/bin/no_dot_erlang`;
+}
 // bin/elixir's options, up to the first argument that is none: those for
 // erl (--sname a, --cookie c, --hidden, --erl "flags", …) as erl's, and
 // the others, with what follows, for Elixir's CLI.
@@ -223,12 +239,12 @@ function command(
     }
     case 'mix': {
       const { erl, cli } = launcher(args);
-      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', '/rotp/bin/mix', ...cli];
+      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', MIX, ...cli];
     }
     case 'iex': {
       const { erl, cli } = launcher(args);
       // iex -S mix ARGS runs Mix's script under IEx.
-      const rest = cli[0] === '-S' && cli[1] === 'mix' ? ['/rotp/bin/mix', ...cli.slice(2)] : cli;
+      const rest = cli[0] === '-S' && cli[1] === 'mix' ? [MIX, ...cli.slice(2)] : cli;
       return [...ELIXIR, ...erl, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
     }
     case 'escript':
@@ -237,7 +253,7 @@ function command(
         '+B',
         '-noshell',
         '-boot',
-        '/rotp/bin/no_dot_erlang',
+        NO_DOT_ERLANG,
         ...escriptFlags(read(args[0])),
         '-run',
         'escript',
@@ -263,7 +279,7 @@ help NAME: a shell built-in.
 onmessage = async ({
   data: {
     shared,
-    runtime: runtimeUrl,
+    site: siteRef,
     files,
     shell,
     args: erlArgs,
@@ -277,7 +293,7 @@ onmessage = async ({
     pagePrograms = [],
     tty = [true, true],
     cwd: start = '/work',
-    boots = ['boot'],
+    boots: requestedBoots = ['boot'],
     images: tars,
     manifest: listed,
     brush: shellModule,
@@ -285,19 +301,21 @@ onmessage = async ({
     beam: beamModule,
   },
 }: MessageEvent<Start>) => {
-  setRuntime(runtimeUrl);
+  setSite(siteRef);
+  const packages = artifacts();
+  setLaunch(packages);
+  const ENV = environment(packages);
+  const boots = packages.boots(requestedBoots);
   try {
     say('status', 'Loading OTP and Elixir…');
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest, brushModule] = await Promise.all([
       tars ??
-        Promise.all(
-          boots.map((boot) => fetch(runtime(`fs/${boot}.tar.gz`)).then((r) => r.arrayBuffer())),
-        ),
-      listed ?? fetch(runtime('fs/manifest.json')).then((r) => r.json() as Promise<Manifest>),
+        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+      listed ?? packages.tree(),
       // The shell (brush.ts), if the site has it: the terminal's, or a
       // node's sh -c.
-      shellModule ?? (shell || isSh(named?.[0]) ? loadModule(runtime('brush.wasm')) : null),
+      shellModule ?? (shell || isSh(named?.[0]) ? loadModule(packages.shell()) : null),
     ]);
     // What files.js holds stays out of this worker's tree.
     const local = (path: string) =>
@@ -314,6 +332,7 @@ onmessage = async ({
     prepare(root, {
       dns: udpPorts.includes(53),
       inotifywait: pagePrograms.includes('inotifywait'),
+      bin: packages.bin(),
     });
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
@@ -321,34 +340,40 @@ onmessage = async ({
     const channel = new Channel(shared);
     channel.tty = tty;
     // Lazily mounted files come in bundles (fs/bundles/N.tar).
-    const fetchFile = bundled((bundle) => fetchBundle(runtime(`fs/bundles/${bundle}.tar`)));
+    const fetchFile = bundled((bundle) => fetchBundle(packages.bundle(bundle)));
     const fs = vfs(root, fetchFile, sharedFs);
     // A package's NIF library built to WebAssembly (programs.ts make): the
-    // site's (nif/NAME-VERSION.tar), else the backend's (/api/nif/, on this
-    // origin, which may have to build it first: docs/backend.md).
-    const nif: NifSource = (name, version, report) =>
-      siteNif(name, version) ?? backendNif(channel, name, version, report);
+    // backend's (/api/v1/nif/, on this origin, which may have to build it
+    // first: docs/backend.md).
+    const nif: NifSource = (name, version, report) => backendNif(channel, name, version, report);
     // coreutils.wasm (coreutils.ts): the page's, else fetched and compiled
     // once a tool first runs; null when the site has none.
     let compiled: WebAssembly.Module | null | undefined = toolsModule;
     const module = () => {
       if (compiled === undefined) {
-        const [status, bytes] = get(runtime('coreutils.wasm'));
+        const url = packages.multicall();
+        const [status, bytes] = url ? get(url) : [0, null];
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         compiled = wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null;
       }
       return compiled;
     };
-    // The site's other WASI programs (coreutils.ts PROGRAMS: rg.wasm), each
-    // fetched and compiled once it first runs.
+    // The site's other WASI programs (coreutils.ts REGISTRY: rg.wasm), by
+    // name, each module fetched and compiled once one of its programs first
+    // runs.
     const others = new Map<string, WebAssembly.Module | null>();
-    const load = (file: string) => {
-      if (!others.has(file)) {
-        const [status, bytes] = get(runtime(file));
+    const load = (name: string) => {
+      const url = REGISTRY.get(name)?.url;
+      if (!url) return null;
+      if (!others.has(url.href)) {
+        const [status, bytes] = get(url);
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
-        others.set(file, wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null);
+        others.set(
+          url.href,
+          wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null,
+        );
       }
-      return others.get(file)!;
+      return others.get(url.href)!;
     };
     const tools: CoreutilsOptions = { module, load, fetch: fetchFile, shared: sharedFs };
 
@@ -390,7 +415,8 @@ onmessage = async ({
       processes.hosting++;
       try {
         return await runBeam({
-          module: runtime('beam.mjs').href,
+          module: packages.beam()!.loader.href,
+          root_otp: packages.otp()!.root,
           argv: ['+S', String(SCHEDULERS), ...cookie(argv, vars), ...argv],
           env: { ...ENV, ...vars, PWD: cwd },
           cwd,
@@ -409,10 +435,9 @@ onmessage = async ({
               // (git's transport and children, sed's `e`, gnulib's dup2);
               // and the shell's own utilities (env, xargs, chmod).
               Object.fromEntries(
-                [...Object.keys(PROGRAMS), ...Object.keys(UTILITIES)].map((name) => [
-                  name,
-                  portProgram(processes, name),
-                ]),
+                [...[...REGISTRY.keys()].filter(isProgram), ...Object.keys(UTILITIES)].map(
+                  (name) => [name, portProgram(processes, name)],
+                ),
               ),
             ),
             tools,
@@ -543,7 +568,7 @@ onmessage = async ({
     // an escript), a page program (a
     // script for node, #!/usr/bin/env node, a package's bin in
     // node_modules/.bin), a program built for WASI (coreutils' tools, the
-    // site's PROGRAMS), or nothing.
+    // site's REGISTRY), or nothing.
     type Found =
       | { node: string[] }
       | { page: string; args: string[] }
@@ -585,16 +610,16 @@ onmessage = async ({
         const script = fs.read(exec)?.subarray(0, 64);
         if (script && /^#!.*\b(sh|bash)\b/.test(new TextDecoder().decode(script)))
           return { script: [exec, ...given] };
-        const git = GIT_DASHED.has(name) ? load(PROGRAMS.git) : null;
+        const git = GIT_DASHED.has(name) ? load('git') : null;
         if (git) return { wasm: git };
         return null;
       }
-      const own = name in PROGRAMS ? load(PROGRAMS[name]) : null;
+      const own = isProgram(name) ? load(name) : null;
       if (own) return { wasm: own };
       if (pagePrograms.includes(name)) return { page: name, args: given };
       if (/^#!.*\bnode\b/.test(shebang) && pagePrograms.includes('node'))
         return { page: 'node', args: [program, ...given] };
-      const tool = TOOLS.has(name) ? module() : null;
+      const tool = isTool(name) ? module() : null;
       return tool ? { wasm: tool } : null;
     };
     // Ctrl+C for the processes: the channel takes in the page's frames.

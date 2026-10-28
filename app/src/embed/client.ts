@@ -5,7 +5,7 @@
 //
 //   import { create } from 'https://run-elixir.dev/embed.js';
 //   const sandbox = await create({
-//     runtime: { otp: '29.1.2', elixir: '1.20.4' },
+//     requires: { otp: '^29.1', elixir: '~1.20.4' },
 //     project: { template: 'phoenix' },
 //   });
 //
@@ -15,38 +15,84 @@ import {
   API_VERSION,
   CONNECT,
   LOADED,
-  SIGNALS,
   type CreateOptions,
   type Created,
   type DirEntry,
   type Events,
+  type Exit,
   type Hello,
+  type ProcessRequest,
   type SpawnOptions,
   type Stat,
   type StreamFrame,
+  type TerminalOptions,
   type WriteOptions,
 } from './protocol';
+import { SIGNALS, type Signal } from '@/runtime/signals';
 
 export { API_VERSION };
-export type { CreateOptions, Created, DirEntry, Hello, SpawnOptions, Stat, WriteOptions };
+export type {
+  CreateOptions,
+  Created,
+  DirEntry,
+  Exit,
+  Hello,
+  Signal,
+  SpawnOptions,
+  Stat,
+  TerminalOptions,
+  WriteOptions,
+};
 
 const encoder = new TextEncoder();
 const bytesOf = (data: string | Uint8Array) =>
   typeof data === 'string' ? encoder.encode(data) : data;
 
+// What came before anyone listened, given to the first listener: one
+// kind of event of a stream or a process.
+class Channel<T> {
+  private listeners: ((value: T) => void)[] = [];
+  private early: T[] = [];
+
+  listen(listener: (value: T) => void): () => void {
+    this.listeners.push(listener);
+    for (const value of this.early.splice(0)) listener(value);
+    return () => {
+      this.listeners = this.listeners.filter((each) => each !== listener);
+    };
+  }
+
+  send(value: T): void {
+    if (!this.listeners.length) this.early.push(value);
+    for (const listener of this.listeners) listener(value);
+  }
+}
+
 // A byte stream to or from the sandbox (connect, serve).
 export class Stream {
-  ondata: (bytes: Uint8Array) => void = () => {};
-  onend: () => void = () => {};
-  onclose: () => void = () => {};
+  private data = new Channel<Uint8Array>();
+  private ended = new Channel<void>();
+  private closing = new Channel<void>();
   private closed = false;
 
   constructor(readonly port: MessagePort) {
     port.onmessage = ({ data }: MessageEvent<StreamFrame>) => {
-      if ('data' in data) this.ondata(data.data);
-      else if ('end' in data) this.onend();
+      if ('data' in data) this.data.send(data.data);
+      else if ('end' in data) this.ended.send();
       else this.gone();
     };
+  }
+
+  // Each returns a function that stops listening.
+  onData(listener: (bytes: Uint8Array) => void): () => void {
+    return this.data.listen(listener);
+  }
+  // The other side is done writing (half-close).
+  onEnd(listener: () => void): () => void {
+    return this.ended.listen(listener);
+  }
+  onClose(listener: () => void): () => void {
+    return this.closing.listen(listener);
   }
 
   write(data: string | Uint8Array): void {
@@ -70,21 +116,19 @@ export class Stream {
     if (this.closed) return;
     this.closed = true;
     this.port.close();
-    this.onclose();
+    this.closing.send();
   }
 }
 
-type Chunk = (bytes: Uint8Array) => void;
-
-// A command running in the sandbox.
+// A process running in the sandbox.
 export class Process {
-  // Its exit status (128 + a signal's number when one stopped it).
-  readonly exited: Promise<number>;
-  private listeners: Record<1 | 2, Chunk[]> = { 1: [], 2: [] };
-  private early: Record<1 | 2, Uint8Array[]> = { 1: [], 2: [] };
-  private exitListeners: ((code: number) => void)[] = [];
-  private code: number | null = null;
-  private resolve!: (code: number) => void;
+  // How it ended: its exit code, or the signal that ended it.
+  readonly exited: Promise<Exit>;
+  private stdout = new Channel<Uint8Array>();
+  private stderr = new Channel<Uint8Array>();
+  private exits = new Channel<Exit>();
+  private ended: Exit | null = null;
+  private resolve!: (exit: Exit) => void;
 
   constructor(
     readonly id: number,
@@ -93,52 +137,45 @@ export class Process {
     this.exited = new Promise((resolve) => (this.resolve = resolve));
   }
 
+  // Its input: bytes for a pipe, keys for a terminal.
   write(data: string | Uint8Array): void {
     const bytes = bytesOf(data).slice();
     void this.rpc.call('input', [this.id, bytes], [bytes.buffer]);
   }
-  closeStdin(): void {
-    void this.rpc.call('closeStdin', [this.id]);
+  // The end of its input (a terminal's Ctrl+D).
+  end(): void {
+    void this.rpc.call('closeInput', [this.id]);
   }
-  kill(signal: keyof typeof SIGNALS | number = 'SIGTERM'): void {
-    const number = typeof signal === 'number' ? signal : SIGNALS[signal];
-    void this.rpc.call('kill', [this.id, number ?? 15]);
+  // SIGINT is Ctrl+C (a node's break, a program's stop); another ends it.
+  kill(signal: Signal = 'SIGTERM'): void {
+    void this.rpc.call('signal', [this.id, SIGNALS[signal]]);
   }
+  // A terminal's new size.
   resize(cols: number, rows: number): void {
     void this.rpc.call('resize', [this.id, cols, rows]);
   }
 
-  // Output that came before a listener is given to the first.
-  onStdout(listener: Chunk): () => void {
-    return this.listen(1, listener);
+  // Each returns a function that stops listening. Output that came
+  // before a listener is given to the first. A terminal's is all stdout.
+  onStdout(listener: (bytes: Uint8Array) => void): () => void {
+    return this.stdout.listen(listener);
   }
-  onStderr(listener: Chunk): () => void {
-    return this.listen(2, listener);
+  onStderr(listener: (bytes: Uint8Array) => void): () => void {
+    return this.stderr.listen(listener);
   }
-  onExit(listener: (code: number) => void): void {
-    if (this.code !== null) listener(this.code);
-    else this.exitListeners.push(listener);
-  }
-
-  private listen(fd: 1 | 2, listener: Chunk): () => void {
-    this.listeners[fd].push(listener);
-    for (const bytes of this.early[fd].splice(0)) listener(bytes);
-    return () => {
-      this.listeners[fd] = this.listeners[fd].filter((each) => each !== listener);
-    };
+  onExit(listener: (exit: Exit) => void): () => void {
+    return this.exits.listen(listener);
   }
 
   // From the sandbox.
   output(fd: number, bytes: Uint8Array): void {
-    const stream = fd === 2 ? 2 : 1;
-    if (!this.listeners[stream].length) this.early[stream].push(bytes);
-    for (const listener of this.listeners[stream]) listener(bytes);
+    (fd === 2 ? this.stderr : this.stdout).send(bytes);
   }
-  exit(code: number): void {
-    if (this.code !== null) return;
-    this.code = code;
-    this.resolve(code);
-    for (const listener of this.exitListeners.splice(0)) listener(code);
+  exit(exit: Exit): void {
+    if (this.ended) return;
+    this.ended = exit;
+    this.resolve(exit);
+    this.exits.send(exit);
   }
 }
 
@@ -160,8 +197,8 @@ export class Sandbox {
     rpc.on<Events['output']>('output', ({ id, fd, bytes }) =>
       this.processes.get(id)?.output(fd, bytes),
     );
-    rpc.on<Events['exit']>('exit', ({ id, code }) => {
-      this.processes.get(id)?.exit(code);
+    rpc.on<Events['exit']>('exit', ({ id, code, signal }) => {
+      this.processes.get(id)?.exit({ code, signal });
       this.processes.delete(id);
     });
     rpc.on<Events['connection']>('connection', ({ port, stream }) => {
@@ -219,15 +256,28 @@ export class Sandbox {
     return () => set.delete(listener as (data: never) => void);
   }
 
-  // A command: a shell line (sh -c), its words, or null for an
-  // interactive shell (with a tty).
-  spawn(command: string | string[] | null, options: SpawnOptions = {}): Process {
+  // A program and its arguments, on pipes (its stderr apart).
+  spawn(argv: string[], options: SpawnOptions = {}): Process {
+    return this.process({ ...options, argv });
+  }
+
+  // A shell line (sh -c LINE: brush, as the IDE's terminals run it).
+  sh(line: string, options: SpawnOptions = {}): Process {
+    return this.process({ ...options, line });
+  }
+
+  // A terminal: an interactive shell, or `command` on it.
+  terminal({ cols, rows, command, ...options }: TerminalOptions): Process {
+    return this.process({ ...options, argv: command, tty: { cols, rows } });
+  }
+
+  private process(request: ProcessRequest): Process {
     const id = this.next++;
     const process = new Process(id, this.rpc);
     this.processes.set(id, process);
-    this.rpc.call('spawn', [id, command, options]).catch((error: Error) => {
+    this.rpc.call('spawn', [id, request]).catch((error: Error) => {
       process.output(2, encoder.encode(`${error.message}\n`));
-      process.exit(127);
+      process.exit({ code: 127, signal: null });
       this.processes.delete(id);
     });
     return process;
@@ -250,9 +300,10 @@ export class Sandbox {
     };
   }
 
-  // Where to frame port `port`'s preview (https://v-ID-PORT.…), ready.
-  previewOrigin(port: number): Promise<string> {
-    return this.rpc.call<string>('previewOrigin', [port]);
+  // Where to frame port `port`'s page at `path` (https://v-ID-PORT.…/path),
+  // once it can be.
+  previewUrl(port: number, path = '/'): Promise<string> {
+    return this.rpc.call<string>('previewUrl', [port, path]);
   }
 
   async shutdown(): Promise<void> {
@@ -323,8 +374,8 @@ export async function create(options: Options): Promise<Sandbox> {
   try {
     const hello = await rpc.call<Hello>('hello');
     if (options.onProgress) rpc.on<Events['progress']>('progress', options.onProgress);
-    const { runtime, project, persist, env, relay } = options;
-    const created = await rpc.call<Created>('create', [{ runtime, project, persist, env, relay }]);
+    const { requires, project, env, relay } = options;
+    const created = await rpc.call<Created>('create', [{ requires, project, env, relay }]);
     return new Sandbox(rpc, element, hello, created);
   } catch (error) {
     rpc.close();

@@ -43,16 +43,25 @@ defmodule Playground.Nif do
   @doc """
   The toolchain the sandbox's rootfs builds with, from its manifest.
   """
-  def toolchain do
-    case :persistent_term.get({__MODULE__, :toolchain}, nil) do
-      nil ->
-        manifest = Path.join(Sandbox.artifacts_dir(), "manifest.json")
-        toolchain = manifest |> File.read!() |> JSON.decode!() |> Map.fetch!("toolchain")
-        :persistent_term.put({__MODULE__, :toolchain}, toolchain)
-        toolchain
+  def toolchain, do: manifest("toolchain")
 
-      toolchain ->
-        toolchain
+  @doc """
+  The NIF ABI the toolchain's libraries are for (docs/nif.md): its erl_nif
+  layer's protocol and erl_nif.h's version, such as `"1-2.18"`. A page asks
+  for builds of the ABI its OTP loads; this backend makes only its own.
+  """
+  def nif_abi, do: manifest("nif_abi")
+
+  defp manifest(key) do
+    case :persistent_term.get({__MODULE__, key}, nil) do
+      nil ->
+        path = Path.join(Sandbox.artifacts_dir(), "manifest.json")
+        value = path |> File.read!() |> JSON.decode!() |> Map.fetch!(key)
+        :persistent_term.put({__MODULE__, key}, value)
+        value
+
+      value ->
+        value
     end
   end
 

@@ -1,5 +1,6 @@
 // The IDE's git (runtime/git.ts): git.wasm in a worker of its own over
 // `files`, a command at a time, its output whole.
+import { Site, type SiteRef } from '../packages/manifest';
 import type { GitResult } from '../git';
 import type { Files, FilesChannel } from './files';
 import { worker } from './worker';
@@ -26,8 +27,8 @@ export class Git {
   next = 0;
   ready: Promise<boolean>;
 
-  // base: where git.js is; runtime: the site's files (git.wasm).
-  constructor({ base, runtime, files }: { base: string; runtime: string; files: Files }) {
+  // base: where git.js is; site: the site manifest (git.wasm is its git program's).
+  constructor({ base, site, files }: { base: string; site: SiteRef; files: Files }) {
     this.files = files;
     this.channel = files.connect();
     this.worker = worker('git.js', base);
@@ -38,7 +39,9 @@ export class Git {
     const { channel, worker: started } = this;
     // git.wasm (tools/git/build.py), or null when the site has none.
     this.ready = (async () => {
-      const response = await fetch(new URL('git.wasm', runtime));
+      const module = new Site(site).programs().get('git');
+      if (!module) return false;
+      const response = await fetch(module.url);
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return false;
       started.postMessage({ kind: 'start', files: channel, git: await WebAssembly.compile(bytes) });

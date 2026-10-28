@@ -30,8 +30,16 @@ async function filesWorker(records: KeptRecord[] = []) {
   const dispatch = (data: object) => send({ data });
   await dispatch({
     kind: 'start',
-    runtime: 'https://runtime.test/',
-    boots: [],
+    site: {
+      url: 'https://runtime.test/site.json',
+      manifest: {
+        manifest: 2,
+        packages: {},
+        boot: null,
+      },
+    },
+    // No recordings, even though a Phoenix setup asks for both.
+    boots: ['boot', 'boot-phoenix'],
     sharedPort: {},
     doorbell: new SharedArrayBuffer(4),
   });

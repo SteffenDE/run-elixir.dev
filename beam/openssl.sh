@@ -16,7 +16,14 @@ JOBS="$(nproc)"
 
 log() { echo "openssl | $*" >&2; }
 
-if [[ -f "${PREFIX}/lib/libcrypto.a" ]]; then
+# The license, for the otp package's notices (runtime/notices.py): CI
+# caches the prefix, not the sources.
+licenses() { mkdir -p "${PREFIX}/licenses" && cp "${SRC}/LICENSE.txt" "${PREFIX}/licenses/"; }
+
+if [[ -f "${PREFIX}/lib/libcrypto.a" && ! -f "${PREFIX}/licenses/LICENSE.txt" && -d "${SRC}" ]]; then
+    licenses
+fi
+if [[ -f "${PREFIX}/lib/libcrypto.a" && -f "${PREFIX}/licenses/LICENSE.txt" ]]; then
     log "installed in ${PREFIX}"
     exit 0
 fi
@@ -44,4 +51,5 @@ log "building"
 (cd "${SRC}" && emmake make build_libs -j"${JOBS}" && emmake make install_dev) \
     >>"${ROOT}/out/beam-wasm/openssl.log" 2>&1 \
     || { tail -30 "${ROOT}/out/beam-wasm/openssl.log"; exit 1; }
+licenses
 log "installed in ${PREFIX}"

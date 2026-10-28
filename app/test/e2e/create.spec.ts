@@ -11,7 +11,7 @@ import { newProject, output, prompted, prompts, run } from './helpers';
 // Keys typed at the terminal, once it shows `asked`.
 async function answer(page: Page, asked: string, keys: string): Promise<void> {
   await expect.poll(() => output(page), { timeout: 120_000 }).toContain(asked);
-  await page.evaluate((k) => window.playground.sessions.get(1).discipline.keys(k), keys);
+  await page.evaluate((k) => window.playground.keys(1, k), keys);
 }
 
 test('npm create vue@latest: asked at the terminal, a Vue project installs and builds', async ({

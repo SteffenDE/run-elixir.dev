@@ -7,8 +7,6 @@ export type { WorkspaceKind };
 export interface Setup {
   // The site's boot images to unpack (runtime/build.py).
   boots: string[];
-  // The directories below /work the project starts with, from the site.
-  template: string[];
   // The first terminal tab's name.
   firstTab: string;
   // The preview shows from the start (Phoenix), or once a node serves.
@@ -19,13 +17,10 @@ export interface Setup {
   running: string;
 }
 
-export const PHOENIX_APP = '/work/playground';
-
 export function setup(kind: WorkspaceKind): Setup {
   if (kind === 'phoenix') {
     return {
       boots: ['boot', 'boot-phoenix'],
-      template: [PHOENIX_APP],
       firstTab: 'Server',
       alwaysPreview: true,
       showFiles: true,
@@ -34,7 +29,6 @@ export function setup(kind: WorkspaceKind): Setup {
   }
   return {
     boots: ['boot'],
-    template: [],
     firstTab: kind === 'iex' ? 'IEx' : 'Shell',
     alwaysPreview: false,
     showFiles: kind !== 'iex',

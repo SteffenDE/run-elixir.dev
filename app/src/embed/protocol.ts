@@ -4,14 +4,14 @@
 // MessagePort as rpc.ts has them. The API is versioned: a host answers
 // every version it lists, and grows by adding calls, options and events,
 // so a page loaded before a deploy keeps working with the newer host.
-export const API_VERSION = 1;
+export const API_VERSION = 2;
 
 // embed.html → its parent, once it can be driven (nothing more in it).
 export const LOADED = 'run-elixir-embed-loaded';
 // The embedder → embed.html, with the port the calls go over.
 export const CONNECT = 'run-elixir-embed';
 
-// The OTP and Elixir a runtime is (r/RID/runtime.json): the contract for
+// The OTP and Elixir a runtime is (its packages in site.json): the contract for
 // an embedder's natively compiled .beam files.
 export interface RuntimeVersions {
   otp: string;
@@ -25,25 +25,29 @@ export interface Hello {
   runtime: RuntimeVersions;
 }
 
-export type ProjectSource =
-  | { id?: string; template: 'phoenix' | 'empty' }
-  | { id?: string; archive: string };
+// A project: the template it starts from, or an app the embedder built (a
+// gzipped tar's URL). `id` is the embedder's own name for it (the same
+// name is the same project); `persist` keeps its changes, its home and its
+// Postgres in embed.html's storage, which the browser keeps apart for each
+// embedding site, and needs an `id`.
+export type ProjectSource = { id?: string; persist?: boolean } & (
+  | { template: 'phoenix' | 'empty' }
+  | { archive: string }
+);
 
 export interface CreateOptions {
-  // The OTP and Elixir the embedder's code was built with; the site's
-  // runtime must be them.
-  runtime: RuntimeVersions;
+  // What the embedder's code needs of the site's runtime: semver ranges
+  // (OTP's four-part versions compare on their first three parts). None:
+  // any.
+  requires?: { otp?: string; elixir?: string };
   project: ProjectSource;
-  // Keep the project's changes (and its Postgres) in embed.html's
-  // storage, which the browser keeps apart for each embedding site, under
-  // the project's id.
-  persist?: boolean;
-  // Every command's environment, under each spawn's own.
+  // Every command's environment, under each spawn's own, and both under
+  // the playground's own variables (PATH, HOME, …).
   env?: Record<string, string>;
-  // Let the project's code reach the site's TCP relay's hosts (GitHub,
-  // GitLab, Codeberg, Anthropic's API: docs/relay.md), which send no CORS
-  // headers. Off by default: no dialog asks here.
-  relay?: boolean;
+  // The hosts the project's code may reach through the site's TCP relay
+  // (docs/relay.md), as its list names them ('github.com', '*.github.com'):
+  // those that send no CORS headers. None by default: no dialog asks here.
+  relay?: string[];
 }
 
 export interface Created {
@@ -76,9 +80,29 @@ export interface WriteOptions {
 export interface SpawnOptions {
   cwd?: string;
   env?: Record<string, string>;
-  // A terminal of this size: PTY semantics (echo, line editing, Ctrl+C),
-  // stderr on stdout. Without: pipes, stderr apart.
+}
+
+// A terminal: its size, and the program on it (by default an interactive
+// shell). PTY semantics: echo, line editing, Ctrl+C; stderr on stdout; a
+// newline is CR LF.
+export interface TerminalOptions extends SpawnOptions {
+  cols: number;
+  rows: number;
+  command?: string[];
+}
+
+// What a process's spawn is, over the port: its words (argv), a shell line
+// (sh -c), or neither (an interactive shell); a terminal or pipes.
+export interface ProcessRequest extends SpawnOptions {
+  argv?: string[];
+  line?: string;
   tty?: { cols: number; rows: number };
+}
+
+// How a process ended: its exit code, or the signal that ended it.
+export interface Exit {
+  code: number | null;
+  signal: string | null;
 }
 
 // A byte stream over a MessagePort (connect, serve), each message one of
@@ -94,17 +118,9 @@ export type Events = {
   // Paths below /work the project changed (files.js, at most every 200 ms).
   changed: string[];
   warning: string;
-  // A spawned command's output (fd 1, or 2 without a tty) and exit.
+  // A process's output (fd 1, or 2 without a tty) and how it ended.
   output: { id: number; fd: number; bytes: Uint8Array };
-  exit: { id: number; code: number };
+  exit: { id: number } & Exit;
   // A connection the sandbox made to a port the embedder serves.
   connection: { port: number; stream: MessagePort };
-};
-
-export const SIGNALS: Record<string, number> = {
-  SIGHUP: 1,
-  SIGINT: 2,
-  SIGQUIT: 3,
-  SIGKILL: 9,
-  SIGTERM: 15,
 };

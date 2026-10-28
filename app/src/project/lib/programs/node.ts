@@ -69,15 +69,15 @@ export const shProgram =
     run(start, process, ['sh', ...context.args], context);
 
 // A node command run as a program (System.cmd("mix", ...) finds
-// /rotp/bin/mix on PATH; igniter.new runs `mix deps.get` that way).
+// /usr/bin/mix on PATH; igniter.new runs `mix deps.get` that way).
 export const commandProgram =
   (start: StartNode, name: string) =>
   (process: Process, context: Context): void =>
     run(start, process, [name, ...context.args], context);
 
-// rebar3 ARGS: escript /rotp/mix/rebar3 ARGS.
-export const REBAR3 = '/rotp/mix/rebar3';
+// rebar3 ARGS: escript REBAR3 ARGS, the escript Mix builds rebar3
+// dependencies with (MIX_REBAR3, the elixir package's).
 export const rebar3Program =
-  (start: StartNode) =>
+  (start: StartNode, rebar3: string) =>
   (process: Process, context: Context): void =>
-    run(start, process, ['escript', REBAR3, ...context.args], context);
+    run(start, process, ['escript', rebar3, ...context.args], context);

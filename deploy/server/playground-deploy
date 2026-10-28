@@ -4,7 +4,9 @@
 # it takes, from SSH_ORIGINAL_COMMAND:
 #
 #   rsync --server …        an upload, through rrsync, into releases/ only
-#   prepare RID BUILD RUNTIME  releases/RID.partial, seeded from the live release
+#   prepare RID DIR...      releases/RID.partial, seeded from the live release
+#                           (DIR: what the release runs with, such as
+#                           npm/@elixir-playground/git@1.0.0+ID)
 #   activate RID            check it, make it live, check the site, purge
 #   rollback                the release before the live one, live again
 #   status                  the live release, its build and runtime
@@ -19,8 +21,9 @@
 #                                     served for the apex to frame
 #   CHECK_RESOLVE=127.0.0.1           where the check reaches the origin
 #                                     (empty: no check)
-#   KEEP_RELEASES=5 KEEP_BUILDS=3     releases kept; builds (b/ID) and
-#                                     runtimes (r/RID) carried
+#   KEEP_RELEASES=5 KEEP_BUILDS=3     releases kept; the packages, recordings
+#                                     and site manifests of the newest
+#                                     KEEP_BUILDS releases carried
 #   CF_ZONE_ID=… CF_API_TOKEN=…       Cloudflare, to purge the apex's pages (a
 #                                     token with Zone → Cache Purge only);
 #                                     optional: the pages are no-cache
@@ -36,9 +39,10 @@ CHECK_RESOLVE=${CHECK_RESOLVE-127.0.0.1}
 KEEP_RELEASES=${KEEP_RELEASES:-5}
 KEEP_BUILDS=${KEEP_BUILDS:-3}
 RELEASES=$SITE/releases
-# The pages and what keeps its name; everything else is under b/ID (the
-# runtime's JavaScript) and r/RID (the BEAM, fs/, nif/).
-PAGES=(index.html preview.html relay.html exec.html storage.html sw.js playground.json embed.html embed.js)
+# The pages and what keeps its name; everything else is immutable, under
+# npm/@elixir-playground/NAME@VERSION/ (the packages), boot/ID/ (the
+# recordings) and site/ID.json (the site manifest).
+PAGES=(index.html preview.html storage.html sw.js playground.json embed.html embed.js relay.html licenses/index.html)
 
 die() {
   echo "playground-deploy: $*" >&2
@@ -47,13 +51,30 @@ die() {
 
 # What a release's (or a page's) <meta name="playground-$2"> names.
 meta_of() {
-  sed -n "s/.*<meta name=\"playground-$2\" content=\"\([0-9a-f]*\)\".*/\1/p" "$1" 2>/dev/null | head -n 1
+  sed -n "s/.*<meta name=\"playground-$2\" content=\"\([^\"]*\)\".*/\1/p" "$1" 2>/dev/null | head -n 1
 }
-build_of() { meta_of "$1/index.html" build; }
 runtime_of() { meta_of "$1/index.html" runtime; }
+site_of() { meta_of "$1/index.html" site; }
+# A release of the layout before packages (b/ID, r/RID): its build.
+legacy_of() { meta_of "$1/index.html" build | grep -x '[0-9a-f]\{16\}' || true; }
+
+# What a release runs with, relative to it: its runtime package, its site
+# manifest, and what that names (the packages and the recordings), one per
+# line.
+named_by() {
+  local site
+  runtime_of "$1" | sed 's|^/||; s|/$||'
+  site=$(site_of "$1")
+  [ -n "$site" ] && [ -f "$1$site" ] || return 0
+  echo "${site#/}"
+  sed -n 's|.*"base": "\.\./\([^"]*\)/".*|\1|p' "$1$site"
+}
 
 valid_rid() { [[ $1 =~ ^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{7,40}$ ]] || die "not a release: $1"; }
-valid_build() { [[ $1 =~ ^[0-9a-f]{16}$ ]] || die "not a build: $1"; }
+valid_dir() {
+  [[ $1 =~ ^(npm/@elixir-playground/[a-z0-9.-]+@[0-9A-Za-z.+-]+|boot/[0-9a-f]{12})$ ]] ||
+    die "not a package's directory: $1"
+}
 
 # Releases, newest first.
 releases() {
@@ -69,33 +90,37 @@ swap() {
 }
 
 prepare() {
-  local rid=$1 build=$2 runtime=$3 old partial
+  local rid=$1 partial dir seed
+  shift
   valid_rid "$rid"
-  valid_build "$build"
-  valid_build "$runtime"
+  for dir in "$@"; do valid_dir "$dir"; done
   partial=$RELEASES/$rid.partial
   rm -rf "$partial"
   mkdir -p "$partial"
-  if [ -d "$SITE/current/" ]; then
-    cp -al "$SITE/current/." "$partial/"
-    old=$(build_of "$SITE/current")
-    if [ -n "$old" ] && [ -d "$partial/b/$old" ] && [ ! -e "$partial/b/$build" ]; then
-      cp -al "$partial/b/$old" "$partial/b/$build"
+  [ -d "$SITE/current/" ] || return 0
+  cp -al "$SITE/current/." "$partial/"
+  # A directory the live release has already is there as it is; a new
+  # one starts from the live one's of the same package (the newest), which
+  # rsync then updates.
+  for dir in "$@"; do
+    [ -e "$partial/$dir" ] && continue
+    case $dir in
+      npm/*) seed=$(ls -dt "$partial/${dir%%@[0-9]*}"@* 2>/dev/null | head -n 1) || seed= ;;
+      boot/*) seed=$(ls -dt "$partial"/boot/*/ 2>/dev/null | head -n 1) || seed= ;;
+      *) seed= ;;
+    esac
+    if [ -n "$seed" ]; then
+      mkdir -p "$(dirname "$partial/$dir")"
+      cp -al "${seed%/}" "$partial/$dir"
     fi
-    # A runtime the live release has already is there as it is; a new one
-    # starts from the live one's files, which rsync then updates.
-    old=$(runtime_of "$SITE/current")
-    if [ -n "$old" ] && [ -d "$partial/r/$old" ] && [ ! -e "$partial/r/$runtime" ]; then
-      cp -al "$partial/r/$old" "$partial/r/$runtime"
-    fi
-  fi
+  done
 }
 
 # The site as served: the pages' isolation headers, this build named, its
 # runtime's WebAssembly and immutable, the pages and the service worker
 # revalidated, and the usercontent domain's frame and Node.js worker.
 check() {
-  local build=$1 runtime=$2 base page headers
+  local runtime=$1 site=$2 base page headers beam
   [ -n "$DOMAIN" ] && [ -n "$CHECK_RESOLVE" ] || return 0
   base=https://$DOMAIN
   local curl=(curl -fsS --max-time 30 --resolve "$DOMAIN:443:$CHECK_RESOLVE")
@@ -104,22 +129,23 @@ check() {
   headers=$("${curl[@]}" -D - -o "$page" "$base/") || { echo "check: / failed" >&2; return 1; }
   grep -qi '^cross-origin-opener-policy: same-origin' <<<"$headers" || { echo "check: no COOP" >&2; return 1; }
   grep -qi '^cross-origin-embedder-policy: require-corp' <<<"$headers" || { echo "check: no COEP" >&2; return 1; }
-  if ! grep -q "content=\"$build\"" "$page"; then
-    echo "check: / is build $(meta_of "$page" build | grep . || echo '(none named)'), not $build: is Caddy's root $SITE/current?" >&2
+  if ! grep -q "content=\"$runtime\"" "$page"; then
+    echo "check: / runs $(meta_of "$page" runtime | grep . || echo '(none named)'), not $runtime: is Caddy's root $SITE/current?" >&2
     return 1
   fi
-  if [ -n "$runtime" ]; then
-    "${curl[@]}" -o /dev/null -w '%{content_type}\n' "$base/r/$runtime/beam.wasm" | grep -q '^application/wasm' ||
-      { echo "check: r/$runtime/beam.wasm is not served as WebAssembly" >&2; return 1; }
-  fi
+  # The emulator, as the site manifest names it: WebAssembly, immutable.
+  beam=$("${curl[@]}" "$base$site" | sed -n 's|.*"base": "\.\./\(npm/@elixir-playground/otp-[^"]*\)/".*|\1|p' | head -n 1)
+  [ -n "$beam" ] || { echo "check: $site names no otp package" >&2; return 1; }
+  "${curl[@]}" -o /dev/null -w '%{content_type}\n' "$base/$beam/beam.wasm" | grep -q '^application/wasm' ||
+    { echo "check: $beam/beam.wasm is not served as WebAssembly" >&2; return 1; }
+  "${curl[@]}" -o /dev/null -D - "$base/$beam/beam.wasm" | grep -qi '^cache-control:.*immutable' ||
+    { echo "check: $beam/beam.wasm is not immutable" >&2; return 1; }
+  "${curl[@]}" -o /dev/null -D - "$base$site" | grep -qi '^cache-control:.*immutable' ||
+    { echo "check: $site is not immutable" >&2; return 1; }
   "${curl[@]}" -o /dev/null -D - "$base/sw.js" | grep -qi '^cache-control: no-cache' ||
     { echo "check: sw.js is not no-cache" >&2; return 1; }
   # The pages revalidate (nothing needs purging); what is versioned does not.
   grep -qi '^cache-control: no-cache' <<<"$headers" || { echo "check: / is not no-cache" >&2; return 1; }
-  if [ -n "$runtime" ]; then
-    "${curl[@]}" -o /dev/null -D - "$base/r/$runtime/beam.wasm" | grep -qi '^cache-control:.*immutable' ||
-      { echo "check: r/$runtime/beam.wasm is not immutable" >&2; return 1; }
-  fi
   # embed.html, framed by the embedders the site names under their COEP,
   # and embed.js, which their pages import (docs/embed.md).
   headers=$("${curl[@]}" -D - -o /dev/null "$base/embed.html") || { echo "check: /embed.html failed" >&2; return 1; }
@@ -135,23 +161,25 @@ check() {
   if [ -n "$USERCONTENT" ]; then
     local exec_host=e-aaaaaaaaaa.$USERCONTENT
     headers=$(curl -fsS --max-time 30 --resolve "$exec_host:443:$CHECK_RESOLVE" -D - -o /dev/null \
-      "https://$exec_host/exec.html") || { echo "check: $exec_host/exec.html failed" >&2; return 1; }
+      "https://$exec_host${runtime}exec.html") || { echo "check: $exec_host${runtime}exec.html failed" >&2; return 1; }
     grep -qi '^cross-origin-embedder-policy: require-corp' <<<"$headers" ||
       { echo "check: no COEP on $exec_host" >&2; return 1; }
     grep -qi '^cross-origin-resource-policy: cross-origin' <<<"$headers" ||
       { echo "check: $exec_host is not CORP cross-origin" >&2; return 1; }
-    grep -qi '^cache-control: no-cache' <<<"$headers" ||
-      { echo "check: $exec_host/exec.html is not no-cache" >&2; return 1; }
     # A Node.js process's worker: its policy, the site's files alone.
     headers=$(curl -fsS --max-time 30 --resolve "$exec_host:443:$CHECK_RESOLVE" -D - -o /dev/null \
-      "https://$exec_host/b/$build/nodejs.js") || { echo "check: $exec_host/b/$build/nodejs.js failed" >&2; return 1; }
-    grep -qi "^content-security-policy: default-src 'none';.*worker-src https://$exec_host/b/$build/nodejs.js .*connect-src https://$exec_host/r/ " <<<"$headers" ||
-      { echo "check: $exec_host/b/$build/nodejs.js has no Content-Security-Policy (docs/deploy.md)" >&2; return 1; }
+      "https://$exec_host${runtime}nodejs.js") || { echo "check: $exec_host${runtime}nodejs.js failed" >&2; return 1; }
+    if ! grep -qi "^content-security-policy: default-src 'none';" <<<"$headers" ||
+      ! grep -qiF "worker-src https://$exec_host${runtime}nodejs.js " <<<"$headers" ||
+      ! grep -qiF "connect-src https://$exec_host/npm/@elixir-playground/ " <<<"$headers"; then
+      echo "check: $exec_host${runtime}nodejs.js has no Content-Security-Policy (docs/deploy.md)" >&2
+      return 1
+    fi
   fi
 }
 
-# The pages keep their names: drop the edge's copies (b/ and _playground/
-# are new names each build). Project origins' pages are not cached by
+# The pages keep their names: drop the edge's copies (the packages and
+# _playground/ are new names each build). Project origins' pages are not cached by
 # Cloudflare by default (HTML, JSON; sw.js is no-cache).
 purge() {
   [ -n "${CF_ZONE_ID:-}" ] && [ -n "${CF_API_TOKEN:-}" ] && [ -n "$DOMAIN" ] || return 0
@@ -164,18 +192,20 @@ purge() {
 }
 
 activate() {
-  local rid=$1 partial release build runtime previous keep name page top
+  local rid=$1 partial release runtime site previous keep name page top dir
   valid_rid "$rid"
   partial=$RELEASES/$rid.partial
   release=$RELEASES/$rid
   [ -d "$partial" ] || die "no upload for $rid"
-  build=$(build_of "$partial")
-  [ -n "$build" ] || die "$rid: index.html names no build"
   runtime=$(runtime_of "$partial")
   [ -n "$runtime" ] || die "$rid: index.html names no runtime"
-  for page in "${PAGES[@]}" "b/$build/worker.js" "r/$runtime/beam.wasm" "r/$runtime/fs/manifest.json" \
-              "r/$runtime/fs/version"; do
+  site=$(site_of "$partial")
+  [ -n "$site" ] || die "$rid: index.html names no site manifest"
+  for page in "${PAGES[@]}" "${runtime#/}worker.js" "${runtime#/}exec.html" "${site#/}"; do
     [ -s "$partial/$page" ] || die "$rid: $page is missing"
+  done
+  for dir in $(named_by "$partial"); do
+    [ -e "$partial/$dir" ] || die "$rid: $dir is missing"
   done
   if [ -n "$DOMAIN" ]; then
     grep -q "\"domain\": *\"$DOMAIN\"" "$partial/playground.json" || die "$rid: playground.json does not name $DOMAIN"
@@ -184,11 +214,23 @@ activate() {
     grep -q "\"usercontent\": *\"$USERCONTENT\"" "$partial/playground.json" ||
       die "$rid: playground.json does not name $USERCONTENT"
   fi
-  # The builds and runtimes of the newest releases, this one's first, stay.
+  # What the newest releases run with, this one's first, stays: their
+  # packages, recordings and site manifests.
+  keep=$({ named_by "$partial"
+           for name in $(releases | head -n "$((KEEP_BUILDS - 1))"); do named_by "$RELEASES/$name"; done
+         } | sort -u)
+  for dir in "$partial"/npm/@elixir-playground/*/ "$partial"/boot/*/ "$partial"/site/*.json; do
+    [ -e "$dir" ] || continue
+    name=${dir#"$partial"/}
+    name=${name%/}
+    grep -qxF "$name" <<<"$keep" || rm -rf "${partial:?}/$name"
+  done
+  # The layout before packages: the builds and runtimes of the newest
+  # releases of it stay, until they are none.
   for top in b:build r:runtime; do
-    keep=$({ meta_of "$partial/index.html" "${top#*:}"
-             for name in $(releases); do meta_of "$RELEASES/$name/index.html" "${top#*:}"; done
-           } | awk 'NF && !seen[$0]++' | head -n "$KEEP_BUILDS")
+    keep=$(for name in $(releases | head -n "$KEEP_BUILDS"); do
+             if [ -n "$(legacy_of "$RELEASES/$name")" ]; then meta_of "$RELEASES/$name/index.html" "${top#*:}"; fi
+           done | awk 'NF && !seen[$0]++')
     for name in "$partial/${top%%:*}"/*/; do
       [ -d "$name" ] || continue
       name=$(basename "$name")
@@ -198,7 +240,7 @@ activate() {
   mv "$partial" "$release"
   previous=$(live || true)
   swap "$rid"
-  if ! check "$build" "$runtime"; then
+  if ! check "$runtime" "$site"; then
     if [ -n "$previous" ]; then
       swap "$previous"
     else
@@ -212,7 +254,7 @@ activate() {
     [ "$name" = "$rid" ] || rm -rf "${RELEASES:?}/$name"
   done
   find "$RELEASES" -mindepth 1 -maxdepth 1 -type d -name '*.partial' -mmin +60 -exec rm -rf {} +
-  echo "live: $rid (build $build, runtime $runtime)"
+  echo "live: $rid (runtime $runtime, site $site)"
 }
 
 rollback() {
@@ -221,9 +263,10 @@ rollback() {
   before=$(releases | grep -A1 -x "$current" | sed -n 2p)
   [ -n "$before" ] || die "no release before $current"
   swap "$before"
-  check "$(build_of "$RELEASES/$before")" "$(runtime_of "$RELEASES/$before")" || echo "playground-deploy: warning: $before failed its check" >&2
+  check "$(runtime_of "$RELEASES/$before")" "$(site_of "$RELEASES/$before")" ||
+    echo "playground-deploy: warning: $before failed its check" >&2
   purge
-  echo "live: $before (build $(build_of "$RELEASES/$before"))"
+  echo "live: $before (runtime $(runtime_of "$RELEASES/$before"))"
 }
 
 if [ -n "${SSH_ORIGINAL_COMMAND:-}" ]; then
@@ -241,9 +284,9 @@ mkdir -p "$RELEASES"
 exec 9>"$SITE/.deploy.lock"
 flock -w 600 9 || die "another deploy holds the lock"
 case "${words[0]:-} ${#words[@]}" in
-  "prepare 4") prepare "${words[1]}" "${words[2]}" "${words[3]}" ;;
+  prepare\ *) [ "${#words[@]}" -ge 2 ] || die "prepare: no release"; prepare "${words[@]:1}" ;;
   "activate 2") activate "${words[1]}" ;;
   "rollback 1") rollback ;;
-  "status 1") echo "live: $(live) (build $(build_of "$SITE/current"), runtime $(runtime_of "$SITE/current"))" ;;
+  "status 1") echo "live: $(live) (runtime $(runtime_of "$SITE/current"), site $(site_of "$SITE/current"))" ;;
   *) die "unknown command: ${words[*]:-}" ;;
 esac

@@ -1,8 +1,7 @@
 #!/bin/sh
 # Builds the sandbox's artifacts into DIR: the kernel the VM boots
 # (kernel, vmlinux), its root disk (rootfs.raw, manifest.json) and
-# sandbox-netd, from the Dockerfile's stages, with the repository's erl_nif
-# layer and OTP headers as the named contexts. DOCKER names the command
+# sandbox-netd, from the Dockerfile's stages. DOCKER names the command
 # (sudo -n docker, say). Files in DIR are replaced only once all are built.
 #
 #     sandbox/build data/sandbox
@@ -18,7 +17,6 @@ trap 'rm -rf "$tmp"' EXIT
 
 for target in sandbox-kernel sandbox-rootfs sandbox-netd; do
   $docker buildx build \
-    --build-context nif="$backend/../nif" \
     --target "$target" \
     --output "type=local,dest=$tmp" \
     "$backend"

@@ -18,7 +18,14 @@ JOBS="$(nproc)"
 
 log() { echo "ncurses | $*" >&2; }
 
-if [[ -f "${PREFIX}/lib/libtinfo.a" ]]; then
+# The license, for the otp package's notices (runtime/notices.py): CI
+# caches the prefix, not the sources.
+licenses() { mkdir -p "${PREFIX}/licenses" && cp "${SRC}/COPYING" "${PREFIX}/licenses/"; }
+
+if [[ -f "${PREFIX}/lib/libtinfo.a" && ! -f "${PREFIX}/licenses/COPYING" && -d "${SRC}" ]]; then
+    licenses
+fi
+if [[ -f "${PREFIX}/lib/libtinfo.a" && -f "${PREFIX}/licenses/COPYING" ]]; then
     log "installed in ${PREFIX}"
     exit 0
 fi
@@ -47,4 +54,5 @@ log "building"
 (cd "${SRC}" && emmake make -j"${JOBS}" libs && emmake make install.libs install.includes) \
     >>"${ROOT}/out/beam-wasm/ncurses.log" 2>&1 \
     || { tail -30 "${ROOT}/out/beam-wasm/ncurses.log"; exit 1; }
+licenses
 log "installed in ${PREFIX}"

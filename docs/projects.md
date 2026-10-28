@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-27
 ---
 
 # Projects
@@ -122,9 +122,10 @@ keeps its `_build` as it is.
 
 ## Template versions
 
-The build names each template (`fs/templates.json`): an id, a digest of
+The build names each template (its package's `playground` field in
+`site.json`, [packages.md](packages.md)): an id, a digest of
 its files without its build (which changes with the runtime, not with
-the template), and a label (`phx.new 1.8.15`). A Phoenix project records
+the template), and a label (`phx.new 1.8.16`). A Phoenix project records
 the template it was made from, and so does a shared link; a project made
 before templates had versions takes the current one when first opened.
 

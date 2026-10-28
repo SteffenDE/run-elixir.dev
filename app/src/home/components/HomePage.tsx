@@ -191,6 +191,9 @@ export function HomePage() {
           </ul>
         )}
       </main>
+      <a className="home-licenses" href="/licenses/">
+        Licenses
+      </a>
     </div>
   );
 }

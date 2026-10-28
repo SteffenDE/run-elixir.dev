@@ -4,7 +4,7 @@
 // own over the node's files (wasi/), run to its end on the caller's thread:
 // a node's port or the shell waits for it, as for a quick command. Other
 // programs built for WASI run the same way, each its own module
-// (PROGRAMS: ripgrep's rg, tools/ripgrep/build.py; git, tools/git/build.py; GNU's sed,
+// (REGISTRY, from the site manifest: ripgrep's rg, tools/ripgrep/build.py; git, tools/git/build.py; GNU's sed,
 // grep, diffutils, awk and find, tools/sed/build.py, tools/grep/build.py,
 // tools/diffutils/build.py, tools/gawk/build.py, tools/findutils/build.py).
 import { WASI } from './wasi';
@@ -12,42 +12,28 @@ import type { Fetch } from './wasi/fs';
 import { Process, type Program, type Programs } from './wasi/process';
 import type { Shared } from './wasi/shared';
 import { commands } from './sh';
+import type { Registered } from './packages/manifest';
 
-// The tools in coreutils.wasm (uutils 0.12.0's feat_wasm: `coreutils --list`).
-export const TOOLS = new Set(
-  (
-    'arch b2sum base32 base64 basename basenc cat cksum comm cp csplit cut date dd dir ' +
-    'dircolors dirname echo expand expr factor false fmt fold head hostid join link ln ls ' +
-    'md5sum mkdir mktemp mv nice nl nproc numfmt od paste pathchk pr printenv printf ptx pwd ' +
-    'readlink realpath rm rmdir seq sha1sum sha224sum sha256sum sha384sum sha512sum shred shuf ' +
-    'sleep sort split sum tail tee test touch tr true truncate tsort tty uname unexpand uniq ' +
-    'unlink vdir wc yes'
-  ).split(' '),
-);
+// The programs built for WASI, by name: every package's `programs` in the
+// site manifest (site.json, docs/packages.md), each with its module's URL.
+// coreutils' tools (`tool`) share one module, its first argument naming the
+// tool; the others are each a module of their own.
+export const REGISTRY = new Map<string, Registered>();
 
-// Programs of their own module (the site's NAME.wasm), by name.
-export const PROGRAMS: Record<string, string> = {
-  rg: 'rg.wasm',
-  git: 'git.wasm',
-  sed: 'sed.wasm',
-  grep: 'grep.wasm',
-  diff: 'diff.wasm',
-  cmp: 'cmp.wasm',
-  diff3: 'diff3.wasm',
-  sdiff: 'sdiff.wasm',
-  awk: 'gawk.wasm',
-  gawk: 'gawk.wasm',
-  find: 'find.wasm',
-};
+export function register(programs: Map<string, Registered>): void {
+  REGISTRY.clear();
+  for (const [name, entry] of programs) REGISTRY.set(name, entry);
+}
 
-// A tool of coreutils' or a program of PROGRAMS'.
-export const isTool = (name: string) => TOOLS.has(name) || name in PROGRAMS;
+// A tool of coreutils', and a program of its own module.
+export const isTool = (name: string) => REGISTRY.get(name)?.multicall === true;
+export const isProgram = (name: string) => REGISTRY.get(name)?.multicall === false;
 
 export interface CoreutilsOptions {
   // coreutils.wasm, compiled; null when the site has none.
   module: () => WebAssembly.Module | null;
-  // Another of the site's modules (PROGRAMS), compiled; null without.
-  load?: (file: string) => WebAssembly.Module | null;
+  // Another program's module (REGISTRY), compiled; null without.
+  load?: (name: string) => WebAssembly.Module | null;
   fetch: Fetch;
   shared: Shared | null;
   // The standard streams are a terminal's (the shell's), this wide.
@@ -63,12 +49,12 @@ const sleep = (ms: number) => Atomics.wait(new Int32Array(new SharedArrayBuffer(
 
 // The program for tool `name`, or undefined (not one, or no coreutils.wasm).
 export function coreutils(options: CoreutilsOptions, name: string): Program | undefined {
-  if (!isTool(name)) return undefined;
-  const file = PROGRAMS[name] ?? 'coreutils.wasm';
+  const entry = REGISTRY.get(name);
+  if (!entry) return undefined;
   return (process, { args, cwd, env, root }) => {
-    const module = name in PROGRAMS ? (options.load?.(file) ?? null) : options.module();
+    const module = entry.multicall ? options.module() : (options.load?.(name) ?? null);
     if (!module) {
-      process.write(`${name}: not in this site (${file})\n`);
+      process.write(`${name}: not in this site (${entry.url.pathname.split('/').pop()})\n`);
       return process.exit(127);
     }
     const size = options.terminal?.() ?? null;
@@ -118,7 +104,7 @@ export function shWith(options: CoreutilsOptions, page: Program | undefined): Pr
     if (page) return page(process, context);
     const [flag, line = ''] = context.args;
     const queue = flag === '-c' ? commands(line) : [];
-    if (!queue.some((command) => TOOLS.has(command[0]))) {
+    if (!queue.some((command) => isTool(command[0]))) {
       process.write('sh: only sh -c runs here\n');
       return process.exit(127);
     }
@@ -150,7 +136,7 @@ export function shWith(options: CoreutilsOptions, page: Program | undefined): Pr
 export function withCoreutils(programs: Programs, options: CoreutilsOptions): Programs {
   const out = { ...programs } as Programs;
   out.sh = shWith(options, programs.sh);
-  for (const name of [...TOOLS, ...Object.keys(PROGRAMS)]) out[name] ??= coreutils(options, name)!;
+  for (const name of REGISTRY.keys()) out[name] ??= coreutils(options, name)!;
   return out;
 }
 

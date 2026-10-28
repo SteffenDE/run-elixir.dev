@@ -1,11 +1,13 @@
 import { defineConfig, type UserConfig } from 'vite';
+import { licenses } from './vite-licenses.ts';
 
 // The runtime's scripts that load by URL, bundled: the node's worker, the
 // shared files' worker, the IDE's git (git.ts), Node.js's (`node`, nodejs/) and the apex's
-// Tailscale worker (src/tailscale), which go into the build (b/ID/,
-// runtime/build.py) under their names, and the service worker, which
-// stays at the site's root (its scope is /). The page's own parts of the
-// runtime (host.ts, bridge.ts, …) are in the app's build.
+// Tailscale worker (src/tailscale), which go into the runtime package
+// (dist-runtime/, laid out as /npm/@elixir-playground/runtime@VERSION/ by
+// runtime/build.py) under their names, with the frames
+// (vite.frames.config.ts); and the service worker, which runtime/build.py
+// puts at the site's root (its scope is /).
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness instead: node.mjs, and beam-node.mjs (beam/), into dist-node/
@@ -37,15 +39,16 @@ export default defineConfig(({ mode }): UserConfig =>
       }
     : {
         publicDir: false,
+        // The runtime package's scripts (docs/licenses.md).
+        plugins: [licenses('runtime').plugin],
         // The `process` package (readable-stream's nextTick) as the
         // runtime's own: a Node.js process's nextTick (process-shim.ts).
         resolve: {
           alias: [{ find: /^process\/?$/, replacement: runtime('nodejs/process-shim.ts') }],
         },
         build: {
-          // After the app's build, into the same dist/.
-          outDir: 'dist',
-          emptyOutDir: false,
+          outDir: 'dist-runtime',
+          emptyOutDir: true,
           target: 'es2022',
           modulePreload: false,
           rollupOptions: {

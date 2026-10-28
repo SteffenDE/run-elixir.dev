@@ -1,24 +1,31 @@
-// The playground's service worker: what a preview iframe asks for goes to
-// the app in a node, through the page that runs it (bridge.ts); everything
-// else (the playground itself) comes from the network. The app sees its
-// own paths, so its absolute links work in the iframe.
+// The preview origin's service worker (v-ID-PORT.USERCONTENT, site.ts): what
+// a preview iframe asks for goes to the app in a node, through the page that
+// hosts this origin (the relay, frames/relay.ts, and bridge.ts); everything
+// else comes from the network. The app sees its own paths, so its absolute
+// links work in the iframe.
 //
-// Several pages may run projects at once, so every request is routed by a
-// key: the page running a project announces itself as the host of its key
-// ({ kind: 'host', key }), and a popped-out preview window as showing it
-// ({ kind: 'preview', key }). A preview's document gets the key of the
-// client that navigated it (its referrer), or of the only (or focused)
-// host. Which client has which key is kept in IndexedDB too, since a
-// service worker is stopped when idle and starts again without its memory.
+// One sw.js serves every version of the host on its origin (a Phoenix app
+// owns /, so it is root-scoped), so it is a router, and its protocol is
+// numbered (swProtocol.ts, docs/packages.md): a host announces
+// { kind: 'host', protocol }, and the worker answers { kind: 'hosted',
+// protocol } (null: not one it speaks) and speaks it. The origin has one
+// host, the last to announce itself; the worker keeps it, and the
+// documents it answered, in IndexedDB, since a service worker is stopped
+// when idle and starts again without its memory.
 import type { PreviewResponse } from './bridge';
+import {
+  ROUTES,
+  announcedProtocol,
+  hosted,
+  isOwnFrame,
+  type HttpRequest,
+  type Routes,
+} from './swProtocol';
 
 // What this worker uses of its scope, which the app's DOM library leaves
 // out.
 interface Client {
   id: string;
-  url: string;
-  focused?: boolean;
-  frameType?: 'auxiliary' | 'top-level' | 'nested' | 'none';
   postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 interface ExtendableEvent extends Event {
@@ -62,16 +69,10 @@ const ISOLATION = {
   'Cross-Origin-Embedder-Policy': 'require-corp',
   'Cross-Origin-Resource-Policy': 'cross-origin',
 };
-// The site's own frames: a preview origin's relay to its IDE
-// (frames/relay.ts), whose page is this worker's host there.
-const FRAMES = ['/relay.html', '/exec.html'];
+// What a constructed Response may not carry as the app sent it.
 const HOP = ['connection', 'keep-alive', 'transfer-encoding', 'content-length', 'set-cookie'];
 
-// client id → key (hosts, preview windows, the app's documents), and
-// key → the host's client id; and the app's documents (the preview's
-// frames), whose requests go to the app.
-const keys = new Map<string, string>();
-const hosts = new Map<string, string>();
+const routes: Routes = { host: null, protocol: 0, previews: [] };
 const previews = new Set<string>();
 let loading: Promise<void> | null = null;
 let loaded = false;
@@ -90,13 +91,14 @@ function load(): Promise<void> {
     .then(
       (db) =>
         new Promise<void>((resolve) => {
-          const request = db.transaction('clients').objectStore('clients').get('routes');
+          const request = db.transaction('clients').objectStore('clients').get(ROUTES);
           request.onsuccess = () => {
-            for (const [id, key] of request.result?.keys ?? [])
-              if (!keys.has(id)) keys.set(id, key);
-            for (const [key, id] of request.result?.hosts ?? [])
-              if (!hosts.has(key)) hosts.set(key, id);
-            for (const id of request.result?.previews ?? []) previews.add(id);
+            const kept = request.result as Partial<Routes> | undefined;
+            if (routes.host === null && kept?.host) {
+              routes.host = kept.host;
+              routes.protocol = kept.protocol ?? 0;
+            }
+            for (const id of kept?.previews ?? []) previews.add(id);
             resolve();
           };
           request.onerror = () => resolve();
@@ -110,21 +112,12 @@ function load(): Promise<void> {
 }
 
 let saving: Promise<void> | null = null;
-// Keep the maps. Clients that are gone go once there are many: a document
-// still loading is no client yet, and must keep its key.
+// Keep the routes. Documents that are gone go once there are many: one
+// still loading is no client yet, and must stay.
 function save(): void {
   saving ??= new Promise((resolve) => setTimeout(resolve, 200))
     .then(async () => {
       saving = null;
-      if (keys.size > 256) {
-        const live = new Set(
-          (await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })).map(
-            (c) => c.id,
-          ),
-        );
-        for (const id of [...keys.keys()].slice(0, keys.size - 128))
-          if (!live.has(id)) keys.delete(id);
-      }
       if (previews.size > 256) {
         const live = new Set(
           (await self.clients.matchAll({ includeUncontrolled: true, type: 'window' })).map(
@@ -137,15 +130,9 @@ function save(): void {
       const db = await database();
       db.transaction('clients', 'readwrite')
         .objectStore('clients')
-        .put({ keys: [...keys], hosts: [...hosts], previews: [...previews] }, 'routes');
+        .put({ ...routes, previews: [...previews] } satisfies Routes, ROUTES);
     })
     .catch(() => {});
-}
-
-function remember(id: string, key: string | null): void {
-  if (!id || !key) return;
-  keys.set(id, key);
-  save();
 }
 
 self.addEventListener('message', (event) => {
@@ -153,52 +140,27 @@ self.addEventListener('message', (event) => {
     event.waitUntil(self.clients.claim());
     return;
   }
-  // A preview's WebSocket (bridge.ts): its port goes to its project's page.
-  if (event.data?.kind === 'websocket') {
+  const kind = event.data?.kind;
+  // A preview's WebSocket (bridge.ts): its port goes to the host as it is.
+  if (kind === 'websocket') {
     event.waitUntil(
-      load()
-        .then(() => host(keys.get(event.source.id)))
-        .then((page) => {
-          if (page) page.postMessage(event.data, [event.ports[0]]);
-          else event.ports[0].postMessage({ close: { code: 1006, reason: '', clean: false } });
-        }),
+      host().then((page) => {
+        if (page && announcedProtocol(event.data) === routes.protocol)
+          page.postMessage(event.data, [event.ports[0]]);
+        else event.ports[0].postMessage({ close: { code: 1006, reason: '', clean: false } });
+      }),
     );
-    return;
+  } else if (kind === 'host') {
+    const answer = hosted(announcedProtocol(event.data));
+    event.source.postMessage(answer);
+    if (answer.protocol === null) return;
+    routes.host = event.source.id;
+    routes.protocol = answer.protocol;
+    save();
   }
-  const { kind, key } = event.data ?? {};
-  if (kind === 'host') {
-    hosts.set(key, event.source.id);
-    remember(event.source.id, key);
-  } else if (kind === 'preview') remember(event.source.id, key);
 });
 
-// The key a request belongs to.
-async function keyOf(event: FetchEvent): Promise<string | null> {
-  await load();
-  const known = event.clientId && keys.get(event.clientId);
-  if (known) return known;
-  const all = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
-  // The document that navigated the preview.
-  const { referrer } = event.request;
-  if (referrer) {
-    const from = all.find((client) => client.url === referrer && keys.has(client.id));
-    if (from) return keys.get(from.id)!;
-  }
-  // The only host there is, else the focused one, else the last.
-  const live = [...hosts].filter(([, id]) => all.some((client) => client.id === id));
-  if (live.length <= 1) return live[0]?.[0] ?? null;
-  const focused = live.find(([, id]) => all.find((client) => client.id === id)?.focused);
-  return (focused ?? live[live.length - 1])[0];
-}
-
-// Only the preview's documents' requests are answered here (they were
-// the frames' navigations this worker answered, kept with the routes, as
-// a worker is stopped when idle); everything else goes straight to the
-// network. Never by asking the client what it is: Firefox answers
-// clients.get() for a worker on that worker's thread, which a node's
-// worker blocks in a synchronous request for a bundle of its files (that
-// comes here) — neither went on for minutes.
-// On a project's preview origin (v-ID-PORT.DOMAIN, site.ts), the port
+// On a project's preview origin (v-ID-PORT.USERCONTENT, site.ts), the port
 // another of the project's preview origins shows, else null: a request
 // there from the preview (another port's page or data, which a fetch to
 // that origin would ask the network for) goes to the app's port too.
@@ -209,47 +171,55 @@ function sibling(url: URL): number | null {
   return own && other && own[1] === other[1] && own[3] === other[3] ? Number(other[2]) : null;
 }
 
+// Only the preview's documents' requests are answered here (the frames'
+// navigations this worker answered, kept with the routes); everything
+// else goes straight to the network. Never by asking the client what it
+// is: Firefox answers clients.get() for a worker on that worker's thread,
+// which a node's worker blocks in a synchronous request for a bundle of
+// its files (that comes here) — neither went on for minutes.
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
   if (url.origin !== self.location.origin) {
     const port = request.mode === 'navigate' ? null : sibling(url);
     if (port !== null && event.clientId && previews.has(event.clientId))
-      event.respondWith(app(event, false, port));
+      event.respondWith(app(event, port));
     return;
   }
   if (request.mode === 'navigate') {
-    if (request.destination !== 'iframe') return;
-    // The site's own frames (frames.ts), never a preview.
-    if (FRAMES.includes(new URL(request.url).pathname)) return;
+    // The site's own pages (the relay), never a preview.
+    if (request.destination !== 'iframe' || isOwnFrame(url.pathname)) return;
     previews.add(event.resultingClientId);
     save();
-    event.respondWith(app(event, true));
+    event.respondWith(app(event));
   } else if (event.clientId && (!loaded || previews.has(event.clientId))) {
     // Before the routes are read (a worker just started): read them first.
     const id = event.clientId;
-    event.respondWith(load().then(() => (previews.has(id) ? app(event, false) : fetch(request))));
+    event.respondWith(load().then(() => (previews.has(id) ? app(event) : fetch(request))));
   }
 });
 
-// The page running the key's project.
-async function host(key: string | null | undefined): Promise<Client | null | undefined> {
-  const id = key && hosts.get(key);
-  return id ? self.clients.get(id) : null;
+// The page that hosts this origin.
+async function host(): Promise<Client | null> {
+  await load();
+  return routes.host ? ((await self.clients.get(routes.host)) ?? null) : null;
 }
 
-// The app's answer to a request, through its page (bridge.ts); `port`: a
-// sibling preview origin's.
-async function app(event: FetchEvent, navigation: boolean, port?: number): Promise<Response> {
+// The app's answer to a request, through the host (bridge.ts), in
+// protocol 1; `port`: a sibling preview origin's.
+async function app(event: FetchEvent, port?: number): Promise<Response> {
   const { request } = event;
-  const key = await keyOf(event);
-  if (navigation) remember(event.resultingClientId, key);
-  const page = await host(key);
+  const page = await host();
+  // No host: the project stopped, or the page that hosts it is older than
+  // this worker (an unnumbered announce, refused), which a reload fixes.
   if (!page) {
-    return new Response('The project is not running.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain', ...ISOLATION },
-    });
+    return new Response(
+      'The project is not running. If the playground was updated since you opened this page, reload it.',
+      {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain', ...ISOLATION },
+      },
+    );
   }
   const url = new URL(request.url);
   const body = ['GET', 'HEAD'].includes(request.method) ? null : await request.arrayBuffer();
@@ -266,7 +236,7 @@ async function app(event: FetchEvent, navigation: boolean, port?: number): Promi
       body,
       destination: request.destination,
       ...(port === undefined ? {} : { port }),
-    },
+    } satisfies HttpRequest,
     [channel.port2],
   );
   const response = await reply;

@@ -22,7 +22,7 @@
 import { Buffer } from './buffer';
 import { createDgram, type DgramMessage } from './dgram';
 import { createDns } from './dns';
-import { Engine, closeAfterEnd, identityRefusal, type TlsOptions } from './tls';
+import { Engine, closeAfterEnd, identityRefusal, type TlsFiles, type TlsOptions } from './tls';
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
 
@@ -83,8 +83,12 @@ const netError = (
     port,
   });
 
-// runtime: the site's runtime files (tls.wasm).
-export function createNet(post: (message: unknown) => void, hold: Hold, runtime = '') {
+// tls: the tls package's files (tls.wasm).
+export function createNet(
+  post: (message: unknown) => void,
+  hold: Hold,
+  tls: TlsFiles | null = null,
+) {
   const sockets = new Map<number, Socket>();
   const servers = new Map<number, Server>();
   const asked = new Map<number, (port: number | null) => void>();
@@ -304,7 +308,7 @@ export function createNet(post: (message: unknown) => void, hold: Hold, runtime 
       this.handshaking = true;
       const servername =
         this.tlsOptions.servername ?? (isIPv4(this.host) || isIPv6(this.host) ? '' : this.host);
-      Engine.open(runtime, this.host, {
+      Engine.open(tls, this.host, {
         ALPNProtocols: ['http/1.1'],
         ...this.tlsOptions,
         servername,

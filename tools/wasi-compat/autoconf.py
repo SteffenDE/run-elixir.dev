@@ -18,6 +18,7 @@ Loaded by path (python3 -I leaves the script's directory off sys.path).
 """
 
 import hashlib
+import importlib.util
 import os
 import shutil
 import subprocess
@@ -28,7 +29,7 @@ import urllib.request
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 COMPAT = os.path.dirname(os.path.abspath(__file__))
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
-# wasi-sdk 33 (clang 23), as nif/build.py's and tools/git/build.py's.
+# wasi-sdk 33 (clang 23), as the backend's NIF toolchain and tools/git/build.py.
 IMAGE = "ghcr.io/webassembly/wasi-sdk@sha256:52595085a0ffbaf574d8d678a9aa81305f0b3af81c639291f15bc7713e42848e"
 CC = "/opt/wasi-sdk/bin/clang --target=wasm32-wasip1 --sysroot=/opt/wasi-sdk/share/wasi-sysroot"
 # wasi-libc's emulations (signal, raise, clock, getpid, mmap), as git's.
@@ -65,6 +66,29 @@ def stamp(here, release, configure):
     return hashed.hexdigest()
 
 
+def licensed(here, name, release, made):
+    """target/NAME/licenses (tools/licenses.py) and, the tool being GPL,
+    target/NAME/source: the release, its patches and the build's files."""
+    spec = importlib.util.spec_from_file_location("licenses", os.path.join(ROOT, "tools", "licenses.py"))
+    licenses = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(licenses)
+    out = os.path.join(ROOT, "target", name)
+    if licenses.current(out, made):
+        return
+    version, source, sha256 = release
+    archive = os.path.join(out, os.path.basename(source))
+    fetch(source, sha256, archive)
+    tool = os.path.relpath(here, ROOT)
+    sources = {os.path.basename(source): archive, f"{tool}/build.py": os.path.join(here, "build.py"),
+               "tools/wasi-compat": COMPAT}
+    for extra in ("patches", "config.site"):
+        if os.path.exists(os.path.join(here, extra)):
+            sources[f"{tool}/{extra}"] = os.path.join(here, extra)
+    inventory = licenses.c_tool(out, name, version, "GPL-3.0-or-later", f"https://www.gnu.org/software/{name}/",
+                                archive, ["COPYING"], sources, f"{tool}/build.py")
+    licenses.finish(inventory, out, made)
+
+
 def build(here, name, release, programs, configure=()):
     """`name`'s `release` (version, URL, SHA-256) built; `programs` maps
     each wasm to keep (target/NAME/KEY.wasm) to what make builds (a path
@@ -77,7 +101,7 @@ def build(here, name, release, programs, configure=()):
     if all(map(os.path.exists, wasm.values())) and os.path.exists(built):
         with open(built) as f:
             if f.read() == made:
-                return
+                return licensed(here, name, release, made)
     version, source, sha256 = release
     archive = os.path.join(out, os.path.basename(source))
     fetch(source, sha256, archive)
@@ -129,5 +153,6 @@ def build(here, name, release, programs, configure=()):
         shutil.copy(os.path.join(src, path), wasm[key])
     with open(built, "w") as f:
         f.write(made)
+    licensed(here, name, release, made)
     for path in wasm.values():
         print(f"{path}: {os.path.getsize(path) / 1e3:.0f} KB")

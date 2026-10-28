@@ -3,3 +3,5 @@ dist/
 test-results/
 playwright-report/
 dist-node/
+dist-runtime/
+dist-licenses/

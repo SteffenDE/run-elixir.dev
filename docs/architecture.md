@@ -58,8 +58,9 @@ child processes, a clock, random bytes and a terminal.
 
 ## Files
 
-- **`/rotp`** is the installation (OTP, Elixir, Mix, Hex, phx_new; the
-  name is Rust-OTP's).
+- **`/opt/otp/VERSION` and `/opt/elixir/VERSION`** are the installation
+  (OTP; Elixir, Mix, Hex, phx_new), each at the root its package names
+  ([packages.md](packages.md#fs-layers-fs-format-3)).
   Every worker has its own copy: its project kind's boot images unpacked
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
   on first use (see [build.md](build.md)). The images are gunzipped once,
@@ -168,8 +169,9 @@ runtime dispatches it by name:
   redirections, and child processes. `os:cmd`'s `sh -s` input path is
   not supported.
 
-`rebar3` runs the installed escript at `/rotp/mix/rebar3`. Stand-ins on
-`PATH` let Erlang and Elixir find the supported programs. The installation
+`rebar3` runs the installed escript (`MIX_REBAR3`, the Elixir package's
+`mix/rebar3`). `/usr/bin/mix` links to the package's Mix script; stand-ins
+on `PATH` let Erlang and Elixir find the other supported programs. The installation
 also includes OTP application headers for dependency compilation.
 
 The Hex `esbuild` and `tailwind` packages run the playground's programs
