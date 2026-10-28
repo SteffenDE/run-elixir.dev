@@ -105,15 +105,20 @@ does not store or execute Claude Code.
 
 - **Frame creation:** when a project first runs `claude`,
   `packages/api/src/claudeFrame.ts` creates an invisible iframe at
-  `claude.USERCONTENT/RUNTIME/claude.html`, using the same approach as the exec
-  frame. `frames/claude.ts` starts the worker in
-  `programs/claude/worker.ts` and forwards ports received from the IDE.
-  It accepts ports only from the IDE's origin.
-- **Connections:** each run requests a port from the IDE through
-  `claudePort`. The IDE gives one end of a channel to the exec frame and
+  `claude.USERCONTENT/CLAUDE/claude.html`, where `CLAUDE` is the claude
+  package's path (its descriptor's `base`), using the same approach as
+  the exec frame. The frame and its worker are the claude package's
+  (`packages/claude`: `frame.ts` starts `worker.ts`, which prepares with
+  `build.ts` and `bungraph.ts`). The frame accepts ports only from the
+  apex and the `embedders` the site names.
+- **Connections:** each run requests a port from the page through
+  `claudePort`. The page gives one end of a channel to the exec frame and
   the other to the claude frame. The worker handles `files` requests by
   transferring the cached file buffers. During preparation, it sends
-  `progress` events.
+  `progress` events. That exchange is the claude seam
+  (`packages/runtime/src/programs/claude/protocol.ts`; the runtime
+  provides `claude` 1 since 1.1.0, and the claude package's `abi` names
+  it).
 - **Shared cache:** every project's IDE embeds the claude origin under
   the same apex site, so the frames share an IndexedDB storage partition.
   Subsequent projects reuse the cached files. A Web Lock serializes

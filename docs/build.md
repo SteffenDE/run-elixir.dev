@@ -100,8 +100,9 @@ target/site/
                                of what is in it) with its package.json, and the published
                                artifacts' index.js (their descriptors, api.md):
     runtime@…/                 worker.js, files.js, git.js, nodejs.js and
-                                 chunks/ (the runtime's workers); exec.html, relay.html,
-                                 claude.html and frames/ (the usercontent domain's frames)
+                                 chunks/ (the runtime's workers); exec.html, relay.html and
+                                 frames/ (the usercontent domain's frames); root/ (sw.js and
+                                 the /relay.html bootstrap)
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
     elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3)
@@ -114,7 +115,8 @@ target/site/
                                  627 KB to 1.5 MB each)
     tls@…/                     tls.wasm (0.71 MB), roots.pem; fs/ (the nodes' CA bundle)
     tailscale@…/               tailscale.wasm (29.3 MB, 6.8 MB gzipped); not published
-    claude@…/                  the Claude Code range tested (package.json)
+    claude@…/                  claude.html and frames/ (the claude frame and its worker,
+                                 packages/claude); the Claude Code range tested (package.json)
     api@…/, pglite@…/          index.js: create() (api.md) and the pglite plugin, one ES
                                  module each (packages/api, packages/pglite)
     standard@…/                index.js: the preset of shell, git, gnu-tools, ripgrep, tls
@@ -186,12 +188,14 @@ OTP's and Elixir's from the site manifest.
      `root/relay.html`, the bootstrap, which `build.py` copies to the
      site's root) and the usercontent
      domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
-     `claude.html`, with a relative base) into `dist/`, the runtime
+     with a relative base) into `dist/`, the runtime
      package; with `--mode node`, the Node harness (`node.ts` and
      `beam-node.ts`, as `.mjs`) into `dist-node/`, which goes to
      `target/node`;
    - `packages/api` and `packages/pglite`: one ES module each into
      `dist/index.js` (their `vite.config.ts`), with their declarations;
+   - `packages/claude`: the claude frame (`claude.html`) and its worker
+     into `dist/` (`vite.config.ts`);
    - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
    - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
      `dist/`, which goes to the site's root. NIF libraries

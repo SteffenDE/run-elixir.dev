@@ -709,7 +709,11 @@ PACKAGES = {
     "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm", "wasm_exec.js"], "publish": False,
                   "playground": {"abi": {"tailscale": 1},
                                  "tailscale": {"module": "tailscale.wasm", "glue": "wasm_exec.js"}}},
-    "claude": {"version": "1.0.0", "files": [], "playground": {}},
+    # Claude Code's preparer: the claude frame and its worker
+    # (packages/claude), which the claude seam joins to the runtime's
+    # `claude` (its 1.1).
+    "claude": {"version": "1.1.0", "files": ["claude.html", "frames"], "playground": {"abi": {"claude": 1}},
+               "runtime": "^1.1.0"},
 }
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
@@ -812,7 +816,7 @@ def file_entry(path):
 
 def claude_code():
     """The Claude Code version the playground pins (CLAUDE_CODE in the app)."""
-    path = os.path.join(ROOT, "packages", "runtime", "src", "programs", "claude", "build.ts")
+    path = os.path.join(ROOT, "packages", "claude", "src", "build.ts")
     with open(path) as f:
         return re.search(r"CLAUDE_CODE = \{\s*version: '([^']+)'", f.read()).group(1)
 
@@ -1004,7 +1008,8 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
     }
     entries = {}
     for key, package in PACKAGES.items():
-        peers = {host["name"]: "^%s.0.0" % host["version"].split(".")[0]}
+        # The runtime it needs: its major, or the minor that brought a seam it uses.
+        peers = {host["name"]: package.get("runtime", "^%s.0.0" % host["version"].split(".")[0])}
         for peer in package.get("peers", ()):
             peers[f"{SCOPE}/{named(peer)}"] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
         _, entries[f"{SCOPE}/{named(key)}"] = lay(
@@ -1091,8 +1096,10 @@ def tool_notices():
         "gnu-tools": notices.gnu_tools(["sed", "grep", "diffutils", "gawk", "findutils"]),
         "tls": notices.tls(cacerts()),
         "tailscale": (notices.tool("tailscale")[0].extend(notices.own()), {}),
-        # Only its package.json: Claude Code comes from npm (docs/packages.md).
-        "claude": (notices.own(), {}),
+        # The preparer, with what its Vite build bundled (esbuild's
+        # WebAssembly among them); Claude Code itself comes from npm
+        # (docs/packages.md).
+        "claude": (notices.own().extend(notices.npm("claude")), {}),
     }
 
 
@@ -1144,6 +1151,9 @@ def sources(wasm):
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
             # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
+            # The claude frame (packages/claude's build).
+            "claude.html": os.path.join(ROOT, "packages", "claude", "dist", "claude.html"),
+            "frames": os.path.join(ROOT, "packages", "claude", "dist", "frames"),
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}

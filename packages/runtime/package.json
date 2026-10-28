@@ -1,6 +1,6 @@
 {
   "name": "@elixir-playground/runtime",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "The playground's runtime: its workers and the usercontent domain's frames (docs/runtime.md). Its published package.json is runtime/build.py's, from src/packages/host.json.",

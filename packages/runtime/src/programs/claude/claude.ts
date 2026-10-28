@@ -1,14 +1,13 @@
 // claude: Claude Code on the page, its JavaScript on the playground's Node
 // with a stand-in for Bun's own APIs (nodejs/claude/bun.ts). The site
 // hosts none of it: the claude frame (worker.ts, on claude.USERCONTENT)
-// makes its files once a version for every project (build.ts), and hands
-// them over a port the IDE's page gives (frame.ts). Each run puts them in
+// makes its files once a version for every project (the claude package),
+// and hands them over a port the page gives (protocol.ts). Each run puts them in
 // /opt/claude-code/VERSION (files.js's memory, outside /work, so a project
 // does not keep them) and runs cli.js there with node.
 import type { Files } from '../../host/files';
 import { Rpc } from '../../lib/rpc';
-import type { GraphFile } from './bungraph';
-import { DIR } from './build';
+import { DIR, type ClaudeFiles, type GraphFile } from './protocol';
 import type { Context, Process } from '../tailwind';
 
 // The files in `dir`, unless they are there already (cli.js last, so its
@@ -60,7 +59,7 @@ async function claudeFiles(
   signal.addEventListener('abort', cancel, { once: true });
   rpc.on<string>('progress', say);
   try {
-    return await rpc.call<{ version: string; files: GraphFile[] }>('files');
+    return await rpc.call<ClaudeFiles>('files');
   } finally {
     signal.removeEventListener('abort', cancel);
     rpc.close();

@@ -1,0 +1,23 @@
+{
+  "name": "@elixir-playground/claude",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Claude Code's preparer: the claude frame and its worker (docs/nodejs.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "oxlint src test",
+    "format": "oxfmt src test",
+    "format:check": "oxfmt --check src test"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*",
+    "fzstd": "0.1.1",
+    "@noble/hashes": "2.0.1"
+  }
+}

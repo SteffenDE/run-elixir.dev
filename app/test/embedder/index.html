@@ -55,10 +55,14 @@
           playground: pkg.playground,
         };
       }
+      // The runtime installed, at its published path.
+      const runtime = await fetch('/node_modules/@elixir-playground/runtime/package.json').then(
+        (response) => response.json(),
+      );
       const options = {
         plugins: [otp, elixir, standard, claude],
         usercontent: `usercontent.localhost${port}`,
-        runtime: '/npm/@elixir-playground/runtime@1.0.0/',
+        runtime: `/npm/@elixir-playground/runtime@${runtime.version}/`,
       };
       window.embed = {
         started: performance.now(),

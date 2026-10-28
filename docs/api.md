@@ -378,8 +378,6 @@ package.json.
 
 ## Not yet
 
-- **The claude frame** is the runtime package's; the claude package holds
-  only the tested range.
 - **A real Safari**, and Tidewave's side (`/web` on the API).
 - **`fs.watch`'s kinds**: a change says only whether the path is there
   now (`changed`) or not (`deleted`); a rename is the two.

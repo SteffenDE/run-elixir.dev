@@ -53,7 +53,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 
 | Package | Contents | Peer dependencies | Size |
 | --- | --- | --- | --- |
-| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `nodejs.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `claude.html`, `frames/`, the exec frame's worker among them) | none | 14 MB |
+| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `nodejs.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the `/relay.html` bootstrap) | none | 14 MB |
 | `api` | `index.js`: `create()` and its sandbox, one ES module | `runtime` | 93 KB |
 | `pglite` | `index.js`: the pglite plugin (Postgres on port 5432); depends on `@electric-sql/pglite` | `api` | 7 KB |
 | `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, pglite()]`, which it depends on | none | 1 KB |
@@ -66,7 +66,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find` | `runtime` | 5.3 MB |
 | `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
 | `tailscale` (not published) | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
-| `claude` | The Claude Code range the preparer was tested with; no Claude Code | `runtime` | 8 KB |
+| `claude` | The claude frame and its worker, which prepare Claude Code (`claude.html`, `frames/`, esbuild's WebAssembly among them); the range they were tested with; no Claude Code | `runtime ^1.1` | 12 MB |
 | `vite` | `index.js`: the Vite plugin that lays out a site's usercontent domain ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 9 KB |
 
 **Not published:** `phoenix-template` and `tailscale` are the
@@ -79,11 +79,9 @@ a plugin of its own (`tailscale/plugin.ts`).
 
 What is still not where it belongs:
 
-- **`claude`'s preparer** (Bun graph → CommonJS) is part of the runtime
-  package's frames (`claude.html`'s worker), so `claude` holds only the
-  range. Without the `claude` package among the plugins, `claude` fails.
-- **esbuild's WebAssembly** (12 MB, the page program `esbuild`) is in the
-  runtime package's frames; it could be a package of its own.
+- **esbuild's WebAssembly** (12 MB) is in the runtime package's frames
+  (the page program `esbuild`) and again in the claude package's (the
+  preparer compiles with it); it could be a package of its own.
 
 ## Versioning
 

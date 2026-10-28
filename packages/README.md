@@ -22,9 +22,10 @@ sources.
 
 | Directory | Package | Contents | Built into |
 | --- | --- | --- | --- |
-| `runtime/` | `@elixir-playground/runtime` | The runtime's workers, the usercontent domain's frames (`exec.html`, `relay.html`, `claude.html`), the page programs, the service worker and its `/relay.html` bootstrap (`public/root/`, published as `root/`) | `dist/`; the Node harness into `dist-node/` |
+| `runtime/` | `@elixir-playground/runtime` | The runtime's workers, the usercontent domain's frames (`exec.html`, `relay.html`), the page programs, the service worker and its `/relay.html` bootstrap (`public/root/`, published as `root/`) | `dist/`; the Node harness into `dist-node/` |
 | `api/` | `@elixir-playground/api` | `create()` and its sandbox ([docs/api.md](../docs/api.md)) | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
 | `pglite/` | `@elixir-playground/pglite` | The pglite plugin: Postgres on port 5432 for the nodes | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
+| `claude/` | `@elixir-playground/claude` (its frame) | The claude frame and its worker, which prepare Claude Code; `build.py` adds the descriptor and the tested range | `dist/` |
 | `vite/` | `@elixir-playground/vite` | The Vite plugin that lays out a site's usercontent domain | `dist/index.js`, `dist/index.d.ts` (tsc) |
 
 `api`'s and `pglite`'s declarations come from `tsc -p tsconfig.build.json`
@@ -48,7 +49,7 @@ its descriptor (`index.js`, typed by `index.d.ts`), which `create()` takes as a 
 | `gnu-tools` | GNU sed, grep, diffutils, gawk, find | `tools/*/build.py` | Yes |
 | `ripgrep` | `rg.wasm` | `tools/ripgrep/build.py` | Yes |
 | `tls` | `tls.wasm`, `roots.pem`; the nodes' CA bundle | `tls/build.py` | Yes |
-| `claude` | The Claude Code range the playground was tested with | `runtime/src/programs/claude/build.ts` | Yes |
+| `claude` | The claude frame (`claude/`'s build) and the Claude Code range it was tested with | `packages/claude` | Yes |
 | `standard` | The preset `[shell, git, gnu-tools, ripgrep, tls, pglite()]` | Generated: it depends on packages that exist only as `build.py` output | Yes |
 | `phoenix-template` | The playground's Phoenix app at `/work/playground` | `mix phx.new`, compiled in the node | No: the playground's own |
 | `tailscale` | `tailscale.wasm` and Go's `wasm_exec.js` | `tailscale/build.py` | No: the playground's own |

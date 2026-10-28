@@ -3,12 +3,24 @@
 // package and its plugins as installed, and create() runs a project in an
 // exec frame on the playground's usercontent domain, which names the
 // embedder; the embedder frames the project's preview itself.
-import { existsSync } from 'node:fs';
+import { existsSync, readdirSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { PORT } from './helpers';
 
 const EMBEDDER = `http://embedder.localhost:${PORT}/`;
+
+// The site's packages' versions, by short name, as build.py laid them out
+// (NAME@VERSION+ID), which serve.py serves at their published paths.
+function laidVersions(): Record<string, string> {
+  const top = new URL('../../../target/site/npm/@elixir-playground/', import.meta.url);
+  return Object.fromEntries(
+    readdirSync(top).map((entry) => {
+      const [name, version] = entry.split('+')[0].split('@');
+      return [name, version];
+    }),
+  );
+}
 
 declare global {
   interface Window {
@@ -531,19 +543,22 @@ test('only the sites the playground names run projects on it, with packages that
   // projects for it, and create() says so. Its page imports the
   // packages from where the site serves them.
   await page.goto(`http://other.localhost:${PORT}/favicon.ico`);
-  const other = await page.evaluate(async (usercontent) => {
-    const at = (name: string) => `/npm/@elixir-playground/${name}@1.0.0/index.js`;
-    const load = async (name: string) => (await import(at(name))).default;
-    const { create } = await import(at('api'));
-    return create({
-      plugins: [await load('otp-29.1.2'), await load('elixir-1.20.4'), await load('shell')],
-      project: { template: 'empty' },
-      usercontent,
-      runtime: '/npm/@elixir-playground/runtime@1.0.0/',
-    })
-      .then(() => 'created')
-      .catch((error: Error & { code?: string }) => `${error.code}: ${error.message}`);
-  }, `usercontent.localhost:${PORT}`);
+  const other = await page.evaluate(
+    async ([usercontent, versions]) => {
+      const at = (name: string) => `/npm/@elixir-playground/${name}@${versions[name]}/index.js`;
+      const load = async (name: string) => (await import(at(name))).default;
+      const { create } = await import(at('api'));
+      return create({
+        plugins: [await load('otp-29.1.2'), await load('elixir-1.20.4'), await load('shell')],
+        project: { template: 'empty' },
+        usercontent,
+        runtime: `/npm/@elixir-playground/runtime@${versions.runtime}/`,
+      })
+        .then(() => 'created')
+        .catch((error: Error & { code?: string }) => `${error.code}: ${error.message}`);
+    },
+    [`usercontent.localhost:${PORT}`, laidVersions()] as const,
+  );
   expect(other).toMatch(/^EACCES: .* does not run projects for http:\/\/other\.localhost/);
 
   // Packages that do not fit each other: refused before any frame starts.

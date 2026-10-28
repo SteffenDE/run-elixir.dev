@@ -5,8 +5,8 @@ import { licenses } from '../../vite-licenses.ts';
 const bundled = licenses('frames');
 
 // The usercontent domain's frames (docs/frames.md): a preview origin's
-// relay, the frame that runs a project (and its worker, exec/host.ts),
-// and the claude frame. They are the runtime package's (docs/packages.md),
+// relay, and the frame that runs a project (and its worker, exec/host.ts).
+// The claude frame is the claude package's. They are the runtime package's (docs/packages.md),
 // so they share nothing with the IDE's build: after the runtime's scripts,
 // into the same dist/ (runtime/build.py lays it out as
 // /npm/@elixir-playground/runtime@VERSION/), their assets in frames/.
@@ -25,7 +25,6 @@ export default defineConfig({
       input: {
         exec: 'exec.html',
         relay: 'relay.html',
-        claude: 'claude.html',
       },
     },
   },

@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest';
-import { untarOne } from '../../../src/programs/claude/build';
+import { untarOne } from '../src/build';
 
 vi.mock('../../../src/programs/esbuild', () => ({ load: vi.fn() }));
 

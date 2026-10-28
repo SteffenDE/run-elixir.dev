@@ -1,10 +1,11 @@
-// The claude frame's worker (frames/claude.ts, on claude.USERCONTENT): it
-// answers each port the frame passes on (an exec frame's `claude`, through
-// the IDE's page: frame.ts) with Claude Code's files, made once for every
+// The claude frame's worker (frame.ts, on claude.USERCONTENT): it answers
+// each port the frame passes on (an exec frame's `claude`, through the
+// page that runs it: the api package's claudeFrame.ts) with Claude Code's
+// files (the runtime's programs/claude/protocol.ts), made once for every
 // project and every tab (build.ts; a lock, so two never make them at
 // once). It runs none of Claude Code: it fetches, checks, reads and
 // compiles, and keeps the result.
-import { Rpc, transfer } from '../../lib/rpc';
+import { Rpc, transfer } from '@elixir-playground/runtime/lib/rpc';
 import { CLAUDE_CODE, claudeFiles } from './build';
 
 const LOCK = 'playground-claude-code';

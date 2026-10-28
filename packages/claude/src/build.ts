@@ -12,7 +12,8 @@
 // otherwise. Update it with the site.
 import { sha512 } from '@noble/hashes/sha2.js';
 import { graphParts, type GraphFile } from './bungraph';
-import { load as loadEsbuild } from '../esbuild';
+import { load as loadEsbuild } from '@elixir-playground/runtime/programs/esbuild';
+import { DIR } from '@elixir-playground/runtime/programs/claude/protocol';
 
 export const CLAUDE_CODE = {
   version: '2.1.306',
@@ -30,8 +31,6 @@ const DATABASE = 'playground-claude-code';
 // invalidate cached files.
 const LAYOUT = 4;
 const STORE = 'versions';
-// Where a project's files.js holds them, by version (claude.ts).
-export const DIR = '/opt/claude-code';
 const MB = 1 << 20;
 
 // Packages Bun has built in, which the modules import by name: ws (for

@@ -2,7 +2,7 @@
 // calls it, which is the project's apex: it frames the project's exec frame
 // on the usercontent domain (exec/host.ts), keeps what is the apex's (the
 // project's stores, its plugins' services: PGlite; Hex's cache), makes the
-// preview's relays, gives Claude Code's files (programs/claude/frame.ts),
+// preview's relays, gives Claude Code's files (claudeFrame.ts),
 // and carries connections to the ports its caller serves. Processes are
 // the exec frame's (its process API, which keeps a terminal's line
 // discipline). The playground's IDE and other sites' pages run projects
@@ -625,7 +625,8 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       instances,
     );
     const way = wayOf(options.relay);
-    const claude = packages.some(({ playground }) => playground.claudeCode);
+    // The claude package, whose frame makes Claude Code's files.
+    const claude = packages.find(({ playground }) => playground.claudeCode);
     sandbox.listen({
       connect: (service: string, node: number, id: number, port: MessagePort) => {
         const served = service.match(/^port:(\d+)$/);
@@ -643,7 +644,7 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       relayWay: (host: unknown) => way(host),
       claudePort: () =>
         claude
-          ? claudePort()
+          ? claudePort(claude.base)
           : Promise.reject(new Error('no claude package among the plugins (docs/api.md)')),
     });
     let store: MessagePort | null = null;

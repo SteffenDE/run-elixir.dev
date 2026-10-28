@@ -25,11 +25,10 @@ const ZSTD = [0x28, 0xb5, 0x2f, 0xfd];
 const SCRIPTS = new Set([0, 1, 2, 3]);
 const NAPI = 10;
 
-export interface GraphFile {
-  // Its path below the graph's root (`cli`, the entry, as `cli.js`).
-  name: string;
-  data: Uint8Array;
-}
+// A file of the graph: its path below the graph's root (`cli`, the
+// entry, as `cli.js`).
+export type { GraphFile } from '@elixir-playground/runtime/programs/claude/protocol';
+import type { GraphFile } from '@elixir-playground/runtime/programs/claude/protocol';
 
 function lastIndexOf(bytes: Uint8Array, needle: Uint8Array): number {
   outer: for (let at = bytes.length - needle.length; at >= 0; at--) {
