@@ -306,8 +306,9 @@ jobs:
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
-      # Trusted publishing needs npm 11.5.1 or later.
-      - run: npm install -g npm@latest
+      # Trusted publishing needs npm 11.5.1 or later; a major of its own,
+      # so that a new one (npm view's output changed in 12) is a change here.
+      - run: npm install -g npm@12
       - run: python3 -I runtime/publish.py --publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

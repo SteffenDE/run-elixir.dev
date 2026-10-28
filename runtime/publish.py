@@ -112,7 +112,15 @@ def registry(name):
         if "E404" in found.stderr or "404" in found.stderr:
             return None, None
         sys.exit(f"npm view {name}: {found.stderr.strip()}")
-    data = json.loads(found.stdout or "{}")
+    return viewed(json.loads(found.stdout or "{}"))
+
+
+def viewed(data):
+    """`npm view NAME@latest version playgroundDigest --json`'s answer:
+    npm 11 gives the fields as an object (or the version alone, when the
+    digest is missing), npm 12 a list of them, one per version matched."""
+    if isinstance(data, list):
+        data = data[-1] if data else {}
     if isinstance(data, str):
         return data, None
     return data.get("version"), data.get("playgroundDigest")
