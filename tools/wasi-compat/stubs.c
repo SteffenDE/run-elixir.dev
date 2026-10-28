@@ -1,7 +1,7 @@
 /* What WASI preview 1 lacks and the C tools (git, sed, …) link against:
    processes, users, modes, terminals and sockets. Processes are the
    playground's host's (its `processes` imports:
-   app/src/runtime/processes.ts); the rest says so (ENOSYS) or answers as
+   packages/runtime/src/processes.ts); the rest says so (ENOSYS) or answers as
    a single user would. Built with wasi-compat.h forced in, as git's files
    are; a tool links what it uses (wasm-ld drops the rest, and with it
    imports nothing calls). */

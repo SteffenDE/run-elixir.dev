@@ -3,7 +3,7 @@ import { parseFragment } from '@/live/lib/crypto';
 import { joinSession, type GuestProject } from '@/live/lib/guest';
 import { saveName, savedName, useLive } from '@/live/lib/store';
 import { ProjectPage } from '@/project/components/ProjectPage';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // A live session's link (/live/ID#k=…&h=…): a name, then the host's project
 // in the IDE, once the host lets this guest in.

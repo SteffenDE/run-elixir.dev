@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 import { connectTailscale, describe, useTailscale } from '@/tailscale/client';
 
 // Tailscale's mark: a grid of dots.

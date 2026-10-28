@@ -87,7 +87,8 @@ apex's stays the apex's:
   hands the connection's port to that worker.
 - **The terminals.** Their screens are the IDE's; their line
   disciplines are the frame's, one per process on a terminal
-  (`exec/host.ts` `spawn`, the process API that `embed.html` uses too):
+  (`exec/host.ts` `spawn`, the process API that `create()` drives,
+  [api.md](api.md)):
   the IDE sends the keys, and the echo comes back with the output.
 - **What the IDE changes** (a save, the tree's operations) is kept before
   the frame answers: the page may go at once (a reload), and the frame
@@ -103,16 +104,21 @@ result once per version for all projects, on a separate origin. The apex
 does not store or execute Claude Code.
 
 - **Frame creation:** when a project first runs `claude`,
-  `programs/claude/frame.ts` creates an invisible iframe at
-  `claude.USERCONTENT/RUNTIME/claude.html`, using the same approach as the exec
-  frame. `frames/claude.ts` starts the worker in
-  `programs/claude/worker.ts` and forwards ports received from the IDE.
-  It accepts ports only from the IDE's origin.
-- **Connections:** each run requests a port from the IDE through
-  `claudePort`. The IDE gives one end of a channel to the exec frame and
+  `packages/api/src/claudeFrame.ts` creates an invisible iframe at
+  `claude.USERCONTENT/CLAUDE/claude.html`, where `CLAUDE` is the claude
+  package's path (its descriptor's `base`), using the same approach as
+  the exec frame. The frame and its worker are the claude package's
+  (`packages/claude`: `frame.ts` starts `worker.ts`, which prepares with
+  `build.ts` and `bungraph.ts`). The frame accepts ports only from the
+  apex and the `embedders` the site names.
+- **Connections:** each run requests a port from the page through
+  `claudePort`. The page gives one end of a channel to the exec frame and
   the other to the claude frame. The worker handles `files` requests by
   transferring the cached file buffers. During preparation, it sends
-  `progress` events.
+  `progress` events. That exchange is the claude seam
+  (`packages/runtime/src/programs/claude/protocol.ts`; the runtime
+  provides `claude` 1 since 1.1.0, and the claude package's `abi` names
+  it).
 - **Shared cache:** every project's IDE embeds the claude origin under
   the same apex site, so the frames share an IndexedDB storage partition.
   Subsequent projects reuse the cached files. A Web Lock serializes
@@ -126,12 +132,14 @@ A live session's guest has no exec frame: its page's bridge answers the
 relays of its own preview origins, its connections tunnelled to the
 host ([collaboration.md](collaboration.md#the-preview)).
 
-## Embedded by another site
+## Projects run from another site
 
-`embed.html` is the apex's part of a project without the IDE, framed by
-another site (an embedder the site names) that drives it from
-`embed.js`; it frames the same exec, claude and relay frames, which
-still answer the apex alone ([embed.md](embed.md)).
+`create()` ([api.md](api.md)) makes the page that calls it the
+project's apex. Another site's page that calls it frames the same exec,
+claude and relay frames on the usercontent domain. Those frames take
+calls only from the apex and the `embedders` the domain's
+`playground.json` names; another parent gets `playground-exec-refused`
+(`EACCES`).
 
 ## Measurements (2026-10-19)
 

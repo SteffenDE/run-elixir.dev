@@ -22,7 +22,13 @@ import { claimProject, onProjectRelease, takeOverProject } from '@/shared/lib/lo
 import { routeWith } from '@/shared/lib/navigate';
 import { createProject, getProject, isId, openedProject, type Kind } from '@/shared/lib/projects';
 import { isRepositoryPath, repositoryOfPath, repositoryPath } from '@/shared/lib/repository';
-import { loadSite, movedTo, previewSite, projectUrl, strayOrigin } from '@/shared/lib/site';
+import {
+  loadSite,
+  movedTo,
+  previewSite,
+  projectUrl,
+  strayOrigin,
+} from '@elixir-playground/runtime/lib/site';
 import '@/styles.css';
 
 // The tab goes from page to page in place (navigate.ts): links to these

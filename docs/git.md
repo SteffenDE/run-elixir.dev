@@ -153,7 +153,7 @@ The Changes panel's *Push* (`PushDialog`) says where it goes (branch,
 message (git's identity if it has one, else the token's user and their
 `users.noreply.github.com` address), and warns when the project pushed
 to another repository before (`Project.pushedTo`: its remote is the
-project's code's to change). Tests: `test/unit/push.test.ts` and
+project's code's to change). Tests: `app/test/unit/push.test.ts` and
 `test/e2e/github.spec.ts`, against a stand-in for the API over a bare
 repository (`test/fake-github.ts`).
 
@@ -257,7 +257,7 @@ The current design uses a separate registrable usercontent domain rather
 than adding the project domain to the public suffix list. This separates
 project code from apex cookies while keeping the IDE and its stores on
 one origin. Storage partitioning for previews and embedded projects is
-covered in [frames.md](frames.md) and [embed.md](embed.md).
+covered in [frames.md](frames.md) and [api.md](api.md).
 
 ## git.wasm: git itself
 
@@ -364,12 +364,12 @@ scrolls back (`GIT_PAGER=cat`, which git takes for none).
 
 ### Tests
 
-- **vitest over a built git.wasm** (`test/unit/processes.test.ts`,
+- **vitest over a built git.wasm** (`packages/runtime/test/unit/processes.test.ts`,
   skipped without `target/git/git.wasm`): git over the shim and the
   process table in Node, in milliseconds: our own cases (processes,
   `start_async`, `file://`, the HTTPS helper against git's own
   `upload-pack --stateless-rpc`).
-- **git's own suite** (`test/git/`, `npm run test:git`; `GIT_T` names the
+- **git's own suite** (`packages/runtime/test/git/`, `npm run test:git -w packages/runtime`; `GIT_T` names the
   scripts, `t*` for all, `GIT_T_SHARD=I/N` splits them among runs,
   `GIT_T_LIMIT` ends a script that hangs): `t/`'s scripts over
   `test-lib.sh`, in Node, with brush as sh, git.wasm as git (and its

@@ -9,7 +9,7 @@ last_updated: 2026-10-23
 The playground provides `node`, `npm`, and `npx` in project terminals and
 as child commands. JavaScript runs on the browser's engine in workers
 under the project's exec frame. Node-compatible modules in
-`app/src/runtime/nodejs/` provide access to project files, processes, and
+`packages/runtime/src/nodejs/` provide access to project files, processes, and
 network services.
 
 This is a compatibility implementation, not an embedded Node.js binary.
@@ -183,7 +183,7 @@ initializer's package, `create-NAME`, `@scope/create`, by npx), and
   there, with its bin, runs as it is, without the registry (as npm's npx
   reuses its cache); a range, a tag or `latest` installs again, which the
   lock makes cheap (above): its package's metadata alone. An embedder
-  may run that bin itself once it is there ([embed.md](embed.md)).
+  may run that bin itself once it is there ([api.md](api.md)).
 
 ## child_process (`child.ts`)
 

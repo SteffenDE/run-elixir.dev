@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef } from 'react';
 import { decide, useTailscale } from '@/tailscale/client';
 import { TailscaleIcon } from '@/tailscale/components/TailscaleButton';
-import { TAG } from '@/tailscale/protocol';
+import { TAG } from '@elixir-playground/runtime/tailnet/protocol';
 
 // The first time a project's code reaches for the tailnet: whether it may.
 // Its connection waits for the answer, which the apex keeps for the

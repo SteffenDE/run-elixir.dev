@@ -11,7 +11,7 @@
 # HEADSCALE_API_KEY and HEADSCALE_USER, a Headscale for the Tailscale test
 # (docs/tailscale.md). Results and
 # traces go to target/tests/. Needs Docker (DOCKER, default
-# `sudo -n docker`) and the app's node_modules (npm ci in app).
+# `sudo -n docker`) and the workspace's node_modules (npm ci at the root).
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")

@@ -16,7 +16,14 @@ in it), with its package.json and its files:
   /opt/elixir/X, with Mix's script (bin/mix) as its command;
 - phoenix-template: a phx.new app, an fs layer at /work/playground;
 - shell, git, ripgrep, gnu-tools, tls, tailscale: the WebAssembly tools,
-  built by their own scripts; claude; api (embed.js).
+  built by their own scripts; claude;
+- api (create(), docs/api.md), pglite (a plugin of it) and standard (a
+  preset: the shell, its tools and pglite), JavaScript an embedder
+  installs and bundles.
+
+Each package that a site may install from npm exports its descriptor
+(index.js: create()'s plugins). phoenix-template and tailscale are the
+playground's own, never published ("private").
 
 An fs layer is fs/manifest.json (each file's path below the layer's root,
 size, mtime and bundle, for stat and readdir) and fs/bundles/N.tar (a
@@ -41,10 +48,11 @@ across builds. Beside the packages:
   as a project starts;
 - playground.json: the apex and the usercontent domain,
   PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
-  (app/src/shared/lib/site.ts, docs/frames.md), and the origins that may
-  frame embed.html, PLAYGROUND_EMBEDDERS (docs/embed.md);
+  (packages/runtime/src/lib/site.ts, docs/frames.md), and the other sites whose
+  pages may run projects on the usercontent domain, PLAYGROUND_EMBEDDERS
+  (docs/api.md);
 - sw.js, one for the site's every version (docs/packages.md: its
-  protocol), and embed.js, at the root.
+  protocol), at the root.
 
 Each page names the runtime package and the site manifest it runs with
 (<meta name="playground-runtime"> and <meta name="playground-site">, the
@@ -470,13 +478,14 @@ def fs_layers(app):
     }
 
 
-def vite_build(source):
-    """A site's Vite app into its dist/, with Node in Docker. Its
+def vite_build(root):
+    """The npm workspace's builds (the root's package.json: packages/ and
+    app/, each into its dist directories), with Node in Docker. Its
     node_modules is installed afresh when package-lock.json changed since
     the last install (a stamp in node_modules has its digest)."""
-    with open(os.path.join(source, "package-lock.json"), "rb") as lock:
+    with open(os.path.join(root, "package-lock.json"), "rb") as lock:
         digest = hashlib.sha256(lock.read()).hexdigest()
-    stamp = os.path.join(source, "node_modules", ".playground-lock")
+    stamp = os.path.join(root, "node_modules", ".playground-lock")
     try:
         with open(stamp) as f:
             installed = f.read().strip() == digest
@@ -486,8 +495,7 @@ def vite_build(source):
     if not installed:
         script = f"npm ci --no-audit --no-fund && echo {digest} > node_modules/.playground-lock && {script}"
     subprocess.run(DOCKER + ["run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
-                             "-v", f"{os.path.dirname(source)}:/p", "-w", f"/p/{os.path.basename(source)}",
-                             NODE_IMAGE, "sh", "-c", script], check=True)
+                             "-v", f"{root}:/p", "-w", "/p", NODE_IMAGE, "sh", "-c", script], check=True)
 
 
 def record(out, site, boot, snapshot, versions):
@@ -559,32 +567,37 @@ def prebuilt():
 
 
 def page(out):
-    """The app's Vite builds: the apex's pages and assets, embed.js and the
-    service worker into `out` (the site's root); the runtime package's
-    scripts and frames, whose directory it answers; and the Node harness
-    into NODE."""
+    """The workspace's Vite builds: the apex's pages and assets (app/dist)
+    into `out` (the site's root), with the runtime package's service worker
+    and its /relay.html bootstrap (its root/); the runtime package's scripts and
+    frames (packages/runtime/dist), whose directory it answers; and the
+    Node harness into NODE."""
     source = os.path.join(ROOT, "app")
-    vite_build(source)
+    package = os.path.join(ROOT, "packages", "runtime")
+    vite_build(ROOT)
     # What an earlier build left at the root: its assets and scripts.
     shutil.rmtree(os.path.join(out, "_playground"), ignore_errors=True)
     for name in os.listdir(out) if os.path.isdir(out) else ():
         if name.endswith((".js", ".html")):
             os.remove(os.path.join(out, name))
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
-    runtime = os.path.join(source, "dist-runtime")
+    runtime = os.path.join(package, "dist")
     # One service worker for the site's every version, at the root for its
-    # scope (docs/packages.md: its protocol).
-    shutil.move(os.path.join(runtime, "sw.js"), os.path.join(out, "sw.js"))
+    # scope (docs/packages.md: its protocol), and the bootstrap that
+    # updates it before a package's relay: the runtime package's root/.
+    for name in ("sw.js", "relay.html"):
+        shutil.copy(os.path.join(runtime, "root", name), os.path.join(out, name))
     shutil.rmtree(NODE, ignore_errors=True)
-    shutil.copytree(os.path.join(source, "dist-node"), NODE)
+    shutil.copytree(os.path.join(package, "dist-node"), NODE)
     # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
-    # app/src/shared/lib/site.ts).
+    # packages/runtime/src/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
     # And the domain whose subdomains run what a project's code does
     # (PLAYGROUND_USERCONTENT, another site; docs/frames.md).
     usercontent = os.environ.get("PLAYGROUND_USERCONTENT") or None
-    # The origins that may frame embed.html and drive it (docs/embed.md),
-    # space-separated.
+    # The other sites whose pages may run projects on the usercontent
+    # domain through the API (docs/api.md), space-separated: its frames
+    # take them as their parent, as they take the apex.
     embedders = (os.environ.get("PLAYGROUND_EMBEDDERS") or EMBEDDERS).split()
     with open(os.path.join(out, "playground.json"), "w") as f:
         json.dump({"domain": domain, "usercontent": usercontent, "embedders": embedders}, f)
@@ -601,7 +614,8 @@ def page(out):
     return runtime
 
 
-# The origins that may embed the site by default (docs/embed.md).
+# The sites that may run projects on the usercontent domain by default
+# (docs/api.md).
 EMBEDDERS = "https://tidewave.ai https://tidewave.steffend.me http://localhost:4000"
 
 
@@ -620,8 +634,8 @@ def runtime_versions():
 # an ABI break, its minor a new capability, its patch a rebuild or a fix.
 SCOPE = "@elixir-playground"
 # The runtime's own version and the ABI seams it speaks, which its
-# JavaScript checks a site against (app/src/runtime/packages/check.ts).
-HOST = os.path.join(ROOT, "app", "src", "runtime", "packages", "host.json")
+# JavaScript checks a site against (packages/runtime/src/packages/check.ts).
+HOST = os.path.join(ROOT, "packages", "runtime", "src", "packages", "host.json")
 # The tools in coreutils.wasm (uutils 0.12.0's feat_wasm: `coreutils --list`).
 COREUTILS_TOOLS = (
     "arch b2sum base32 base64 basename basenc cat cksum comm cp csplit cut date dd dir "
@@ -667,8 +681,9 @@ PACKAGES = {
         "playground": {"bin": {"mix": "bin/mix"},
                        "env": {"MIX_ARCHIVES": "mix/archives", "MIX_REBAR3": "mix/rebar3"}},
     },
+    # The playground's own: a site brings its own templates (docs/api.md).
     "phoenix-template": {"version": "1.0.0", "root": "/work/playground", "files": [],
-                         "peers": ["otp-{otp}", "elixir-{elixir}"], "playground": {}},
+                         "peers": ["otp-{otp}", "elixir-{elixir}"], "playground": {}, "publish": False},
     "shell": {
         "version": "1.0.0",
         # The terminfo entry.
@@ -690,10 +705,15 @@ PACKAGES = {
     "tls": {"version": "1.0.0", "root": "/etc/ssl", "files": ["tls.wasm", "roots.pem"],
             "playground": {"abi": {"wasi": 1, "tls": 1}, "tls": {"module": "tls.wasm", "roots": "roots.pem"}}},
     # With Go's glue for it: the Go that built it has its own.
-    "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm", "wasm_exec.js"],
+    # The playground's own: only its apex runs a Tailscale node.
+    "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm", "wasm_exec.js"], "publish": False,
                   "playground": {"abi": {"tailscale": 1},
                                  "tailscale": {"module": "tailscale.wasm", "glue": "wasm_exec.js"}}},
-    "claude": {"version": "1.0.0", "files": [], "playground": {}},
+    # Claude Code's preparer: the claude frame and its worker
+    # (packages/claude), which the claude seam joins to the runtime's
+    # `claude` (its 1.1).
+    "claude": {"version": "1.1.0", "files": ["claude.html", "frames"], "playground": {"abi": {"claude": 1}},
+               "runtime": "^1.1.0"},
 }
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
@@ -796,7 +816,7 @@ def file_entry(path):
 
 def claude_code():
     """The Claude Code version the playground pins (CLAUDE_CODE in the app)."""
-    path = os.path.join(ROOT, "app", "src", "project", "lib", "programs", "claude", "build.ts")
+    path = os.path.join(ROOT, "packages", "claude", "src", "build.ts")
     with open(path) as f:
         return re.search(r"CLAUDE_CODE = \{\s*version: '([^']+)'", f.read()).group(1)
 
@@ -871,14 +891,18 @@ def write_layer(fs, files, root):
             "count": len(groups), "version": layer_version(files)}
 
 
-def lay(out, name, version, files, playground, peers, layer=None, own=(), licensed=None, root=None):
+def lay(out, name, version, files, playground, peers, layer=None, own=(), licensed=None, root=None,
+        publish=True, descriptor=False, fields=None):
     """A package's directory, npm/@elixir-playground/NAME@VERSION+ID/: its
     `files` ({name: path here}, a directory too), its fs layer (`layer`: the
     files below `root` in the nodes' tree, [(path there, path here)], or a
     directory that holds one already, with its `playground` field), its licenses
-    (`licensed`: (inventory, sources), notices.write) and its package.json.
-    Each module's imports must belong to a seam `playground` names (`own`:
-    what its own glue answers). Its site manifest entry."""
+    (`licensed`: (inventory, sources), notices.write) and its package.json
+    (`fields`: more of it; `publish`: False for the playground's own,
+    "private"). A `descriptor` package's index.js exports what create()
+    takes (docs/api.md), its files where a site serves the published
+    package. Each module's imports must belong to a seam `playground`
+    names (`own`: what its own glue answers). Its site manifest entry."""
     for file, here in files.items():
         if file.endswith(".wasm"):
             imports, _ = wasm_interface(here)
@@ -901,11 +925,26 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
         shutil.copytree(path, os.path.join(scratch, "fs"), copy_function=link_or_copy)
     inventory, sources = licensed
     added, expression = notices.write(scratch, f"{SCOPE}/{name}", inventory, sources)
+    listed = {file: file_entry(os.path.join(scratch, file))
+              for file in files if not os.path.isdir(os.path.join(scratch, file))}
+    if descriptor:
+        described = {"name": f"{SCOPE}/{name}", "version": version,
+                     "base": f"/{NPM}/{name}@{version}/", "files": listed,
+                     **({"peerDependencies": peers} if peers else {}), "playground": playground}
+        with open(os.path.join(scratch, "index.js"), "w") as f:
+            f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
+                    f"export default {json.dumps(described, indent=1)};\n")
+        with open(os.path.join(scratch, "index.d.ts"), "w") as f:
+            f.write(DESCRIPTOR_TYPES)
+        added = [*added, "index.js", "index.d.ts"]
+        fields = {**MODULE, **(fields or {})}
     package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
                "files": sorted([*files, *(["fs"] if layer else []), *added]),
-               **({"peerDependencies": peers} if peers else {}), "playground": playground,
-               # Not for publishing yet (docs/packages.md).
-               "private": True}
+               **(fields or {}),
+               **({"peerDependencies": peers} if peers else {}),
+               **({"playground": playground} if playground else {}),
+               # The playground's own (docs/packages.md).
+               **({} if publish else {"private": True})}
     with open(os.path.join(scratch, "package.json"), "w") as f:
         json.dump(package, f, indent=2)
         f.write("\n")
@@ -914,13 +953,24 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
         shutil.rmtree(scratch)
     else:
         os.rename(scratch, os.path.join(out, directory))
-    entry = {"version": version, "base": f"../{directory}/",
-             "files": {file: file_entry(os.path.join(out, directory, file))
-                       for file in files if not os.path.isdir(os.path.join(out, directory, file))},
-             "playground": playground}
+    entry = {"version": version, "base": f"../{directory}/", "files": listed, "playground": playground}
     if peers:
         entry["peerDependencies"] = peers
     return directory, entry
+
+
+# A JavaScript package's package.json fields: an ES module, its
+# declarations beside it.
+MODULE = {"type": "module", "types": "./index.d.ts",
+          "exports": {".": {"types": "./index.d.ts", "default": "./index.js"},
+                      "./package.json": "./package.json"}}
+# A descriptor's declarations: what create() takes (the api package's
+# types, which a site that runs them has installed).
+DESCRIPTOR_TYPES = """import type { PackageDescriptor } from '@elixir-playground/api';
+
+declare const descriptor: PackageDescriptor;
+export default descriptor;
+"""
 
 
 def write_site(out, packages, boot, name=None):
@@ -958,33 +1008,82 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
     }
     entries = {}
     for key, package in PACKAGES.items():
-        peers = {host["name"]: "^%s.0.0" % host["version"].split(".")[0]}
+        # The runtime it needs: its major, or the minor that brought a seam it uses.
+        peers = {host["name"]: package.get("runtime", "^%s.0.0" % host["version"].split(".")[0])}
         for peer in package.get("peers", ()):
             peers[f"{SCOPE}/{named(peer)}"] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
         _, entries[f"{SCOPE}/{named(key)}"] = lay(
             out, named(key), package["version"], {file: sources[file] for file in package["files"]},
             {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()),
-            licensed[key], package.get("root", "").format(**versions) or None)
+            licensed[key], package.get("root", "").format(**versions) or None,
+            publish=package.get("publish", True), descriptor=package.get("publish", True))
     return entries
 
 
 def lay_runtime(out, runtime):
-    """The runtime package (the Vite build's dist-runtime: its scripts and
-    frames) and the api package (embed.js, which also stays at the root
-    for its stable URL); the runtime's path."""
+    """The runtime package (packages/runtime/dist: its scripts and
+    frames) and the JavaScript packages an embedder installs
+    (packages/api/dist, packages/pglite/dist, each at its package.json's
+    version; and standard, a preset of the tools and pglite); their paths,
+    the runtime's first."""
     with open(HOST) as f:
         host = json.load(f)
     name = host["name"].split("/")[1]
+    major = lambda version: "^%s.0.0" % version.split(".")[0]
     files = {file: os.path.join(runtime, file) for file in sorted(os.listdir(runtime))}
-    # The runtime's scripts and frames, and embed.js: the playground's own,
-    # with what their Vite builds bundled (app/vite-licenses.ts).
+    # The runtime's scripts and frames: the playground's own, with what
+    # their Vite builds bundled (app/vite-licenses.ts).
     runtime_licensed = notices.own().extend(notices.npm("runtime")).extend(notices.npm("frames"))
     directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {},
                        licensed=(runtime_licensed, {}))
-    api, _ = lay(out, "api", "1.0.0", {"embed.js": os.path.join(out, "embed.js")}, {"apiVersions": [2]},
-                 {host["name"]: "^%s.0.0" % host["version"].split(".")[0]},
-                 licensed=(notices.own().extend(notices.npm("embed")), {}))
-    return f"/{directory}/", api
+    module = MODULE
+    source = lambda key: json.load(open(os.path.join(ROOT, "packages", key, "package.json")))
+    # Each one's module and its declarations (packages/types.mjs).
+    built = lambda key: {name: os.path.join(ROOT, "packages", key, "dist", name)
+                         for name in ("index.js", "index.d.ts", "types")}
+    api_version = source("api")["version"]
+    api, _ = lay(out, "api", api_version, built("api"), {},
+                 {host["name"]: major(host["version"])}, fields=module,
+                 licensed=(notices.own().extend(notices.npm("api")), {}))
+    # PGlite itself is the embedder's install, which its bundler lays out.
+    pglite_source = source("pglite")
+    pglite_version = pglite_source["dependencies"]["@electric-sql/pglite"]
+    pglite, _ = lay(out, "pglite", pglite_source["version"], built("pglite"), {},
+                    {f"{SCOPE}/api": major(api_version)},
+                    fields={**module, "dependencies": {"@electric-sql/pglite": pglite_version}},
+                    licensed=(notices.own().extend(notices.npm("pglite")), {}))
+    # The preset: an array of the packages and plugins it names.
+    tools = {key: PACKAGES[key]["version"] for key in STANDARD}
+    with tempfile.TemporaryDirectory() as scratch:
+        index = os.path.join(scratch, "index.js")
+        declarations = os.path.join(scratch, "index.d.ts")
+        with open(declarations, "w") as f:
+            f.write("import type { Plugin } from '@elixir-playground/api';\n\n"
+                    "declare const standard: Plugin[];\nexport default standard;\n")
+        with open(index, "w") as f:
+            f.write("// The shell, its tools and Postgres (docs/api.md): create({ plugins: [otp, elixir, standard] }).\n")
+            for key in tools:
+                f.write(f"import {identifier(key)} from '{SCOPE}/{key}';\n")
+            f.write(f"import pglite from '{SCOPE}/pglite';\n\n")
+            f.write(f"export default [{', '.join(identifier(key) for key in tools)}, pglite()];\n")
+        dependencies = {**{f"{SCOPE}/{key}": major(version) for key, version in tools.items()},
+                        f"{SCOPE}/pglite": major(pglite_source["version"])}
+        standard, _ = lay(out, "standard", STANDARD_VERSION, {"index.js": index, "index.d.ts": declarations}, {}, {},
+                          fields={**module, "dependencies": dependencies}, licensed=(notices.own(), {}))
+    # The Vite plugin that lays out a site's usercontent domain (Node's, not
+    # the browser's: tsc's output, declarations beside it).
+    vite_source = source("vite")
+    vite, _ = lay(out, "vite", vite_source["version"],
+                  {name: os.path.join(ROOT, "packages", "vite", "dist", name) for name in ("index.js", "index.d.ts")},
+                  {}, vite_source["peerDependencies"], fields=module, licensed=(notices.own(), {}))
+    return [f"/{path}/" for path in (directory, api, pglite, standard, vite)]
+
+
+# The preset's own version, and what @elixir-playground/standard installs
+# besides pglite (packages/api and packages/pglite name their own).
+STANDARD_VERSION = "1.0.0"
+STANDARD = ("shell", "git", "gnu-tools", "ripgrep", "tls")
+identifier = lambda key: re.sub(r"-(.)", lambda m: m.group(1).upper(), key)
 
 
 def tool_notices():
@@ -997,8 +1096,10 @@ def tool_notices():
         "gnu-tools": notices.gnu_tools(["sed", "grep", "diffutils", "gawk", "findutils"]),
         "tls": notices.tls(cacerts()),
         "tailscale": (notices.tool("tailscale")[0].extend(notices.own()), {}),
-        # Only its package.json: Claude Code comes from npm (docs/packages.md).
-        "claude": (notices.own(), {}),
+        # The preparer, with what its Vite build bundled (esbuild's
+        # WebAssembly among them); Claude Code itself comes from npm
+        # (docs/packages.md).
+        "claude": (notices.own().extend(notices.npm("claude")), {}),
     }
 
 
@@ -1048,8 +1149,11 @@ def sources(wasm):
     """Where each package's files are here, by name (PACKAGES' files)."""
     return {**{f"{name}.wasm": path for name, path in wasm.items()},
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
-            # process's tls.rootCertificates (app/src/runtime/nodejs/tls.ts).
+            # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
+            # The claude frame (packages/claude's build).
+            "claude.html": os.path.join(ROOT, "packages", "claude", "dist", "claude.html"),
+            "frames": os.path.join(ROOT, "packages", "claude", "dist", "frames"),
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}
@@ -1103,11 +1207,11 @@ def app(out, wasm):
                          else compute())
     entries = lay_packages(out, versions, facts, found, layers, licensed)
     site = write_site(out, entries, before["boot"])
-    runtime, api = lay_runtime(out, runtime)
-    name_pages(out, runtime, site)
-    prune(out, (runtime, api), site)
+    laid = lay_runtime(out, runtime)
+    name_pages(out, laid[0], site)
+    prune(out, laid, site)
     licenses_page(out)
-    print(f"{out}: runtime {runtime}, site {site}")
+    print(f"{out}: runtime {laid[0]}, site {site}")
 
 
 def full_notices(versions):
@@ -1198,12 +1302,15 @@ def main():
         write_image(os.path.join(scratch, f"{boot}.tar.gz"), eager)
     boot = os.path.join("boot", tree_digest(scratch))
     os.rename(scratch, os.path.join(out, boot))
-    # Made with exactly these packages.
+    # Made with exactly these packages, and their files (each layer's
+    # version: the package's version stays while its files change).
     made = {f"{SCOPE}/{key.format(**versions)}": PACKAGES[key]["version"] for key in layers}
-    site = write_site(out, entries, {"base": f"../{boot}/", "images": list(RECORD), "packages": made})
-    runtime, api = lay_runtime(out, runtime)
-    name_pages(out, runtime, site)
-    prune(out, (runtime, api), site)
+    files_of = {name: entries[name]["playground"]["fs"]["version"] for name in made}
+    site = write_site(out, entries, {"base": f"../{boot}/", "images": list(RECORD), "packages": made,
+                                     "layers": files_of})
+    laid = lay_runtime(out, runtime)
+    name_pages(out, laid[0], site)
+    prune(out, laid, site)
     licenses_page(out)
 
     mb = lambda path: f"{os.path.getsize(path) / 1e6:.1f} MB"
@@ -1212,7 +1319,7 @@ def main():
         f"{mb(os.path.join(out, boot, name + '.tar.gz'))}" for name in RECORD))
     print(f"{out}: fs layers' files by package: " + ", ".join(
         f"{key.format(**versions)} {len(layer)}" for key, layer in sorted(layers.items())))
-    print(f"{out}: runtime {runtime}, site {site}")
+    print(f"{out}: runtime {laid[0]}, site {site}")
 
 
 # A lazily fetched bundle holds files of one directory, up to this many

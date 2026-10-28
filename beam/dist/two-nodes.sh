@@ -1,17 +1,17 @@
 #!/bin/bash
 # Two nodes on the Emscripten BEAM, in one Node process over one Network
-# (app/src/runtime/beam-node.ts), connected by OTP's distribution
+# (packages/runtime/src/beam-node.ts), connected by OTP's distribution
 # (docs/distribution.md): a@localhost waits with a registered echo
 # process; b@localhost pings it, calls it (rpc, erpc with a fun), sends
 # to the echo, sends it 1 MB, registers a global name a sees, lists the
 # names epmd knows, and stops a, seeing nodedown. epmd is the harness's,
-# as the page's (app/src/runtime/epmd.ts), which OTP's erl_epmd asks.
+# as the page's (packages/runtime/src/epmd.ts), which OTP's erl_epmd asks.
 #
 #   beam/dist/two-nodes.sh [DIST]
 #
 # DIST: a dist build.sh wrote (default out/beam-wasm/releaseO1/dist, as
 # `OPT=-O1 beam/build.sh release` makes it); the harness is the Vite
-# build's (app/dist-node/beam-node.mjs); Node is emsdk's.
+# build's (packages/runtime/dist-node/beam-node.mjs); Node is emsdk's.
 set -euo pipefail
 HERE=$(cd "$(dirname "$0")" && pwd)
 ROOT=$(cd "$HERE/../.." && pwd)
@@ -42,5 +42,5 @@ b='timer:sleep(3000),
    rpc:cast(a@localhost, init, stop, []),
    receive {nodedown, N} -> io:format("b: nodedown ~p~n", [N]) after 10000 -> io:format("b: no nodedown~n") end,
    init:stop().'
-timeout 60 "$NODE" "$ROOT/app/dist-node/beam-node.mjs" "$DIST" \
+timeout 60 "$NODE" "$ROOT/packages/runtime/dist-node/beam-node.mjs" "$DIST" \
   -S 2:2 "${common[@]}" -sname a -eval "$a" --- -S 2:2 "${common[@]}" -sname b -eval "$b"

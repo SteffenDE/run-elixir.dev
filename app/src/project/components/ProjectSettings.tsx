@@ -4,7 +4,7 @@ import { refreshSettings } from '@/project/lib/playground';
 import { relayConsents, setRelayConsent } from '@/relay/client';
 import { EnvEditor } from '@/shared/components/EnvEditor';
 import { getProject, updateProject, type Project } from '@/shared/lib/projects';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // The top bar's settings for this project, in a popover: what its first
 // shell runs at each start, its environment over the user's, whether it

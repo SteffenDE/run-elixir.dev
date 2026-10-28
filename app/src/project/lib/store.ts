@@ -1,6 +1,6 @@
-import type { NifBuild } from '@/runtime/host/node';
+import type { NifBuild } from '@elixir-playground/runtime/host/node';
 import { create } from 'zustand';
-import { newId } from '@/shared/lib/ids';
+import { newId } from '@elixir-playground/runtime/lib/ids';
 import type { Base, Changes } from '@/project/lib/changes';
 
 // The project's files, in the node's filesystem.

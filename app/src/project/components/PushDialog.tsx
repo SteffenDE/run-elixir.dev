@@ -6,7 +6,7 @@ import { push, pushTarget, type Pushed, type Target } from '@/project/lib/push';
 import { useStore } from '@/project/lib/store';
 import { loadGitHub, type GitHubToken } from '@/shared/lib/github';
 import { getProject, updateProject } from '@/shared/lib/projects';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 
 // The Changes panel's Push: what changed committed (with a message), then
 // the branch pushed to the GitHub repository its remote names, with the

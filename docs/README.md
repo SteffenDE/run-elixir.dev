@@ -46,7 +46,7 @@ Its build instructions and measurements do not describe the current runtime.
 | --- | --- |
 | [architecture.md](architecture.md) | The moving parts: page, workers, service worker, shared files, how a request reaches Phoenix. |
 | [frames.md](frames.md) | Origin isolation for the IDE, project runtime, previews, and Claude Code cache. |
-| [embed.md](embed.md) | Embedding API, runtime versions, persistence, archives and required headers. |
+| [api.md](api.md) | `create()`: running a project from a page, plugins, persistence, archives and headers. |
 | [packages.md](packages.md) | The playground as npm packages: the site's layout, the site manifest, fs layers, the load-time ABI check and the service worker's protocol (implemented); publishing (proposal). |
 | [licenses.md](licenses.md) | The playground's license (Apache-2.0), what each package bundles under which licenses, GPL sources, the `/licenses/` page. |
 | [projects.md](projects.md) | Project types, routes, storage, settings, imports, sharing, and tab ownership. |
@@ -54,7 +54,7 @@ Its build instructions and measurements do not describe the current runtime.
 | [git.md](git.md) | Git commands, diffs, repository imports, GitHub push and planned account support. |
 | [tools.md](tools.md) | GNU sed, grep, diffutils, gawk, and findutils: builds, compatibility limits, and Git test results. |
 | [history.md](history.md) | Proposal for automatic file and database history; not implemented. |
-| [runtime.md](runtime.md) | `app/src/runtime`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
+| [runtime.md](runtime.md) | `packages/runtime/src`: the node's filesystem, network, programs, shared files, NIF libraries' WASI, and the page/worker protocols. |
 | [../beam/README.md](../beam/README.md) | The runtime: OTP's own emulator built with Emscripten, its patches, build, benchmarks, how it runs in the playground. |
 | [tailscale.md](tailscale.md) | Tailnet setup, project permissions, network access and shared ports. |
 | [relay.md](relay.md) | HTTPS relay: allowed hosts, consent, protocol and resource limits. |

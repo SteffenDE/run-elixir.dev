@@ -1,6 +1,6 @@
 /*
  * prim_socket's NIF for the Emscripten BEAM: TCP and UDP over the
- * playground's network (app/src/runtime/wasi/net.ts) instead of esock's
+ * playground's network (packages/runtime/src/wasi/net.ts) instead of esock's
  * system sockets.
  *
  * kernel's socket, gen_tcp_socket and gen_udp_socket (-kernel inet_backend

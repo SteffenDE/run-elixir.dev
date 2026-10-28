@@ -2,6 +2,3 @@ node_modules/
 dist/
 test-results/
 playwright-report/
-dist-node/
-dist-runtime/
-dist-licenses/

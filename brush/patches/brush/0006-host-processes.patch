@@ -164,7 +164,7 @@ index aab657b..0f414da 100644
 -//! with what the one before wrote: pipes hold what is written until it is
 -//! read, and a read of an empty one is its end.
 +//! WASI has no processes, pipes or `dup`: the host has them (its
-+//! `processes` imports, app/src/runtime/processes.ts). An external command
++//! `processes` imports, packages/runtime/src/processes.ts). An external command
 +//! is a process of the host's that runs while the shell goes on, with
 +//! three of the shell's descriptors as its standard streams: a pipeline's
 +//! commands run at once, connected by the host's pipes, and a command

@@ -18,8 +18,8 @@ records into the packages and onto the site's `/licenses/` page. A
 build fails when a component's license is unknown or missing a text, or
 when a copyleft component's source is not in its package.
 
-As of 2026-10-28 this exists on the `sd-packages` branch only. It is not
-deployed, and nothing is published to npm.
+Each published package carries its licenses (`@elixir-playground/*`,
+1.0.0 on npm since 2026-10-28).
 
 ## What a package carries
 
@@ -49,7 +49,7 @@ is its own source form.
 
 | Package | Inventory |
 | --- | --- |
-| `runtime`, `api` | The playground; what their Vite builds bundled from `node_modules` (`app/vite-licenses.ts` → `app/dist-licenses/*.json`). |
+| `runtime`, `api` | The playground; what their Vite builds bundled from `node_modules` (`vite-licenses.ts` → `dist-licenses/*.json`, at the root). |
 | `otp-X` | Erlang/OTP; OTP's vendored zlib, pcre2, ryu and Unicode data (its `vendor.info` files); Popcorn's patches; OpenSSL and ncurses; Emscripten, its musl and compiler-rt; the playground's patches and host code. |
 | `elixir-X` | Elixir (its release's `LICENSE` and `LICENSES/`), Hex, phx_new, rebar3 and the 10 applications rebar3 vendors. |
 | `phoenix-template` | The phx.new app, topbar, and each dependency: Hex metadata and license files, or (git dependencies) the `LICENSE` at the locked commit. |

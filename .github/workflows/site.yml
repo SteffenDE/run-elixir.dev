@@ -5,7 +5,8 @@
 # GitHub only: Forgejo reads .forgejo/workflows and ignores this directory.
 #
 #   wasm (one job per tool) ── site ─┬─ nif-layer
-#   test-nif ────────────────────────┴─ e2e (browser × shard)
+#                                    ├─ vite-site
+#   test-nif ────────────────────────┴─ e2e (browser × shard) ── publish (main)
 #
 # Each tool's build script skips its work when its stamp matches, so
 # restoring a tool's output and stamp from the cache makes it a no-op.
@@ -170,6 +171,28 @@ jobs:
       - run: tar -xf site.tar && tar -xf test-nif.tar
       - run: python3 -I tests/nif/layer.py
 
+  # A site built with @elixir-playground/vite over the site's packages, as
+  # npm installs them: its own usercontent domain, `elixir -e` in Chromium
+  # (tests/vite-site/run.sh).
+  vite-site:
+    needs: site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: site
+      - run: tar -xf site.tar
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: tests/vite-site/run.sh
+
   e2e:
     name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/4)
     needs: [site, test-nif]
@@ -229,15 +252,14 @@ jobs:
           cat "$RUNNER_TEMP/backend.log"
           exit 1
 
-      # tests/run.sh runs Playwright in its pinned image over the app's
-      # node_modules.
+      # tests/run.sh runs Playwright in its pinned image over the
+      # workspace's node_modules.
       - uses: actions/setup-node@v5
         with:
           node-version: 24
           cache: npm
-          cache-dependency-path: app/package-lock.json
+          cache-dependency-path: package-lock.json
       - run: npm ci
-        working-directory: app
       # WebKit is the slowest here: with a third worker its Phoenix boots
       # starve each other into timeouts. A failed test runs once more; one
       # that passes then is reported flaky.
@@ -257,3 +279,35 @@ jobs:
           path: target/tests
           retention-days: 7
           if-no-files-found: ignore
+
+  # The packages to npm (runtime/publish.py, docs/packages.md#publishing),
+  # once main's site passed its tests: each package whose files changed,
+  # at its next patch. npm's trusted publishing (OIDC, with provenance)
+  # when the packages name this workflow on npmjs.com; else the NPM_TOKEN
+  # secret.
+  publish:
+    needs: [site, nif-layer, vite-site, e2e]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    concurrency:
+      group: npm-publish
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: site
+      - run: tar -xf site.tar
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+      # Trusted publishing needs npm 11.5.1 or later.
+      - run: npm install -g npm@latest
+      - run: python3 -I runtime/publish.py --publish --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

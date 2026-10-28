@@ -13,7 +13,7 @@ import '@xterm/xterm/css/xterm.css';
 import { useStore } from '@/project/lib/store';
 import { workspace } from '@/project/lib/workspace';
 import { linkProvider, openWebLink } from '@/project/lib/terminal-links';
-import { REPORT } from '@/runtime/terminal';
+import { REPORT } from '@elixir-playground/runtime/terminal';
 import { onSchemeChange, terminalTheme } from '@/project/lib/terminal-theme';
 
 export class TerminalHandle {

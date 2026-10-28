@@ -66,7 +66,7 @@ What it took:
   `--erl-config`, `--logger-*-reports`, read up to the first argument that
   is none, as bin/elixir reads them, so `iex --sname a` (and Livebook's
   `elixir --erl … --hidden --cookie … --eval …`) start distributed.
-- **epmd on the page** (`app/src/runtime/epmd.ts`), on 4369 for every
+- **epmd on the page** (`packages/runtime/src/epmd.ts`), on 4369 for every
   node as `serve` gives PGlite 5432: `ALIVE2_REQ` (a name is registered
   while its connection lasts), `PORT_PLEASE2_REQ` and `NAMES_REQ`. OTP's
   own `erl_epmd` asks it, as would every custom epmd module that falls

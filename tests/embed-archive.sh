@@ -1,5 +1,5 @@
 #!/bin/sh
-# An app as an embedder builds it for run-elixir.dev (docs/embed.md):
+# An app as an embedder builds it for run-elixir.dev (docs/api.md):
 # `mix phx.new` with Tidewave, its deps fetched and compiled natively with
 # the runtime's OTP and Elixir (runtime.json's: hexpm/elixir's image of
 # them, in Docker) at the path it has in the playground, /work/demo (Mix
@@ -7,7 +7,7 @@
 # again), its assets built, and tarred with deps/ and _build/ but the
 # native esbuild and tailwind (the playground has its own) and git
 # dependencies' history. embed.spec.ts's archive test boots it from
-# app/test/embed/archives/demo.tar.gz, which the test embedder serves.
+# app/test/embedder/archives/demo.tar.gz, which the test embedder serves.
 #
 #   tests/embed-archive.sh
 #
@@ -17,7 +17,7 @@ here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
 image=hexpm/elixir:1.20.4-erlang-29.1.2-debian-bookworm-20261020
 work=$root/target/embed-archive
-out=$root/app/test/embed/archives
+out=$root/app/test/embedder/archives
 rm -rf "$work"
 mkdir -p "$work" "$out"
 cat > "$work/build.sh" <<'SCRIPT'

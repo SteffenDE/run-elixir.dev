@@ -83,27 +83,30 @@ files make the same package directory across builds.
 ```
 target/site/
   index.html, preview.html,  the apex's pages, the app's Vite build (assets in _playground/),
-  storage.html, embed.html     each naming what it runs with: <meta name="playground-runtime">
+  storage.html                 each naming what it runs with: <meta name="playground-runtime">
                                (the runtime package's path), <meta name="playground-site">
                                (the site manifest's)
-  embed.js                   the embedders' client (embed.md), self-contained, at the root
   sw.js                      the preview origins' service worker, at the root for its scope /,
                                one for every version (packages.md, its protocol)
-  playground.json            the apex, the usercontent domain (frames.md) and the
-                               sites that may embed it (PLAYGROUND_EMBEDDERS, embed.md)
+  playground.json            the apex, the usercontent domain (frames.md) and the other
+                               sites whose pages may run projects on it (PLAYGROUND_EMBEDDERS,
+                               api.md)
   favicon.ico, icons/,       app/public as it is: the icons, the web app manifest,
   manifest.webmanifest,        the link preview's card (og:image, absolute with a
   og.png                       project domain)
-  _playground/               the Vite assets, content-hashed
+  _playground/               the Vite assets, content-hashed (the apex's Tailscale worker
+                               among them)
   npm/@elixir-playground/    the packages (packages.md), each NAME@VERSION+ID/ (ID a digest
-                               of what is in it) with its package.json:
-    runtime@…/                 worker.js, files.js, git.js, nodejs.js, tailscale.js and
-                                 chunks/ (the runtime's workers); exec.html, relay.html,
-                                 claude.html and frames/ (the usercontent domain's frames)
+                               of what is in it) with its package.json, and the published
+                               artifacts' index.js (their descriptors, api.md):
+    runtime@…/                 worker.js, files.js, git.js, nodejs.js and
+                                 chunks/ (the runtime's workers); exec.html, relay.html and
+                                 frames/ (the usercontent domain's frames); root/ (sw.js and
+                                 the /relay.html bootstrap)
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
     elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3)
-    phoenix-template@…/        fs/ (the template's app, at /work/playground)
+    phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
     shell@…/                   brush.wasm (3.4 MB, 1.2 MB gzipped), coreutils.wasm (7.8 MB,
                                  3.0 MB gzipped); fs/ (the terminfo entry)
     git@…/                     git.wasm (3.8 MB, 1.5 MB gzipped); fs/ (its shell scripts)
@@ -111,8 +114,13 @@ target/site/
     gnu-tools@…/               sed, grep, diff, cmp, diff3, sdiff, gawk, find (.wasm,
                                  627 KB to 1.5 MB each)
     tls@…/                     tls.wasm (0.71 MB), roots.pem; fs/ (the nodes' CA bundle)
-    tailscale@…/               tailscale.wasm (29.3 MB, 6.8 MB gzipped)
-    claude@…/, api@…/          the Claude Code range tested (package.json); embed.js
+    tailscale@…/               tailscale.wasm (29.3 MB, 6.8 MB gzipped); not published
+    claude@…/                  claude.html and frames/ (the claude frame and its worker,
+                                 packages/claude); the Claude Code range tested (package.json)
+    api@…/, pglite@…/          index.js: create() (api.md) and the pglite plugin, one ES
+                                 module each (packages/api, packages/pglite)
+    standard@…/                index.js: the preset of shell, git, gnu-tools, ripgrep, tls
+                                 and pglite
   boot/ID/                   the recordings: boot.tar.gz (what IEx reads first),
                                boot-phoenix.tar.gz (what the Phoenix server reads beyond it)
   site/ID.json               the site manifest (packages.md): each package's version, files,
@@ -130,13 +138,13 @@ lists its files (`[path, size, mtime, bundle]`) and `fs/bundles/N.tar`
 holds them, uncompressed tars of up to 512 KB of one directory's files.
 The runtime merges the layers into one tree and numbers their bundles
 one after another (`Site.tree`, `Site.bundle`,
-`app/src/runtime/packages/manifest.ts`).
+`packages/runtime/src/packages/manifest.ts`).
 
-Every path but the pages', `sw.js`'s, `embed.js`'s and
-`playground.json`'s is immutable: a package's directory is named by a
+Every path but the pages', `sw.js`'s and `playground.json`'s is
+immutable: a package's directory is named by a
 digest of what is in it, so an unchanged package keeps its name across
 builds, and browsers keep it cached. The page reads both paths from its
-`<meta>`s (`app/src/shared/lib/build.ts` `BUILD` and `SITE`) and gives
+`<meta>`s (`app/src/shared/lib/build.ts` `runtimePath` and `SITE`) and gives
 them to the frames and workers; the runtime finds everything else
 through the site manifest. A page loaded before a deploy keeps loading
 its own build's files, never a newer `beam.wasm` with an older
@@ -172,17 +180,25 @@ OTP's and Elixir's from the site manifest.
 
 ## Steps
 
-1. **Vite build.** `npm ci && npm run build` in `app`, in Docker:
-   `tsc --noEmit`; the apex's pages (`vite.config.ts`) into `dist/`, which
-   goes to the site's root; the runtime's scripts (`vite.runtime.config.ts`:
-   `worker.js`, `files.js`, `git.js`, `nodejs.js`, `tailscale.js`, which
-   keep their names, the pages start them by URL, and `sw.js`, which goes to
-   the root) and the usercontent domain's frames (`vite.frames.config.ts`:
-   `exec.html`, `relay.html`, `claude.html`, with a relative base, sharing
-   nothing with the IDE) into `dist-runtime/`, the runtime package;
-   `embed.js` (`vite.embed.config.ts`, one module with nothing to share);
-   with `--mode node`, the Node harness (`node.ts` and `beam-node.ts`, as
-   `.mjs`) into `dist-node/`, which goes to `target/node`. NIF libraries
+1. **Vite build.** `npm ci && npm run build` at the root (the npm
+   workspace: `packages/*`, then `app`), in Docker:
+   - `packages/runtime`: the runtime's scripts (`vite.runtime.config.ts`:
+     `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
+     names, the pages start them by URL; and `root/sw.js` with
+     `root/relay.html`, the bootstrap, which `build.py` copies to the
+     site's root) and the usercontent
+     domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
+     with a relative base) into `dist/`, the runtime
+     package; with `--mode node`, the Node harness (`node.ts` and
+     `beam-node.ts`, as `.mjs`) into `dist-node/`, which goes to
+     `target/node`;
+   - `packages/api` and `packages/pglite`: one ES module each into
+     `dist/index.js` (their `vite.config.ts`), with their declarations;
+   - `packages/claude`: the claude frame (`claude.html`) and its worker
+     into `dist/` (`vite.config.ts`);
+   - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
+   - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
+     `dist/`, which goes to the site's root. NIF libraries
    are the backend's ([nif.md](nif.md)): the site has none.
 2. **The BEAM.** `beam/build.sh release` with `OPT=-O2` into
    `out/beam-wasm/site`; its `beam*` files go into the OTP package, its
@@ -246,7 +262,7 @@ OTP's and Elixir's from the site manifest.
    - `build.py` prints the files and sizes of each image, the layers'
      files by package, and the runtime's and the site manifest's paths.
 
-## The Node harness (`src/runtime/node.ts`)
+## The Node harness (`packages/runtime/src/node.ts`)
 
 `node node.mjs SITE ERL-ARGS…` runs the site's node under Node as the
 browser's worker does (`beam/run.ts`), without a browser. It runs bundled

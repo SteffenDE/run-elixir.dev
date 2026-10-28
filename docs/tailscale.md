@@ -17,7 +17,7 @@ restricted [TCP relay](relay.md) for allowed hosts. General outbound TCP,
 UDP, and DNS require Tailscale.
 
 Implementation: `tailscale/` builds the client, `app/src/tailscale/`
-hosts the device and permissions, and `app/src/runtime/https.ts` and
+hosts the device and permissions, and `packages/runtime/src/https.ts` and
 `dns.ts` route project requests. Browser coverage is in
 `tailscale.spec.ts` and `sockets.spec.ts`.
 
@@ -167,8 +167,10 @@ capabilities, not credentials*). So the node runs on the apex, which runs
 no project's code: that runs in the exec frame, on the usercontent
 domain ([frames.md](frames.md)).
 
-- **A shared worker on the apex** (`app/src/tailscale/worker.ts`, built
-  as the runtime package's `tailscale.js`): one node for every page of the apex that
+- **A shared worker on the apex** (`app/src/tailscale/worker.ts`, part
+  of the app's build, not a package's: only the playground's apex runs
+  it, and the IDE gives its projects the tailnet as a plugin of its own,
+  `tailscale/plugin.ts`): one node for every page of the apex that
   connects. It keeps the node's state (`state`: main.go's keys) and its
   settings (`settings`: the control server, whether it is set up) in the
   apex's IndexedDB, `playground-tailscale`. Two builds' pages make two

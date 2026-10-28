@@ -180,7 +180,7 @@ build() {
     # the main thread (beam/run.ts).
     flags+=" -sEXPORTED_FUNCTIONS=['_main','_malloc','_free','_emscripten_force_exit','_popcornStdinEnqueue','_popcornStdinEof','_popcornTtyResize','_raise','_popcornStdinTake']"
     flags+=" -sFORCE_FILESYSTEM=1 -sEXIT_RUNTIME=1 -sMALLOC=mimalloc"
-    # PROXYFS mounts the playground's tree (app/src/runtime/beam/treefs.ts).
+    # PROXYFS mounts the playground's tree (packages/runtime/src/beam/treefs.ts).
     flags+=" -lproxyfs.js"
     flags+=" --js-library ${HERE}/emscripten/monotonic-clock.js"
     # prim_socket over the playground's network (socket/, patch 0016).

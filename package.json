@@ -1,0 +1,16 @@
+{
+  "name": "elixir-playground-workspace",
+  "private": true,
+  "workspaces": [
+    "packages/*",
+    "app"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "format": "npm run format --workspaces --if-present",
+    "format:check": "npm run format:check --workspaces --if-present"
+  }
+}

@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { KindChip } from '@/shared/components/KindChip';
 import { importProject } from '@/shared/lib/projects';
 import { navigate } from '@/shared/lib/navigate';
-import { apexUrl, projectUrl } from '@/shared/lib/site';
-import { decodeShared, type Shared } from '@/shared/lib/share';
+import { apexUrl, projectUrl } from '@elixir-playground/runtime/lib/site';
+import { decodeShared, type Shared } from '@elixir-playground/runtime/lib/share';
 import { siteTemplate, type Template } from '@/shared/lib/templates';
 
 // A shared project's link (/import#DATA): what it holds, and a new project

@@ -6,7 +6,7 @@
 // same id there, and the branch moves to the last one, fast-forward only.
 import { github, GitHubError, identity, type GitHubToken } from '@/shared/lib/github';
 import { parseRepository } from '@/shared/lib/repository';
-import type { GitOptions } from '@/runtime/host/git';
+import type { GitOptions } from '@elixir-playground/runtime/host/git';
 import { WORK } from './store';
 import type { Run } from './git';
 

@@ -81,7 +81,7 @@ phx_new archives and rebar3). The template is built by the host's Mix
 (`_build_otp`, in `target/cache-otp`); the boot images are recorded on
 this BEAM. `node.ts` runs the site under Node (the recording runs); the
 browser's worker runs it (`worker/beam.ts`). Both go through
-`app/src/runtime/beam/run.ts`; `beam/args.ts` turns erl's arguments into
+`packages/runtime/src/beam/run.ts`; `beam/args.ts` turns erl's arguments into
 the emulator's.
 
 - **Loading.** The page compiles `beam.wasm` once and every node's worker
@@ -154,7 +154,7 @@ Status (2026-10-17, later): `shells` passes in WebKit too: the page made
 a Postgres handler per node, so the server's and a shell's connections
 never took turns in PGlite's one session, and PGlite's startup reply (a
 view of its buffer) was overwritten before the node read it; both fixed
-in `app/src/runtime` and the project page, for Rust-OTP as well.
+in `packages/runtime/src` and the project page, for Rust-OTP as well.
 Firefox's endpoint switch was Playwright's: Juggler loses an iframe's
 navigation once the wrapper of the frame's docShell has been collected
 (its observer does not QueryInterface it), which happens within seconds

@@ -1,6 +1,6 @@
 // The project as a repository (docs/git.md): its baseline commit, which the
 // changes view diffs against, made with the IDE's own git (runtime/git.ts).
-import type { GitOptions, GitOutput } from '@/runtime/host/git';
+import type { GitOptions, GitOutput } from '@elixir-playground/runtime/host/git';
 import { WORK } from '@/project/lib/store';
 import { cloneUrl, type Repository } from '@/shared/lib/repository';
 

@@ -11,15 +11,29 @@ dark tokens, oxlint and oxfmt. Its libraries are `@pierre/trees`,
 `@pierre/diffs`, `@base-ui/react`, `react-resizable-panels`, `zustand`,
 Dexie, Remix Icon, xterm.js (with its fit and web-links addons), PGlite and
 `tailwindcss`. Versions are exact in `package.json`; `package-lock.json` is
-committed. Source is organized into `src/home`, `src/project` and
-`src/shared`, each with `components/` and `lib/`, and the runtime in
-`src/runtime` ([runtime.md](runtime.md)); imports use `@/` for `src/`.
+committed at the repository's root. Source is organized into `src/home`,
+`src/project` and `src/shared`, each with `components/` and `lib/`;
+imports use `@/` for `src/`. The app is one member of the npm workspace
+at the root. The others are the packages it runs projects with, which it
+imports by name:
+
+| Directory | Package | What |
+| --- | --- | --- |
+| `packages/runtime` | `@elixir-playground/runtime` | The runtime's workers, the usercontent domain's frames, the page programs ([runtime.md](runtime.md)) |
+| `packages/api` | `@elixir-playground/api` | `create()` ([api.md](api.md)) |
+| `packages/pglite` | `@elixir-playground/pglite` | The pglite plugin |
+
+Inside a package, imports are relative; other packages are imported by
+name (`@elixir-playground/runtime/packages/manifest`). The workspace
+links them to their sources, so the app builds them with its own. The
+published packages' `package.json` files are `runtime/build.py`'s.
 
 ```sh
-cd app
-npm ci && npm run build      # tsc --noEmit && vite build → dist/
-npm run lint                 # oxlint src test
-npm run format               # oxfmt src test
+npm ci && npm run build      # at the root: every member's build
+npm run typecheck            # tsc --noEmit in each member
+npm run lint                 # oxlint
+npm run format               # oxfmt
+npm test                     # vitest: packages/runtime/test/unit, app/test/unit
 ```
 
 `build.py` runs the build in Docker. The app's Vite build has four HTML
@@ -31,7 +45,6 @@ entries, and the runtime package's three more:
   (`vite.frames.config.ts`, [packages.md](packages.md)): the project
   runtime frame, a preview origin's service-worker host, and Claude Code's
   preparation and cache.
-- `embed.html`: the runtime host for another site's IDE.
 - `storage.html`: migration from legacy project origins.
 
 Separate Vite configurations build the runtime workers, embed client,

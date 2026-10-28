@@ -3,7 +3,7 @@
 // .git/index stays theirs, and untracked files are new files), against a
 // base, with both sides' contents whole, so a diff shows any of its file.
 import { processFile, type ChangeTypes, type FileDiffMetadata } from '@pierre/diffs';
-import type { GitOptions, GitOutput } from '@/runtime/host/git';
+import type { GitOptions, GitOutput } from '@elixir-playground/runtime/host/git';
 import { BASELINE } from '@/project/lib/git';
 import { WORK } from '@/project/lib/store';
 

@@ -1,0 +1,16 @@
+{
+  "name": "@elixir-playground/runtime",
+  "version": "1.1.0",
+  "provides": {
+    "manifest": [2],
+    "fs": [3],
+    "wasi": [1],
+    "processes": [1],
+    "crossterm": [1],
+    "beam": [1],
+    "tls": [1],
+    "tailscale": [1],
+    "nif": [1],
+    "claude": [1]
+  }
+}

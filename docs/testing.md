@@ -16,13 +16,15 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
 
 - **app:** lint, format, `tsc --noEmit`, the unit tests, license checks,
   release preparation (`python3 -I tests/deploy.py`, using temporary
-  releases) and the site build's deterministic layers and images
-  (`python3 -I tests/build.py`).
+  releases), the site build's deterministic layers and images
+  (`python3 -I tests/build.py`) and the publishing job's versions
+  (`python3 -I tests/publish.py`).
 - **backend:** formatting, a compile without warnings, `mix test` against
   Postgres, and the release image.
 - **site:** each WebAssembly tool and the tests' NIF libraries
   (`tests/nif/build.py`) in jobs of their own, then the site
-  (`runtime/build.py`), then `tests/nif/layer.py` and the Playwright
+  (`runtime/build.py`), then `tests/nif/layer.py`, `tests/vite-site/run.sh`
+  (a site built with the Vite plugin) and the Playwright
   suite in each browser, in four shards, with the backend
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
   Each shard's `target/tests` is an artifact. A failed test runs once
@@ -34,7 +36,7 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
 ## In browsers: Playwright (`app/test/e2e`)
 
 Use the repository's Playwright version and Docker image, pinned in
-`app/package-lock.json` and `tests/run.sh`:
+the root's `package-lock.json` and `tests/run.sh`:
 
 ```sh
 python3 -I runtime/build.py              # full build; see build.md for prerequisites
@@ -113,7 +115,7 @@ a fetch blocked by CORS, which the HTTPS gateway handles itself.
 WebKit's page crashes (a segfault in its web process) when many workers
 fetch their module script at once, as a node's threads start together.
 A node's threads therefore start from a blob of `beam.emu.mjs` that the
-node fetches once (`app/src/runtime/beam/run.ts`; `beam/build.sh`
+node fetches once (`packages/runtime/src/beam/run.ts`; `beam/build.sh`
 patches Emscripten's worker for it).
 
 ## Debugging a stuck preview in the browser

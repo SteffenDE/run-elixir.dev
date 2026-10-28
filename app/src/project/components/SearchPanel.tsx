@@ -1,6 +1,6 @@
 import { RiArrowDownSLine, RiArrowRightSLine, RiRefreshLine } from '@remixicon/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { SearchHit, SearchQuery, SearchResult } from '@/runtime/host/files';
+import type { SearchHit, SearchQuery, SearchResult } from '@elixir-playground/runtime/host/files';
 import { WORK, useStore } from '@/project/lib/store';
 import { workspace } from '@/project/lib/workspace';
 

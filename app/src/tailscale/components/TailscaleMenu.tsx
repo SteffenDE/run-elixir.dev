@@ -3,7 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLive } from '@/live/lib/store';
 import { connectServer } from '@/project/lib/playground';
 import { useStore } from '@/project/lib/store';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 import {
   connectTailscale,
   decide,
@@ -15,7 +15,7 @@ import {
 } from '@/tailscale/client';
 import { CopyButton } from '@/tailscale/components/SetupSteps';
 import { TailscaleIcon } from '@/tailscale/components/TailscaleButton';
-import { TAG } from '@/tailscale/protocol';
+import { TAG } from '@elixir-playground/runtime/tailnet/protocol';
 
 // What lets the user's devices reach the playground's ports, in the
 // tailnet's policy.

@@ -89,7 +89,7 @@ has two additional databases for files and Postgres
 | Database | Holds | Written by |
 | --- | --- | --- |
 | `playground` (Dexie), table `projects` | id, name, kind, created and opened times; where it came from (a link, repository, or live-session fork), whether it takes the user's settings, its own settings | the page |
-| `playground-files-ID` | Changes below `/work` and `/home`, including tool caches and escripts. `/home` is excluded from the tree, search and share links. | Apex storage, through a port from `files.js` (`src/runtime/overlay.ts`) |
+| `playground-files-ID` | Changes below `/work` and `/home`, including tool caches and escripts. `/home` is excluded from the tree, search and share links. | Apex storage, through a port from `files.js` (`packages/runtime/src/overlay.ts`) |
 | `/pglite/playground-pg-ID` | the project's Postgres | PGlite (`idb://playground-pg-ID`) |
 
 ### Files: an overlay over the template

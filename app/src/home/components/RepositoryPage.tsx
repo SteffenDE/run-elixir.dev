@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { navigate } from '@/shared/lib/navigate';
 import { cloneProject } from '@/shared/lib/projects';
 import { repositoryLabel, webUrl, type Repository } from '@/shared/lib/repository';
-import { apexUrl, projectUrl } from '@/shared/lib/site';
+import { apexUrl, projectUrl } from '@elixir-playground/runtime/lib/site';
 
 interface About {
   description: string | null;

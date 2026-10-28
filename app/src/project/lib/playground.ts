@@ -1,35 +1,30 @@
-// A project's page: what the IDE shows of the project, and the frame that
-// runs it (docs/frames.md). The nodes, the shared files and the page
-// programs run in a worker of a frame on the usercontent domain
-// (exec/host.ts), which this page drives over a port; this page keeps what
-// is the apex's: the project's stores (its files' changes, PGlite), Hex's
-// cache, the terminals' screens and line disciplines, the tree and the
-// tabs. Everything the UI does to the project goes through here.
+// A project's page: what the IDE shows of the project, and the sandbox
+// that runs it (create(), api/sandbox.ts; docs/frames.md). The nodes, the
+// shared files and the page programs run in a worker of a frame on the
+// usercontent domain (exec/host.ts), which the sandbox drives over a port;
+// this page keeps what is the apex's: the project's stores (its files'
+// changes, PGlite), Hex's cache, the terminals' screens, the tree and the
+// tabs. Everything the UI does to the project goes through here: the
+// API's calls, and the IDE's own over the sandbox's port (sandbox.exec).
 import { Terminal } from '@xterm/xterm';
 import { EditStateManager } from '@pierre/diffs/edit';
-import type { ExecEvents, ExecStart, ProcessStart } from '@/exec/host';
-import type { Entry, SearchQuery, SearchResult } from '@/runtime/host/files';
-import type { Connection, NifBuild } from '@/runtime/host/node';
-import type { GitOptions, GitOutput } from '@/runtime/host/git';
-import { open as openStore, serveStore, sharedRecords } from '@/runtime/overlay';
-import { PortConnection } from '@/runtime/portConnection';
-import { REPORT } from '@/runtime/terminal';
-import { SIGNALS } from '@/runtime/signals';
-import { BUILD, SITE } from '@/shared/lib/build';
-import type { Rpc } from '@/shared/lib/rpc';
-import { startExecFrame } from '@/shared/lib/execFrame';
-import {
-  connectTailscale,
-  IEX,
-  setTailnetProject,
-  tailnetDial,
-  tailnetResolve,
-  tailscaleBlocked,
-} from '@/tailscale/client';
-import { claudePort } from '@/project/lib/programs/claude/frame';
+import type { ExecEvents } from '@elixir-playground/runtime/exec/host';
+import type { Entry, SearchQuery, SearchResult } from '@elixir-playground/runtime/host/files';
+import type { Connection, NifBuild } from '@elixir-playground/runtime/host/node';
+import type { GitOptions, GitOutput } from '@elixir-playground/runtime/host/git';
+import { open as openStore, serveStore, sharedRecords } from '@elixir-playground/runtime/overlay';
+import { PortConnection } from '@elixir-playground/runtime/portConnection';
+import { REPORT } from '@elixir-playground/runtime/terminal';
+import { sitePackages } from '@/shared/lib/build';
+import type { Rpc } from '@elixir-playground/runtime/lib/rpc';
+import type { Process, Sandbox } from '@elixir-playground/api';
+import { createSandbox } from '@elixir-playground/api/sandbox';
+import { PGLITE_PLUGIN, pglite, type PgliteInstance } from '@elixir-playground/pglite';
+import { tailscale } from '@/tailscale/plugin';
+import { connectTailscale, IEX, setTailnetProject, tailscaleBlocked } from '@/tailscale/client';
 import { relayWay, setRelayProject } from '@/relay/client';
-import { relayed } from '@/runtime/relay';
-import { apexOrigin, execOrigin, previewOrigins } from '@/shared/lib/site';
+import { relayed } from '@elixir-playground/runtime/relay';
+import { previewOrigins, usercontentDomain } from '@elixir-playground/runtime/lib/site';
 import {
   closePopup,
   onPreviewMessage,
@@ -43,25 +38,24 @@ import { HIDDEN, WORK, useStore } from '@/project/lib/store';
 import { baseline, clone } from '@/project/lib/git';
 import { repositoryLabel } from '@/shared/lib/repository';
 import { filesChanged as changesHeard, watchChanges } from '@/project/lib/review';
-import { filesStore, SHARED_STORE } from '@/shared/lib/storage';
-import type { KeptRecord } from '@/runtime/overlay';
+import { SHARED_STORE } from '@/shared/lib/storage';
+import type { KeptRecord } from '@elixir-playground/runtime/overlay';
 import { getProject, seedTaken, takeSeed, updateProject } from '@/shared/lib/projects';
 import { applied, loadSettings, SETTINGS_CHANNEL, type Applied } from '@/shared/lib/settings';
 import { guestMayType, useLive } from '@/live/lib/store';
 import { askTrust } from './trust';
-import type { Shared } from '@/shared/lib/share';
+import type { Shared } from '@elixir-playground/runtime/lib/share';
 import type { Template } from '@/shared/lib/templates';
 import { setWorkspace, type Workspace } from './workspace';
-import { forgetRelays, previewRelay } from './previewOrigins';
+import { previewRelay } from '@elixir-playground/api/previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
-import { apexServices } from './services';
-import { setup as setupOf, type Setup, type WorkspaceKind } from './kinds';
+import { setup as setupOf, type Setup, type WorkspaceKind } from '@elixir-playground/runtime/kinds';
 
 type Output = (text: string) => void;
 
-// A shell's node, as this page knows it: a process of the frame's
-// (exec/host.ts spawn), which keeps its line discipline.
+// A shell's node, as this page knows it: a sandbox's process on a terminal
+// (exec/host.ts spawn), whose line discipline the exec frame keeps.
 interface ShellNode {
   // Keys typed (a terminal's, its reports too), as they come.
   input(text: string): void;
@@ -73,6 +67,7 @@ interface ShellNode {
 
 interface Session {
   id: number;
+  process: Process;
   node: ShellNode;
   backlog: string;
   listeners: Set<Output>;
@@ -84,8 +79,9 @@ interface Session {
 }
 
 const sessions = new Map<number, Session>();
+let sandbox: Sandbox | null = null;
+// The sandbox's port: the IDE's own calls (git, search, its changes).
 let exec: Rpc | null = null;
-let frame: HTMLIFrameElement | null = null;
 let setup: Setup = setupOf('empty');
 let kind: WorkspaceKind = 'empty';
 // The stored project's id (null for a temporary IEx).
@@ -98,9 +94,7 @@ const SETUP_SCRIPT = '/tmp/playground-setup.sh';
 // The other projects open in this browser, which hear what this one kept
 // in /shared and tell it what they kept.
 let sharedPeers: BroadcastChannel | null = null;
-// Postgres and Hex's cache for the nodes (services.ts), the project's.
-let services = apexServices(null);
-let nextSession = 1;
+// The first shell is the sandbox's first process.
 export const FIRST_SESSION = 1;
 // The ports Node.js processes serve on (exec/host.ts's 'serving').
 let scriptPorts = new Set<number>();
@@ -279,9 +273,10 @@ export function keys(id: number, data: string): void {
 
 // The size of shell `id`'s terminal, for the node's line editing.
 export function resize(id: number, columns: number, rows: number): void {
-  if (!sessions.has(id)) return;
-  void exec?.call('resize', [id, columns, rows]);
-  sessions.get(id)!.screen.resize(columns, rows);
+  const session = sessions.get(id);
+  if (!session) return;
+  session.process.resize(columns, rows);
+  session.screen.resize(columns, rows);
 }
 
 // Stop whatever runs in the first shell, then run its saved startup
@@ -313,6 +308,8 @@ export function connectServer(port: number): Connection | null {
 
 // The preview: a port's origin once its relay is ready (PreviewFrame's
 // prepare), and the port it went to by itself (onPort).
+// Its relay is made through the exec frame's port, which is there before
+// create() returns (the preview may ask first, after a reload).
 const serveRelay = (requests: MessagePort) =>
   void exec?.call('relay', [requests], [requests]).catch(() => requests.close());
 const preview: PreviewHost = {
@@ -320,50 +317,58 @@ const preview: PreviewHost = {
   shows: (port) => void exec?.call('previewShows', [port]),
 };
 
-// The apex's services, as the exec frame carries the nodes' connections
-// here (exec/host.ts apex).
-const connect = (service: string, node: number, id: number, port: MessagePort) =>
-  services.connect(service, node, id, port);
-
 // A shell in a new terminal tab (the first runs `initial`).
 export function openTerminal(initial: string[] = []): number {
-  if (!exec) return 0;
-  const id = nextSession++;
-  const rpc = exec;
+  if (!sandbox) return 0;
+  const screen = new Terminal({ cols: 80, rows: 24, convertEol: true, scrollback: 5000 });
+  // None of the user's settings while a live session's guest may type, at
+  // the host's choice.
+  const env = useLive.getState().settingsOff && guestMayType() ? {} : settings.env;
+  const process = sandbox.terminal({
+    cols: screen.cols,
+    rows: screen.rows,
+    initial,
+    cwd: WORK,
+    env,
+  });
+  const id = process.id;
   const session: Session = {
     id,
+    process,
     node: {
-      input: (text) => {
-        const bytes = encoder.encode(text);
-        void rpc.call('input', [id, bytes], [bytes.buffer]);
-      },
-      terminate: () => void rpc.call('stopForeground', [id]),
+      input: (text) => process.write(text),
+      terminate: () => process.stopForeground(),
       serving: new Set(),
     },
     backlog: '',
     listeners: new Set(),
-    screen: new Terminal({ cols: 80, rows: 24, convertEol: true, scrollback: 5000 }),
+    screen,
     decoder: new TextDecoder(),
   };
   // The screen answers the shell's line editor's questions (the cursor's
   // position); the frame passes them on as they are.
-  session.screen.onData((data) => {
+  screen.onData((data) => {
     if (REPORT.test(data)) session.node.input(data);
   });
   sessions.set(id, session);
-  // None of the user's settings while a live session's guest may type, at
-  // the host's choice.
-  const env = useLive.getState().settingsOff && guestMayType() ? {} : settings.env;
-  void rpc.call('spawn', [
-    id,
-    {
-      initial,
-      env,
-      tty: { cols: session.screen.cols, rows: session.screen.rows },
-    } satisfies ProcessStart,
-  ]);
+  process.onStdout((bytes) => {
+    if (sessions.get(id) === session)
+      emit(session, session.decoder.decode(bytes, { stream: true }));
+  });
+  if (id === FIRST_SESSION) process.onStatus(firstStatus);
   useStore.getState().addTerminal(id);
   return id;
+}
+
+// The first shell's status: the project's.
+function firstStatus(text: string): void {
+  const store = useStore.getState();
+  if (text === 'running') {
+    store.setStatus(setup.running);
+    store.setReady(true);
+  } else if (text.startsWith('failed') && !store.ready) {
+    store.failedToStart(text.replace(/^failed: /, ''));
+  } else store.setStatus(text);
 }
 
 function emit(session: Session, text: string): void {
@@ -374,41 +379,28 @@ function emit(session: Session, text: string): void {
 
 export function closeTerminal(id: number): void {
   if (id === FIRST_SESSION) return;
-  sessions.get(id)?.screen.dispose();
+  const session = sessions.get(id);
+  session?.screen.dispose();
   sessions.delete(id);
-  void exec?.call('signal', [id, SIGNALS.SIGKILL]);
+  session?.process.kill('SIGKILL');
   useStore.getState().removeTerminal(id);
 }
 
-// What the frame tells: output, the first shell's status, raw mode, the
-// ports served, the files the nodes changed, NIF builds, new CSS and
-// bundles, and what a node could not reach without Tailscale.
+// What the frame tells beyond the sandbox's processes: the ports served
+// (and by which shell), the files the nodes changed, NIF builds, and what
+// a node could not reach without Tailscale. The sandbox makes the
+// preview's relays.
 function listen(rpc: Rpc): void {
   const on = <K extends keyof ExecEvents>(event: K, listener: (data: ExecEvents[K]) => void) =>
     rpc.on<ExecEvents[K]>(event, (data) => {
       if (exec === rpc) listener(data);
     });
-  on('processOutput', ({ id, bytes }) => {
-    const session = sessions.get(id);
-    if (session) emit(session, session.decoder.decode(bytes, { stream: true }));
-  });
-  on('processStatus', ({ id, text }) => {
-    if (id !== FIRST_SESSION) return;
-    const store = useStore.getState();
-    if (text === 'running') {
-      store.setStatus(setup.running);
-      store.setReady(true);
-    } else if (text.startsWith('failed') && !store.ready) {
-      store.failedToStart(text.replace(/^failed: /, ''));
-    } else store.setStatus(text);
-  });
   on('serving', ({ ports, port, byProcess, scripts }) => {
     scriptPorts = new Set(scripts);
     for (const [id, served] of Object.entries(byProcess)) {
       const session = sessions.get(Number(id));
       if (session) session.node.serving = new Set(served);
     }
-    for (const each of ports) void previewRelay(previewKey, each, serveRelay).catch(() => {});
     const store = useStore.getState();
     if (ports.join() !== store.serving.join()) store.setServing(ports);
     if (port !== store.previewPort) store.setPreviewPort(port);
@@ -421,9 +413,6 @@ function listen(rpc: Rpc): void {
     const host = URL.canParse(what) ? new URL(what).hostname : '';
     if (!relayed(host, 443)) tailscaleBlocked(what);
   });
-  // The apex's services, and the tailnet as this page lets the project
-  // use it (docs/tailscale.md).
-  rpc.handle({ connect, tailnetDial, tailnetResolve, relayWay, claudePort });
 }
 
 // Unsaved edits: the browser asks before the page goes.
@@ -534,28 +523,22 @@ function shareWithPeers(rpc: Rpc): () => void {
 export async function shutdown(): Promise<void> {
   startup?.abort();
   startup = null;
-  const rpc = exec;
+  const stopping = sandbox;
+  sandbox = null;
   exec = null;
   if (refreshing) clearTimeout(refreshing);
   refreshing = null;
   unwatchChanges();
   unwatchChanges = () => {};
   sharedHidden = false;
-  await rpc?.call('shutdown').catch(() => {});
   sharedPeers?.close();
   sharedPeers = null;
-  rpc?.close();
   setTailnetProject(null);
   setRelayProject(null);
-  frame?.remove();
-  frame = null;
-  forgetRelays();
   for (const session of sessions.values()) session.screen.dispose();
   sessions.clear();
-  nextSession = 1;
   scriptPorts = new Set();
-  await services.close();
-  services = apexServices(null);
+  await stopping?.shutdown();
 }
 
 // The page goes to another of the apex's pages in place (navigate.ts):
@@ -598,7 +581,7 @@ export const local: Workspace = {
   restartServer,
 };
 
-// Start a project of `kind`: the frame that runs it, its files, and the
+// Start a project of `kind`: the sandbox that runs it, its files, and the
 // first shell. `id`: the stored project's, whose changes are kept (none
 // for a temporary IEx). False if startup was cancelled or failed.
 export async function start(workspaceKind: WorkspaceKind, id: string | null): Promise<boolean> {
@@ -606,7 +589,6 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   const { signal } = startup;
   kind = workspaceKind;
   projectId = id;
-  services = apexServices(id);
   // This page's project (it may have run another before).
   setPreviewKey();
   setWorkspace(local);
@@ -617,8 +599,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     store.failedToStart('This page needs cross-origin isolation (see playground/README.md).');
     return false;
   }
-  const origin = execOrigin(previewKey);
-  if (!origin || !previewOrigins(previewKey)) {
+  const usercontent = usercontentDomain();
+  if (!usercontent || !previewOrigins(previewKey)) {
     store.failedToStart(
       "This site names no usercontent domain (playground.json's usercontent; docs/frames.md).",
     );
@@ -657,46 +639,53 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
   }
   settings = applied(user, project);
   try {
-    const rpc = await startExecFrame(origin, signal, document.body, (element) => {
-      frame = element;
-    });
-    if (signal.aborted) {
-      rpc.close();
-      return false;
-    }
-    exec = rpc;
-    listen(rpc);
-    let storePort: MessagePort | null = null;
-    if (id) {
-      const channel = new MessageChannel();
-      serveStore(channel.port1, filesStore(id));
-      storePort = channel.port2;
-    }
+    // The site's packages (the template among them, as for every project:
+    // the layers' versions are what kept projects were made over), and the
+    // plugins of the playground's own: Postgres, the tailnet.
+    const { packages, boot } = await sitePackages();
+    if (signal.aborted) return false;
+    const template =
+      kind === 'phoenix'
+        ? packages.find(({ playground }) => playground.template?.kind === 'phoenix')
+        : undefined;
     let sharedPort: MessagePort | null = null;
     let sharing = () => {};
+    let share: ((rpc: Rpc) => () => void) | null = null;
     if (settings.shared) {
       const channel = new MessageChannel();
       serveStore(channel.port1, SHARED_STORE);
       sharedPort = channel.port2;
-      sharing = shareWithPeers(rpc);
+      share = shareWithPeers;
     }
-    await rpc.call<void>(
-      'start',
-      [
-        {
-          kind,
-          key: previewKey,
-          ide: apexOrigin(),
-          // Paths: the frame takes them from its own origin.
-          build: BUILD,
-          site: SITE,
-          store: storePort,
-          shared: sharedPort,
-        } satisfies ExecStart,
-      ],
-      [storePort, sharedPort].filter((port): port is MessagePort => port !== null),
-    );
-    if (signal.aborted) return false;
+    const started = await createSandbox({
+      plugins: [packages, pglite(), tailscale],
+      project: { id: previewKey, persist: id !== null, template: template ?? 'empty' },
+      boot,
+      // The tailnet and the relay as the user lets this project use them
+      // (relay/client.ts, docs/relay.md).
+      relay: relayWay,
+      usercontent,
+      kind,
+      shared: sharedPort,
+      signal,
+      // Before the files start: this page hears what they tell from the
+      // first, and /shared's peers' changes wait for them.
+      connected: (rpc) => {
+        exec = rpc;
+        listen(rpc);
+        if (share) sharing = share(rpc);
+      },
+    }).catch((error: unknown) => {
+      if (signal.aborted) return null;
+      throw error;
+    });
+    if (!started || signal.aborted) {
+      void started?.shutdown();
+      return false;
+    }
+    sandbox = started;
+    const rpc = started.exec;
+    const postgres = () => started.instances.get(PGLITE_PLUGIN) as PgliteInstance;
     sharing();
     // A repository from the start (docs/git.md): the files as they came
     // are its baseline. A template's are, before a link's changes go over
@@ -752,7 +741,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     // For tests and the curious.
     Object.assign(window, {
       playground: {
-        database: () => services.database(),
+        database: () => postgres().database(),
         files,
         git,
         sessions,
@@ -775,7 +764,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
         // (see runtime/trace.ts for tracing it as it happens).
         debug: async () => ({
           ...(await rpc.call<object>('debug')),
-          postgres: services.serveDatabase.debug(),
+          postgres: postgres().debug(),
         }),
       },
     });

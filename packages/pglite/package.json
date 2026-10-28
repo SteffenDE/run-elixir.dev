@@ -1,0 +1,22 @@
+{
+  "name": "@elixir-playground/pglite",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The pglite plugin of create(): Postgres on port 5432 for a project's nodes (docs/api.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build && tsc -p tsconfig.build.json && node ../types.mjs",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "0.5.7",
+    "@elixir-playground/api": "*"
+  }
+}

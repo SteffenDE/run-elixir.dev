@@ -12,7 +12,7 @@ import {
 } from '@/tailscale/client';
 import { SetupSteps } from '@/tailscale/components/SetupSteps';
 import { TailscaleIcon } from '@/tailscale/components/TailscaleButton';
-import { CONTROL_URL, TAG, type Status } from '@/tailscale/protocol';
+import { CONTROL_URL, TAG, type Status } from '@elixir-playground/runtime/tailnet/protocol';
 
 // /tailscale on the apex: this browser's Tailscale node, how to set it up,
 // signing in and out, its exit node, and (for Headscale) its control

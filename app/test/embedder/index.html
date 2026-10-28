@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>A test embedder</title>
+    <!-- Its install (serve.py --embedder-host): the site's packages at
+         /node_modules/@elixir-playground/NAME (each its index.js), PGlite
+         at /node_modules/@electric-sql/pglite/, as a bundler would resolve
+         them. -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@elixir-playground/": "/node_modules/@elixir-playground/",
+          "@electric-sql/pglite": "/node_modules/@electric-sql/pglite/dist/index.js",
+          "@electric-sql/pglite/contrib/citext": "/node_modules/@electric-sql/pglite/dist/contrib/citext.js",
+          "@electric-sql/pglite/contrib/fuzzystrmatch": "/node_modules/@electric-sql/pglite/dist/contrib/fuzzystrmatch.js",
+          "@electric-sql/pglite/contrib/hstore": "/node_modules/@electric-sql/pglite/dist/contrib/hstore.js",
+          "@electric-sql/pglite/contrib/ltree": "/node_modules/@electric-sql/pglite/dist/contrib/ltree.js",
+          "@electric-sql/pglite/contrib/pg_trgm": "/node_modules/@electric-sql/pglite/dist/contrib/pg_trgm.js",
+          "@electric-sql/pglite/contrib/pgcrypto": "/node_modules/@electric-sql/pglite/dist/contrib/pgcrypto.js",
+          "@electric-sql/pglite/contrib/unaccent": "/node_modules/@electric-sql/pglite/dist/contrib/unaccent.js",
+          "@electric-sql/pglite/contrib/uuid_ossp": "/node_modules/@electric-sql/pglite/dist/contrib/uuid_ossp.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <!-- A page of another site that runs projects through the API
+         (docs/api.md), as Tidewave's would: served cross-origin isolated by
+         serve.py's --embedder-host, its projects' code on the playground's
+         usercontent domain, which names this site. The tests drive it
+         through window.embed. -->
+    <h1>Embedder</h1>
+    <div id="frames"></div>
+    <script type="module">
+      import { create } from '@elixir-playground/api';
+      import otp from '@elixir-playground/otp-29.1.2';
+      import elixir from '@elixir-playground/elixir-1.20.4';
+      import standard from '@elixir-playground/standard';
+      import claude from '@elixir-playground/claude';
+
+      const port = location.port ? `:${location.port}` : '';
+      // A template of its own: the playground's, whose layer the usercontent
+      // domain serves (the embedder's own would be anywhere it serves).
+      async function template() {
+        const pkg = await fetch(
+          '/node_modules/@elixir-playground/phoenix-template/package.json',
+        ).then((response) => response.json());
+        return {
+          name: pkg.name,
+          version: pkg.version,
+          base: `/npm/${pkg.name}@${pkg.version}/`,
+          files: {},
+          peerDependencies: pkg.peerDependencies,
+          playground: pkg.playground,
+        };
+      }
+      // The runtime installed, at its published path.
+      const runtime = await fetch('/node_modules/@elixir-playground/runtime/package.json').then(
+        (response) => response.json(),
+      );
+      const options = {
+        plugins: [otp, elixir, standard, claude],
+        usercontent: `usercontent.localhost${port}`,
+        runtime: `/npm/@elixir-playground/runtime@${runtime.version}/`,
+      };
+      window.embed = {
+        started: performance.now(),
+        progress: [],
+        create,
+        options,
+        template: template(),
+        packages: { otp, elixir, standard, claude },
+      };
+    </script>
+  </body>
+</html>

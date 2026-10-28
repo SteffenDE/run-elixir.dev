@@ -1,5 +1,5 @@
 // wasm_nifs.c's side: NIF libraries built to WebAssembly, each an
-// instance the host keeps (Module.beamNifs, app/src/runtime/beam/run.ts
+// instance the host keeps (Module.beamNifs, packages/runtime/src/beam/run.ts
 // over nif.ts's Nifs), on the module's main thread (__proxy: 'sync').
 // An answer waits here until the C side, having made room, copies it.
 addToLibrary({

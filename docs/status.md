@@ -43,10 +43,11 @@ browser combination has been tested.
 - **Sharing and collaboration.** Share links copy a project's files.
   Live sessions provide collaborative editing, terminals and previews,
   with permissions controlled by the host. See [collaboration](collaboration.md).
-- **Settings and embedding.** Browser-wide and project environment
+- **Settings and the API.** Browser-wide and project environment
   variables, startup commands, a setup script and shared files are
-  implemented. The [embedding API](embed.md) exposes project runtimes to
-  configured embedder sites.
+  implemented. The IDE runs projects through [`create()`](api.md), which
+  another site's page can call too, on a usercontent domain that names
+  it.
 
 ## Known gaps
 

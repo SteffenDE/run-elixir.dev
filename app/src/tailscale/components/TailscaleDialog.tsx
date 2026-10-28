@@ -1,6 +1,6 @@
 import { RiArrowRightLine } from '@remixicon/react';
 import { useLayoutEffect, useRef } from 'react';
-import { apexUrl } from '@/shared/lib/site';
+import { apexUrl } from '@elixir-playground/runtime/lib/site';
 import { dismissHint, useTailscale } from '@/tailscale/client';
 import { SetupSteps } from '@/tailscale/components/SetupSteps';
 import { TailscaleIcon } from '@/tailscale/components/TailscaleButton';

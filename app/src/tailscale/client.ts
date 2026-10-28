@@ -10,13 +10,21 @@
 // (TailscalePage).
 import { create } from 'zustand';
 import { guestMayType, useLive } from '@/live/lib/store';
-import { failure, NXDOMAIN, questionName } from '@/runtime/dns';
-import type { Connection } from '@/runtime/host/node';
-import { trace } from '@/runtime/trace';
-import { BUILD, siteManifest } from '@/shared/lib/build';
-import { Site } from '@/runtime/packages/manifest';
-import { SHARE_LOCK } from './protocol';
-import type { Action, Exposure, Piece, Proto, Reply, Request, Status } from './protocol';
+import { failure, NXDOMAIN, questionName } from '@elixir-playground/runtime/dns';
+import type { Connection } from '@elixir-playground/runtime/host/node';
+import { trace } from '@elixir-playground/runtime/trace';
+import { siteManifest } from '@/shared/lib/build';
+import { Site } from '@elixir-playground/runtime/packages/manifest';
+import { SHARE_LOCK } from '@elixir-playground/runtime/tailnet/protocol';
+import type {
+  Action,
+  Exposure,
+  Piece,
+  Proto,
+  Reply,
+  Request,
+  Status,
+} from '@elixir-playground/runtime/tailnet/protocol';
 
 // The setup hint (TailscaleDialog) was dismissed: in the apex's storage,
 // so it shows once in this browser, whichever project needed it.
@@ -96,9 +104,10 @@ export function setTailnetProject(key: string | null): void {
   useTailscale.setState({ consent: key === null ? null : (consents()[key] ?? null) });
 }
 
-// The apex's shared worker, said hello to.
+// The apex's shared worker, said hello to: the app's own (not the runtime
+// package's: no other site runs it).
 function workerPort(): MessagePort {
-  const shared = new SharedWorker(`${BUILD}tailscale.js`, {
+  const shared = new SharedWorker(new URL('./worker.ts', import.meta.url), {
     type: 'module',
     name: 'playground-tailscale',
   });

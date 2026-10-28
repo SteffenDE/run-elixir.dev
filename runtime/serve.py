@@ -1,8 +1,8 @@
 """Serve the playground site (build.py's output) on http://localhost:8080
 with the cross-origin isolation SharedArrayBuffer needs, index.html for
 paths that are no file (a project's /ID/), Hex's repository at /hex/
-(repo.hex.pm sends no CORS headers; app/src/project/lib/hex.ts) and git
-clones at /git/HOST/ (app/src/project/lib/programs/git.ts), as Caddy
+(repo.hex.pm sends no CORS headers; packages/runtime/src/hex.ts) and git
+clones at /git/HOST/ (packages/runtime/src/programs/git.ts), as Caddy
 does in production; and the backend's NIF builds at /api/v1/nif/ and its
 sockets at /socket (live sessions' relay, docs/collaboration.md) and
 /relay (the TCP relay, docs/relay.md), from
@@ -18,19 +18,23 @@ With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
 machine, and each is a site of its own), /playground.json names the apex,
 which has every page, and the domain whose subdomains run what a
-project's code does (app/src/shared/lib/site.ts, docs/frames.md),
+project's code does (packages/runtime/src/lib/site.ts, docs/frames.md),
 whatever the build says. The usercontent domain's hosts are framed by the
 apex's pages from another site (Cross-Origin-Resource-Policy:
 cross-origin) and open no window of their own isolated; the apex's former
 project addresses (p-ID.DOMAIN) send their visitors to the apex.
 
-embed.html, the page another site frames to run a project
-(docs/embed.md), may be framed by the origins playground.json names
-(`embedders`, or --embedders), and is answered with what lets it be
-framed under the embedder's COEP; embed.js, its client, with CORS. With
---embedder-host (embedder.localhost:8081, say) that host is a test
+The usercontent domain's frames take the origins playground.json names
+(`embedders`, or --embedders) as their parent, as they take the apex:
+another site's page runs projects here through the API (docs/api.md).
+With --embedder-host (embedder.localhost:8081, say) that host is a test
 embedder of its own site, serving --embedder-root's files cross-origin
-isolated, as an embedder serves its page.
+isolated, as an embedder serves its page, and the site's packages at
+/node_modules/@elixir-playground/NAME/ (PGlite's at
+/node_modules/@electric-sql/pglite/), as an embedder's install would have
+them. A package's published path, /npm/@elixir-playground/NAME@VERSION/,
+is the directory build.py laid it out in (NAME@VERSION+ID), as the hosted
+mirror would serve it.
 """
 import functools
 import http.server
@@ -235,10 +239,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def do_GET(self):
         if self.embedder():
-            super().do_GET()
-        elif self.usercontent() and self.path.split("?")[0] == "/embed.html":
-            # Only the apex is embedded (docs/embed.md).
-            self.send_error(404)
+            if not self.proxy_hex(False):
+                super().do_GET()
         elif OVERRIDES and self.path.split("?")[0] == "/playground.json":
             data = json.dumps(site_config()).encode()
             self.send_response(200)
@@ -255,10 +257,25 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().do_HEAD()
 
     def translate_path(self, path):
-        # The test embedder's page and scripts, from their own directory.
+        relative = os.path.normpath("/" + urllib.parse.unquote(path.split("?")[0])).lstrip("/")
+        # The test embedder's page and scripts, from their own directory, and
+        # its install: the site's packages (a package's own path, its
+        # index.js), and PGlite.
         if self.embedder():
-            relative = urllib.parse.unquote(path.split("?")[0]).lstrip("/") or "index.html"
-            return os.path.join(EMBEDDER_ROOT, os.path.normpath("/" + relative).lstrip("/"))
+            module = re.match(r"^node_modules/@elixir-playground/([^/@]+)(/.*)?$", relative)
+            if module:
+                found = laid(module.group(1))
+                rest = (module.group(2) or "").lstrip("/") or "index.js"
+                return os.path.join(found, rest) if found else os.path.join(EMBEDDER_ROOT, relative)
+            if relative.startswith("node_modules/@electric-sql/pglite/"):
+                return os.path.join(ROOT, relative)
+            return os.path.join(EMBEDDER_ROOT, relative or "index.html")
+        # A package's published path: the directory build.py laid it out in.
+        published = re.match(r"^npm/@elixir-playground/([^/@]+)@([0-9.]+)(/.*)?$", relative)
+        if published:
+            found = laid(published.group(1), published.group(2))
+            if found:
+                return os.path.join(found, (published.group(3) or "/").lstrip("/"))
         return super().translate_path(path)
 
     def embedder(self):
@@ -284,16 +301,6 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # another site: with CORS.
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
             self.send_header("Cross-Origin-Resource-Policy", "same-origin")
-            self.send_header("Access-Control-Allow-Origin", "*")
-        elif path == "/embed.html":
-            # Framed by an embedder's page, another site, under its COEP;
-            # by those the site names alone.
-            self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
-            ancestors = " ".join(site_config().get("embedders") or []) or "'none'"
-            self.send_header("Content-Security-Policy", f"frame-ancestors {ancestors}")
-        elif path == "/embed.js":
-            # The client, which an embedder's page imports (a module: CORS).
-            self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
             self.send_header("Access-Control-Allow-Origin", "*")
         elif self.usercontent():
             # The apex's pages frame these from another site.
@@ -326,6 +333,16 @@ def node_policy(origin, runtime):
     scripts = f"{origin}{runtime}/nodejs.js {origin}{runtime}/chunks/"
     return (f"default-src 'none'; script-src {scripts} 'unsafe-eval' 'wasm-unsafe-eval'; "
             f"worker-src {scripts} blob:; connect-src {origin}/npm/@elixir-playground/ data: blob:")
+
+
+def laid(name, version=None):
+    """Where build.py laid out package `name` (of `version`): its
+    NAME@VERSION+ID directory, the newest; None without one."""
+    top = os.path.join(directory, "npm", "@elixir-playground")
+    prefix = f"{name}@{version}+" if version else f"{name}@"
+    found = sorted((entry for entry in os.listdir(top) if entry.startswith(prefix)),
+                   key=lambda entry: os.path.getmtime(os.path.join(top, entry))) if os.path.isdir(top) else []
+    return os.path.join(top, found[-1]) if found else None
 
 
 def site_config():
