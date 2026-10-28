@@ -210,11 +210,16 @@ async function host(): Promise<Client | null> {
 async function app(event: FetchEvent, port?: number): Promise<Response> {
   const { request } = event;
   const page = await host();
+  // No host: the project stopped, or the page that hosts it is older than
+  // this worker (an unnumbered announce, refused), which a reload fixes.
   if (!page) {
-    return new Response('The project is not running.', {
-      status: 503,
-      headers: { 'Content-Type': 'text/plain', ...ISOLATION },
-    });
+    return new Response(
+      'The project is not running. If the playground was updated since you opened this page, reload it.',
+      {
+        status: 503,
+        headers: { 'Content-Type': 'text/plain', ...ISOLATION },
+      },
+    );
   }
   const url = new URL(request.url);
   const body = ['GET', 'HEAD'].includes(request.method) ? null : await request.arrayBuffer();

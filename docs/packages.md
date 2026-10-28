@@ -429,8 +429,11 @@ Both ends are the host's version, so the worker never reads them.
   `Response.redirect`. It drops `connection`, `keep-alive`,
   `transfer-encoding`, `content-length` and `set-cookie`, and sends no body
   for HEAD, 101, 204, 205 and 304. It adds COEP `require-corp` and CORP
-  `cross-origin` to every answer, its own 503 ("The project is not
-  running.") included.
+  `cross-origin` to every answer, its own 503 included.
+- **No host:** with no host page, it answers 503: "The project is not
+  running. If the playground was updated since you opened this page,
+  reload it." A page older than protocol 1 announces without a protocol
+  and is refused, so its previews get this answer until it reloads.
 - **State:** IndexedDB `playground-sw` version 1, store `clients`, record
   `routes-1` (`Routes`): `{ host, protocol, previews }`. Every version of
   the worker reads and writes it, so fields are only added; another
