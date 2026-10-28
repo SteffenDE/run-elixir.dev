@@ -20,8 +20,11 @@ sources.
 | Directory | Package | Contents | Built into |
 | --- | --- | --- | --- |
 | `runtime/` | `@elixir-playground/runtime` | The runtime's workers, the usercontent domain's frames (`exec.html`, `relay.html`, `claude.html`), the page programs, the service worker and its `/relay.html` bootstrap (`root/`) | `dist/`; the Node harness into `dist-node/` |
-| `api/` | `@elixir-playground/api` | `create()` and its sandbox ([docs/api.md](../docs/api.md)) | `dist/index.js` |
-| `pglite/` | `@elixir-playground/pglite` | The pglite plugin: Postgres on port 5432 for the nodes | `dist/index.js` |
+| `api/` | `@elixir-playground/api` | `create()` and its sandbox ([docs/api.md](../docs/api.md)) | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
+| `pglite/` | `@elixir-playground/pglite` | The pglite plugin: Postgres on port 5432 for the nodes | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
+
+`api`'s and `pglite`'s declarations come from `tsc -p tsconfig.build.json`
+and `types.mjs` ([docs/api.md](../docs/api.md#types)).
 
 The runtime's version is `runtime/src/packages/host.json`'s, with the ABI
 seams it speaks. `api` and `pglite` take their versions from their
@@ -30,7 +33,7 @@ seams it speaks. `api` and `pglite` take their versions from their
 ## Packages `build.py` makes
 
 `PACKAGES` in `runtime/build.py` lists them. Each published one exports
-its descriptor (`index.js`), which `create()` takes as a plugin.
+its descriptor (`index.js`, typed by `index.d.ts`), which `create()` takes as a plugin.
 
 | Package | Contents | Made from | Published |
 | --- | --- | --- | --- |

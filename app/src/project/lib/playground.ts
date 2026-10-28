@@ -17,7 +17,8 @@ import { PortConnection } from '@elixir-playground/runtime/portConnection';
 import { REPORT } from '@elixir-playground/runtime/terminal';
 import { sitePackages } from '@/shared/lib/build';
 import type { Rpc } from '@elixir-playground/runtime/lib/rpc';
-import { create, type Process, type Sandbox } from '@elixir-playground/api';
+import type { Process, Sandbox } from '@elixir-playground/api';
+import { createSandbox } from '@elixir-playground/api/sandbox';
 import { PGLITE_PLUGIN, pglite, type PgliteInstance } from '@elixir-playground/pglite';
 import { tailscale } from '@/tailscale/plugin';
 import { connectTailscale, IEX, setTailnetProject, tailscaleBlocked } from '@/tailscale/client';
@@ -656,7 +657,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       sharedPort = channel.port2;
       share = shareWithPeers;
     }
-    const started = await create({
+    const started = await createSandbox({
       plugins: [packages, pglite(), tailscale],
       project: { id: previewKey, persist: id !== null, template: template ?? 'empty' },
       boot,

@@ -3,10 +3,9 @@
 // each over a port of its own. Hex's cache is the API's own; the plugins
 // add theirs (pglite: Postgres); the sandbox adds the ports its caller
 // serves.
-import type { Connection } from '@elixir-playground/runtime/host/node';
 import { PortConnection } from '@elixir-playground/runtime/portConnection';
 import { hex } from '@elixir-playground/runtime/hex';
-import type { Service } from './types';
+import type { Service, ServiceConnection } from './types';
 
 export function apexServices(plugins: Record<string, Service>[]) {
   const services: Record<string, Service> = Object.assign({ hex }, ...plugins);
@@ -19,7 +18,7 @@ export function apexServices(plugins: Record<string, Service>[]) {
       const serve = services[service];
       if (!serve) return port.close();
       if (!standIns.has(node)) standIns.set(node, {});
-      serve(new PortConnection(port, standIns.get(node)!, connection) as unknown as Connection);
+      serve(new PortConnection(port, standIns.get(node)!, connection) as ServiceConnection);
     },
   };
 }

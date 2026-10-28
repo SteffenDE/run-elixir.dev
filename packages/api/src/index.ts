@@ -29,9 +29,11 @@ export type {
   RelayPolicy,
   RuntimeVersions,
   Service,
+  ServiceConnection,
   SpawnOptions,
   Stat,
   TerminalOptions,
   WriteOptions,
 } from './types';
 export type { Signal } from '@elixir-playground/runtime/signals';
+export type { Boot, Playground } from '@elixir-playground/runtime/packages/types';

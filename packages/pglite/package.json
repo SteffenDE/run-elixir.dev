@@ -9,7 +9,7 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "build": "vite build",
+    "build": "vite build && tsc -p tsconfig.build.json && node ../types.mjs",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src",
     "format": "oxfmt src",

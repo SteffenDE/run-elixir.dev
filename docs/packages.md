@@ -509,7 +509,7 @@ The browser always fetches Claude Code from npm. We never republish it.
   pass, it publishes a patch of the claude package with a wider range.
 
 Today the app pins one version with its integrity (`CLAUDE_CODE` in
-`project/lib/programs/claude/build.ts`), and the claude package's range
+`packages/runtime/src/programs/claude/build.ts`), and the claude package's range
 is `">=2.1.306 <=2.1.306"`. The range is not read yet.
 
 ## Backend services
@@ -548,8 +548,6 @@ sessions (`/socket`).
   installed set; without one, every file comes lazily.
 - **The process API's version.** It is not numbered. `api` peer-depends
   on `runtime`'s major, so a break between them is a `runtime` major.
-- **Types.** The packages ship no `.d.ts` yet; `api`'s would come from
-  `packages/api/src/types.ts`.
 - **Support window length** for `sw.js` protocols, and whether a major also
   needs a new usercontent host level for the claude frame's cache.
 

@@ -930,9 +930,10 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
         with open(os.path.join(scratch, "index.js"), "w") as f:
             f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
                     f"export default {json.dumps(described, indent=1)};\n")
-        added = [*added, "index.js"]
-        fields = {"type": "module", "exports": {".": "./index.js", "./package.json": "./package.json"},
-                  **(fields or {})}
+        with open(os.path.join(scratch, "index.d.ts"), "w") as f:
+            f.write(DESCRIPTOR_TYPES)
+        added = [*added, "index.js", "index.d.ts"]
+        fields = {**MODULE, **(fields or {})}
     package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
                "files": sorted([*files, *(["fs"] if layer else []), *added]),
                **(fields or {}),
@@ -952,6 +953,20 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
     if peers:
         entry["peerDependencies"] = peers
     return directory, entry
+
+
+# A JavaScript package's package.json fields: an ES module, its
+# declarations beside it.
+MODULE = {"type": "module", "types": "./index.d.ts",
+          "exports": {".": {"types": "./index.d.ts", "default": "./index.js"},
+                      "./package.json": "./package.json"}}
+# A descriptor's declarations: what create() takes (the api package's
+# types, which a site that runs them has installed).
+DESCRIPTOR_TYPES = """import type { PackageDescriptor } from '@elixir-playground/api';
+
+declare const descriptor: PackageDescriptor;
+export default descriptor;
+"""
 
 
 def write_site(out, packages, boot, name=None):
@@ -1016,9 +1031,11 @@ def lay_runtime(out, runtime):
     runtime_licensed = notices.own().extend(notices.npm("runtime")).extend(notices.npm("frames"))
     directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {},
                        licensed=(runtime_licensed, {}))
-    module = {"type": "module", "exports": {".": "./index.js", "./package.json": "./package.json"}}
+    module = MODULE
     source = lambda key: json.load(open(os.path.join(ROOT, "packages", key, "package.json")))
-    built = lambda key: {"index.js": os.path.join(ROOT, "packages", key, "dist", "index.js")}
+    # Each one's module and its declarations (packages/types.mjs).
+    built = lambda key: {name: os.path.join(ROOT, "packages", key, "dist", name)
+                         for name in ("index.js", "index.d.ts", "types")}
     api_version = source("api")["version"]
     api, _ = lay(out, "api", api_version, built("api"), {},
                  {host["name"]: major(host["version"])}, fields=module,
@@ -1034,6 +1051,10 @@ def lay_runtime(out, runtime):
     tools = {key: PACKAGES[key]["version"] for key in STANDARD}
     with tempfile.TemporaryDirectory() as scratch:
         index = os.path.join(scratch, "index.js")
+        declarations = os.path.join(scratch, "index.d.ts")
+        with open(declarations, "w") as f:
+            f.write("import type { Plugin } from '@elixir-playground/api';\n\n"
+                    "declare const standard: Plugin[];\nexport default standard;\n")
         with open(index, "w") as f:
             f.write("// The shell, its tools and Postgres (docs/api.md): create({ plugins: [otp, elixir, standard] }).\n")
             for key in tools:
@@ -1042,7 +1063,7 @@ def lay_runtime(out, runtime):
             f.write(f"export default [{', '.join(identifier(key) for key in tools)}, pglite()];\n")
         dependencies = {**{f"{SCOPE}/{key}": major(version) for key, version in tools.items()},
                         f"{SCOPE}/pglite": major(pglite_source["version"])}
-        standard, _ = lay(out, "standard", STANDARD_VERSION, {"index.js": index}, {}, {},
+        standard, _ = lay(out, "standard", STANDARD_VERSION, {"index.js": index, "index.d.ts": declarations}, {}, {},
                           fields={**module, "dependencies": dependencies}, licensed=(notices.own(), {}))
     return [f"/{path}/" for path in (directory, api, pglite, standard)]
 

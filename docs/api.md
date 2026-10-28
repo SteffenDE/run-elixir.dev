@@ -284,6 +284,20 @@ the immutable paths are as in [deploy.md](deploy.md#caddy).
 | the app's `/tidewave/mcp`, `/config`, `/upload` | `connect(4000)`, raw HTTP |
 | the app frame | `previewUrl(4000, '/tidewave?entrypoint=inner')` |
 
+## Types
+
+`api` and `pglite` ship declarations (`index.d.ts`, with `types/` beside
+it), and each descriptor package and `standard` an `index.d.ts` that
+types its export with `api`'s `PackageDescriptor` or `Plugin`. Building
+a package runs `tsc -p tsconfig.build.json` (declarations only, members
+marked `@internal` left out) and `packages/types.mjs`, which keeps the
+files `index.d.ts` reaches. The runtime package publishes no
+declarations: the few types of its that `api` exports (the site
+manifest's, in `runtime/src/packages/types.ts`, and `Signal`) travel in
+`api`'s `types/`. Not public, and left out: the exec frame's port
+(`sandbox.exec`), the IDE's options (`createSandbox`), and the process
+and sandbox constructors.
+
 ## Tests
 
 `api.spec.ts` runs against a test embedder (`app/test/embedder/index.html`,
@@ -308,7 +322,6 @@ package.json.
 
 ## Not yet
 
-- **Types:** the packages ship no `.d.ts` yet.
 - **The Vite plugin** that lays out a site's usercontent folder (the
   runtime and the installed packages under `/npm/`, `sw.js`,
   `relay.html`, headers): [packages.md](packages.md#the-build-step-proposal).

@@ -101,6 +101,7 @@ function flatten(plugins: readonly Plugin[]): {
 // The site manifest the runtime reads (docs/packages.md), made of the
 // packages: each package's files at its `base`, below the usercontent
 // domain's root.
+/** @internal */
 export function siteOf(packages: PackageDescriptor[], boot: Boot | null): SiteManifest {
   return {
     manifest: 2,
@@ -111,6 +112,7 @@ export function siteOf(packages: PackageDescriptor[], boot: Boot | null): SiteMa
 
 // The IDE's options beyond the API's (project/lib/playground.ts): not a
 // stable interface.
+/** @internal */
 export interface PlaygroundOptions {
   // A temporary IEx: an empty project whose first shell runs IEx.
   kind?: WorkspaceKind;
@@ -204,6 +206,7 @@ export class Process {
   private ended: Exit | null = null;
   private resolve!: (exit: Exit) => void;
 
+  /** @internal */
   constructor(
     readonly id: number,
     private exec: Rpc,
@@ -250,12 +253,15 @@ export class Process {
   }
 
   // From the exec frame.
+  /** @internal */
   output(fd: number, bytes: Uint8Array): void {
     (fd === 2 ? this.stderr : this.stdout).send(bytes);
   }
+  /** @internal */
   status(text: string): void {
     this.statuses.send(text);
   }
+  /** @internal */
   exit(exit: Exit): void {
     if (this.ended) return;
     this.ended = exit;
@@ -282,11 +288,14 @@ export class Sandbox {
   private servers = new Map<number, (stream: Stream) => void>();
   private listeners = new Map<string, Set<(data: never) => void>>();
   private closed = false;
+  // The exec frame's port: the playground's own calls go over it too
+  // (project/lib/playground.ts). Not a stable interface.
+  /** @internal */
+  readonly exec: Rpc;
 
+  /** @internal */
   constructor(
-    // The exec frame's port: the playground's own calls go over it too
-    // (project/lib/playground.ts). Not a stable interface.
-    readonly exec: Rpc,
+    exec: Rpc,
     private frame: HTMLIFrameElement,
     // The project's key: its exec and preview origins' name.
     readonly projectId: string,
@@ -297,6 +306,7 @@ export class Sandbox {
     // The plugins' parts of this sandbox, by plugin name.
     readonly instances: Map<string, ApexInstance>,
   ) {
+    this.exec = exec;
     const call = <T>(method: string, ...args: unknown[]) => this.running().call<T>(method, args);
     this.fs = {
       read: async (path: string) => call<Uint8Array>('read', path),
@@ -342,6 +352,7 @@ export class Sandbox {
   }
 
   // Every listener of `event`.
+  /** @internal */
   emit<K extends keyof Events>(event: K, data: Events[K]): void {
     for (const listener of this.listeners.get(event) ?? [])
       (listener as (data: Events[K]) => void)(data);
@@ -501,6 +512,7 @@ export class Sandbox {
   }
 
   // What the exec frame tells, and asks.
+  /** @internal */
   listen(handlers: Record<string, (...args: never[]) => unknown>): void {
     const exec = this.exec;
     const on = <K extends keyof ExecEvents>(event: K, listener: (data: ExecEvents[K]) => void) =>
@@ -524,6 +536,7 @@ export class Sandbox {
   }
 
   // A connection the sandbox made to a port the caller serves.
+  /** @internal */
   served(port: number, stream: MessagePort): void {
     const serve = this.servers.get(port);
     if (serve) serve(new Stream(stream));
@@ -532,7 +545,13 @@ export class Sandbox {
 }
 
 // A project, run from this page.
-export async function create(options: CreateOptions & PlaygroundOptions): Promise<Sandbox> {
+export function create(options: CreateOptions): Promise<Sandbox> {
+  return createSandbox(options);
+}
+
+// create() with the IDE's options too (PlaygroundOptions).
+/** @internal */
+export async function createSandbox(options: CreateOptions & PlaygroundOptions): Promise<Sandbox> {
   const { project: source, signal } = options;
   const progress = (phase: string, text: string) => options.onProgress?.({ phase, text });
   if (!crossOriginIsolated)

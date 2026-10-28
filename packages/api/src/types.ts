@@ -2,8 +2,9 @@
 // answers. create() runs on the page that calls it, which becomes the
 // project's apex: its stores and the frames' parent. Nothing here crosses
 // a window boundary.
-import type { Boot, PackageEntry } from '@elixir-playground/runtime/packages/manifest';
-import type { Connection } from '@elixir-playground/runtime/host/node';
+import type { Boot, PackageEntry } from '@elixir-playground/runtime/packages/types';
+
+export type { Boot, PackageEntry };
 
 // The OTP and Elixir a sandbox runs: its OTP and Elixir packages'.
 export interface RuntimeVersions {
@@ -19,8 +20,22 @@ export interface PackageDescriptor extends PackageEntry {
   name: string;
 }
 
+// A node's connection to a service on the page: its bytes each way, its
+// end (half-close) and close; `node` tells the project's nodes apart (one
+// object for each), `id` is the connection's number on it.
+export interface ServiceConnection {
+  readonly node: object;
+  readonly id: number;
+  ondata: (bytes: Uint8Array) => void;
+  onend: () => void;
+  onclose: () => void;
+  write(bytes: Uint8Array): void;
+  end(): void;
+  close(): void;
+}
+
 // Something a node connects to on the page: Postgres, Hex's cache.
-export type Service = (connection: Connection) => void;
+export type Service = (connection: ServiceConnection) => void;
 
 // What the exec frame asks the page for a project, beyond its services.
 // The playground's own (tailscale.ts); not a stable interface yet.
