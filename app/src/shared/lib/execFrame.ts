@@ -1,13 +1,14 @@
 // The frame that runs a project (e-KEY on the usercontent domain,
-// frames/exec.ts), started from the page that drives it: the IDE's
-// (project/lib/playground.ts) or embed.html's (embed/host.ts).
+// frames/exec.ts), started by create() (api/sandbox.ts) on the page that
+// drives it: the IDE's, or another site's.
 import { Rpc } from './rpc';
-import { BUILD } from './build';
+import { runtimePath } from './build';
 
 // A frame on the screen but unseen: a pixel, transparent, out of the way.
 // Not `hidden`: WebKit slowed a hidden frame's workers (the nodes') until
 // a node waiting on a program's exit never heard of it (docs/frames.md).
-// Styled here, not by the page's stylesheet: embed.html has none.
+// Styled here, not by the page's stylesheet: another site's page has none
+// of ours.
 export function unseen(element: HTMLIFrameElement): HTMLIFrameElement {
   element.className = 'exec-frame';
   Object.assign(element.style, {
@@ -53,7 +54,7 @@ export async function startExecFrame(
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const element = unseen(document.createElement('iframe'));
-    element.src = `${origin}${BUILD}exec.html`;
+    element.src = `${origin}${runtimePath()}exec.html`;
     const cleanup = () => {
       removeEventListener('message', loaded);
       signal.removeEventListener('abort', cancelled);
@@ -69,18 +70,34 @@ export async function startExecFrame(
       element.remove();
       reject(new Error(`${origin}: the project did not start`));
     }, 30000);
+    let channel: MessageChannel | null = null;
+    // It loads, takes the port (started) or says it does not run
+    // projects for this page (refused: its site names the pages it does).
     const loaded = (event: MessageEvent) => {
       if (event.origin !== origin || event.source !== element.contentWindow) return;
-      if (event.data?.kind !== 'playground-exec-loaded') return;
-      cleanup();
-      if (!event.data.isolated) {
+      const kind = event.data?.kind;
+      if (kind === 'playground-exec-loaded' && !channel) {
+        if (!event.data.isolated) {
+          cleanup();
+          element.remove();
+          reject(new Error(`${origin} is not cross-origin isolated (see docs/frames.md).`));
+          return;
+        }
+        channel = new MessageChannel();
+        element.contentWindow!.postMessage({ kind: 'playground-exec' }, origin, [channel.port2]);
+      } else if (kind === 'playground-exec-started' && channel) {
+        cleanup();
+        resolve(new Rpc(channel.port1));
+      } else if (kind === 'playground-exec-refused') {
+        cleanup();
         element.remove();
-        reject(new Error(`${origin} is not cross-origin isolated (see docs/frames.md).`));
-        return;
+        reject(
+          Object.assign(
+            new Error(`${origin} does not run projects for ${location.origin} (docs/api.md)`),
+            { code: 'EACCES' },
+          ),
+        );
       }
-      const channel = new MessageChannel();
-      element.contentWindow!.postMessage({ kind: 'playground-exec' }, origin, [channel.port2]);
-      resolve(new Rpc(channel.port1));
     };
     addEventListener('message', loaded);
     signal.addEventListener('abort', cancelled, { once: true });

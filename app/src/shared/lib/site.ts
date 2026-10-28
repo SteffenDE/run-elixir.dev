@@ -27,7 +27,9 @@ interface Site {
   // A name under either domain that is no address (a reserved name, or a
   // mistyped one).
   stray: boolean;
-  // The origins that may frame embed.html and drive it (docs/embed.md).
+  // Other sites whose pages may run projects on the usercontent domain
+  // through the API (docs/api.md): its frames take them as their parent,
+  // as they take the apex.
   embedders: string[];
 }
 
@@ -85,8 +87,16 @@ export async function loadSite(): Promise<void> {
   }
 }
 
-// The origins that may embed the site (embed.html).
-export const embedders = () => site.embedders;
+// The pages that may be the usercontent domain's frames' parent: the apex
+// and the embedders the site names. A frame says it loaded to any parent
+// (nothing is in it) and takes calls from these alone.
+export const parentOrigins = () => [apexOrigin(), ...site.embedders];
+
+// A page that runs a project through the API on another site's usercontent
+// domain (create()'s `usercontent`): no /playground.json of its own names it.
+export function useUsercontent(usercontent: string): void {
+  site = { ...site, usercontent };
+}
 // The usercontent domain, if the site has one.
 export const usercontentDomain = () => site.usercontent;
 // This page is on a name that is no address.

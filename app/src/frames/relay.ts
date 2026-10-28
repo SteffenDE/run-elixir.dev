@@ -1,19 +1,19 @@
 // relay.html, on a project's preview origin (v-ID-PORT on the usercontent
-// domain, site.ts), as a hidden frame of its IDE on the apex
-// (previewOrigins.ts): the origin's service worker answers the preview's
+// domain, site.ts), as a hidden frame of the page that runs the project
+// (previewOrigins.ts: the apex's, or an embedder's the site names): the origin's service worker answers the preview's
 // requests (sw.ts) by asking its host, which this page is; it passes them
 // on the data port the IDE gave it, to the bridge in the worker that runs
 // the project (exec/host.ts), to the app's PORT; the control port tells
-// the IDE it is ready. The cookies the app's JavaScript may read are kept on this
+// that page it is ready. The cookies the app's JavaScript may read are kept on this
 // origin (cookies.ts, the preview's document.cookie too), so each request
 // takes them along, and an answer's are set here.
 import { Bridge, type PreviewResponse } from '@/runtime/bridge';
 import { cookieString, readJar, setCookie, writeJar } from '@/runtime/cookies';
-import { apexOrigin, loadSite, previewSite } from '@/shared/lib/site';
+import { loadSite, parentOrigins, previewSite } from '@/shared/lib/site';
 
 await loadSite();
 const preview = previewSite();
-const ide = preview && apexOrigin();
+const parents = new Set(parentOrigins());
 const jar = () => cookieString(readJar());
 
 async function start(control: MessagePort, port: MessagePort): Promise<void> {
@@ -44,10 +44,14 @@ async function start(control: MessagePort, port: MessagePort): Promise<void> {
   control.postMessage({ kind: 'ready' });
 }
 
-if (preview && ide) {
+if (preview) {
+  let started = false;
   addEventListener('message', (event) => {
-    if (event.origin !== ide || event.data?.kind !== 'playground-relay' || !event.ports[1]) return;
+    if (event.source !== window.parent || started || !parents.has(event.origin)) return;
+    if (event.data?.kind !== 'playground-relay' || !event.ports[1]) return;
+    started = true;
     void start(event.ports[0], event.ports[1]);
   });
-  window.parent.postMessage({ kind: 'playground-relay-loaded' }, ide);
+  // Nothing in it but that the frame loaded: any parent may hear it.
+  window.parent.postMessage({ kind: 'playground-relay-loaded' }, '*');
 }

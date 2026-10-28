@@ -767,7 +767,7 @@ onmessage = async ({ data }) => {
       // storePort: a port to the apex's (overlay.ts remote); sharedPort:
       // a port to /shared's, the user's for every project (or none);
       // archive: a gzipped tar's URL whose directories go below /work as a
-      // template's (an embedder's app: docs/embed.md), their mtimes kept.
+      // template's (an embedder's app: docs/api.md), their mtimes kept.
       const {
         site,
         boots: requestedBoots = ['boot'],

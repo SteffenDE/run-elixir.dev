@@ -5,3 +5,4 @@ playwright-report/
 dist-node/
 dist-runtime/
 dist-licenses/
+dist-api/

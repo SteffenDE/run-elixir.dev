@@ -12,7 +12,7 @@
 // page's timers slowed to a second (WebKit, Firefox), a worker's not.
 import { Bridge } from '@/runtime/bridge';
 import { assertSite } from '@/runtime/packages/check';
-import { Site, loadManifest, type SiteRef } from '@/runtime/packages/manifest';
+import { Site, type SiteRef } from '@/runtime/packages/manifest';
 import { serveRelayRequests } from '@/runtime/relayRequests';
 import { EPMD_PORT, EpmdRegistry, serveEpmd } from '@/runtime/epmd';
 import { Files, type SearchQuery } from '@/runtime/host/files';
@@ -62,7 +62,7 @@ import { Rpc, transfer } from '@/shared/lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '@/shared/lib/share';
 import { loadSite, previewOrigin, previewOrigins } from '@/shared/lib/site';
 
-// What the IDE starts the project with.
+// What create() starts the project with (api/sandbox.ts).
 export interface ExecStart {
   kind: WorkspaceKind;
   // The preview's key (a project's id, a temporary IEx's own): its
@@ -70,17 +70,18 @@ export interface ExecStart {
   key: string;
   // The IDE's origin, which the preview's pages answer.
   ide: string;
-  // The site's build path and its manifest's (shared/lib/build.ts BUILD,
-  // SITE), on this frame's origin as on the apex's (the same site's files).
+  // The runtime package's path on this frame's origin (shared/lib/build.ts
+  // runtimePath), and the packages it runs with: the site manifest
+  // create() made of its plugins, its bases on this origin.
   build: string;
-  site: string;
+  site: SiteRef;
   // Where the files keep their changes: a port to the apex's store, or
   // none (a temporary IEx keeps nothing).
   store: MessagePort | null;
   // /shared's store (the user's, every project's), if the project has it.
   shared?: MessagePort | null;
   // An app to start with, as a gzipped tar's URL (an embedder's:
-  // docs/embed.md): its directories below /work, as a template's, over
+  // docs/api.md): its directories below /work, as a template's, over
   // the Phoenix server's boot image (OTP's and Elixir's files it reads).
   archive?: string | null;
 }
@@ -156,7 +157,7 @@ interface Running {
 }
 const processes = new Map<number, Running>();
 // The ports the apex answers for the project beyond its services (an
-// embedder's serve(): docs/embed.md), carried there as Postgres is.
+// embedder's serve(): docs/api.md), carried there as Postgres is.
 const remote = new Set<number>();
 const nodes = new Set<Node>();
 const commands = new Map<Node, string>();
@@ -564,14 +565,14 @@ async function kept(change: Promise<void>): Promise<void> {
 const handlers = {
   // The files, from the site and the apex's store.
   async start(options: ExecStart) {
-    start = {
-      ...options,
-      build: new URL(options.build, location.origin).href,
-      site: new URL(options.site, location.origin).href,
-    };
+    start = { ...options, build: new URL(options.build, location.origin).href };
     // The packages fit this runtime and each other, or nothing starts
-    // (ERUNTIME, docs/packages.md).
-    site = await loadManifest(start.site);
+    // (ERUNTIME, docs/packages.md). create() checked them already; this
+    // is the runtime that runs them.
+    site = {
+      url: new URL(options.site.url, location.origin).href,
+      manifest: options.site.manifest,
+    };
     assertSite(site.manifest);
     setup = setupOf(options.kind);
     if (options.archive) setup = { ...setup, boots: setupOf('phoenix').boots };
@@ -632,7 +633,7 @@ const handlers = {
   // The shared files, for the IDE (the tree, the editor, search, tests).
   list: (path: string, skip: string[]) => running().list(path, skip),
   stat: (path: string) => (files ? files.stat(path) : null),
-  // POSIX's shapes (embed.html's fs), with their error codes.
+  // POSIX's shapes (the API's fs), with their error codes.
   lstat: (path: string) => running().lstat(path),
   readdir: (path: string) => running().readdir(path),
   // git for the IDE itself (runtime/git.ts), not a node's: its output whole.
@@ -664,7 +665,7 @@ const handlers = {
 
   // A shell (terminal tab `id`): its node, which runs the shell.
   // A process (ProcessStart), as id `id`: the IDE's terminals and
-  // embed.html's commands alike, each a node of its own.
+  // the API's processes alike, each a node of its own.
   spawn(
     id: number,
     { argv = null, line = null, initial = [], cwd = '/work', env = {}, tty = null }: ProcessStart,
@@ -768,7 +769,7 @@ const handlers = {
   // Stop what a shell runs now at once, the shell staying (the IDE's
   // server restart).
   stopForeground: (id: number) => processes.get(id)?.node.terminate(),
-  // The ports the apex answers (embed.html's embedder's serve()).
+  // The ports the page answers (the API's serve()).
   serveRemote(ports: number[]) {
     remote.clear();
     for (const port of ports) remote.add(port);

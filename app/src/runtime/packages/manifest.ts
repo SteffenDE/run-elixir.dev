@@ -48,8 +48,6 @@ export interface Playground {
   tailscale?: { module: string; glue: string };
   // claude: the Claude Code versions the preparer was tested with.
   claudeCode?: string;
-  // api: the embedding API versions its client speaks.
-  apiVersions?: number[];
   // The package's files in the nodes' tree: a layer of the fs image.
   fs?: FsLayer;
 }
@@ -311,7 +309,7 @@ export class Site {
     return { module: this.file(tailscale.name, module), glue: this.file(tailscale.name, glue) };
   }
 
-  // The OTP and Elixir the site runs: the embedders' contract (embed.md).
+  // The OTP and Elixir the site runs (create()'s sandbox.runtime).
   versions(): { otp: string; elixir: string } | null {
     const otp = this.find('otp')?.value;
     const elixir = this.find('elixir')?.value;

@@ -5,7 +5,7 @@
 import { transfer, type Transfer } from '@/shared/lib/rpc';
 import { claudeOrigin } from '@/shared/lib/site';
 import { unseen } from '@/shared/lib/execFrame';
-import { BUILD } from '@/shared/lib/build';
+import { runtimePath } from '@/shared/lib/build';
 
 let loading: Promise<{ element: HTMLIFrameElement; origin: string }> | null = null;
 
@@ -18,7 +18,7 @@ function frame(): Promise<{ element: HTMLIFrameElement; origin: string }> {
     }
     // Unseen, as the exec frame (a hidden frame's workers are slowed in WebKit).
     const element = unseen(document.createElement('iframe'));
-    element.src = `${origin}${BUILD}claude.html`;
+    element.src = `${origin}${runtimePath()}claude.html`;
     const timer = setTimeout(() => {
       removeEventListener('message', loaded);
       element.remove();
