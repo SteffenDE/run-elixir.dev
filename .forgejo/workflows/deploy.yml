@@ -8,8 +8,9 @@
 # On the runner VM deploy/setup.sh makes, ssh's host
 # `playground-prod` is the production machine with its deploy key, and
 # nothing needs configuring but PLAYGROUND_DOMAIN and
-# PLAYGROUND_USERCONTENT (docs/frames.md); PLAYGROUND_EMBEDDERS, the sites
-# that may embed it, has a default (docs/embed.md). Elsewhere: the
+# PLAYGROUND_USERCONTENT (docs/frames.md); PLAYGROUND_EMBEDDERS, the other
+# sites whose pages may run projects on its usercontent domain, has a
+# default (docs/api.md). Elsewhere: the
 # variable DEPLOY_TARGET (user@host) and the secrets DEPLOY_SSH_KEY (the
 # key whose authorized_keys entry runs playground-deploy) and
 # DEPLOY_KNOWN_HOSTS (the server's host key line). DEPLOY_BUILD_DIR: the

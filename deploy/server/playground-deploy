@@ -42,7 +42,7 @@ RELEASES=$SITE/releases
 # The pages and what keeps its name; everything else is immutable, under
 # npm/@elixir-playground/NAME@VERSION/ (the packages), boot/ID/ (the
 # recordings) and site/ID.json (the site manifest).
-PAGES=(index.html preview.html storage.html sw.js playground.json embed.html embed.js relay.html licenses/index.html)
+PAGES=(index.html preview.html storage.html sw.js playground.json relay.html licenses/index.html)
 
 die() {
   echo "playground-deploy: $*" >&2
@@ -152,16 +152,6 @@ check() {
     { echo "check: /licenses/ is not the licenses page (Caddy's try_files: {path}/index.html)" >&2; return 1; }
   # The pages revalidate (nothing needs purging); what is versioned does not.
   grep -qi '^cache-control: no-cache' <<<"$headers" || { echo "check: / is not no-cache" >&2; return 1; }
-  # embed.html, framed by the embedders the site names under their COEP,
-  # and embed.js, which their pages import (docs/embed.md).
-  headers=$("${curl[@]}" -D - -o /dev/null "$base/embed.html") || { echo "check: /embed.html failed" >&2; return 1; }
-  grep -qi '^cross-origin-resource-policy: cross-origin' <<<"$headers" ||
-    { echo "check: /embed.html is not CORP cross-origin (docs/embed.md)" >&2; return 1; }
-  grep -qi '^content-security-policy: frame-ancestors ' <<<"$headers" ||
-    { echo "check: /embed.html names no frame-ancestors (docs/embed.md)" >&2; return 1; }
-  headers=$("${curl[@]}" -D - -o /dev/null "$base/embed.js") || { echo "check: /embed.js failed" >&2; return 1; }
-  grep -qi '^access-control-allow-origin: \*' <<<"$headers" ||
-    { echo "check: /embed.js has no CORS (docs/embed.md)" >&2; return 1; }
   # A project's exec frame on the usercontent domain: framed by the apex,
   # from another site.
   if [ -n "$USERCONTENT" ]; then
