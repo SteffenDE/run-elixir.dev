@@ -111,7 +111,7 @@ ELIXIR_APPS = ("elixir", "eex", "ex_unit", "iex", "logger", "mix")
 # at boot. Not 0: the runtime takes 0 for none (wasi/fs.ts mount), and Mix
 # takes it for a missing file.
 MTIME = 946684800
-PHX_NEW = "1.8.15"
+PHX_NEW = "1.8.16"
 DOCKER = os.environ.get("DOCKER", "sudo -n docker").split()
 NODE_IMAGE = "node:24"
 

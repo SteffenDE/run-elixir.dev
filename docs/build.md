@@ -32,8 +32,8 @@ files make the same package directory across builds.
 - **emsdk 6.0.2** at `~/emsdk`, autoconf, and the host's Erlang 29.1.2
   and Elixir 1.20.4, which build the BEAM and the template
   ([`../beam/README.md`](../beam/README.md#build)). The host's `~/.mix`
-  must hold Hex and phx_new 1.8.15 (`mix archive.install hex phx_new
-  1.8.15`) and rebar3 (`mix local.rebar`).
+  must hold Hex and phx_new 1.8.16 (`mix archive.install hex phx_new
+  1.8.16`) and rebar3 (`mix local.rebar`).
 - **Docker,** through `DOCKER` (default `sudo -n docker`). Node 24 runs the
   recording runs and the Vite build.
 - **Network access the first time,** for the template's Hex packages, two

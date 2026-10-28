@@ -62,7 +62,7 @@ function site(): SiteManifest {
           template: {
             kind: 'phoenix',
             id: 't1',
-            label: 'phx.new 1.8.15',
+            label: 'phx.new 1.8.16',
             otp: '29.1.2',
             elixir: '1.20.4',
           },
@@ -176,7 +176,7 @@ describe('the site manifest', () => {
     expect(packages.elixir()).toEqual({ version: '1.20.4', root: '/opt/elixir/1.20.4' });
     expect(packages.template('phoenix')).toEqual({
       id: 't1',
-      label: 'phx.new 1.8.15',
+      label: 'phx.new 1.8.16',
       root: '/work/playground',
     });
     expect(packages.template('empty')).toBeNull();
