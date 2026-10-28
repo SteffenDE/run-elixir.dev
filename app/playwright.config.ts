@@ -11,6 +11,8 @@ const domains = (on: number) =>
 const embedder = (on: number) =>
   `--embedders http://embedder.localhost:${on} --embedder-host embedder.localhost:${on} ` +
   `--embedder-root test/embed`;
+// The NIF libraries the servers answer /api/v1/nif/ with.
+const NIF = '--nif ../target/test-nif';
 const DEVICES: Record<string, string> = {
   chromium: 'Desktop Chrome',
   firefox: 'Desktop Firefox',
@@ -40,10 +42,11 @@ export default defineConfig({
   grepInvert: process.env.SLOW ? undefined : /@slow/,
   // The site's two domains (docs/frames.md): the apex, and the usercontent
   // domain, another site, on the same port (browsers resolve *.localhost
-  // to this machine).
+  // to this machine). NIF builds are the tests' own (tests/nif/build.py),
+  // not a backend's.
   webServer: [
     {
-      command: `python3 -I ../runtime/serve.py ${port} ${domains(port)} ${embedder(port)}`,
+      command: `python3 -I ../runtime/serve.py ${port} ${domains(port)} ${embedder(port)} ${NIF}`,
       url: `http://localhost:${port}/`,
       reuseExistingServer: true,
       stderr: 'ignore',
@@ -51,7 +54,7 @@ export default defineConfig({
     // The same site with the backend at localhost:4000 (live sessions'
     // relay; `mix phx.server` in backend/).
     {
-      command: `python3 -I ../runtime/serve.py ${port + 2} ${domains(port + 2)} --api http://localhost:4000`,
+      command: `python3 -I ../runtime/serve.py ${port + 2} ${domains(port + 2)} --api http://localhost:4000 ${NIF}`,
       url: `http://localhost:${port + 2}/`,
       reuseExistingServer: true,
       stderr: 'ignore',

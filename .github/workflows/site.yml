@@ -1,11 +1,11 @@
 # The site as deploy/build-site.sh builds it (docs/build.md), then the
 # tests that need it (docs/testing.md): the erl_nif layer's, and the
-# Playwright suite in Chromium, Firefox and WebKit, sharded. GitHub only:
-# Forgejo reads .forgejo/workflows and ignores this directory.
+# Playwright suite in Chromium, Firefox and WebKit, sharded. Both use the
+# tests' NIF libraries (tests/nif/build.py, with the backend's toolchain).
+# GitHub only: Forgejo reads .forgejo/workflows and ignores this directory.
 #
-#   wasm (one job per tool) ─┐
-#   nif ─────────────────────┴─ site ─┬─ nif-test
-#                                     └─ e2e (browser × shard)
+#   wasm (one job per tool) ── site ─┬─ nif-layer
+#   test-nif ────────────────────────┴─ e2e (browser × shard)
 #
 # Each tool's build script skips its work when its stamp matches, so
 # restoring a tool's output and stamp from the cache makes it a no-op.
@@ -84,23 +84,31 @@ jobs:
           path: wasm-${{ matrix.name }}.tar
           retention-days: 3
 
-  nif:
+  test-nif:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
-      - run: python3 -I nif/build.py
-      # The packages go into the site; the layer, its headers and nifcc's
-      # tools are what nif/test/test.py builds against.
-      - run: tar -cf nif.tar target/nif/include target/nif/lib target/nif/libraries target/nif/tools
+      - uses: docker/setup-buildx-action@v3
+      # The backend's guest image (the Dockerfile's sandbox-image stage),
+      # cached with the backend workflow's layers.
+      - uses: docker/build-push-action@v6
+        with:
+          context: backend
+          target: sandbox-image
+          tags: playground-sandbox-image
+          load: true
+          cache-from: type=gha,scope=backend
+      - run: python3 -I tests/nif/build.py
+      - run: tar -cf test-nif.tar target/test-nif
       - uses: actions/upload-artifact@v4
         with:
-          name: nif
-          path: nif.tar
+          name: test-nif
+          path: test-nif.tar
           retention-days: 3
 
   site:
-    needs: [wasm, nif]
+    needs: wasm
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -130,20 +138,17 @@ jobs:
         with:
           pattern: wasm-*
           merge-multiple: true
-      - uses: actions/download-artifact@v5
-        with:
-          name: nif
-      - run: for tar in wasm-*.tar nif.tar; do tar -xf "$tar"; done
+      - run: for tar in wasm-*.tar; do tar -xf "$tar"; done
       - run: python3 -I runtime/build.py
-      - run: tar -cf site.tar target/site target/node target/nif
+      - run: tar -cf site.tar target/site target/node
       - uses: actions/upload-artifact@v4
         with:
           name: site
           path: site.tar
           retention-days: 3
 
-  nif-test:
-    needs: site
+  nif-layer:
+    needs: [site, test-nif]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -151,12 +156,15 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: site
-      - run: tar -xf site.tar
-      - run: python3 -I nif/test/test.py
+      - uses: actions/download-artifact@v5
+        with:
+          name: test-nif
+      - run: tar -xf site.tar && tar -xf test-nif.tar
+      - run: python3 -I tests/nif/layer.py
 
   e2e:
     name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/4)
-    needs: site
+    needs: [site, test-nif]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     # WebKit's shards report but do not fail the run: there, a node's worker
@@ -183,7 +191,10 @@ jobs:
       - uses: actions/download-artifact@v5
         with:
           name: site
-      - run: tar -xf site.tar && rm site.tar
+      - uses: actions/download-artifact@v5
+        with:
+          name: test-nif
+      - run: tar -xf site.tar && tar -xf test-nif.tar && rm site.tar test-nif.tar
 
       - uses: erlef/setup-beam@v1
         with:

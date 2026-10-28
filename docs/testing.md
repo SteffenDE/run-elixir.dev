@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-10-28
 ---
 
 # Testing
@@ -17,9 +17,10 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
 - **app:** lint, format, `tsc --noEmit` and the unit tests.
 - **backend:** formatting, a compile without warnings, `mix test` against
   Postgres, and the release image.
-- **site:** each WebAssembly tool and the NIF packages in jobs of their
-  own, then the site (`runtime/build.py`), then `nif/test/test.py` and
-  the Playwright suite in each browser, in four shards, with the backend
+- **site:** each WebAssembly tool and the tests' NIF libraries
+  (`tests/nif/build.py`) in jobs of their own, then the site
+  (`runtime/build.py`), then `tests/nif/layer.py` and the Playwright
+  suite in each browser, in four shards, with the backend
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
   Each shard's `target/tests` is an artifact. A failed test runs once
   more; WebKit runs on two workers, and its shards do not fail the run:
@@ -35,7 +36,7 @@ Use the repository's Playwright version and Docker image, pinned in
 ```sh
 python3 -I runtime/build.py              # full build; see build.md for prerequisites
 python3 -I runtime/build.py app          # app changes only; requires an existing site
-python3 -I nif/build.py bcrypt_elixir    # archive used by the backend-stub NIF tests
+python3 -I tests/nif/build.py            # the tests' NIF libraries (Docker; nif.md)
 PORT=8181 tests/run.sh --project=chromium # Chrome only
 PORT=8181 tests/run.sh                    # Chromium, Firefox and WebKit
 PORT=8181 tests/run.sh --project=chromium terminal
@@ -45,8 +46,9 @@ PORT=8181 SLOW=1 tests/run.sh --project=chromium shells
 Run these commands from the repository root. The build installs the app's
 npm dependencies in Docker. `tests/run.sh` mounts the repository and
 runs `npx playwright test` in `app`; it expects those dependencies to exist.
-The NIF stub tests also read `target/nif/libraries/1-2.18/bcrypt_elixir-3.3.2.tar`
-directly, so keep that archive even if the built site already contains it.
+Both servers answer `/api/v1/nif/` with the tests' NIF libraries
+(`serve.py --nif ../target/test-nif`), not a backend's: a NIF package
+other than those fails to build.
 
 The default port is 8081. The examples use 8181 to avoid an existing
 local server. `app/playwright.config.ts` starts two servers:
@@ -147,8 +149,9 @@ programs (Tailwind), the service worker, PGlite.
 
 - **The BEAM:** `beam/smoke.mjs` and `beam/elixir.mjs` under emsdk's Node
   ([`../beam/README.md`](../beam/README.md)).
-- **The erl_nif layer** (`nif/`): `python3 -I nif/test/test.py`
-  over the built site ([nif.md](nif.md)).
+- **The erl_nif layer** (`backend/nif/`): `python3 -I tests/nif/build.py`,
+  then `python3 -I tests/nif/layer.py` over the built site
+  ([nif.md](nif.md#tests-testsnif)).
 - **The app and the runtime:** `npm run lint`, `npm run format:check`,
   `tsc --noEmit` (part of `npm run build`), in Docker (`node:24`) in
   `app`.
