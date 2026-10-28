@@ -1,15 +1,14 @@
-// The site embedded by a page of another site (docs/embed.md): the test
-// embedder (test/embed/index.html, serve.py --embedder-host) imports
-// embed.js from the apex, which frames embed.html, which runs a project
-// in its exec frame; the embedder frames the project's preview itself.
+// The API from a page of another site (docs/api.md): the test embedder
+// (test/embedder/index.html, serve.py --embedder-host) imports the api
+// package and its plugins as installed, and create() runs a project in an
+// exec frame on the playground's usercontent domain, which names the
+// embedder; the embedder frames the project's preview itself.
 import { existsSync } from 'node:fs';
 import type { Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { PORT } from './helpers';
 
 const EMBEDDER = `http://embedder.localhost:${PORT}/`;
-// What the tests' code needs of the site's runtime (create()'s requires).
-const REQUIRES = { otp: '^29.1', elixir: '~1.20.4' };
 
 declare global {
   interface Window {
@@ -20,28 +19,33 @@ declare global {
   }
 }
 
-// The embedder's page, and a sandbox of `project` in it (window.sandbox);
-// how long create() took.
+// The embedder's page, and a sandbox of `project` in it (window.sandbox):
+// template 'phoenix' is the embedder's template package; how long
+// create() took.
 async function embedded(
   page: Page,
   project: object = { template: 'phoenix' },
   extra: object = {},
 ): Promise<number> {
   await page.goto(EMBEDDER);
+  await page.waitForFunction(() => window.embed);
   return page.evaluate(
     async (given) => {
-      const { create } = await window.embed.module;
+      const source =
+        (given.project as { template?: string }).template === 'phoenix'
+          ? { ...given.project, template: await window.embed.template }
+          : given.project;
       const started = performance.now();
-      window.sandbox = await create({
-        requires: given.requires,
-        project: given.project,
+      window.sandbox = await window.embed.create({
+        ...window.embed.options,
+        project: source,
         container: document.getElementById('frames'),
         onProgress: (event: unknown) => window.embed.progress.push(event),
         ...given.extra,
       });
       return performance.now() - started;
     },
-    { requires: REQUIRES, project, extra },
+    { project, extra },
   );
 }
 
@@ -114,8 +118,11 @@ test('an embedder runs a Phoenix project: files, commands, its server raw, its p
 }) => {
   const took = await embedded(page);
   console.log(`${browserName}: create() in ${Math.round(took)} ms`);
-  const created = await page.evaluate(() => window.sandbox.created);
-  expect(created.root).toBe('/work/playground');
+  expect(await page.evaluate(() => window.sandbox.root)).toBe('/work/playground');
+  expect(await page.evaluate(() => window.sandbox.runtime)).toEqual({
+    otp: '29.1.2',
+    elixir: '1.20.4',
+  });
 
   // Files.
   await page.evaluate(() => window.sandbox.fs.write('/work/playground/hello.txt', 'hi there'));
@@ -516,45 +523,46 @@ test('a Phoenix app from an archive boots, and Tidewave answers on it', async ({
   expect(tools).toContain('project_eval');
 });
 
-test('only the sites the playground names may embed it, at its OTP and Elixir', async ({
+test('only the sites the playground names run projects on it, with packages that fit', async ({
   page,
   browserName,
 }) => {
-  // Another site: embed.html's frame-ancestors keeps it out (it never says
-  // it loaded).
+  // Another site: the usercontent domain's exec frame does not run
+  // projects for it, and create() says so. Its page imports the
+  // packages from where the site serves them.
   await page.goto(`http://other.localhost:${PORT}/favicon.ico`);
-  const loaded = await page.evaluate(
-    (apex) =>
-      new Promise<boolean>((resolve) => {
-        const frame = document.createElement('iframe');
-        frame.src = `${apex}/embed.html`;
-        addEventListener('message', (event) => {
-          if (event.data?.kind === 'run-elixir-embed-loaded') resolve(true);
-        });
-        document.body.append(frame);
-        setTimeout(() => resolve(false), 5000);
-      }),
-    `http://playground.localhost:${PORT}`,
-  );
-  expect(loaded).toBe(false);
+  const other = await page.evaluate(async (usercontent) => {
+    const at = (name: string) => `/npm/@elixir-playground/${name}@1.0.0/index.js`;
+    const load = async (name: string) => (await import(at(name))).default;
+    const { create } = await import(at('api'));
+    return create({
+      plugins: [await load('otp-29.1.2'), await load('elixir-1.20.4'), await load('shell')],
+      project: { template: 'empty' },
+      usercontent,
+      runtime: '/npm/@elixir-playground/runtime@1.0.0/',
+    })
+      .then(() => 'created')
+      .catch((error: Error & { code?: string }) => `${error.code}: ${error.message}`);
+  }, `usercontent.localhost:${PORT}`);
+  expect(other).toMatch(/^EACCES: .* does not run projects for http:\/\/other\.localhost/);
 
-  // A runtime other than the site's.
+  // Packages that do not fit each other: refused before any frame starts.
   await page.goto(EMBEDDER);
+  await page.waitForFunction(() => window.embed);
   const refused = await page.evaluate(async () => {
-    const { create } = await window.embed.module;
-    return create({ requires: { otp: '^28.0', elixir: '~1.18.0' }, project: { template: 'empty' } })
+    const { otp, elixir, standard } = window.embed.packages;
+    const older = { ...elixir, playground: { ...elixir.playground, requires: { otp: '^28.0.0' } } };
+    return window.embed
+      .create({
+        ...window.embed.options,
+        plugins: [otp, older, standard],
+        project: { template: 'empty' },
+      })
       .then(() => 'created')
       .catch((error: Error & { code?: string }) => `${error.code}: ${error.message}`);
   });
-  expect(refused).toBe(
-    'ERUNTIME: run-elixir.dev runs OTP 29.1.2 and Elixir 1.20.4, not OTP ^28.0 and Elixir ~1.18.0 as asked for',
-  );
-  // The API's version, as embed.html answers it.
-  await embedded(page, { template: 'empty' });
-  expect(await page.evaluate(() => window.sandbox.hello)).toMatchObject({
-    apiVersion: 2,
-    runtime: { otp: '29.1.2', elixir: '1.20.4' },
-  });
+  expect(refused).toContain('ERUNTIME: ');
+  expect(refused).toContain('Elixir 1.20.4 needs OTP ^28.0.0, not 29.1.2');
   console.log(`${browserName}: refused as it should`);
 });
 
