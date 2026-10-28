@@ -1,4 +1,8 @@
 import { defineConfig } from 'vite';
+import { licenses } from './vite-licenses.ts';
+
+// The runtime package's frames (docs/licenses.md).
+const bundled = licenses('frames');
 
 // The usercontent domain's frames (docs/frames.md): a preview origin's
 // relay, the frame that runs a project (and its worker, exec/host.ts),
@@ -10,6 +14,7 @@ import { defineConfig } from 'vite';
 export default defineConfig({
   publicDir: false,
   base: './',
+  plugins: [bundled.plugin],
   resolve: {
     alias: { '@': new URL('./src', import.meta.url).pathname },
   },
@@ -27,5 +32,5 @@ export default defineConfig({
       },
     },
   },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: bundled.worker },
 });

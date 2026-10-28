@@ -1,10 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import { licenses } from './vite-licenses.ts';
+
+// The apex's bundles (docs/licenses.md: the site's licenses page lists them).
+const bundled = licenses('apex');
 
 // The playground's own assets go under /_playground/: the Phoenix app in
 // the preview owns /assets/.
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), bundled.plugin],
   resolve: {
     alias: {
       '@': new URL('./src', import.meta.url).pathname,
@@ -31,5 +35,5 @@ export default defineConfig({
   // The relay's host list is the backend's (runtime/relay.ts).
   server: { fs: { allow: ['.', '../backend/priv/relay/hosts.json'] } },
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: bundled.worker },
 });

@@ -1,4 +1,5 @@
 import { defineConfig, type UserConfig } from 'vite';
+import { licenses } from './vite-licenses.ts';
 
 // The runtime's scripts that load by URL, bundled: the node's worker, the
 // shared files' worker, the IDE's git (git.ts), Node.js's (`node`, nodejs/) and the apex's
@@ -38,6 +39,8 @@ export default defineConfig(({ mode }): UserConfig =>
       }
     : {
         publicDir: false,
+        // The runtime package's scripts (docs/licenses.md).
+        plugins: [licenses('runtime').plugin],
         // The `process` package (readable-stream's nextTick) as the
         // runtime's own: a Node.js process's nextTick (process-shim.ts).
         resolve: {

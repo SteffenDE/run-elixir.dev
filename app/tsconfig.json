@@ -7,6 +7,7 @@
     "jsx": "react-jsx",
     "strict": true,
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "types": ["vite/client", "node"],
@@ -19,6 +20,7 @@
     "vite.runtime.config.ts",
     "vite.embed.config.ts",
     "vite.frames.config.ts",
+    "vite-licenses.ts",
     "playwright.config.ts",
     "vitest.config.ts"
   ]
