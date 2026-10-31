@@ -9,7 +9,7 @@ import indexCss from 'tailwindcss/index.css?raw';
 import preflightCss from 'tailwindcss/preflight.css?raw';
 import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
-import type { FileSystem as Files } from '../host/files';
+import type { Context, Process } from '../pageProgram';
 import { SyncFiles, evaluate, made, path, withFaults } from './modules';
 import { type Watcher, watchers } from './watch';
 
@@ -25,35 +25,6 @@ const BUNDLED: Record<string, string> = {
 
 // Files whose text is never a class list.
 const BINARY = /\.(png|jpe?g|gif|webp|ico|woff2?|ttf|otf|eot|mp4|webm|zip|gz|beam|wasm)$/i;
-
-export interface Process {
-  write(data: string | Uint8Array): void;
-  // Its standard error (host/programs.ts PageProcess); without, its output.
-  writeError?(data: string | Uint8Array): void;
-  exit(code?: number): void;
-  // The node closed its port.
-  onkill: (() => void) | null;
-  // The node that started it stopped.
-  onowner?: (() => void) | null;
-  // What it reads (null: the end), the terminal's size changing, raw input
-  // on or off (host/programs.ts PageProcess).
-  oninput?: ((bytes: Uint8Array | null) => void) | null;
-  onresize?: ((columns: number, rows: number) => void) | null;
-  raw?(on: boolean, signals?: boolean): void;
-  size?(): number[];
-}
-
-export interface Context {
-  args: string[];
-  cwd: string;
-  env: Record<string, string>;
-  fs: Files;
-  // Whether its stdin and stdout are the terminal.
-  tty?: { stdin: boolean; stdout: boolean };
-  // A worker program's own options (programs/workerProgram.ts), which its
-  // worker reads (node's `bun`: Bun's globals, for Claude Code).
-  options?: Record<string, unknown>;
-}
 
 function option(args: string[], long: string, short: string): string | undefined {
   for (let i = 0; i < args.length; i++) {

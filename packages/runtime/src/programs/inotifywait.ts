@@ -8,7 +8,7 @@
 // sh -c line runs it in the background, and kills it when its port's
 // input ends).
 import { path } from './modules';
-import type { Context, Process } from './tailwind';
+import type { Context, Process } from '../pageProgram';
 import { type Watcher, watchers } from './watch';
 
 const USAGE = 'inotifywait [-m] [-r] [-q] [-e event]... [--format fmt] [--exclude re] file...\n';

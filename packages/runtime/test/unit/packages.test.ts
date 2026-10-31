@@ -194,6 +194,24 @@ describe('the site manifest', () => {
     });
   });
 
+  it('gives every node the packages’ variables, set by the first or appended to', () => {
+    const manifest = site();
+    manifest.packages['@elixir-playground/git'].playground.variables = {
+      ELIXIR_ERL_OPTIONS: { append: '-esbuild path <<"/usr/bin/esbuild">>' },
+      CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
+    };
+    manifest.packages['@elixir-playground/tls'].playground.variables = {
+      ELIXIR_ERL_OPTIONS: { append: '-tailwind path <<"/usr/bin/tailwind">>' },
+      CLAUDE_CODE_EXECUTABLE: '/elsewhere',
+    };
+    expect(at(manifest).environment()).toMatchObject({
+      ROOTDIR: '/opt/otp/29.1.2',
+      ELIXIR_ERL_OPTIONS:
+        '-esbuild path <<"/usr/bin/esbuild">> -tailwind path <<"/usr/bin/tailwind">>',
+      CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
+    });
+  });
+
   it('refuses a layer without an absolute, normalized root', () => {
     for (const root of ['opt/otp', '/', '/opt/otp/', '/opt/../otp', '/opt/./otp']) {
       const manifest = site();

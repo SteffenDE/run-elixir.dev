@@ -189,8 +189,9 @@ export class Site {
     return out;
   }
 
-  // The variables the packages give every node (ROOTDIR, MIX_ARCHIVES, …),
-  // each an absolute path in the tree.
+  // The variables the packages give every node: their `env` (ROOTDIR,
+  // MIX_ARCHIVES, …), each an absolute path in the tree, then their
+  // `variables`, set or appended to.
   environment(): Record<string, string> {
     const out: Record<string, string> = {};
     for (const entry of Object.values(this.manifest.packages)) {
@@ -199,6 +200,11 @@ export class Site {
       for (const [name, file] of Object.entries(entry.playground.env ?? {}))
         out[name] ??= at(root, file);
     }
+    for (const entry of Object.values(this.manifest.packages))
+      for (const [name, value] of Object.entries(entry.playground.variables ?? {}))
+        if (typeof value === 'string') out[name] ??= value;
+        else if (typeof value?.append === 'string')
+          out[name] = out[name] ? `${out[name]} ${value.append}` : value.append;
     return out;
   }
 

@@ -40,7 +40,7 @@ import { tailnet } from '../tailnet/tailnet';
 import { esbuild } from '../programs/esbuild';
 import { inotifywait } from '../programs/inotifywait';
 import { tailwind } from '../programs/tailwind';
-import { filesChanged } from '../programs/watch';
+import { filesChanged, watchers } from '../programs/watch';
 import { workerProgram, type Deliver, type Listener, type Ports } from '../programs/workerProgram';
 import type { KeptRecord } from '../overlay';
 import type { PackageProgram, PageProgram as Program, PageProgramHost } from '../pageProgram';
@@ -425,6 +425,10 @@ function packagePrograms(): Record<string, Program> {
     const host: PageProgramHost = {
       programs: pagePrograms as PageProgramHost['programs'],
       frame: (frame) => rpc.call<MessagePort>('framePort', [name, frame]),
+      watch: (changed) => {
+        watchers.add(changed);
+        return () => void watchers.delete(changed);
+      },
     };
     out[command] = async (process, context) => {
       let loaded = imported.get(url);

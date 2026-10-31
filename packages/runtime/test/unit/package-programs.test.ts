@@ -98,3 +98,29 @@ it('takes ports from its parent alone, after saying it loaded', async () => {
   expect(taken).toEqual([port]);
   port.close();
 });
+
+it('tells a frame where its peers’ files are, below its own bridge', async () => {
+  const parent = { postMessage: vi.fn() };
+  const handlers: ((event: unknown) => void)[] = [];
+  vi.stubGlobal('window', { parent, top: {} });
+  vi.stubGlobal('location', new URL('https://claude-x.bridge.test/_bridge/k1/npm/c@2.0.0/c.html'));
+  vi.stubGlobal('addEventListener', (type: string, handler: (event: unknown) => void) => {
+    if (type === 'message') handlers.push(handler);
+  });
+  const { serveFrame, belowOwnBridge, FRAME_PORT } = await import('../../src/lib/sharedFrame');
+  const urls: (string | null)[] = [];
+  serveFrame((_, frame) => {
+    urls.push(frame.packageUrl('esbuild')?.href ?? null, frame.packageUrl('other')?.href ?? null);
+    urls.push(frame.packageUrl('toString')?.href ?? null);
+  });
+  const port = new MessageChannel().port1;
+  for (const handler of handlers)
+    handler({
+      source: parent,
+      data: { kind: FRAME_PORT, packages: { esbuild: 'npm/esbuild@1.0.0/' } },
+      ports: [port],
+    });
+  expect(urls).toEqual(['https://claude-x.bridge.test/_bridge/k1/npm/esbuild@1.0.0/', null, null]);
+  expect(belowOwnBridge('npm/x@1/', 'https://a.test/elsewhere/')).toBeNull();
+  port.close();
+});

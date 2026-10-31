@@ -4,7 +4,7 @@
 // Command}, System.shell; phx.new runs Mix that way), and a package's sh
 // script (Elixir's bin/elixir, which System.cmd("mix", …) ends in).
 import { CHUNK, FRAME } from '../host/node';
-import type { Context, Process } from './tailwind';
+import type { Context, Process } from '../pageProgram';
 
 // Start a node for `command` (['escript', 'rebar3', 'compile']): its output is the
 // process's (fd 1, or its standard error 2), and its exit status the

@@ -723,7 +723,13 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
         const found = packages.find((each) => each.name === name);
         const page = typeof frame === 'string' ? found?.playground.frames?.[frame] : undefined;
         return found && page
-          ? framePort(bridge, found.name, frame as string, page)
+          ? framePort(
+              bridge,
+              found.name,
+              frame as string,
+              page,
+              Object.keys(found.peerDependencies ?? {}),
+            )
           : Promise.reject(new Error(`${String(name)} has no frame ${String(frame)}`));
       },
     });

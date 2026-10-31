@@ -37,6 +37,11 @@ export interface Playground {
   // Variables every node gets, each a path of the package's fs layer
   // (relative to its root; "." the root itself).
   env?: Record<string, string>;
+  // Variables every node gets, with values of their own: a string (the
+  // first package's, as `env`), or { append } (each package's, space-
+  // separated in the packages' order: the esbuild and tailwind packages'
+  // ELIXIR_ERL_OPTIONS flags).
+  variables?: Record<string, string | { append: string }>;
   // Programs that run in a worker of their own, by name: each the
   // package's script below its workers/ (which holds what the script
   // imports too), started by the runtime under the workers' policy

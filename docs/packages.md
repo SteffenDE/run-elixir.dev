@@ -240,6 +240,7 @@ Every key is optional. A package sets the keys that describe it.
 | `fs` | packages with files in the nodes' tree | `{ format, root, manifest, bundles, count, version }`: its fs layer, and where it goes ([above](#fs-layers-fs-format-3)). |
 | `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`, each run as its `#!` line says ([below](#scripts-and-direct-programs)). |
 | `env` | `otp-X`, `elixir-X` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |
+| `variables` | any | `{ NAME: value }`: variables every node gets with a value of their own: a string (the first package's), or `{ append }` (every package's, space-separated in the packages' order). |
 | `workerPrograms` | any (`nodejs`) | `{ NAME: script }`: commands that each run in a worker of their own, from a script below the package's `workers/` ([below](#worker-programs)). |
 | `tls` | `tls` | `{ module, roots }`. |
 | `tailscale` | `tailscale` | `{ module, glue }`. |
@@ -362,9 +363,9 @@ of each.
 | `tls` | `tls.wasm`'s exports and the nodejs package's `tls.ts` | 1 | its 19 exports (`tls_client`, `tls_alpn`, …) | `tls` major or `runtime` major |
 | `tailscale` | `tailscale.wasm` with its `wasm_exec.js`, and the Tailscale worker | 1 | the worker's calls into the node | `tailscale` major or `runtime` major |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
-| `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 1.2 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`) | `runtime` major |
+| `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 1.2 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`, `watch(changed)`) | `runtime` major |
 | `workers` | a package's worker program and the runtime's `programs/workerProgram.ts`, since runtime 1.2 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `options`), the net, child, stdin, resize and `changed` messages; the files channel's calls and lock (`sdk/files`); the policy below `workers/` | `runtime` major |
-| `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 1.2 | 1 | `playground-frame-loaded`, `playground-frame` with a port; the origin's name | `runtime` major |
+| `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 1.2 | 1 | `playground-frame-loaded`, `playground-frame` with a port and its package's peers' paths (`packages`); the origin's name | `runtime` major |
 | `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings follow |
 | `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
 | template pair | `phoenix-template` and OTP plus Elixir | exact versions | another OTP or Elixir | a new template build |
@@ -425,10 +426,11 @@ seam that numbers its protocol, and a package's `abi` names those seams:
 
 | Module | What | Seam |
 | --- | --- | --- |
-| `sdk/program` | A program's process and context, a page program's host (`programs()`, `frame(name)`), the files' types | `pagePrograms`, `workers` |
+| `sdk/program` | A program's process and context, a page program's host (`programs()`, `frame(name)`, `watch(changed)`), the files' types | `pagePrograms`, `workers` |
 | `sdk/frame` | `serveFrame` for a shared frame's page; `Rpc` over its ports | `frames` (the messages over a port are the package's own) |
 | `sdk/files` | A worker program's channel to the project's files, and its process lock | `workers` |
 | `sdk/wasi` | The runtime's WASI implementation, tar and gzip, errno values: code a package bundles, no protocol | none |
+| `sdk/modules` | POSIX paths, synchronous reads over the files, directories made as needed, a CommonJS module's evaluation: a tool's helpers, no protocol | none |
 
 `test/unit/sdk-boundary.test.ts` fails when the claude or nodejs package
 imports anything else (but the claude package's `programs/esbuild`, until
@@ -534,7 +536,7 @@ runtime 1.2). The claude package is the first.
 whose default export is the program:
 
 ```ts
-import type { PackageProgram } from '@elixir-playground/runtime/pageProgram';
+import type { PackageProgram } from '@elixir-playground/runtime/sdk/program';
 
 const program: PackageProgram = async (process, context, host) => {
   const port = await host.frame('claude');          // this package's shared frame
@@ -547,11 +549,15 @@ export default program;
 - The runtime puts its name on PATH (`/usr/bin/NAME`) and imports the
   module in the exec frame's worker the first time the command runs,
   below the bridge (`npm/NAME@VERSION/MODULE`). A runtime program of the
-  same name (`node`, `npm`, `sh`, …) stays the runtime's.
+  same name (`sh`, `bash`, `erl`, `escript`) stays the runtime's.
 - `process` and `context` are what the runtime's own page programs get
   (`runtime/src/pageProgram.ts`): output, input, exit, kill; the
   arguments, working directory, environment and the project's files.
-  `node`'s `context.bun` adds Bun's globals (Claude Code needs them).
+  A worker program's `context.options` are its own (`node`'s `bun` adds
+  Bun's globals, which Claude Code needs).
+- `host.watch(changed)` hears each change to the project's files, from
+  the nodes and the editor, until the function it returns is called (a
+  tool's watch mode).
 - The module is the package's own file, so a site serves it with the
   package. It runs with the exec frame's worker's reach: the project's
   files and processes, no network but HTTPS by fetch and the services the
@@ -564,9 +570,12 @@ the package's name ([frames.md](frames.md#packages-page-programs-and-shared-fram
 so it has storage of its own, which every project of the page shares,
 and no other frame can tell its origin. Its page calls `serveFrame(take)`
 (`runtime/src/lib/sharedFrame.ts`), which bridges its files and gives
-`take` a port for each `host.frame(name)` of the package's programs. What
-the program and the frame say over that port is the package's (the
-claude package's `protocol.ts`).
+`take` a port for each `host.frame(name)` of the package's programs,
+with `packageUrl(name)`: where a peer dependency's files are below the
+frame's own bridge (the claude frame loads the esbuild package's that
+way), or null for a package the site lacks or that is no peer. What the
+program and the frame say over that port is the package's (the claude
+package's `protocol.ts`).
 
 `NAME` is 2 to 16 letters and digits, starting with a letter. A program
 reaches only its own package's frames.

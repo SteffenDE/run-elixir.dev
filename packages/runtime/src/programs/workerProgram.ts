@@ -25,7 +25,7 @@
 // (docs/nodejs.md, The worker's policy).
 import type { Files } from '../host/files';
 import type { CloseReason, Link, Served } from '../host/node';
-import type { Context, Process } from './tailwind';
+import type { Context, Process } from '../pageProgram';
 import { watchers, type Watcher } from './watch';
 
 // What listens on a port: connections to it.

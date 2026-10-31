@@ -65,18 +65,25 @@ function framed(bridge: Bridge, origin: string, page: string): Promise<Framed> {
 }
 
 // A port to package `name`'s frame `frame`, whose page is `page` (relative
-// to the package), for its page program.
+// to the package), for its page program. With it go the paths below the
+// bridge of the package's peers (`peers`: their names) that the site has.
 export async function framePort(
   bridge: Bridge,
   name: string,
   frame: string,
   page: string,
+  peers: string[] = [],
 ): Promise<Transfer<MessagePort>> {
   const base = bridge.packages.get(name);
   if (!base) throw new Error(`${name}: not among the plugins`);
   const origin = await frameOrigin(bridge, name, frame);
   const { element } = await framed(bridge, origin, `${base}${page.replace(/^\.?\//, '')}`);
+  const packages: Record<string, string> = {};
+  for (const peer of peers) {
+    const path = bridge.packages.get(peer);
+    if (path) packages[peer] = path;
+  }
   const channel = new MessageChannel();
-  element.contentWindow!.postMessage({ kind: FRAME_PORT }, origin, [channel.port2]);
+  element.contentWindow!.postMessage({ kind: FRAME_PORT, packages }, origin, [channel.port2]);
   return transfer(channel.port1, [channel.port1]);
 }

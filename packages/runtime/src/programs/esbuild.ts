@@ -8,7 +8,7 @@
 import type { BuildOptions, Loader, Message, Plugin } from 'esbuild-wasm';
 import wasmURL from 'esbuild-wasm/esbuild.wasm?url';
 import { made, path } from './modules';
-import type { Context, Process } from './tailwind';
+import type { Context, Process } from '../pageProgram';
 import { type Watcher, watchers } from './watch';
 
 export const ESBUILD_VERSION = '0.25.4';
