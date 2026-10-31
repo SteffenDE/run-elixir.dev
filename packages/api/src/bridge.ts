@@ -1,5 +1,6 @@
 // The page's side of bridge mode (docs/frames.md) and of the services
-// (every mode): the apex's worker (apexWorker.ts), started once per page,
+// (every mode): the apex's worker (apexWorker.ts), started once per page
+// and script,
 // and the ports each frame gets to it. The page's main thread only wires
 // ports: the worker answers every file and service request, so the page's
 // own work (an IDE's UI) neither slows a project's boot nor is slowed by
@@ -9,17 +10,13 @@ import type { BridgeTable } from './apexWorker';
 
 export type { BridgeTable };
 
-let started: Worker | null = null;
-let workerUrl: string | URL | null = null;
+const started = new Map<string, Worker>();
 
-// Where the worker's script is, if not beside this module (a bundler that
-// does not follow `new URL('./apexWorker.ts', import.meta.url)`).
-export function setApexWorkerUrl(url: string | URL | null): void {
-  workerUrl = url;
-}
-
-function apexWorker(): Worker {
-  if (started) return started;
+// `workerUrl`: where the worker's script is, if not beside this module (a
+// bundler that does not follow `new URL('./apexWorker.ts', import.meta.url)`).
+function apexWorker(workerUrl: string | null): Worker {
+  const known = started.get(workerUrl ?? '');
+  if (known) return known;
   const worker = workerUrl
     ? new Worker(workerUrl, { type: 'module', name: 'playground-apex' })
     : new Worker(new URL('./apexWorker.ts', import.meta.url), {
@@ -33,8 +30,8 @@ function apexWorker(): Worker {
       `the playground's apex worker failed: ${event.message || 'its script did not load'}`,
     ),
   );
-  started = worker;
-  return started;
+  started.set(workerUrl ?? '', worker);
+  return worker;
 }
 
 // A port to the apex's worker for a frame of `table`: `frame` (a frame's
@@ -42,7 +39,7 @@ function apexWorker(): Worker {
 // worker's own).
 export function apexPort(kind: 'frame' | 'link', table: BridgeTable): MessagePort {
   const channel = new MessageChannel();
-  apexWorker().postMessage({ kind, table }, [channel.port1]);
+  apexWorker(table.worker ?? null).postMessage({ kind, table }, [channel.port1]);
   return channel.port2;
 }
 

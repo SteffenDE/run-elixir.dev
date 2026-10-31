@@ -143,7 +143,7 @@ function runtimeBelow(url: URL): string {
 // by URL from their own origin) and where each comes from. A sandbox's
 // own: another create() on the page has another.
 export async function useBridge(
-  options: { domain: string; content?: string },
+  options: { domain: string; content?: string; worker?: string },
   runtimePath: string,
   packages: PackageDescriptor[],
   boot: Boot | null,
@@ -183,6 +183,7 @@ export async function useBridge(
       services,
       // A Node.js process reads the tls package's files from there.
       connect: [...new Set(sources.map(([, url]) => url))],
+      ...(options.worker ? { worker: options.worker } : {}),
     },
     runtime,
     runtimeUrl: runtimeUrl.href,

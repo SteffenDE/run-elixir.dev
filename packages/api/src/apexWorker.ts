@@ -32,6 +32,9 @@ export interface BridgeTable {
   // the service worker adds them to a worker program's connect-src
   // (swBridge.ts workerPolicy).
   connect?: string[];
+  // The apex worker's script (create()'s usercontent.worker), if not the
+  // api's own beside it: the page runs one worker per script.
+  worker?: string;
 }
 
 export type ApexWorkerMessage =

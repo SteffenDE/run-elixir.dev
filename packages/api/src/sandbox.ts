@@ -26,7 +26,7 @@ import { Rpc } from '@elixir-playground/runtime/lib/rpc';
 import { execOrigin, previewOrigin } from '@elixir-playground/runtime/lib/site';
 import { filesStore } from './stores';
 import { apexServices } from './services';
-import { apexPort, setApexWorkerUrl } from './bridge';
+import { apexPort } from './bridge';
 import {
   bridgeSalt,
   frameTable,
@@ -631,7 +631,6 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
   const domain = usercontent.domain;
   if (options.runtime) setRuntimePath(options.runtime);
   const runtimeAt = runtimePath();
-  setApexWorkerUrl(usercontent.worker ?? null);
   const serviceUrls = servicesOf(options.services);
 
   // The packages, the template among them, as the runtime reads them;
@@ -644,7 +643,11 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
   if (template && !given.some(({ name }) => name === template.name)) given.push(template);
   // Their files are below the bridge (usercontent.ts).
   const { packages, boot, bridge } = await useBridge(
-    { domain, content: usercontent.content },
+    {
+      domain,
+      content: usercontent.content,
+      worker: usercontent.worker ? String(usercontent.worker) : undefined,
+    },
     runtimeAt,
     given,
     options.boot ?? null,
