@@ -1,5 +1,5 @@
 // node: Node.js scripts on the browser's own JavaScript engine, each
-// process in a worker of its own (runtime/nodejs, nodejs.js) with a
+// process in a worker of its own (the nodejs package's nodejs.js) with a
 // channel to the shared files, as a node has. Its output is the process's,
 // and its exit status; closing the port (Ctrl+C) stops the worker.
 //
@@ -15,7 +15,8 @@
 //
 // Its worker starts from nodejs.js's own URL, not a blob (host/worker.ts):
 // a worker from a URL keeps the Content-Security-Policy its script was
-// served with (serve.py, Caddy), which reaches only the site's files, and
+// served with (the service worker's: swBridge.ts nodePolicy), which
+// reaches only the site's files, and
 // the threads it starts from blobs inherit it. So the process's code has
 // no network but this one's messages, whatever browser API it calls
 // (docs/nodejs.md, The worker's policy).
@@ -23,7 +24,6 @@ import type { Files } from '../host/files';
 import type { CloseReason, Link, Served } from '../host/node';
 import type { Context, Process } from './tailwind';
 import { watchers, type Watcher } from './watch';
-import type { TlsFiles } from '../nodejs/tls';
 
 // What listens on a port: connections to it.
 export interface Listener {
@@ -118,12 +118,15 @@ type NetMessage =
   | { kind: 'net'; op: 'udp-send'; from: number; address: string; port: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'udp-close'; port: number };
 
-// A page program, as programs() answers them (npm.ts's Program).
+// The tls package's files (Site.tls): Node.js's TLS client and its roots.
+type TlsFiles = { module: string; roots: string };
+
+// A page program, as programs() answers them.
 type PageProgram = (process: Process, context: Context) => void | Promise<void>;
 
 export const nodeProgram =
   (
-    base: string,
+    worker: URL,
     files: () => Files | null,
     ports?: Ports,
     tls: TlsFiles | null = null,
@@ -136,7 +139,7 @@ export const nodeProgram =
       return process.exit(1);
     }
     const channel = shared.connect();
-    const thread = new Worker(new URL('nodejs.js', new URL(base, location.href)), {
+    const thread = new Worker(worker, {
       type: 'module',
     });
     const connections = new Map<number, ScriptConnection>();

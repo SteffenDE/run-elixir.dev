@@ -386,7 +386,7 @@ detect that.
 - **Firefox does not let the service worker control a blob worker that a
   worker starts.** Its imports then go to the network. So the exec
   frame's workers (`host/worker.ts`) and a Node.js process's threads
-  (`nodejs/threads.ts`) start from their script's URL when bridged.
+  (the nodejs package's `threads.ts`) start from their script's URL when bridged.
 - **Firefox checks a synthesized response against `worker-src`,
   `script-src` (a dynamic import) and `connect-src` by the service
   worker's script URL (`/sw.js`), not by the request's.** So the Node.js

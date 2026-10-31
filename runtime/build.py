@@ -724,6 +724,14 @@ PACKAGES = {
                "playground": {"abi": {"pagePrograms": 1, "frames": 1},
                               "pagePrograms": {"claude": "program.js"},
                               "frames": {"claude": "claude.html"}},
+               "runtime": "^1.2.0", "peers": ["nodejs"]},
+    # Node.js on the page (packages/nodejs): a process's worker, which the
+    # runtime starts as `node` (the node seam), and the page programs npm
+    # and npx.
+    "nodejs": {"version": "1.0.0", "files": ["nodejs.js", "chunks", "npm.js", "npx.js"],
+               "playground": {"abi": {"node": 1, "pagePrograms": 1},
+                              "node": {"worker": "nodejs.js"},
+                              "pagePrograms": {"npm": "npm.js", "npx": "npx.js"}},
                "runtime": "^1.2.0"},
 }
 # A module's imports, by the seam (host.json's provides) they belong to.
@@ -1096,8 +1104,8 @@ def lay_runtime(out, runtime):
 
 # The preset's own version, and what @elixir-playground/standard installs
 # besides pglite (packages/api and packages/pglite name their own).
-STANDARD_VERSION = "1.0.0"
-STANDARD = ("shell", "git", "gnu-tools", "ripgrep", "tls")
+STANDARD_VERSION = "1.1.0"
+STANDARD = ("shell", "git", "gnu-tools", "ripgrep", "tls", "nodejs")
 identifier = lambda key: re.sub(r"-(.)", lambda m: m.group(1).upper(), key)
 
 
@@ -1115,6 +1123,8 @@ def tool_notices():
         # WebAssembly among them); Claude Code itself comes from npm
         # (docs/packages.md).
         "claude": (notices.own().extend(notices.npm("claude")), {}),
+        # Node.js's modules, with what its Vite build bundled.
+        "nodejs": (notices.own().extend(notices.npm("nodejs")), {}),
     }
 
 
@@ -1170,6 +1180,10 @@ def sources(wasm):
             "claude.html": os.path.join(ROOT, "packages", "claude", "dist", "claude.html"),
             "frames": os.path.join(ROOT, "packages", "claude", "dist", "frames"),
             "program.js": os.path.join(ROOT, "packages", "claude", "dist", "program.js"),
+            # The nodejs package's worker, its chunks and its page programs
+            # (packages/nodejs's build).
+            **{name: os.path.join(ROOT, "packages", "nodejs", "dist", name)
+               for name in ("nodejs.js", "chunks", "npm.js", "npx.js")},
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}

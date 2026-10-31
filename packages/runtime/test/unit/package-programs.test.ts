@@ -30,6 +30,22 @@ it('lists the packages’ page programs, the first package’s for a name', () =
   ]);
 });
 
+it('names the nodejs package’s worker by its package, for its path below the bridge', () => {
+  const site = manifest({
+    '@elixir-playground/nodejs': entry({
+      node: { worker: 'nodejs.js' },
+      pagePrograms: { npm: 'npm.js', npx: 'npx.js' },
+    }),
+  });
+  expect(site.node()).toEqual({
+    name: '@elixir-playground/nodejs',
+    version: '2.0.0',
+    worker: 'nodejs.js',
+  });
+  expect([...site.pagePrograms().keys()]).toEqual(['npm', 'npx']);
+  expect(manifest({}).node()).toBeNull();
+});
+
 let api: typeof import('../../../api/src/sharedFrame');
 let usercontent: typeof import('../../../api/src/usercontent');
 beforeAll(async () => {

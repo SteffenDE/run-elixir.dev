@@ -221,22 +221,24 @@ describe('the bridge router', () => {
     await bridges.accept({ kind: 'bridge', protocol: 1, bridge: KEY }, page('/bridge.html'), [
       served.port,
     ]);
-    const runtime = 'npm/@elixir-playground/runtime@1.1.0';
+    const nodejs = 'npm/@elixir-playground/nodejs@1.0.0';
     const script = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${runtime}/nodejs.js`),
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/nodejs.js`),
     );
-    expect(script.headers.get('content-security-policy')).toBe(nodePolicy(ORIGIN, KEY, runtime));
+    expect(script.headers.get('content-security-policy')).toBe(nodePolicy(ORIGIN, KEY, nodejs));
     expect(script.headers.get('set-cookie')).toBeNull();
     expect(script.headers.get('content-type')).toBe('text/javascript');
     const chunk = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${runtime}/chunks/a-1.js`),
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/chunks/a-1.js`),
     );
-    expect(chunk.headers.get('content-security-policy')).toBe(nodePolicy(ORIGIN, KEY, runtime));
-    const other = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${runtime}/worker.js`),
-    );
-    expect(other.headers.get('content-security-policy')).toBeNull();
-    expect(nodePolicy(ORIGIN, KEY, runtime)).toContain(
+    expect(chunk.headers.get('content-security-policy')).toBe(nodePolicy(ORIGIN, KEY, nodejs));
+    // Not its page programs (the exec frame's worker imports them), nor
+    // the runtime's scripts.
+    for (const path of [`${nodejs}/npm.js`, 'npm/@elixir-playground/runtime@1.2.0/worker.js']) {
+      const other = await bridges.respond(new Request(`${ORIGIN}/_bridge/${KEY}/${path}`));
+      expect(other.headers.get('content-security-policy')).toBeNull();
+    }
+    expect(nodePolicy(ORIGIN, KEY, nodejs)).toContain(
       `connect-src ${ORIGIN}/_bridge/${KEY}/npm/@elixir-playground/ ${ORIGIN}/sw.js `,
     );
   });
@@ -282,9 +284,9 @@ describe('the bridge router', () => {
     await bridges.accept({ kind: 'bridge', protocol: 1, bridge: KEY }, page('/bridge.html'), [
       served.port,
     ]);
-    const runtime = 'npm/@elixir-playground/runtime@1.1.0';
+    const nodejs = 'npm/@elixir-playground/nodejs@1.0.0';
     const script = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${runtime}/nodejs.js`),
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/nodejs.js`),
     );
     const policy = script.headers.get('content-security-policy')!;
     expect(policy).toContain('https://apex.test/npm/@elixir-playground/tls@1.0.0/ data: blob:');

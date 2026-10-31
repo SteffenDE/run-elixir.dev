@@ -1,0 +1,35 @@
+{
+  "name": "@elixir-playground/nodejs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Node.js on the page: a Node.js process's worker (nodejs.js) and the npm and npx page programs (docs/nodejs.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "oxlint src test",
+    "format": "oxfmt src test",
+    "format:check": "oxfmt --check src test"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*",
+    "@noble/hashes": "2.0.1",
+    "buffer": "6.0.3",
+    "events": "3.3.0",
+    "fflate": "0.8.2",
+    "readable-stream": "4.7.0",
+    "semver": "7.7.3",
+    "smol-toml": "1.9.1",
+    "string-width": "8.3.0",
+    "string_decoder": "1.3.0",
+    "sucrase": "3.35.0",
+    "yaml": "2.9.1"
+  },
+  "devDependencies": {
+    "@types/semver": "7.7.1"
+  }
+}

@@ -66,27 +66,28 @@ const DROPPED = [
   'access-control-allow-origin',
 ];
 
-// A Node.js process's worker (the runtime package's nodejs.js) and the
+// A Node.js process's worker (the nodejs package's nodejs.js) and the
 // chunks it imports, below a bridge: their policy (docs/nodejs.md, "The
 // worker's policy"), as serve.py and Caddy send it on a usercontent domain
 // that serves the packages.
-const NODE_SCRIPT = /^(npm\/@elixir-playground\/runtime@[^/]+)\/(?:nodejs\.js|chunks\/[^/]+\.js)$/;
+const NODE_SCRIPT = /^(npm\/@elixir-playground\/nodejs@[^/]+)\/(?:nodejs\.js|chunks\/[^/]+\.js)$/;
 // Firefox (157, Playwright 1.64; 2026-10-29) checks what this worker
 // answered (the Node.js worker's own script, its dynamic imports, the
 // files it fetches) against worker-src, script-src and connect-src by this
 // worker's script's URL (/sw.js), not the request's: /sw.js is listed in
 // each. It is public, and outside a service worker's scope it only adds
 // listeners that never fire.
+// `nodejs`: the nodejs package's path below the bridge.
 // `direct`: where the page serves the packages' files, which the exec
 // frame's workers read there.
 export function nodePolicy(
   origin: string,
   key: string,
-  runtime: string,
+  nodejs: string,
   direct: string[] = [],
 ): string {
   const base = `${origin}/_bridge/${key}/`;
-  const scripts = `${base}${runtime}/nodejs.js ${base}${runtime}/chunks/`;
+  const scripts = `${base}${nodejs}/nodejs.js ${base}${nodejs}/chunks/`;
   return (
     `default-src 'none'; script-src ${scripts} ${origin}/sw.js 'unsafe-eval' 'wasm-unsafe-eval'; ` +
     `worker-src ${scripts} ${origin}/sw.js blob:; ` +

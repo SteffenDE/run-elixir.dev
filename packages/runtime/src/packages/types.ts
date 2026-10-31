@@ -37,6 +37,9 @@ export interface Playground {
   // Variables every node gets, each a path of the package's fs layer
   // (relative to its root; "." the root itself).
   env?: Record<string, string>;
+  // node: a Node.js process's worker script (the nodejs package's
+  // nodejs.js, which imports its chunks from beside itself).
+  node?: { worker: string };
   // tls: a Node.js process's TLS client and the roots it trusts.
   tls?: { module: string; roots: string };
   // tailscale: the apex's Tailscale node, and Go's glue for it (the Go

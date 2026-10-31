@@ -52,7 +52,8 @@ export const environment = (packages: Site): Record<string, string> => ({
 // docs/tailscale.md), else they do not resolve. inotifywait: the page's
 // (programs/inotifywait.ts) is on PATH, for file_system (Phoenix's live
 // reload); without it file_system only warns, where its port would fail.
-// bin: the packages' commands (Site.bin), each linked from /usr/bin.
+// node: the site has a nodejs package (Site.node), whose worker `node`
+// runs. bin: the packages' commands (Site.bin), each linked from /usr/bin.
 // pagePrograms: the packages' page programs (Site.pagePrograms), on PATH
 // as the runtime's own page programs are.
 export function prepare(
@@ -60,6 +61,7 @@ export function prepare(
   {
     dns = false,
     inotifywait = false,
+    node = false,
     bin = new Map<string, string>(),
     pagePrograms = [] as string[],
   } = {},
@@ -97,10 +99,9 @@ export function prepare(
     'esbuild',
     'tailwind',
     'make',
-    // Node.js, npm and npx, on the page (programs/nodejs.ts, npm.ts).
-    'node',
-    'npm',
-    'npx',
+    // Node.js, with a nodejs package (programs/nodejs.ts; its npm and npx
+    // are page programs, below).
+    ...(node ? ['node'] : []),
     'sh',
     'bash',
     'erl',

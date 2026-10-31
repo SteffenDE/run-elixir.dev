@@ -100,8 +100,8 @@ target/site/
   npm/@elixir-playground/    the packages (packages.md), each NAME@VERSION+ID/ (ID a digest
                                of what is in it) with its package.json, and the published
                                artifacts' index.js (their descriptors, api.md):
-    runtime@…/                 worker.js, files.js, git.js, nodejs.js and
-                                 chunks/ (the runtime's workers); exec.html, relay.html and
+    runtime@…/                 worker.js, files.js, git.js and chunks/ (the
+                                 runtime's workers); exec.html, relay.html and
                                  frames/ (the usercontent domain's frames); root/ (sw.js
                                  and the bridge's bootstrap, bridge.html, which only
                                  _usercontent/ serves: frames.md)
@@ -109,6 +109,8 @@ target/site/
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
     elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3;
                                  Elixir's scripts)
+    nodejs@…/                  nodejs.js and chunks/ (a Node.js process's worker);
+                                 npm.js, npx.js (its page programs)
     phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
     shell@…/                   brush.wasm (3.4 MB, 1.2 MB gzipped), coreutils.wasm (7.8 MB,
                                  3.0 MB gzipped); fs/ (the terminfo entry)
@@ -188,7 +190,7 @@ OTP's and Elixir's from the site manifest.
 1. **Vite build.** `npm ci && npm run build` at the root (the npm
    workspace: `packages/*`, then `app`), in Docker:
    - `packages/runtime`: the runtime's scripts (`vite.runtime.config.ts`:
-     `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
+     `worker.js`, `files.js`, `git.js`, which keep their
      names, the pages start them by URL; and `root/sw.js` with
      `root/bridge.html`, the bridge's bootstrap
      ([frames.md](frames.md#who-may-bridge)), which `build.py` copies to
@@ -203,6 +205,9 @@ OTP's and Elixir's from the site manifest.
      `dist/index.js` (their `vite.config.ts`), with their declarations;
    - `packages/claude`: the claude frame (`claude.html`) and its worker
      into `dist/` (`vite.config.ts`);
+   - `packages/nodejs`: a Node.js process's worker (`nodejs.js`, its
+     `chunks/`) and the page programs `npm.js` and `npx.js` into `dist/`
+     (`vite.config.ts`);
    - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
    - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
      `dist/`, which goes to the site's root. NIF libraries

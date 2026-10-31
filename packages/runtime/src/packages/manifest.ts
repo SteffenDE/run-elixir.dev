@@ -77,6 +77,16 @@ export class Site {
     return { loader: this.file(otp.name, loader), wasm: this.file(otp.name, wasm) };
   }
 
+  // A Node.js process's worker script (the nodejs package's nodejs.js),
+  // with its package: `node` runs it below the bridge, on the frame's own
+  // origin, as a page program's module (a worker's script is same-origin).
+  node(): { name: string; version: string; worker: string } | null {
+    const node = this.find('node');
+    return node
+      ? { name: node.name, version: node.entry.version, worker: node.value.worker }
+      : null;
+  }
+
   // brush.wasm.
   shell(): URL | null {
     const shell = this.find('shell');

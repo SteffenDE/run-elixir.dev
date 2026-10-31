@@ -42,9 +42,8 @@ import { inotifywait } from '../programs/inotifywait';
 import { tailwind } from '../programs/tailwind';
 import { filesChanged } from '../programs/watch';
 import { nodeProgram, type Deliver, type Listener, type Ports } from '../programs/nodejs';
-import { npmProgram, npxProgram, type Program } from '../programs/npm';
 import type { KeptRecord } from '../overlay';
-import type { PackageProgram, PageProgramHost } from '../pageProgram';
+import type { PackageProgram, PageProgram as Program, PageProgramHost } from '../pageProgram';
 import { commandProgram, shProgram, type StartNode } from '../programs/node';
 import { HEX_PORT, hexEnv } from '../hex';
 import { setup as setupOf, type Setup, type WorkspaceKind } from '../kinds';
@@ -410,6 +409,11 @@ function join(connection: Link, other: Link): void {
 const pagePrograms = (): Record<string, Program> =>
   nodeServices().programs as Record<string, Program>;
 
+// A package's file below the bridge (the frame's own origin): its path
+// there, relative to the site's root.
+const belowBridge = (name: string, version: string, file: string) =>
+  `npm/${name}@${version}/${file.replace(/^\.?\//, '')}`;
+
 // The packages' page programs (pageProgram.ts): each its package's module,
 // imported below the bridge the first time it runs, and given its
 // package's shared frames (through this page's apex: framePort).
@@ -417,7 +421,7 @@ const imported = new Map<string, Promise<{ default: PackageProgram }>>();
 function packagePrograms(): Record<string, Program> {
   const out: Record<string, Program> = {};
   for (const [command, { name, version, module }] of new Site(site).pagePrograms()) {
-    const url = new URL(`npm/${name}@${version}/${module.replace(/^\.?\//, '')}`, siteRoot()).href;
+    const url = new URL(belowBridge(name, version, module), siteRoot()).href;
     const host: PageProgramHost = {
       programs: pagePrograms as PageProgramHost['programs'],
       frame: (frame) => rpc.call<MessagePort>('framePort', [name, frame]),
@@ -442,6 +446,16 @@ function packagePrograms(): Record<string, Program> {
   return out;
 }
 
+// `node`: the nodejs package's worker, which the runtime starts with the
+// project's files, ports and TLS (programs/nodejs.ts; the node seam).
+function nodeJs(): Record<string, Program> {
+  const packages = new Site(site);
+  const node = packages.node();
+  if (!node) return {};
+  const worker = new URL(belowBridge(node.name, node.version, node.worker), siteRoot());
+  return { node: nodeProgram(worker, () => files, scriptPorts, packages.tls(), pagePrograms) };
+}
+
 function nodeServices() {
   const net = tailnetWays();
   return {
@@ -460,9 +474,9 @@ function nodeServices() {
       tailwind,
       esbuild,
       inotifywait,
-      node: nodeProgram(start!.build, () => files, scriptPorts, new Site(site).tls(), pagePrograms),
-      npm: npmProgram(pagePrograms),
-      npx: npxProgram(pagePrograms),
+      // Node.js, with a nodejs package (its npm and npx are its page
+      // programs, above).
+      ...nodeJs(),
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),
