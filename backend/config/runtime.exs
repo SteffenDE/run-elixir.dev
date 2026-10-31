@@ -107,14 +107,16 @@ if config_env() == :prod do
   origins =
     String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev", ",", trim: true)
 
-  # The TCP relay's socket is opened by projects' exec frames, each on a
-  # subdomain of the usercontent domain (PLAYGROUND_RELAY_ORIGINS,
-  # comma-separated host names, `*.domain` for its subdomains).
+  # The pages whose browsers use the services (the TCP relay, NIF builds:
+  # PlaygroundWeb.ServiceOrigins): the apex and the sites that embed it,
+  # whose apex worker asks with their origin (docs/backend.md).
+  # PLAYGROUND_SERVICE_ORIGINS: space- or comma-separated origins.
   config :playground,
-    relay_origins:
+    service_origins:
       String.split(
-        env.("PLAYGROUND_RELAY_ORIGINS") || "*.run-elixir-usercontent.org",
-        ",",
+        env.("PLAYGROUND_SERVICE_ORIGINS") ||
+          "https://run-elixir.dev https://tidewave.ai https://tidewave.steffend.me",
+        [" ", ","],
         trim: true
       )
 

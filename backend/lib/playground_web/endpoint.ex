@@ -17,8 +17,8 @@ defmodule PlaygroundWeb.Endpoint do
     websocket: [max_frame_size: 1_048_576],
     longpoll: false
 
-  # The TCP relay (PlaygroundWeb.RelaySocket): opened by projects' exec
-  # frames, on the usercontent domain (:relay_origins). A frame holds a
+  # The TCP relay (PlaygroundWeb.RelaySocket): opened by the apex's worker
+  # with its page's origin (PlaygroundWeb.ServiceOrigins). A frame holds a
   # kind, an id and up to Playground.Relay's :max_payload bytes; Bandit
   # counts the WebSocket header too (14 bytes for a masked frame over
   # 65_535).

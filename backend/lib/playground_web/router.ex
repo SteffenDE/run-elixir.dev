@@ -5,10 +5,14 @@ defmodule PlaygroundWeb.Router do
     plug :accepts, ["json"]
   end
 
-  # The playground's pages fetch these from their own origin, through the
-  # proxy (*.run-elixir.dev/api/v1/nif), or from another one when developing.
+  # The apex's worker fetches these (docs/frames.md): on run-elixir.dev
+  # through its proxy, from the apex's own origin; from an embedder's page
+  # on its allowlist (PlaygroundWeb.ServiceOrigins) with CORS. Another
+  # page's request is refused (403) before any work.
   pipeline :public do
     plug :put_public_headers
+    plug :require_allowed
+    plug :put_cors
   end
 
   pipeline :session do
@@ -32,6 +36,15 @@ defmodule PlaygroundWeb.Router do
 
     get "/:package/:version", NifController, :show
     get "/:package/:version/library.tar", NifController, :library
+  end
+
+  # Whether a request's page may use the services: 204, or 403. Caddy asks
+  # (forward_auth) before its own git proxy, so one list decides for
+  # every service (docs/deploy.md).
+  scope "/api/v1", PlaygroundWeb do
+    pipe_through [:public]
+
+    get "/origin", ServiceOriginController, :show
   end
 
   scope "/api/admin", PlaygroundWeb.Admin do
@@ -67,8 +80,9 @@ defmodule PlaygroundWeb.Router do
   end
 
   defp put_public_headers(conn, _opts) do
-    conn
-    |> put_resp_header("access-control-allow-origin", "*")
-    |> put_resp_header("cross-origin-resource-policy", "cross-origin")
+    put_resp_header(conn, "cross-origin-resource-policy", "cross-origin")
   end
+
+  defp require_allowed(conn, opts), do: PlaygroundWeb.ServiceOrigins.require_allowed(conn, opts)
+  defp put_cors(conn, opts), do: PlaygroundWeb.ServiceOrigins.put_cors(conn, opts)
 end

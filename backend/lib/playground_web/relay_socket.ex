@@ -21,7 +21,6 @@ defmodule PlaygroundWeb.RelaySocket do
 
   alias Playground.Relay
   alias Playground.Relay.Connection
-  alias Playground.Sandbox.Destination
 
   @open 1
   @opened 2
@@ -32,17 +31,12 @@ defmodule PlaygroundWeb.RelaySocket do
   @ack 7
 
   @doc """
-  Whether a page of `uri`'s origin may open the socket: one of
-  `config :playground, :relay_origins`, host names or `*.domain` (every
-  exec frame has an origin of its own on the usercontent domain), or any
-  when unset (developing).
+  Whether a page of `uri`'s origin may open the socket: one the services
+  answer (`PlaygroundWeb.ServiceOrigins`: the page's apex worker opens it,
+  with the page's origin). Never a usercontent domain's origin: any site
+  runs its own code there (docs/frames.md).
   """
-  def origin_allowed?(%URI{host: host}) do
-    case Application.get_env(:playground, :relay_origins) do
-      nil -> true
-      origins -> Destination.allowed?(host, origins)
-    end
-  end
+  def origin_allowed?(%URI{} = uri), do: PlaygroundWeb.ServiceOrigins.allowed?(uri)
 
   @impl true
   def child_spec(_opts), do: :ignore

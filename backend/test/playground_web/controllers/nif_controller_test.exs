@@ -10,7 +10,7 @@ defmodule PlaygroundWeb.NifControllerTest do
     File.write!(Nif.artifact_path(build), "tar")
 
     conn = get(conn, ~p"/api/v1/nif/demo/1.0.0?abi=1-2.18")
-    assert get_resp_header(conn, "access-control-allow-origin") == ["*"]
+    assert get_resp_header(conn, "cross-origin-resource-policy") == ["cross-origin"]
 
     assert %{"status" => "succeeded", "app" => "demo", "sha256" => "abc", "url" => url} =
              json_response(conn, 200)
@@ -20,6 +20,32 @@ defmodule PlaygroundWeb.NifControllerTest do
     conn = get(build_conn(), ~p"/api/v1/nif/demo/1.0.0/library.tar")
     assert response(conn, 200) == "tar"
     assert get_resp_header(conn, "content-type") == ["application/x-tar"]
+  end
+
+  test "answers CORS for the service origins alone", %{conn: conn} do
+    build!("1.0.0", "succeeded", sha256: "abc", size: 3, app: "demo")
+    Application.put_env(:playground, :service_origins, ["https://tidewave.ai"])
+    on_exit(fn -> Application.delete_env(:playground, :service_origins) end)
+
+    allowed =
+      conn
+      |> put_req_header("origin", "https://tidewave.ai")
+      |> get(~p"/api/v1/nif/demo/1.0.0?abi=1-2.18")
+
+    assert get_resp_header(allowed, "access-control-allow-origin") == ["https://tidewave.ai"]
+    assert get_resp_header(allowed, "vary") == ["Origin"]
+
+    other =
+      build_conn()
+      |> put_req_header("origin", "https://evil.example")
+      |> get(~p"/api/v1/nif/demo/1.0.0?abi=1-2.18")
+
+    assert get_resp_header(other, "access-control-allow-origin") == []
+    # Same-origin (through the apex's proxy): no Origin, no CORS needed.
+    assert get_resp_header(
+             get(build_conn(), ~p"/api/v1/nif/demo/1.0.0?abi=1-2.18"),
+             "access-control-allow-origin"
+           ) == []
   end
 
   test "says to ask again while a build is pending, and why one failed", %{conn: conn} do

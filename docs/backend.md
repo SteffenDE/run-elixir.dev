@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-28
+last_updated: 2026-10-29
 ---
 
 # The backend (`backend`)
@@ -11,9 +11,76 @@ WebAssembly NIF builds, encrypted live-session messaging, and a restricted
 TCP relay. Project applications still run in the browser.
 
 The deployment examples use `run-elixir.steffend.me` for administration.
-The apex proxies `/socket` for live sessions and `/api/v1/nif/` for builds.
-The usercontent domain proxies `/api/v1/nif/` and `/relay` for project
-runtime requests. See [deploy.md](deploy.md) for routing and origin checks.
+The apex proxies `/socket` for live sessions, `/api/v1/nif/` for builds and
+`/relay` for the TCP relay. The usercontent domain proxies none of them
+(since 2026-10-29): the apex's worker makes the requests
+([frames.md](frames.md#the-exec-frame)). See [deploy.md](deploy.md) for
+routing.
+
+## Service origins
+
+The services a page's browser uses (NIF builds and the TCP relay) answer
+the origins on an allowlist, `PlaygroundWeb.ServiceOrigins` (implemented
+2026-10-29):
+
+- `config :playground, :service_origins`, from `PLAYGROUND_SERVICE_ORIGINS`
+  (space- or comma-separated exact origins). The default is
+  `https://run-elixir.dev https://tidewave.ai https://tidewave.steffend.me`.
+  Unset (developing), any origin is let.
+- **NIF builds** refuse another page's request with 403 before any work
+  (`ServiceOrigins.require_allowed`, since 2026-10-30): an `Origin` not on
+  the list, or no `Origin` with `Sec-Fetch-Site: cross-site` (another
+  site's `<img>` or `<script>`). Until then the build ran and only the
+  CORS headers were left out. An allowed origin's answer carries
+  `Access-Control-Allow-Origin` set to that origin and `Vary: Origin`.
+- **A request without an `Origin`** that is not marked cross-site goes on
+  as before: a non-browser client, or the apex's own same-origin GET
+  through the proxy. A non-browser client can send any `Origin` it likes,
+  so refusing it would protect nothing.
+- **The relay's socket** takes an allowed origin
+  (`PlaygroundWeb.RelaySocket.origin_allowed?`), and Phoenix refuses
+  another with 403. A browser always sends a WebSocket's `Origin`; a
+  client without one connects, as before. No origin of the usercontent
+  domain is ever allowed: any site's code runs there
+  ([frames.md](frames.md#bridge-mode)). `PLAYGROUND_RELAY_ORIGINS`, which
+  let exec frames there open the socket themselves before 2026-10-29, was
+  removed on 2026-10-30.
+- **git's proxy** is Caddy's, not the backend's. Caddy asks the backend
+  first (`forward_auth` to `GET /api/v1/origin`: 204, or 403 by the same
+  rule), so the same list decides ([deploy.md](deploy.md#caddy), not run
+  against a live Caddy). `/hex/` is the apex's alone and needs no list.
+
+The list is in one place, `PLAYGROUND_SERVICE_ORIGINS`. `serve.py`, which
+stands in for Caddy and the backend locally, applies the same rule to the
+apex and the origins `--embedders` names
+([deploy.md](deploy.md#caddy), "Which layer enforces what"). Tested on 2026-10-30:
+`service_origins_test.exs` (an allowed origin, another one refused with
+403 before a build is queued, no origin, the relay socket with each) and
+`bridge-guard.spec.ts` against `serve.py`.
+
+**Getting on the list.** A site asks run-elixir.dev's operators to add its
+origin to `PLAYGROUND_SERVICE_ORIGINS`. An origin is a browser's claim,
+not an authentication: it keeps other sites' pages from using the
+services through their visitors' browsers, not other clients. A site that
+is not listed can run its own backend, or reverse proxy one, and name it
+in `create({ services })`.
+
+**`http://localhost:4000` is not on production's list.** A local
+Tidewave runs projects on the shared usercontent domain like any page,
+but run-elixir.dev's services stay for the listed sites. Any program a
+visitor runs on that port would otherwise use the relay (an outbound TCP
+proxy) and the NIF builds through their browser. To develop an embedder
+locally with the services:
+
+1. Run this backend: `PORT=4001 mix phx.server` in `backend/`. In
+   development `:service_origins` is unset, so it answers any origin.
+2. Run `python3 -I runtime/serve.py 8081 --embedders
+   http://localhost:4000 --api http://localhost:4001`, for git's and
+   Hex's proxies and the relay with the backend's sockets.
+3. Pass `services: 'http://localhost:8081'` to `create()`.
+
+Without step 3 the page uses run-elixir.dev's services, which refuse
+`http://localhost:4000` (403).
 
 ## Building a NIF library
 
@@ -119,8 +186,8 @@ to a few listed hosts on port 443, for pages without a tailnet; each
 connection a process (`Playground.Relay.Connection`). Its list
 (`priv/relay/hosts.json`), frames, checks and limits:
 [relay.md](relay.md). The limits are `config :playground,
-Playground.Relay`; only `PLAYGROUND_RELAY_ORIGINS` may open it
-(`*.run-elixir-usercontent.org` by default: projects' exec frames).
+Playground.Relay`; only the service origins may open it
+([above](#service-origins)): the apex's worker opens it.
 
 ## The sandbox
 
@@ -190,8 +257,8 @@ checkout is in.
 
 After building the artifacts anew (a new erl_nif layer, say), restart the
 app: it reads the toolchain once. It listens on `127.0.0.1:PORT`; Caddy
-terminates TLS in front: the admin's site, plus `/api/v1/nif/` and `/socket`
-on the apex and `/api/v1/nif/` and `/relay` on the usercontent domain ([deploy.md](deploy.md#caddy) has both). Caddy's
+terminates TLS in front: the admin's site, plus `/api/v1/nif/`, `/relay`
+and `/socket` on the apex ([deploy.md](deploy.md#caddy)). Caddy's
 `handle` blocks are exclusive, so these never reach the static site's
 fallback.
 
