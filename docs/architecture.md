@@ -126,8 +126,9 @@ Hex uses a local HTTP adapter. The browser can fetch hex.pm's API
 directly, but repo.hex.pm's registry and tarballs need a proxy because
 they do not allow CORS. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
-`packages/runtime/src/fetcher.ts`, which answers each request with a `fetch()`
-(`src/project/lib/hex.ts`):
+the elixir package's Hex plugin (`packages/hex`, its `ports` and `env`),
+over `packages/runtime/src/fetcher.ts`, which answers each request with a
+`fetch()`:
 
 - `/repo/…` goes to the site's own proxy at `/hex/` (`serve.py`, Caddy in
   [deploy.md](deploy.md)), or, on a site without one, to hexpm.upyun.com,

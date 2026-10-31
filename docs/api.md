@@ -111,15 +111,20 @@ them). A name given twice counts once, the first time.
   package does ([packages.md](packages.md#page-programs-and-shared-frames)).
 - **A plugin with code** has a `name` and `apex(context)`. The function
   runs on the page once per sandbox and returns the plugin's part of that
-  sandbox: `services` (by name; `postgres` is port 5432), `handlers`
-  (calls from the exec frame) and `close()`. `context` holds the
-  `projectId` and whether the project is kept (`persist`).
+  sandbox: `services` (by name), `ports` (the project's ports they
+  answer: pglite's `{ 5432: 'postgres' }`), `env` (variables every
+  process gets), `handlers` (calls from the exec frame) and `close()`.
+  `context` holds the `projectId` and whether the project is kept
+  (`persist`). The runtime names no service or port of its own (since
+  2026-10-31).
 - **A preset** is a list. `@elixir-playground/standard` is `[shell, git,
-  gnuTools, ripgrep, tls, pglite()]`.
+  gnuTools, ripgrep, tls, nodejs, esbuild, tailwind, inotifyTools,
+  pglite()]`. The elixir package's module exports a list too: the package
+  and its Hex plugin.
 
 | Package | What it adds | Published |
 | --- | --- | --- |
-| `otp-X`, `elixir-X` | The BEAM and OTP, Elixir and Mix. Required. | Yes |
+| `otp-X`, `elixir-X` | The BEAM and OTP, Elixir and Mix, and the elixir package's Hex cache (its `hex.js`, an apex plugin). Required. | Yes |
 | `shell` | brush and coreutils. Required: every process runs through brush. | Yes |
 | `git`, `gnu-tools`, `ripgrep`, `tls` | Their programs; `tls` is a Node.js process's TLS client. | Yes |
 | `pglite` | Postgres on port 5432 for the nodes, PGlite on the page | Yes |
@@ -128,7 +133,11 @@ them). A name given twice counts once, the first time.
 | `phoenix-template` | The playground's Phoenix template | No: the playground's own |
 | `tailscale` | The apex's Tailscale node | No: the playground's own |
 
-Hex's cache is the API's own service, and every sandbox has it.
+Hex's cache comes with the elixir package (since 2026-10-31; before, it
+was the api's own): its `index.js` exports the package and the plugin,
+which answers Hex on a port of the project's and sets `HEX_MIRROR` and
+`HEX_API_URL`. A site that takes the package from its manifest alone (the
+IDE does) adds `hex()` from `@elixir-playground/hex` itself.
 
 `create()` makes the site manifest ([packages.md](packages.md#the-site-manifest))
 from the packages and the `boot` recordings, if any. It checks them

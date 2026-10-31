@@ -133,6 +133,18 @@ function flatten(plugins: readonly Plugin[]): {
   return { packages: [...packages.values()], apex: [...apex.values()] };
 }
 
+// What the plugins answer on the project's ports, and the variables they
+// give every process: the first plugin's for a port or a name.
+function servicesOfPlugins(instances: Map<string, ApexInstance>): ExecStart['services'] {
+  const ports: Record<number, string> = {};
+  const env: Record<string, string> = {};
+  for (const instance of instances.values()) {
+    for (const [port, name] of Object.entries(instance.ports ?? {})) ports[Number(port)] ??= name;
+    for (const [name, value] of Object.entries(instance.env ?? {})) env[name] ??= value;
+  }
+  return { ports, env };
+}
+
 // The site manifest the runtime reads (docs/packages.md), made of the
 // packages: each package's files at its `base`, below the usercontent
 // domain's root.
@@ -754,6 +766,7 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
           shared,
           archive,
           link,
+          services: servicesOfPlugins(instances),
         } satisfies ExecStart,
       ],
       [store, shared, link].filter((port): port is MessagePort => port !== null),

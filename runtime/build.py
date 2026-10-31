@@ -683,7 +683,9 @@ PACKAGES = {
         # and a runtime that runs them by their #! lines.
         "version": "2.0.0",
         "root": "/opt/elixir/{elixir}",
-        "files": [],
+        # Its Hex cache, an apex plugin (packages/hex), which its index.js adds.
+        "files": ["hex.js"],
+        "apex": "hex.js",
         "runtime": "^1.2.0",
         "peers": ["shell"],
         # Elixir's scripts, and the archives and rebar3 Mix finds by them.
@@ -941,7 +943,7 @@ def write_layer(fs, files, root):
 
 
 def lay(out, name, version, files, playground, peers, layer=None, own=(), licensed=None, root=None,
-        publish=True, descriptor=False, fields=None):
+        publish=True, descriptor=False, fields=None, apex=None):
     """A package's directory, npm/@elixir-playground/NAME@VERSION+ID/: its
     `files` ({name: path here}, a directory too), its fs layer (`layer`: the
     files below `root` in the nodes' tree, [(path there, path here)], or a
@@ -951,7 +953,9 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
     "private"). A `descriptor` package's index.js exports what create()
     takes (docs/api.md), its files where a site serves the published
     package. Each module's imports must belong to a seam `playground`
-    names (`own`: what its own glue answers). Its site manifest entry."""
+    names (`own`: what its own glue answers). `apex`: one of its files, an
+    apex plugin's module whose default export makes the plugin, which its
+    index.js exports beside the descriptor. Its site manifest entry."""
     for file, here in files.items():
         if file.endswith(".wasm"):
             imports, _ = wasm_interface(here)
@@ -981,10 +985,17 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
                      "base": f"/{NPM}/{name}@{version}/", "files": listed,
                      **({"peerDependencies": peers} if peers else {}), "playground": playground}
         with open(os.path.join(scratch, "index.js"), "w") as f:
-            f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
-                    f"export default {json.dumps(described, indent=1)};\n")
+            if apex:
+                f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
+                        "// with its plugin.\n"
+                        f"import plugin from './{apex}';\n\n"
+                        f"const descriptor = {json.dumps(described, indent=1)};\n\n"
+                        "export default [descriptor, plugin()];\n")
+            else:
+                f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
+                        f"export default {json.dumps(described, indent=1)};\n")
         with open(os.path.join(scratch, "index.d.ts"), "w") as f:
-            f.write(DESCRIPTOR_TYPES)
+            f.write(PLUGIN_TYPES if apex else DESCRIPTOR_TYPES)
         added = [*added, "index.js", "index.d.ts"]
         fields = {**MODULE, **(fields or {})}
     package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
@@ -1023,6 +1034,13 @@ DESCRIPTOR_TYPES = """import type { PackageDescriptor } from '@elixir-playground
 
 declare const descriptor: PackageDescriptor;
 export default descriptor;
+"""
+# A descriptor package's with an apex plugin of its own (PACKAGES' `apex`):
+# the package and its plugin, a list create() takes as one.
+PLUGIN_TYPES = """import type { Plugin } from '@elixir-playground/api';
+
+declare const plugins: Plugin[];
+export default plugins;
 """
 
 
@@ -1074,7 +1092,7 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
             {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()),
             licensed[key], package.get("root", "").format(**versions) or None,
             publish=package.get("publish", True), descriptor=package.get("publish", True),
-            fields=fields.get(key))
+            fields=fields.get(key), apex=package.get("apex"))
     return entries
 
 
@@ -1217,6 +1235,8 @@ def sources(wasm):
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
             # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
+            # The elixir package's Hex plugin (packages/hex's build).
+            "hex.js": os.path.join(ROOT, "packages", "hex", "dist", "hex.js"),
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}
@@ -1285,8 +1305,9 @@ def full_notices(versions):
     licensed = os.path.join(CACHE, "licenses")
     return {
         "otp-{otp}": lambda: (notices.otp(versions["otp"]), {}),
+        # With hex.js, the playground's own (packages/hex).
         "elixir-{elixir}": lambda: (notices.elixir({**versions, "hex": hex_version, "phx_new": PHX_NEW},
-                                                   rebar3, licensed), {}),
+                                                   rebar3, licensed).extend(notices.own()), {}),
         "phoenix-template": lambda: (notices.template(os.path.join(CACHE, "playground"), PHX_NEW, licensed), {}),
     }
 

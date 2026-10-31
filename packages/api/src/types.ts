@@ -46,8 +46,14 @@ export interface ApexHandlers {
 
 // A plugin's part of one sandbox, on the page.
 export interface ApexInstance {
-  // Services by name (`postgres`: port 5432).
+  // Services by name (pglite's `postgres`, hex's `hex`).
   services?: Record<string, Service>;
+  // The project's ports its services answer, each a service's name
+  // ({ 5432: 'postgres' }): a node's or a process's connection to one of
+  // them comes here. A port two plugins name is the first one's.
+  ports?: Record<number, string>;
+  // Variables every process of the project gets (hex's HEX_MIRROR).
+  env?: Record<string, string>;
   handlers?: ApexHandlers;
   close?(): void | Promise<void>;
 }

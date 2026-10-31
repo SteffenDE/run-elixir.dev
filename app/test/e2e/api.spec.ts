@@ -451,11 +451,16 @@ test('any site runs projects on the shared usercontent domain, with packages tha
   await page.waitForFunction(() => window.embed);
   const refused = await page.evaluate(async () => {
     const { otp, elixir, standard } = window.embed.packages;
-    const older = { ...elixir, playground: { ...elixir.playground, requires: { otp: '^28.0.0' } } };
+    // The elixir package's module: the package and its Hex plugin.
+    const [descriptor, hex] = elixir;
+    const older = {
+      ...descriptor,
+      playground: { ...descriptor.playground, requires: { otp: '^28.0.0' } },
+    };
     return window.embed
       .create({
         ...window.embed.options,
-        plugins: [otp, older, standard],
+        plugins: [otp, older, hex, standard],
         project: { template: 'empty' },
       })
       .then(() => 'created')

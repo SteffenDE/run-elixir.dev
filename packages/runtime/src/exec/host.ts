@@ -42,7 +42,6 @@ import { workerProgram, type Deliver, type Listener, type Ports } from '../progr
 import type { KeptRecord } from '../overlay';
 import type { PackageProgram, PageProgram as Program, PageProgramHost } from '../pageProgram';
 import { commandProgram, shProgram, type StartNode } from '../programs/node';
-import { HEX_PORT, hexEnv } from '../hex';
 import { setup as setupOf, type Setup, type WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '../lib/share';
@@ -76,6 +75,9 @@ export interface ExecStart {
   // docs/api.md): its directories below /work, as a template's, over
   // the Phoenix server's boot image (OTP's and Elixir's files it reads).
   archive?: string | null;
+  // The page's services on the project's ports ({ 5432: 'postgres' }: the
+  // apex plugins'), and the variables their plugins give every process.
+  services?: { ports: Record<number, string>; env: Record<string, string> };
 }
 
 // A process's start (spawn): `argv` (a program and its arguments) or
@@ -340,8 +342,10 @@ const httpsGateway: Https = (connection, target) =>
 let answering: Record<number, (connection: Served) => void> | null = null;
 const services = () =>
   (answering ??= {
-    5432: apex('postgres'),
-    [HEX_PORT]: apex('hex'),
+    // The page's (the apex plugins': pglite's Postgres, Hex's cache).
+    ...Object.fromEntries(
+      Object.entries(start?.services?.ports ?? {}).map(([port, name]) => [port, apex(name)]),
+    ),
     [EPMD_PORT]: serveNames,
     // The node's DNS (127.0.0.53, setup.ts), over TCP and UDP.
     53: dnsTcp(tailnetWays().resolve),
@@ -785,7 +789,7 @@ const handlers = {
       env: {
         ...env,
         ...environment(new Site(site)),
-        ...hexEnv,
+        ...start.services?.env,
         PLAYGROUND_COOKIE: COOKIE,
         ...previewEnv(),
         PWD: cwd,

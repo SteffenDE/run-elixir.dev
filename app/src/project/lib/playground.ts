@@ -19,6 +19,7 @@ import { sitePackages } from '@/shared/lib/build';
 import type { Rpc } from '@elixir-playground/runtime/lib/rpc';
 import type { Process, Sandbox } from '@elixir-playground/api';
 import { createSandbox } from '@elixir-playground/api/sandbox';
+import { hex } from '@elixir-playground/hex';
 import { PGLITE_PLUGIN, pglite, type PgliteInstance } from '@elixir-playground/pglite';
 import { tailscale } from '@/tailscale/plugin';
 import { connectTailscale, IEX, setTailnetProject, tailscaleBlocked } from '@/tailscale/client';
@@ -665,7 +666,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       share = shareWithPeers;
     }
     const started = await createSandbox({
-      plugins: [packages, pglite(), tailscale],
+      // The elixir package's Hex cache: its index.js adds it for an
+      // embedder; the IDE takes the packages from the site manifest.
+      plugins: [packages, pglite(), hex(), tailscale],
       project: { id: previewKey, persist: id !== null, template: template ?? 'empty' },
       boot,
       // The tailnet and the relay as the user lets this project use them

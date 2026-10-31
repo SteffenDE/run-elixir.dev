@@ -431,7 +431,10 @@ user's tailnet or restricted relay, [tailscale.md](tailscale.md) and
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
 `onend` and `onclose`, with `write`, `end` and `close`. `serve: { port:
-handler }` answers the node's connections to those ports (5432: PGlite).
+handler }` answers the node's connections to those ports: the apex
+plugins' services on the ports they name (`create()` passes them in the
+exec frame's `start`: pglite's 5432, the elixir package's Hex port), and
+the runtime's own epmd and DNS.
 
 `outbound: (connection, { address, port }) => …` takes the node's
 connections to other hosts: `connection.dialed(local)` once there (from

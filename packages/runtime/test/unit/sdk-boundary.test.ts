@@ -8,7 +8,7 @@ import { expect, it } from 'vitest';
 
 const PACKAGES = join(__dirname, '../../..');
 // Packages that ship code to sites, other than the runtime and the api.
-const CHECKED = ['claude', 'nodejs', 'esbuild', 'tailwind', 'inotify-tools'];
+const CHECKED = ['claude', 'nodejs', 'esbuild', 'tailwind', 'inotify-tools', 'hex'];
 
 function* sources(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {

@@ -319,6 +319,14 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_error(404)
         elif not self.embedder() and (self.BOOTSTRAP.match(path) or path.startswith("/_usercontent/")):
             self.send_error(404)
+        elif self.embedder() and re.match(r"^/node_modules/@elixir-playground/[^/]+$", path):
+            # A package by its name alone (the import map's): its index.js,
+            # whose URL its own relative imports (the elixir package's
+            # hex.js) resolve against, as a bundler's would.
+            self.send_response(302)
+            self.send_header("Location", f"{path}/index.js")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
         elif self.embedder():
             if not self.proxy_hex(False):
                 super().do_GET()
