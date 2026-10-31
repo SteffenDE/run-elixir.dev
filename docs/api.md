@@ -136,8 +136,17 @@ them). A name given twice counts once, the first time.
 Hex's cache comes with the elixir package (since 2026-10-31; before, it
 was the api's own): its `index.js` exports the package and the plugin,
 which answers Hex on a port of the project's and sets `HEX_MIRROR` and
-`HEX_API_URL`. A site that takes the package from its manifest alone (the
-IDE does) adds `hex()` from `@elixir-playground/hex` itself.
+`HEX_API_URL`. A site that takes the package from a site manifest
+instead of its `index.js` adds the plugin itself:
+
+```js
+import hex from '@elixir-playground/elixir-1.20.4/hex.js';
+
+create({ plugins: [hex()], /* … */ });
+```
+
+The IDE does the same with the workspace's `@elixir-playground/hex`,
+which is not published.
 
 `create()` makes the site manifest ([packages.md](packages.md#the-site-manifest))
 from the packages and the `boot` recordings, if any. It checks them

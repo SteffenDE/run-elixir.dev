@@ -998,6 +998,14 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
             f.write(PLUGIN_TYPES if apex else DESCRIPTOR_TYPES)
         added = [*added, "index.js", "index.d.ts"]
         fields = {**MODULE, **(fields or {})}
+        if apex:
+            # The plugin alone, for a site that takes the package from a
+            # site manifest (as the IDE does) and adds the plugin itself.
+            types = re.sub(r"\.js$", ".d.ts", apex)
+            with open(os.path.join(scratch, types), "w") as f:
+                f.write(APEX_TYPES)
+            added = [*added, types]
+            fields["exports"] = {**fields["exports"], f"./{apex}": {"types": f"./{types}", "default": f"./{apex}"}}
     package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
                "repository": REPOSITORY,
                "files": sorted([*files, *(["fs"] if layer else []), *added]),
@@ -1041,6 +1049,13 @@ PLUGIN_TYPES = """import type { Plugin } from '@elixir-playground/api';
 
 declare const plugins: Plugin[];
 export default plugins;
+"""
+
+# Its plugin's module (`./hex.js`): the function that makes the plugin.
+APEX_TYPES = """import type { ApexPlugin } from '@elixir-playground/api';
+
+declare const plugin: () => ApexPlugin;
+export default plugin;
 """
 
 
