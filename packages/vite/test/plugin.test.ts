@@ -43,6 +43,20 @@ function fixture(): string {
     join(scope, 'api', 'package.json'),
     JSON.stringify({ name: '@elixir-playground/api', version: '1.0.0' }),
   );
+  // Another scope's playground package, one of none, and a package whose
+  // `playground` is no object.
+  write(
+    join(root, 'node_modules', '@acme', 'python', 'package.json'),
+    JSON.stringify({ name: '@acme/python', version: '0.2.0', playground: { workerPrograms: {} } }),
+  );
+  write(
+    join(root, 'node_modules', 'ruby-shell', 'package.json'),
+    JSON.stringify({ name: 'ruby-shell', version: '3.0.0', playground: { pagePrograms: {} } }),
+  );
+  write(
+    join(root, 'node_modules', 'left-pad', 'package.json'),
+    JSON.stringify({ name: 'left-pad', version: '1.3.0', playground: 'yes' }),
+  );
   write(
     join(root, 'template', 'package.json'),
     JSON.stringify({ name: 'my-template', version: '0.1.0', playground: { template: {} } }),
@@ -50,12 +64,14 @@ function fixture(): string {
   return root;
 }
 
-test('finds the runtime and the packages with a playground field', () => {
+test('finds the runtime and the packages with a playground field, of any scope', () => {
   const root = fixture();
   expect(findPackages(root, ['template']).map(({ name }) => name)).toEqual([
     'my-template',
+    '@acme/python',
     '@elixir-playground/git',
     '@elixir-playground/runtime',
+    'ruby-shell',
   ]);
 });
 
@@ -88,6 +104,9 @@ test('vite build lays the packages out in the apex’s own output, and names the
   ])
     expect(existsSync(join(dist, file)), file).toBe(true);
   expect(existsSync(join(dist, 'npm/@elixir-playground/api@1.0.0'))).toBe(false);
+  expect(existsSync(join(dist, 'npm/@acme/python@0.2.0/package.json'))).toBe(true);
+  expect(existsSync(join(dist, 'npm/ruby-shell@3.0.0/package.json'))).toBe(true);
+  expect(existsSync(join(dist, 'npm/left-pad@1.3.0'))).toBe(false);
   // The bootstrap is the shared domain's alone: any site could frame it
   // and run its code on the apex.
   for (const file of ['bridge.html', 'npm/@elixir-playground/runtime@1.2.0/root/bridge.html'])

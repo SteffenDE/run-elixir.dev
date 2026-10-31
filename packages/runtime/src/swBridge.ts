@@ -89,8 +89,9 @@ export function workerPolicy(
 ): string {
   const base = `${origin}/_bridge/${key}/`;
   const scripts = `${base}${pkg}/workers/`;
-  // Its own package's files, and the playground's (the tls package's).
-  const files = [`${base}${pkg}/`, `${base}npm/@elixir-playground/`, `${origin}/sw.js`, ...direct];
+  // The packages' files below the bridge (its own, the tls package's),
+  // public and immutable whatever their scope.
+  const files = [`${base}npm/`, `${origin}/sw.js`, ...direct];
   return (
     `default-src 'none'; script-src ${scripts} ${origin}/sw.js 'unsafe-eval' 'wasm-unsafe-eval'; ` +
     `worker-src ${scripts} ${origin}/sw.js blob:; ` +

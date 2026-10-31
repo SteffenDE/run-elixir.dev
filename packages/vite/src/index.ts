@@ -8,7 +8,7 @@
 // The site's pages (the apex) import @elixir-playground/api and the
 // packages like any dependency. Project code runs on a shared usercontent
 // domain (docs/frames.md), which serves no packages: they are the apex's
-// own files, below Vite's `base` (npm/@elixir-playground/NAME@VERSION/,
+// own files, below Vite's `base` (npm/NAME@VERSION/, NAME with its scope if it has one,
 // where their descriptors' `base` points), which `vite build` puts in its
 // output and `vite` serves. The pages get <meta name="playground-runtime">
 // and <meta name="playground-content">, which create() reads by default.
@@ -43,22 +43,31 @@ interface Found {
 }
 
 // The packages to serve: the runtime and every one with a `playground`
-// field, installed below `root` (its node_modules and its parents', as a
-// workspace hoists them), the first of each name.
+// field, of any scope or none, installed below `root` (its node_modules
+// and its parents', as a workspace hoists them), the first of each name.
 export function findPackages(root: string, extra: string[] = []): Found[] {
   const found = new Map<string, Found>();
   const take = (directory: string) => {
     const file = join(directory, 'package.json');
     if (!existsSync(file)) return;
     const manifest = JSON.parse(readFileSync(file, 'utf8'));
-    const served = manifest.name === `${SCOPE}/runtime` || manifest.playground !== undefined;
+    const served =
+      manifest.name === `${SCOPE}/runtime` ||
+      (typeof manifest.playground === 'object' && manifest.playground !== null);
     if (!served || manifest.private || found.has(manifest.name)) return;
     found.set(manifest.name, { name: manifest.name, version: manifest.version, directory });
   };
   for (const directory of extra) take(resolve(root, directory));
   for (let at = resolve(root); ; at = dirname(at)) {
-    const scope = join(at, 'node_modules', SCOPE);
-    if (existsSync(scope)) for (const name of readdirSync(scope).sort()) take(join(scope, name));
+    const modules = join(at, 'node_modules');
+    if (existsSync(modules))
+      for (const name of readdirSync(modules).sort()) {
+        if (name.startsWith('.')) continue;
+        if (!name.startsWith('@')) take(join(modules, name));
+        else
+          for (const each of readdirSync(join(modules, name)).sort())
+            take(join(modules, name, each));
+      }
     if (dirname(at) === at) break;
   }
   if (!found.has(`${SCOPE}/runtime`))
@@ -92,7 +101,7 @@ function copyPackages(out: string, packages: Found[]): void {
 // (emptied first); the runtime's path.
 export function writeApexPackages(out: string, root: string, options: Options): string {
   const packages = findPackages(root, options.packages);
-  rmSync(join(out, 'npm', SCOPE), { recursive: true, force: true });
+  rmSync(join(out, 'npm'), { recursive: true, force: true });
   copyPackages(out, packages);
   return base(packages.find(({ name }) => name === `${SCOPE}/runtime`)!);
 }
@@ -166,7 +175,7 @@ const PUBLIC = {
   'Cross-Origin-Resource-Policy': 'cross-origin',
 };
 
-// In dev: the apex's npm/@elixir-playground/NAME@VERSION/
+// In dev: the apex's npm/NAME@VERSION/
 // below Vite's base (`prefix`), from the installed packages. False for
 // another path.
 function serveApexPackage(
@@ -176,7 +185,7 @@ function serveApexPackage(
   response: ServerResponse,
 ): boolean {
   const pathname = decodeURIComponent(new URL(request.url ?? '/', 'http://x').pathname);
-  if (!pathname.startsWith(`${prefix}npm/${SCOPE}/`)) return false;
+  if (!pathname.startsWith(`${prefix}npm/`)) return false;
   const path = pathname.slice(prefix.length - 1);
   const found = packages().find((each) => path.startsWith(base(each)));
   const file = found ? normalize(join(found.directory, path.slice(base(found).length))) : null;
@@ -252,7 +261,7 @@ export function elixirPlayground(options: Options = {}): Plugin {
         if (local && serveBridge(packages, options, request, response)) return;
         response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
         response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-        if (request.url?.startsWith(`${prefix}npm/${SCOPE}/`))
+        if (request.url?.startsWith(`${prefix}npm/`))
           for (const [name, value] of Object.entries(PUBLIC)) response.setHeader(name, value);
         next();
       });

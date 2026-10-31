@@ -259,9 +259,10 @@ export default defineConfig({
 | `packages` | Package directories that are not installed, such as a template of the site's own. |
 
 **`vite build`** lays the runtime package and every installed package
-with a `playground` field out in the site's own output, at
-`dist/npm/@elixir-playground/NAME@VERSION/` (served below Vite's `base`;
-the bootstrap, `root/bridge.html`, left out). Each page gets `<meta
+with a `playground` object, of any npm scope or none (since 2026-10-31),
+out in the site's own output, at `dist/npm/NAME@VERSION/` (NAME with its
+scope: `dist/npm/@elixir-playground/git@1.0.3/`, `dist/npm/ruby-shell@3.0.0/`;
+served below Vite's `base`; the bootstrap, `root/bridge.html`, left out). Each page gets `<meta
 name="playground-runtime">`, `<meta name="playground-content">` (Vite's
 `base`) and, with `usercontent`, `<meta name="playground-usercontent">`,
 which `create()` reads by default.

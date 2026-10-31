@@ -78,7 +78,7 @@ path below the bridge, `ORIGIN/_bridge/KEY/npm/NAME@VERSION`, here
 default-src 'none';
 script-src  PKG/workers/ ORIGIN/sw.js 'unsafe-eval' 'wasm-unsafe-eval';
 worker-src  PKG/workers/ ORIGIN/sw.js blob:;
-connect-src PKG/ ORIGIN/_bridge/KEY/npm/@elixir-playground/ ORIGIN/sw.js DIRECT data: blob:
+connect-src ORIGIN/_bridge/KEY/npm/ ORIGIN/sw.js DIRECT data: blob:
 ```
 
 `DIRECT` is where the page serves the packages' files, which the frame's
@@ -96,8 +96,8 @@ workers read there.
   response carries the same policy, not from blobs: Firefox does not let
   the service worker answer a blob worker that a worker starts
   ([frames.md](frames.md#browser-behavior-found-while-building-it)).
-- **`connect-src`:** its own package's files, the playground's packages'
-  files (the tls package's `tls.wasm` and `roots.pem`, public and
+- **`connect-src`:** the packages' files below the bridge, whatever their
+  scope (its own, the tls package's `tls.wasm` and `roots.pem`: public and
   immutable), and `data:` and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin
   served `/git/`, `/hex/` and `/api/v1/nif/` before they moved to the
   apex, and keeps other pages. `/sw.js` is in `worker-src`, `script-src`

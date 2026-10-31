@@ -68,19 +68,12 @@ export interface HttpRequest {
   port?: number;
 }
 
-// The site's own pages on a preview origin, which the worker never answers
-// for the app: the packages' (/npm/@elixir-playground/NAME@VERSION/…:
-// the runtime's relay.html), immutable, under a prefix no app's route is
-// likely to have. /relay.html is the upgrade bootstrap, also exempted by
-// the unnumbered worker so it can update that worker before loading a package.
-// In bridge mode, /bridge.html is the bootstrap, and /_bridge/KEY/ what a
-// bridge serves (below).
-const PACKAGES = '/npm/@elixir-playground/';
+// The site's own frames on a preview origin, which the worker never
+// answers for the app: the bootstrap (/bridge.html) and what a bridge
+// serves (/_bridge/KEY/, below: the runtime's relay.html among it). Every
+// other path, /npm/ too, is the app's.
 export const isOwnFrame = (pathname: string) =>
-  pathname === '/relay.html' ||
-  pathname === BRIDGE_PAGE ||
-  pathname.startsWith(PACKAGES) ||
-  bridgePath(pathname) !== null;
+  pathname === BRIDGE_PAGE || bridgePath(pathname) !== null;
 
 // Bridge mode (docs/frames.md): a shared usercontent domain serves only
 // /bridge.html and this worker. The page that frames a usercontent origin

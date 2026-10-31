@@ -253,9 +253,7 @@ describe('the bridge router', () => {
     const policy = workerPolicy(ORIGIN, KEY, nodejs);
     const base = `${ORIGIN}/_bridge/${KEY}/`;
     expect(policy).toContain(`script-src ${base}${nodejs}/workers/ ${ORIGIN}/sw.js `);
-    expect(policy).toContain(
-      `connect-src ${base}${nodejs}/ ${base}npm/@elixir-playground/ ${ORIGIN}/sw.js `,
-    );
+    expect(policy).toContain(`connect-src ${base}npm/ ${ORIGIN}/sw.js `);
   });
 
   it('sandboxes the bridged documents without downloads', async () => {

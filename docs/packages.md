@@ -404,6 +404,18 @@ Proposed beyond it:
 `runtime/build.py` does the same for run-elixir.dev from the repository's
 own builds ([build.md](build.md)).
 
+## Packages of other scopes
+
+A package need not be `@elixir-playground`'s (since 2026-10-31). Any
+installed package with a `playground` object is the site's: the Vite
+plugin lays it out at `npm/NAME@VERSION/` (with its scope, if any), the
+api bridges it by its name, and the service worker gives any package's
+`workers/` the worker programs' policy. A third-party package builds
+against `@elixir-playground/runtime/sdk/` as the playground's own do.
+Not yet: a registry of seams beyond the runtime's own, and a way to
+trust some packages' page programs less than others (they all run in the
+exec frame's worker).
+
 ## The packages' surface
 
 A package's code imports the runtime only from
@@ -586,7 +598,8 @@ nodejs package's `node` is the first.
   any package's `workers/` with the worker programs' policy
   (`swBridge.ts` `workerPolicy`; [nodejs.md](nodejs.md#a-process-workersnodejsjs-programsworkerprogramts)
   shows it). It lets the worker load only its own package's `workers/`,
-  so the worker reaches no network but its messages.
+  and read the packages' files, so the worker reaches no network but its
+  messages.
 - **The messages** (`runtime/src/programs/workerProgram.ts`): the runtime
   sends `start` (arguments, working directory, environment, a channel to
   the shared files, the terminal, the tls package's files, and the
@@ -608,9 +621,12 @@ version of the host on it. It is the one shared, unversioned piece.
   page, the runtime package's `relay.html`, which the page loads below a
   bridge ([bridge messages](#bridge-messages)).
 - The bridge's bootstrap (`/bridge.html`) registers and updates it
-  before it loads the relay. Until 2026-10-30 a `/relay.html` bootstrap
-  at the domain's root did that; the worker still leaves that path and
-  `/bridge.html` to the network.
+  before it loads the relay. The worker leaves `/bridge.html` and the
+  bridge's paths (`/_bridge/KEY/`) to the network, and gives every other
+  path to the app. Until 2026-10-30 a `/relay.html` bootstrap at the
+  domain's root did the bootstrap's work; until 2026-10-31 the worker
+  also left that path and `/npm/@elixir-playground/` to the network. No
+  host on the shared domain loads either.
 - Its protocol is numbered. The host announces `{ kind: 'host', protocol:
   N }`, and the worker answers in that protocol.
 - Changes within a protocol are additive only. A new `sw.js` keeps
