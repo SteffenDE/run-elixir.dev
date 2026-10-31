@@ -954,6 +954,20 @@ As of 2026-10-28:
   package 12 MB to 0.1 MB): its tools and ACP specs passed in Chromium,
   Firefox and WebKit (6; the interactive one, which needs Headscale, was
   skipped).
+- **Plugins name their ports; Hex is the elixir package's** (2026-10-31):
+  an apex plugin's `ports` and `env` replace the runtime's 5432 and Hex
+  port; Hex's cache is the elixir package's `hex.js`. Tested 2026-10-31
+  in Chromium: Hex (`mix deps.get`), Postgres, the api and bridge specs
+  and the Vite plugin's site.
+- **A template names its recording and port** (2026-10-31): `boot` and
+  `port`; the IDE's look for each kind is the IDE's. Tested 2026-10-31 in
+  Chromium: the template, preview, ports, domains, terminal, api,
+  projects and tabs specs (37 passed, 1 skipped).
+- **The whole Chromium e2e suite after these** (2026-10-31, without
+  `@slow`): 151 passed, 5 skipped, 5 failed. `phone.spec` (3) writes its
+  screenshots to `/repo/target/tests`, which this machine lacks; the
+  tree and live-session tests passed twice each when run again. Firefox
+  and WebKit ran only the specs named above.
 - **Scripts by their `#!` lines** (2026-10-30): the elixir package (2.0)
   ships Elixir's own scripts; the runtime's TypeScript copy of them is
   gone.
