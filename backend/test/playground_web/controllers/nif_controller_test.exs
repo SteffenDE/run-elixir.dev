@@ -23,7 +23,9 @@ defmodule PlaygroundWeb.NifControllerTest do
   end
 
   test "answers CORS for the service origins alone", %{conn: conn} do
-    build!("1.0.0", "succeeded", sha256: "abc", size: 3, app: "demo")
+    build = build!("1.0.0", "succeeded", sha256: "abc", size: 3, app: "demo")
+    File.mkdir_p!(Path.dirname(Nif.artifact_path(build)))
+    File.write!(Nif.artifact_path(build), "tar")
     Application.put_env(:playground, :service_origins, ["https://tidewave.ai"])
     on_exit(fn -> Application.delete_env(:playground, :service_origins) end)
 
@@ -46,6 +48,13 @@ defmodule PlaygroundWeb.NifControllerTest do
              get(build_conn(), ~p"/api/v1/nif/demo/1.0.0?abi=1-2.18"),
              "access-control-allow-origin"
            ) == []
+
+    # The archive is cached (immutable) for every origin alike.
+    for request <- [build_conn() |> put_req_header("origin", "https://tidewave.ai"), build_conn()] do
+      archive = get(request, ~p"/api/v1/nif/demo/1.0.0/library.tar")
+      assert get_resp_header(archive, "access-control-allow-origin") == ["*"]
+      assert get_resp_header(archive, "vary") == []
+    end
   end
 
   test "says to ask again while a build is pending, and why one failed", %{conn: conn} do

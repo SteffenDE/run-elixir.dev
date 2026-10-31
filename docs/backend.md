@@ -26,13 +26,17 @@ the origins on an allowlist, `PlaygroundWeb.ServiceOrigins` (implemented
 - `config :playground, :service_origins`, from `PLAYGROUND_SERVICE_ORIGINS`
   (space- or comma-separated exact origins). The default is
   `https://run-elixir.dev https://tidewave.ai https://tidewave.steffend.me`.
-  Unset (developing), any origin is let.
+  The backend does not start when an entry is not an origin, such as a
+  host without its scheme. Unset (developing), any origin is let.
 - **NIF builds** refuse another page's request with 403 before any work
   (`ServiceOrigins.require_allowed`, since 2026-10-30): an `Origin` not on
   the list, or no `Origin` with `Sec-Fetch-Site: cross-site` (another
   site's `<img>` or `<script>`). Until then the build ran and only the
   CORS headers were left out. An allowed origin's answer carries
   `Access-Control-Allow-Origin` set to that origin and `Vary: Origin`.
+  The library archive (`library.tar`) carries `*` instead: it is cached
+  as immutable, and a CDN that ignores `Vary` would otherwise give every
+  page the first asker's origin.
 - **A request without an `Origin`** that is not marked cross-site goes on
   as before: a non-browser client, or the apex's own same-origin GET
   through the proxy. A non-browser client can send any `Origin` it likes,
@@ -40,8 +44,9 @@ the origins on an allowlist, `PlaygroundWeb.ServiceOrigins` (implemented
 - **The relay's socket** takes an allowed origin
   (`PlaygroundWeb.RelaySocket.origin_allowed?`), and Phoenix refuses
   another with 403. A browser always sends a WebSocket's `Origin`; a
-  client without one connects, as before. No origin of the usercontent
-  domain is ever allowed: any site's code runs there
+  client without one connects, as before. Never list an origin of the
+  usercontent domain, since any site's code runs there. The default list
+  has none, but the backend does not check this
   ([frames.md](frames.md#bridge-mode)). `PLAYGROUND_RELAY_ORIGINS`, which
   let exec frames there open the socket themselves before 2026-10-29, was
   removed on 2026-10-30.

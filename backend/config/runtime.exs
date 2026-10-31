@@ -111,14 +111,23 @@ if config_env() == :prod do
   # PlaygroundWeb.ServiceOrigins): the apex and the sites that embed it,
   # whose apex worker asks with their origin (docs/backend.md).
   # PLAYGROUND_SERVICE_ORIGINS: space- or comma-separated origins.
-  config :playground,
-    service_origins:
-      String.split(
-        env.("PLAYGROUND_SERVICE_ORIGINS") ||
-          "https://run-elixir.dev https://tidewave.ai https://tidewave.steffend.me",
-        [" ", ","],
-        trim: true
-      )
+  service_origins =
+    String.split(
+      env.("PLAYGROUND_SERVICE_ORIGINS") ||
+        "https://run-elixir.dev https://tidewave.ai https://tidewave.steffend.me",
+      [" ", ","],
+      trim: true
+    )
+
+  # A host alone (PLAYGROUND_RELAY_ORIGINS took them) would never match.
+  for origin <- service_origins, not String.match?(origin, ~r{^https?://[^/]+$}) do
+    raise """
+    PLAYGROUND_SERVICE_ORIGINS: #{inspect(origin)} is not an origin.
+    List exact origins with their scheme, such as https://tidewave.ai.
+    """
+  end
+
+  config :playground, service_origins: service_origins
 
   config :playground, PlaygroundWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
