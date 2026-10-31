@@ -27,8 +27,19 @@ export interface Playground {
   requires?: { otp?: string };
   // A template: its kind, id (a digest of its files, without its build),
   // label, and the OTP and Elixir it was compiled with. Its files are its
-  // fs layer's, at the layer's root.
-  template?: { kind: string; id: string; label: string; otp: string; elixir: string };
+  // fs layer's, at the layer's root. `boot`: the boot recording its
+  // project unpacks beside the site's first (boot-phoenix: what its
+  // server reads first); `port`: the port its preview shows first (its
+  // server's).
+  template?: {
+    kind: string;
+    id: string;
+    label: string;
+    otp: string;
+    elixir: string;
+    boot?: string;
+    port?: number;
+  };
   // Commands: each a file of the package's fs layer (relative to its
   // root), which the runtime links from /usr/bin/NAME and runs as its #!
   // line says (shebang.ts): through the shell (#!/bin/sh), or by another

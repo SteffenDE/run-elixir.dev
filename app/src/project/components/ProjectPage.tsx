@@ -29,7 +29,7 @@ import { NifBuildDialog } from '@/project/components/NifBuildDialog';
 import { StartError } from '@/project/components/StartError';
 import { TemplateNotice } from '@/project/components/TemplateNotice';
 import { Terminals } from '@/project/components/Terminals';
-import { setup } from '@elixir-playground/runtime/kinds';
+import { setup } from '@/shared/lib/kinds';
 import { beginStart, hasBegun, start } from '@/project/lib/playground';
 import { workspace as current } from '@/project/lib/workspace';
 import { closePopup } from '@/project/lib/previewChannel';

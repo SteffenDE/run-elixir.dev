@@ -54,7 +54,8 @@ import { setWorkspace, type Workspace } from './workspace';
 import { previewRelay } from '@elixir-playground/api/previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
-import { setup as setupOf, type Setup, type WorkspaceKind } from '@elixir-playground/runtime/kinds';
+import type { WorkspaceKind } from '@elixir-playground/runtime/kinds';
+import { setup as setupOf, type Setup } from '@/shared/lib/kinds';
 
 type Output = (text: string) => void;
 
@@ -669,6 +670,9 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       // The elixir package's Hex cache: its index.js adds it for an
       // embedder; the IDE takes the packages from the site manifest.
       plugins: [packages, pglite(), hex(), tailscale],
+      // An empty project's server is most often Phoenix's (a template has
+      // its own port).
+      previewPort: 4000,
       project: { id: previewKey, persist: id !== null, template: template ?? 'empty' },
       boot,
       // The tailnet and the relay as the user lets this project use them

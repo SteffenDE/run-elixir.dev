@@ -234,7 +234,7 @@ Every key is optional. A package sets the keys that describe it.
 | `shell` | `shell` | The shell's module (`brush.wasm`). |
 | `otp`, `beamAbi`, `nifAbi`, `beam` | `otp-X` | OTP's version, the build's id, the NIF ABI it loads, and `{ loader, wasm }`. |
 | `elixir`, `requires.otp` | `elixir-X` | Elixir's version, and the OTP range it runs on. |
-| `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build; `otp` and `elixir` are the pair it was compiled with. Its files are its fs layer's, at the layer's root. |
+| `template` | `phoenix-template` | `{ kind, id, label, otp, elixir, boot?, port? }`: the id is a digest of its files without its build; `boot` the recording its project unpacks beside the site's first (`boot-phoenix`), `port` the one its preview shows first (4000); `otp` and `elixir` are the pair it was compiled with. Its files are its fs layer's, at the layer's root. |
 | `fs` | packages with files in the nodes' tree | `{ format, root, manifest, bundles, count, version }`: its fs layer, and where it goes ([above](#fs-layers-fs-format-3)). |
 | `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`, each run as its `#!` line says ([below](#scripts-and-direct-programs)). |
 | `env` | `otp-X`, `elixir-X` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |

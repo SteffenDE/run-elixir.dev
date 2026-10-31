@@ -1072,8 +1072,11 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
     filled = {
         "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"], "nifAbi": facts["nifAbi"]},
         "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
+        # Its recording (RECORD's boot-phoenix: what its server reads first)
+        # and its server's port, which its project's preview shows first.
         "phoenix-template": {"template": {"kind": "phoenix", "id": facts["template"],
-                                          "label": f"phx.new {PHX_NEW}", "otp": otp, "elixir": elixir}},
+                                          "label": f"phx.new {PHX_NEW}", "otp": otp, "elixir": elixir,
+                                          "boot": "boot-phoenix", "port": 4000}},
     }
     # Their own package.json fields: the claude package's tested Claude Code
     # range, whose newest version is the upper bound (docs/packages.md).

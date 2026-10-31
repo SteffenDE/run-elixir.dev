@@ -163,6 +163,9 @@ export function siteOf(packages: PackageDescriptor[], boot: Boot | null): SiteMa
 export interface PlaygroundOptions {
   // A temporary IEx: an empty project whose first shell runs IEx.
   kind?: WorkspaceKind;
+  // The port the preview shows first when it serves, without a
+  // template's (the IDE's empty projects: Phoenix's 4000).
+  previewPort?: number;
   // /shared's store (the user's, every project's), if the project has it.
   shared?: MessagePort | null;
   signal?: AbortSignal;
@@ -767,6 +770,15 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
           archive,
           link,
           services: servicesOfPlugins(instances),
+          // The template's recording and port; an archive's app takes every
+          // recording the site has (its Phoenix server's too).
+          boots: archive
+            ? (manifest.boot?.images ?? ['boot'])
+            : [
+                'boot',
+                ...(template?.playground.template?.boot ? [template.playground.template.boot] : []),
+              ],
+          previewPort: template?.playground.template?.port ?? options.previewPort ?? null,
         } satisfies ExecStart,
       ],
       [store, shared, link].filter((port): port is MessagePort => port !== null),

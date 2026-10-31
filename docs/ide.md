@@ -90,7 +90,7 @@ so a pinch could not zoom the preview alone.
 | `src/main.tsx` | Routes ([projects.md](projects.md#kinds-and-urls)); takes the project's lock or offers to take it over. |
 | `home/components/HomePage.tsx` | New projects, and the projects in this browser, with delete. |
 | `shared/lib/projects.ts`, `storage.ts`, `lock.ts` | The projects table (Dexie), where a project keeps its state and deleting it, one tab per project. |
-| `project/lib/kinds.ts` | What each kind starts with: boot images, template, directory, first command, preview. |
+| `shared/lib/kinds.ts` | What the IDE shows for each kind: the first tab, the preview from the start, the files, the status line. The boot recording and the preview's first port are the template package's (`template.boot`, `template.port`). |
 | `project/lib/playground.ts` | The nodes. Starts the shared `Files` (with the project's store), the bridge and the first shell; PGlite on the first connection. Opens and closes shells; routes the preview's requests to the node listening on its port; reads, saves and reacts to changes; opens files at a line. `window.playground` exposes it for tests. |
 | `project/lib/store.ts` | zustand state: status, tree paths, editor tabs, preview, terminals. |
 | `project/components/StartError.tsx` | Why the project could not start (`start()` failed, or the first node before it ran), in a modal dialog in the top layer, with Close, All projects and Reload; the bar says "Could not start". |

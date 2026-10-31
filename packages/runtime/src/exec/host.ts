@@ -42,7 +42,7 @@ import { workerProgram, type Deliver, type Listener, type Ports } from '../progr
 import type { KeptRecord } from '../overlay';
 import type { PackageProgram, PageProgram as Program, PageProgramHost } from '../pageProgram';
 import { commandProgram, shProgram, type StartNode } from '../programs/node';
-import { setup as setupOf, type Setup, type WorkspaceKind } from '../kinds';
+import type { WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '../lib/share';
 import { loadSite, previewOrigin, previewOrigins } from '../lib/site';
@@ -75,6 +75,11 @@ export interface ExecStart {
   // docs/api.md): its directories below /work, as a template's, over
   // the Phoenix server's boot image (OTP's and Elixir's files it reads).
   archive?: string | null;
+  // The boot recordings to unpack (the site's `boot`, and its template's:
+  // boot-phoenix), and the port the preview shows first, if it serves
+  // (its template's server's), else the last one served.
+  boots?: string[];
+  previewPort?: number | null;
   // The page's services on the project's ports ({ 5432: 'postgres' }: the
   // apex plugins'), and the variables their plugins give every process.
   services?: { ports: Record<number, string>; env: Record<string, string> };
@@ -119,7 +124,6 @@ export type ExecEvents = {
   blocked: string;
 };
 
-const PREVIEW_PORT = 4000;
 const TAIL = 4096;
 // The project's nodes' cookie (worker/index.ts gives it to a node whose
 // command line names none).
@@ -132,8 +136,11 @@ let rpc: Rpc = null!;
 let files: Files | null = null;
 // The IDE's git (its changes view), once it first asks.
 let git: Git | null = null;
-let setup: Setup = setupOf('empty');
 let start: ExecStart | null = null;
+// The boot recordings the project's nodes unpack, and the port its preview
+// shows first when it serves (ExecStart's).
+let boots: string[] = ['boot'];
+let preferred: number | null = null;
 // The site's packages (site.json), checked against this runtime.
 let site: SiteRef = null!;
 let bridge: Bridge | null = null;
@@ -539,7 +546,7 @@ const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal
     command,
     cwd,
     env: { ...env, PWD: cwd },
-    boots: setup.boots,
+    boots,
     tty: [tty?.stdin ?? false, tty?.stdout ?? false],
   });
   return node;
@@ -577,7 +584,7 @@ function updateListening(): void {
   const sorted = [...ports].sort((a, b) => a - b);
   const port = !ports.size
     ? null
-    : (chosenPort ?? (ports.has(PREVIEW_PORT) ? PREVIEW_PORT : served.at(-1)!));
+    : (chosenPort ?? (preferred !== null && ports.has(preferred) ? preferred : served.at(-1)!));
   if (bridge && port !== null) bridge.port = port;
   rpc.emit('serving', { ports: sorted, port, byProcess, scripts: fromScripts });
 }
@@ -629,13 +636,13 @@ const handlers = {
       manifest: options.site.manifest,
     };
     assertSite(site.manifest);
-    setup = setupOf(options.kind);
-    if (options.archive) setup = { ...setup, boots: setupOf('phoenix').boots };
+    boots = options.boots ?? ['boot'];
+    preferred = options.previewPort ?? null;
     await loadSite();
     files = new Files({
       base: start.build,
       site,
-      boots: setup.boots,
+      boots,
       // The template's directory below /work (its package's root), if the
       // project starts from one.
       template: [new Site(site).template(options.kind)?.root].filter(
@@ -659,7 +666,7 @@ const handlers = {
     await files.ready;
     bridge = new Bridge(
       { connect: (port: number) => listenerOn(port).connect(port) },
-      PREVIEW_PORT,
+      preferred ?? 0,
       previewOrigins(options.key),
       options.ide,
     );
@@ -784,7 +791,7 @@ const handlers = {
     node.start({
       ...(command === null ? { shell: true, initial } : { command: ['sh', '-c', command] }),
       cwd,
-      boots: setup.boots,
+      boots,
       // The caller's environment under the playground's own.
       env: {
         ...env,
