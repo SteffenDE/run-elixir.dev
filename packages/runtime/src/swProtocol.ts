@@ -106,7 +106,9 @@ export function belowBridge(host: string, config: unknown): boolean {
 }
 export const BRIDGE_PROTOCOLS = [1];
 export const BRIDGE_PROTOCOL = 1;
-const BRIDGE_PATH = /^\/_bridge\/([A-Za-z0-9_-]{16,64})\/(.*)$/;
+// The path below the key starts with no slash: the apex's worker drops
+// leading slashes, so /_bridge/KEY//_services/ would be its services.
+const BRIDGE_PATH = /^\/_bridge\/([A-Za-z0-9_-]{16,64})\/((?:[^/].*)?)$/;
 // A bridge's key and the path below it, or null.
 export function bridgePath(pathname: string): { key: string; rest: string } | null {
   const match = pathname.match(BRIDGE_PATH);

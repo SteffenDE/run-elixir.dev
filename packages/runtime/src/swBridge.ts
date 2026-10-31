@@ -21,6 +21,8 @@ import {
 
 export interface BridgeClient {
   url: string;
+  // 'window' for a page; a worker below a bridge never gives its port.
+  type?: string;
   postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 
@@ -71,7 +73,9 @@ const DROPPED = [
 // bridge: their policy (docs/packages.md, "Worker programs";
 // docs/nodejs.md, "The worker's policy"). Any package's: the policy only
 // takes away.
-const WORKER_SCRIPT = /^(npm\/(?:@[^/]+\/)?[^/@]+@[^/]+)\/workers\/[^?#]+\.m?js$/;
+// Every file there, whatever its name: a worker made from any of them
+// takes this policy, as it does not inherit its maker's.
+const WORKER_SCRIPT = /^(npm\/(?:@[^/]+\/)?[^/@]+@[^/]+)\/workers\//;
 // Firefox (157, Playwright 1.64; 2026-10-29) checks what this worker
 // answered (the Node.js worker's own script, its dynamic imports, the
 // files it fetches) against worker-src, script-src and connect-src by this
@@ -151,9 +155,12 @@ export function bridgeRouter({
     try {
       path = new URL(source.url).pathname;
     } catch {}
-    const own = isBridgeKey(key) && bridgePath(path)?.key === key;
+    // Pages only: a worker program runs below its bridge too, and must not
+    // replace the port its own files come from.
+    const page = source.type === 'window';
+    const own = page && isBridgeKey(key) && bridgePath(path)?.key === key;
     const fresh =
-      isBridgeKey(key) && path === BRIDGE_PAGE && !ports.has(key) && (await bridgeable());
+      page && isBridgeKey(key) && path === BRIDGE_PAGE && !ports.has(key) && (await bridgeable());
     const ok =
       BRIDGE_PROTOCOLS.includes(protocol) &&
       port !== undefined &&
@@ -261,9 +268,9 @@ export function bridgeRouter({
       .filter((each) => /^https?:\/\/[^\s;,'"]+$/.test(each));
     headers.delete('x-playground-connect');
     const worker = rest.match(WORKER_SCRIPT);
-    if (worker)
+    if (request.mode === 'navigate') headers.set('Content-Security-Policy', DOCUMENT_POLICY);
+    else if (worker)
       headers.set('Content-Security-Policy', workerPolicy(origin, key, worker[1], direct));
-    else if (request.mode === 'navigate') headers.set('Content-Security-Policy', DOCUMENT_POLICY);
     headers.set('Cache-Control', 'no-store');
     const status = answered.status || 502;
     const empty =

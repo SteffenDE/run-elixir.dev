@@ -18,7 +18,12 @@ const OTHER = 'o'.repeat(32);
 // A page of the origin, at `path`, that keeps what the worker says to it.
 function page(path: string): BridgeClient & { said: unknown[] } {
   const said: unknown[] = [];
-  return { url: `${ORIGIN}${path}`, said, postMessage: (message) => said.push(message) };
+  return {
+    url: `${ORIGIN}${path}`,
+    type: 'window',
+    said,
+    postMessage: (message) => said.push(message),
+  };
 }
 
 // The apex's worker's end of a port: answers each request with `answer`,
@@ -56,6 +61,10 @@ describe('the bridge paths', () => {
       rest: 'npm/@elixir-playground/runtime@1.1.0/exec.html',
     });
     expect(bridgePath('/_bridge/short/exec.html')).toBeNull();
+    // Nothing below a bridge starts with a slash: the apex's worker would
+    // drop it, and /_bridge/KEY//_services/ reach the services.
+    expect(bridgePath(`/_bridge/${KEY}//_services/nif/x/1`)).toBeNull();
+    expect(bridgePath(`/_bridge/${KEY}/`)).toEqual({ key: KEY, rest: '' });
     expect(bridgePath('/bridge/x/y')).toBeNull();
     expect(isOwnFrame('/bridge.html')).toBe(true);
     expect(isOwnFrame(`/_bridge/${KEY}/x`)).toBe(true);
@@ -106,6 +115,14 @@ describe('the bridge router', () => {
       await bridges.accept(
         { kind: 'bridge', protocol: 1, bridge: KEY },
         page(`/_bridge/${OTHER}/x.html`),
+        [apex(() => ok('')).port],
+      ),
+    ).toBe(false);
+    // A worker program, below this very bridge.
+    expect(
+      await bridges.accept(
+        { kind: 'bridge', protocol: 1, bridge: KEY },
+        { ...page(`/_bridge/${KEY}/npm/x@1.0.0/workers/a.js`), type: 'worker' },
         [apex(() => ok('')).port],
       ),
     ).toBe(false);
@@ -205,6 +222,7 @@ describe('the bridge router', () => {
     expect(
       (await bridges.respond(new Request(`${ORIGIN}/_bridge/${KEY}/_services/nif/x/1`))).status,
     ).toBe(404);
+    expect(bridges.handles(new URL(`${ORIGIN}/_bridge/${KEY}//_services/nif/x/1`))).toBe(false);
     expect(served.asked.map(({ path }) => path)).toEqual(['file.bin', 'page.txt']);
   });
 
@@ -241,11 +259,16 @@ describe('the bridge router', () => {
     // Not a package's page programs (the exec frame's worker imports
     // them), nor the runtime's scripts, nor a workers/ that is no
     // package's.
+    // Any file below workers/ makes a worker with the policy, not only
+    // scripts by their name.
+    const data = await bridges.respond(
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/workers/data.cjs`),
+    );
+    expect(data.headers.get('content-security-policy')).toBe(workerPolicy(ORIGIN, KEY, nodejs));
     for (const path of [
       `${nodejs}/npm.js`,
       'npm/@elixir-playground/runtime@1.2.0/worker.js',
       'workers/x.js',
-      `${nodejs}/workers/page.html`,
     ]) {
       const response = await bridges.respond(new Request(`${ORIGIN}/_bridge/${KEY}/${path}`));
       expect(response.headers.get('content-security-policy'), path).toBeNull();
