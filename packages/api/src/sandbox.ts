@@ -482,13 +482,7 @@ export class Sandbox {
       tty: null,
       ...start,
       cwd: cwd ?? this.root,
-      env: {
-        // Claude Code for the Agent SDK (claude-agent-acp): the
-        // playground's `claude` (docs/api.md).
-        CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
-        ...this.env,
-        ...env,
-      },
+      env: { ...this.env, ...env },
     };
     const failed = (error: Error) => {
       process.output(2, encoder.encode(`${error.message}\n`));

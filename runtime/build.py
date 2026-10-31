@@ -725,8 +725,13 @@ PACKAGES = {
                "files": ["claude.html", "frames", "program.js"],
                "playground": {"abi": {"pagePrograms": 1, "frames": 1},
                               "pagePrograms": {"claude": "program.js"},
-                              "frames": {"claude": "claude.html"}},
-               "runtime": "^1.2.0", "peers": ["nodejs"]},
+                              "frames": {"claude": "claude.html"},
+                              # The Agent SDK (claude-agent-acp) finds the
+                              # playground's claude by it.
+                              "variables": {"CLAUDE_CODE_EXECUTABLE": "/usr/bin/claude"}},
+               # esbuild: the frame compiles Claude Code's modules with the
+               # esbuild package's esbuild.js.
+               "runtime": "^1.2.0", "peers": ["nodejs", "esbuild"]},
     # Node.js on the page (packages/nodejs): the worker program node (its
     # workers/, which the runtime starts under the workers' policy) and the
     # page programs npm and npx.
@@ -1051,9 +1056,10 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
         "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
         "phoenix-template": {"template": {"kind": "phoenix", "id": facts["template"],
                                           "label": f"phx.new {PHX_NEW}", "otp": otp, "elixir": elixir}},
-        # The newest version tested is the upper bound (docs/packages.md).
-        "claude": {"claudeCode": f">={claude_code()} <={claude_code()}"},
     }
+    # Their own package.json fields: the claude package's tested Claude Code
+    # range, whose newest version is the upper bound (docs/packages.md).
+    fields = {"claude": {"claudeCode": f">={claude_code()} <={claude_code()}"}}
     entries = {}
     for key, package in PACKAGES.items():
         # The runtime it needs: its major, or the minor that brought a seam it uses.
@@ -1067,7 +1073,8 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
              for file in package["files"]},
             {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()),
             licensed[key], package.get("root", "").format(**versions) or None,
-            publish=package.get("publish", True), descriptor=package.get("publish", True))
+            publish=package.get("publish", True), descriptor=package.get("publish", True),
+            fields=fields.get(key))
     return entries
 
 

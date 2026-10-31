@@ -53,8 +53,6 @@ export interface Playground {
   // tailscale: the apex's Tailscale node, and Go's glue for it (the Go
   // that built it has its own: wasm_exec.js).
   tailscale?: { module: string; glue: string };
-  // claude: the Claude Code versions the preparer was tested with.
-  claudeCode?: string;
   // Programs that run on the page (in the exec frame's worker), by name:
   // each a JavaScript module of the package's whose default export is
   // the program (docs/packages.md, "Page programs"). The runtime puts

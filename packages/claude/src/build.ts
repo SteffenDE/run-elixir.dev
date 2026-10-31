@@ -12,7 +12,6 @@
 // otherwise. Update it with the site.
 import { sha512 } from '@noble/hashes/sha2.js';
 import { graphParts, type GraphFile } from './bungraph';
-import { load as loadEsbuild } from '@elixir-playground/esbuild/esbuild';
 import { DIR } from './protocol';
 
 export const CLAUDE_CODE = {
@@ -60,11 +59,12 @@ const BUILT_IN: GraphFile[] = [
 // Node loads them without compiling them each run. esbuild's exports are
 // getters set before a module's imports run, so modules that import each
 // other in a cycle find each other's functions, as ES modules do. A
-// module's require as Bun's (nodejs/claude/bun.ts: a text file's contents), and
+// module's require as Bun's (the nodejs package's claude/bun.ts: a text file's contents), and
 // Bun's import.meta as a CommonJS module has it.
 async function compile(
   modules: Map<string, string>,
   say: (text: string) => void,
+  loadEsbuild: EsbuildLoader,
 ): Promise<GraphFile[]> {
   const esbuild = await loadEsbuild();
   const encoder = new TextEncoder();
@@ -243,14 +243,21 @@ export async function untarOne(
 }
 
 // The version's files: kept, else made (and kept).
-export async function claudeFiles(say: (text: string) => void): Promise<GraphFile[]> {
+// esbuild-wasm, started: the esbuild package's (its esbuild.js, where the
+// frame hears it is: worker.ts).
+export type EsbuildLoader = () => Promise<typeof import('esbuild-wasm')>;
+
+export async function claudeFiles(
+  say: (text: string) => void,
+  loadEsbuild: EsbuildLoader,
+): Promise<GraphFile[]> {
   const version = `${CLAUDE_CODE.version}/${LAYOUT}`;
   const files = await kept(version).catch(() => null);
   if (files) return files;
   const binary = await fetchBinary(say);
   say(`claude: reading Claude Code's JavaScript out of its executable\n`);
   const { modules, assets } = graphParts(binary);
-  const made = [...assets, ...BUILT_IN, ...(await compile(modules, say))];
+  const made = [...assets, ...BUILT_IN, ...(await compile(modules, say, loadEsbuild))];
   await keep(version, made).catch((error: Error) =>
     say(`claude: could not keep it for the next run (${error.message})\n`),
   );

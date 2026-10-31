@@ -72,7 +72,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `tailwind` | The page program `tailwind` (`program.js`, Tailwind CSS 4.3.3's compiler) | `runtime ^1.2` | 0.4 MB |
 | `inotify-tools` | The page program `inotifywait` (`program.js`), for `file_system` | `runtime ^1.2` | 64 KB |
 | `nodejs` | The worker program `node` (`workers/nodejs.js`, `workers/chunks/`: Node's modules, the Bun stand-in for Claude Code) and the page programs `npm` and `npx` (`npm.js`, `npx.js`) | `runtime ^1.2` | 1.2 MB |
-| `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`, esbuild's WebAssembly among them); the range they were tested with; no Claude Code | `runtime ^1.2`, `nodejs` | 12 MB |
+| `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`); the range they were tested with; no Claude Code | `runtime ^1.2`, `nodejs`, `esbuild` | 0.1 MB |
 | `vite` | `index.js`: the Vite plugin that lays the packages out in a site's own output ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 7 KB |
 
 **Not published:** `phoenix-template` and `tailscale` are the
@@ -82,11 +82,6 @@ package or an archive ([api.md](api.md#templates)). Only the
 playground's apex runs a Tailscale node; its worker is part of the
 app's build, not the runtime package's, and the IDE adds the tailnet as
 a plugin of its own (`tailscale/plugin.ts`).
-
-What is still not where it belongs:
-
-- **esbuild's WebAssembly** (12 MB) is in the esbuild package and again
-  in the claude package's frames (the preparer compiles with it).
 
 ## Versioning
 
@@ -114,11 +109,12 @@ package's `package.json`, and `packages/runtime/src/packages/host.json`
 for the runtime. On 2026-10-31 (unpublished): runtime 1.2.0 (the
 `pagePrograms`, `frames` and `workers` seams; the `claude` seam removed,
 which only the claude package used; Node.js, npm and npx moved to the
-nodejs package, and esbuild, tailwind and inotifywait to theirs; Elixir's commands are its package's scripts), claude
-2.0.0 (now needs nodejs), elixir-X 2.0.0 (Elixir's scripts; needs the
+nodejs package, and esbuild, tailwind and inotifywait to theirs;
+Elixir's commands are its package's scripts), claude 2.0.0 (now needs
+nodejs and esbuild), elixir-X 2.0.0 (Elixir's scripts; needs the
 shell package), nodejs, esbuild, tailwind and inotify-tools 1.0.0
-(new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s `usercontent` changed, `EACCES` gone), vite 2.0.0
-(its options changed) and pglite 1.1.0 (its peer range on api). The
+(new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s
+`usercontent` changed, `EACCES` gone), vite 2.0.0 (its options changed) and pglite 1.1.0 (its peer range on api). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
@@ -246,7 +242,6 @@ Every key is optional. A package sets the keys that describe it.
 | `workerPrograms` | any (`nodejs`) | `{ NAME: script }`: commands that each run in a worker of their own, from a script below the package's `workers/` ([below](#worker-programs)). |
 | `tls` | `tls` | `{ module, roots }`. |
 | `tailscale` | `tailscale` | `{ module, glue }`. |
-| `claudeCode` | `claude` | The tested Claude Code range ([below](#claude-code)). |
 | `pagePrograms` | any | `{ NAME: module }`: commands that run on the page ([below](#page-programs-and-shared-frames)). |
 | `frames` | any | `{ NAME: page }`: shared frames, one per page ([below](#page-programs-and-shared-frames)). |
 | `provides` | `runtime` | `{ seam: [versions] }`: what the runtime speaks. |
@@ -807,8 +802,11 @@ The browser always fetches Claude Code from npm. We never republish it.
 
 - `@elixir-playground/claude` holds the `claude` command (a page
   program), the preparer (a shared frame) and the range it was tested
-  with: `"playground": { "claudeCode": ">=2.1.300 <=2.1.306" }`
-  ([above](#page-programs-and-shared-frames)).
+  with, a field of its own package.json (not the `playground` field):
+  `"claudeCode": ">=2.1.300 <=2.1.306"`
+  ([above](#page-programs-and-shared-frames)). Its frame compiles Claude
+  Code's modules with its peer esbuild package's `esbuild.js`, which it
+  loads from below its own bridge.
   The upper bound is inclusive and is the newest version tested.
 - **Planned:** the claude frame takes the highest version on the
   registry within the range, keys its cache by `(Claude Code version,
@@ -951,7 +949,11 @@ As of 2026-10-28:
   `ELIXIR_ERL_OPTIONS` flags are theirs. Tested 2026-10-31 in Chromium:
   the e2e specs for esbuild, live reload (edit, brush, isolation), the
   template, the terminal, Claude Code, the api and the preview (42
-  passed; one live-session test failed once and passed on its own).
+  passed; one live-session test failed once and passed on its own). The
+  claude frame loads the esbuild package's `esbuild.js` (the claude
+  package 12 MB to 0.1 MB): its tools and ACP specs passed in Chromium,
+  Firefox and WebKit (6; the interactive one, which needs Headscale, was
+  skipped).
 - **Scripts by their `#!` lines** (2026-10-30): the elixir package (2.0)
   ships Elixir's own scripts; the runtime's TypeScript copy of them is
   gone.

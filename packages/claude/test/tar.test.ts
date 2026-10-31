@@ -1,7 +1,5 @@
-import { expect, test, vi } from 'vitest';
+import { expect, test } from 'vitest';
 import { untarOne } from '../src/build';
-
-vi.mock('@elixir-playground/esbuild/esbuild', () => ({ load: vi.fn() }));
 
 test('extracts a file when padding arrives in separate chunks', async () => {
   const header = new Uint8Array(512);

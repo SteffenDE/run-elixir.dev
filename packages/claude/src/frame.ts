@@ -12,4 +12,14 @@ const worker = new Worker(new URL('./worker.ts', import.meta.url), {
   name: 'playground-claude',
 });
 
-serveFrame((port) => worker.postMessage({ kind: 'playground-claude' }, [port]));
+// With each port, where the esbuild package's files are (a peer of this
+// package's), which the worker compiles Claude Code's modules with.
+serveFrame((port, frame) =>
+  worker.postMessage(
+    {
+      kind: 'playground-claude',
+      esbuild: frame.packageUrl('@elixir-playground/esbuild')?.href ?? null,
+    },
+    [port],
+  ),
+);

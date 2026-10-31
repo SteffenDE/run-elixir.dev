@@ -330,8 +330,9 @@ its own, both under the playground's own variables (`PATH`, `HOME`,
   `stopForeground()` ends a shell's foreground program, and the shell
   stays.
 - **`CLAUDE_CODE_EXECUTABLE`** is `/usr/bin/claude` in every command's
-  environment, so claude-agent-acp (and the Agent SDK under it) runs the
-  playground's Claude Code ([nodejs.md](nodejs.md#claude-code-claude)).
+  environment with the claude package (its `variables`), so
+  claude-agent-acp (and the Agent SDK under it) runs the playground's
+  Claude Code ([nodejs.md](nodejs.md#claude-code-claude)).
 
 **Ports.** `connect(port)` reaches a server the sandbox runs, raw: no
 `Origin`, so Tidewave's `/tidewave/mcp` answers it. `serve(port,
