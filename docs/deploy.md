@@ -43,7 +43,10 @@ Forgejo runner and makes it live on the server as a new release
    releases beyond `KEEP_RELEASES` go.
 
 `playground-deploy rollback` makes the release before the live one live
-again; `status` names the live one. Both also work over the deploy key
+again; `status` names the live one. With a usercontent domain, it refuses
+a release whose `_usercontent/bridge.json` does not name that domain,
+such as one built before bridge mode: Caddy serves the domain from that
+directory, so every project would fail to start. Both also work over the deploy key
 (`ssh user@host rollback`).
 
 Deploying by hand from a machine with the key is the same:
@@ -123,7 +126,7 @@ repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 
 ### Cloudflare
 
-HTML pages, `sw.js`, `playground.json` and public assets keep
+HTML pages, the usercontent domain's `/sw.js`, `playground.json` and public assets keep
 their names across releases. Serve them with `Cache-Control: no-cache`
 and configure the CDN to honor revalidation. A cache rule that overrides
 these headers can leave users on an older release.
@@ -167,9 +170,10 @@ and preview host has its own cached URLs.
   CORS headers; the site proxies cloning and fetching only (no pushes).
 - **The page for every route.** `/`, `/phoenix`, `/empty`, `/iex` and each
   project's `/ID/` are all `index.html`: a path that is no file gets it.
-- **The service worker at the site's root.** `/sw.js` controls the scope
-  `/`. Serve it with `Cache-Control: no-cache`, so that an update reaches
-  browsers.
+- **The usercontent domain's service worker.** `/sw.js` on each
+  usercontent origin controls the scope `/`. Serve it with
+  `Cache-Control: no-cache`, so that an update reaches browsers. The apex
+  has no service worker.
 - **Compression.** `beam.wasm`, the JavaScript and the bundles (`.tar`,
   uncompressed on purpose: the node reads them synchronously) should be
   compressed in transit. The boot images (`boot/ID/*.tar.gz`) are gzipped already. Caddy does not
@@ -180,7 +184,7 @@ and preview host has its own cached URLs.
     ([build.md](build.md#what-the-site-is)): all can be cached for good,
     and a deploy of JavaScript alone keeps the other packages' names.
   - The pages (`index.html`, `preview.html`, `storage.html`),
-    `sw.js`, `playground.json` and `app/public`'s files
+    the usercontent domain's `sw.js`, `playground.json` and `app/public`'s files
     (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
     names, so they are served `Cache-Control: no-cache`: they revalidate
     (ETag or Last-Modified, which Caddy's file_server sends) at the
@@ -248,6 +252,11 @@ the old origins kept (preview cookies, the claude frame's cache) starts
 anew, and a preview origin's older `sw.js` routes `/bridge.html` into the
 app once, until it updates
 ([frames.md](frames.md#browser-behavior-found-while-building-it)).
+
+Deploy the site first, then the backend. The backend refuses `/relay`
+from usercontent origins, and the old site's exec frames open it from
+there: with the backend first, live projects lose their TCP connections
+until the site is deployed.
 
 ## Caddy
 

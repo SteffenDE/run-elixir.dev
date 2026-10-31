@@ -154,7 +154,7 @@ check() {
   # No bridge on the apex (docs/frames.md, Who may bridge), and no other
   # site frames its pages.
   local code
-  for path in bridge.html bridge.json _usercontent/bridge.html; do
+  for path in bridge.html bridge.json _usercontent/bridge.html "${runtime#/}root/bridge.html"; do
     code=$(curl -sS --max-time 30 --resolve "$DOMAIN:443:$CHECK_RESOLVE" -o /dev/null \
       -w '%{http_code}' "$base/$path") || true
     [ "$code" = 404 ] || { echo "check: the apex answers /$path ($code), not 404" >&2; return 1; }
@@ -275,6 +275,12 @@ rollback() {
   current=$(live) || die "nothing is live"
   before=$(releases | grep -A1 -x "$current" | sed -n 2p)
   [ -n "$before" ] || die "no release before $current"
+  # Caddy serves the usercontent domain from current/_usercontent: a
+  # release from before it (2026-10-31) would answer that domain 404.
+  if [ -n "$USERCONTENT" ]; then
+    grep -qs "\"bridge\": *\"$USERCONTENT\"" "$RELEASES/$before/_usercontent/bridge.json" ||
+      die "$before has no _usercontent/bridge.json naming $USERCONTENT; deploy a release instead"
+  fi
   swap "$before"
   check "$(runtime_of "$RELEASES/$before")" "$(site_of "$RELEASES/$before")" ||
     echo "playground-deploy: warning: $before failed its check" >&2

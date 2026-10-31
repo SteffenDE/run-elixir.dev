@@ -86,6 +86,27 @@ class Activate(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((site / "current/_usercontent/bridge.html").exists())
 
+    def test_rollback_only_to_a_release_with_the_usercontent_domains_files(self):
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory)
+            for rid in ("20261030T000000Z-aaaaaaa", "20261030T000001Z-bbbbbbb"):
+                self.release(site, rid, "run-elixir-usercontent.org")
+                self.assertEqual(self.activate(directory, rid).returncode, 0)
+            # The older one from before _usercontent/.
+            old = site / "releases/20261030T000000Z-aaaaaaa/_usercontent"
+            for file in old.iterdir():
+                file.unlink()
+            old.rmdir()
+            result = self.activate(directory, "", SSH_ORIGINAL_COMMAND="rollback")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("has no _usercontent/bridge.json", result.stderr)
+            self.assertEqual((site / "current").resolve().name, "20261030T000001Z-bbbbbbb")
+            old.mkdir()
+            (old / "bridge.json").write_text('{"bridge": "run-elixir-usercontent.org"}')
+            result = self.activate(directory, "", SSH_ORIGINAL_COMMAND="rollback")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((site / "current").resolve().name, "20261030T000000Z-aaaaaaa")
+
     def test_health_check_keeps_page_and_package_cache_policies_separate(self):
         with tempfile.TemporaryDirectory() as directory:
             site = Path(directory)
