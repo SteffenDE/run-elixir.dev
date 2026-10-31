@@ -28,6 +28,7 @@ sources.
 | `claude/` | `@elixir-playground/claude` | The `claude` page program, and the shared frame and worker that prepare Claude Code; `build.py` adds the descriptor and the tested range | `dist/` |
 | `nodejs/` | `@elixir-playground/nodejs` | Node.js on the page: the worker program `node` (`workers/nodejs.js`, Node's modules), and the `npm` and `npx` page programs; `build.py` adds the descriptor | `dist/` |
 | `esbuild/`, `tailwind/`, `inotify-tools/` | `@elixir-playground/esbuild`, `…/tailwind`, `…/inotify-tools` | The page programs `esbuild` (and `esbuild.js`, esbuild-wasm for other packages), `tailwind` and `inotifywait`; `build.py` adds the descriptors | `dist/` |
+| `hex/` | `@elixir-playground/hex` (not published) | The elixir package's Hex cache, an apex plugin; the IDE imports it from here | `dist/hex.js`, which `build.py` ships in the elixir package |
 | `vite/` | `@elixir-playground/vite` | The Vite plugin that lays a site's packages out in its own output | `dist/index.js`, `dist/index.d.ts` (tsc) |
 
 `api`'s and `pglite`'s declarations come from `tsc -p tsconfig.build.json`
@@ -35,7 +36,8 @@ and `types.mjs` ([docs/api.md](../docs/api.md#types)).
 
 The runtime's version is `runtime/src/packages/host.json`'s, with the ABI
 seams it speaks. `api`, `pglite` and `vite` take their versions from
-their `package.json`.
+their `package.json`. The other packages' versions are in `PACKAGES` in
+`runtime/build.py`, whatever their workspace `package.json` says.
 
 ## Packages `build.py` makes
 
@@ -45,14 +47,16 @@ its descriptor (`index.js`, typed by `index.d.ts`), which `create()` takes as a 
 | Package | Contents | Made from | Published |
 | --- | --- | --- | --- |
 | `otp-X` | The BEAM (`beam.mjs`, `beam.emu.mjs`, `beam.wasm`) and OTP's applications (an fs layer) | `beam/build.sh`, `target/otp` | Yes |
-| `elixir-X` | Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3 (an fs layer) | The host's Elixir and Mix | Yes |
+| `elixir-X` | Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3; Elixir's scripts in `bin/` (an fs layer); the Hex cache plugin (`hex.js`), which `index.js` adds. Needs `shell` | The host's Elixir and Mix, `packages/hex` | Yes |
 | `shell` | `brush.wasm`, `coreutils.wasm`; the terminfo entry | `brush/build.py`, `tools/coreutils/build.py` | Yes |
 | `git` | `git.wasm`; its shell-script commands | `tools/git/build.py` | Yes |
 | `gnu-tools` | GNU sed, grep, diffutils, gawk, find | `tools/*/build.py` | Yes |
 | `ripgrep` | `rg.wasm` | `tools/ripgrep/build.py` | Yes |
 | `tls` | `tls.wasm`, `roots.pem`; the nodes' CA bundle | `tls/build.py` | Yes |
-| `claude` | The `claude` command and its shared frame (`claude/`'s build), and the Claude Code range it was tested with | `packages/claude` | Yes |
-| `standard` | The preset `[shell, git, gnu-tools, ripgrep, tls, pglite()]` | Generated: it depends on packages that exist only as `build.py` output | Yes |
+| `nodejs` | The worker program `node` and the page programs `npm` and `npx` | `packages/nodejs` | Yes |
+| `esbuild`, `tailwind`, `inotify-tools` | The page programs `esbuild` (and `esbuild.js`), `tailwind` and `inotifywait` | `packages/esbuild`, `packages/tailwind`, `packages/inotify-tools` | Yes |
+| `claude` | The `claude` command and its shared frame (`claude/`'s build), and the Claude Code range it was tested with. Needs `nodejs` and `esbuild` | `packages/claude` | Yes |
+| `standard` | The preset `[shell, git, gnu-tools, ripgrep, tls, nodejs, esbuild, tailwind, inotify-tools, pglite()]` | Generated: it depends on packages that exist only as `build.py` output | Yes |
 | `phoenix-template` | The playground's Phoenix app at `/work/playground` | `mix phx.new`, compiled in the node | No: the playground's own |
 | `tailscale` | `tailscale.wasm` and Go's `wasm_exec.js` | `tailscale/build.py` | No: the playground's own |
 

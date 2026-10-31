@@ -1,6 +1,6 @@
 {
   "name": "@elixir-playground/claude",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "private": true,
   "type": "module",
   "description": "Claude Code's preparer: the claude frame and its worker (docs/nodejs.md). Its published package.json is runtime/build.py's.",
