@@ -60,7 +60,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `pglite` | `index.js`: the pglite plugin (Postgres on port 5432); depends on `@electric-sql/pglite` | `api` | 7 KB |
 | `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, nodejs, esbuild, tailwind, inotify-tools, pglite()]`, which it depends on | none | 1 KB |
 | `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (the Emscripten build and its glue); OTP's applications (an fs layer, 831 files) | `runtime` | 39 MB |
-| `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3; Elixir's scripts `bin/elixir`, `bin/elixirc`, `bin/iex`, `bin/mix` (an fs layer) | `runtime ^1.2`, `shell` | 14 MB |
+| `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3; Elixir's scripts `bin/elixir`, `bin/elixirc`, `bin/iex`, `bin/mix` (an fs layer) | `runtime ^2`, `shell` | 14 MB |
 | `phoenix-template` (not published) | The phx.new app at `/work/playground`, with `deps/` and its `_build`, compiled for one OTP and Elixir pair (an fs layer, 4,640 files) | `runtime`, `otp-X ^N`, `elixir-Y ^N` | 47 MB |
 | `shell` | `brush.wasm` (the shell), `coreutils.wasm` (78 tools); the terminfo entry (an fs layer) | `runtime` | 11 MB |
 | `git` | `git.wasm`; its shell-script commands (an fs layer, 13 files) | `runtime` | 3.8 MB |
@@ -68,11 +68,11 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find` | `runtime` | 5.3 MB |
 | `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
 | `tailscale` (not published) | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
-| `esbuild` | The page program `esbuild` (`program.js`) and `esbuild.js`, esbuild-wasm for another package's code; its WebAssembly in `files/` | `runtime ^1.2` | 12 MB |
-| `tailwind` | The page program `tailwind` (`program.js`, Tailwind CSS 4.3.3's compiler) | `runtime ^1.2` | 0.4 MB |
-| `inotify-tools` | The page program `inotifywait` (`program.js`), for `file_system` | `runtime ^1.2` | 64 KB |
-| `nodejs` | The worker program `node` (`workers/nodejs.js`, `workers/chunks/`: Node's modules, the Bun stand-in for Claude Code) and the page programs `npm` and `npx` (`npm.js`, `npx.js`) | `runtime ^1.2` | 1.2 MB |
-| `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`); the range they were tested with; no Claude Code | `runtime ^1.2`, `nodejs`, `esbuild` | 0.1 MB |
+| `esbuild` | The page program `esbuild` (`program.js`) and `esbuild.js`, esbuild-wasm for another package's code; its WebAssembly in `files/` | `runtime ^2` | 12 MB |
+| `tailwind` | The page program `tailwind` (`program.js`, Tailwind CSS 4.3.3's compiler) | `runtime ^2` | 0.4 MB |
+| `inotify-tools` | The page program `inotifywait` (`program.js`), for `file_system` | `runtime ^2` | 64 KB |
+| `nodejs` | The worker program `node` (`workers/nodejs.js`, `workers/chunks/`: Node's modules, the Bun stand-in for Claude Code) and the page programs `npm` and `npx` (`npm.js`, `npx.js`) | `runtime ^2` | 1.2 MB |
+| `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`); the range they were tested with; no Claude Code | `runtime ^2`, `nodejs`, `esbuild` | 0.1 MB |
 | `vite` | `index.js`: the Vite plugin that lays the packages out in a site's own output ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 7 KB |
 
 **Not published:** `phoenix-template` and `tailscale` are the
@@ -106,11 +106,15 @@ a plugin of its own (`tailscale/plugin.ts`).
 
 The packages' versions are in `PACKAGES` in `build.py`, each JavaScript
 package's `package.json`, and `packages/runtime/src/packages/host.json`
-for the runtime. On 2026-10-31 (unpublished): runtime 1.2.0 (the
-`pagePrograms`, `frames` and `workers` seams; the `claude` seam removed,
-which only the claude package used; Node.js, npm and npx moved to the
+for the runtime. On 2026-10-31 (unpublished): runtime 2.0.0 (the
+`pagePrograms`, `frames` and `workers` seams; the `claude` seam and the
+`/relay.html` bootstrap removed; Node.js, npm and npx moved to the
 nodejs package, and esbuild, tailwind and inotifywait to theirs;
-Elixir's commands are its package's scripts), claude 2.0.0 (now needs
+Elixir's commands are its package's scripts). It is a major version
+because a site on runtime 1's packages loses its tools and frames with
+it. Every package now peer-depends on `runtime ^2.0.0`, so
+`publish.py` publishes the next patch of each already-published package
+(OTP, shell, git, ripgrep, gnu-tools, tls). Also: claude 2.0.0 (now needs
 nodejs and esbuild), elixir-X 2.0.0 (Elixir's scripts; needs the
 shell package), nodejs, esbuild, tailwind and inotify-tools 1.0.0
 (new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s
@@ -360,9 +364,9 @@ of each.
 | `tls` | `tls.wasm`'s exports and the nodejs package's `tls.ts` | 1 | its 19 exports (`tls_client`, `tls_alpn`, …) | `tls` major or `runtime` major |
 | `tailscale` | `tailscale.wasm` with its `wasm_exec.js`, and the Tailscale worker | 1 | the worker's calls into the node | `tailscale` major or `runtime` major |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
-| `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 1.2 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`, `watch(changed)`) | `runtime` major |
-| `workers` | a package's worker program and the runtime's `programs/workerProgram.ts`, since runtime 1.2 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `options`), the net, child, stdin, resize and `changed` messages; the files channel's calls and lock (`sdk/files`); the policy below `workers/` | `runtime` major |
-| `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 1.2 | 1 | `playground-frame-loaded`, `playground-frame` with a port and its package's peers' paths (`packages`); the origin's name | `runtime` major |
+| `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 2.0 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`, `watch(changed)`) | `runtime` major |
+| `workers` | a package's worker program and the runtime's `programs/workerProgram.ts`, since runtime 2.0 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `options`), the net, child, stdin, resize and `changed` messages; the files channel's calls and lock (`sdk/files`); the policy below `workers/` | `runtime` major |
+| `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 2.0 | 1 | `playground-frame-loaded`, `playground-frame` with a port and its package's peers' paths (`packages`); the origin's name | `runtime` major |
 | `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings follow |
 | `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
 | template pair | `phoenix-template` and OTP plus Elixir | exact versions | another OTP or Elixir | a new template build |
@@ -520,7 +524,7 @@ compile.
 A package can add a command, and keep state that every project of a page
 shares, without the api or the runtime naming it (implemented
 2026-10-30; the runtime's `pagePrograms` and `frames` seams, 1 since
-runtime 1.2). The claude package is the first.
+runtime 2.0). The claude package is the first.
 
 ```json
 "playground": {
@@ -582,7 +586,7 @@ reaches only its own package's frames.
 
 A package can add a command that runs in a worker of its own, confined
 by a policy, rather than in the exec frame's worker (implemented
-2026-10-31; the runtime's `workers` seam, 1 since runtime 1.2). The
+2026-10-31; the runtime's `workers` seam, 1 since runtime 2.0). The
 nodejs package's `node` is the first.
 
 ```json
@@ -933,11 +937,11 @@ As of 2026-10-28:
   runtime's data seam (`lib/apexLink.ts`), and the Vite plugin. The
   backend's services moved to the apex, with the origin allowlist.
 - **Page programs and shared frames** (2026-10-30): the runtime's
-  `pagePrograms` and `frames` seams (runtime 1.2); the claude package
+  `pagePrograms` and `frames` seams (runtime 2.0); the claude package
   (2.0) moved onto them.
 - **The nodejs package** (2026-10-30): Node.js's modules, npm and npx
   moved out of the runtime; `node` is the package's worker program (the
-  `workers` seam, 1, runtime 1.2; 2026-10-31). Tested 2026-10-31: the
+  `workers` seam, 1, runtime 2.0; 2026-10-31). Tested 2026-10-31: the
   unit tests; in Chromium the e2e specs for Node.js, npm, child
   processes, the node policy, Node.js networking, Claude Code, Vite,
   bridge, the api and rebar3 (33 passed, 2 skipped); in Firefox and

@@ -182,7 +182,7 @@ plugin in `vite` and `vite preview` for a `*.localhost` name.
    `v-KEY-PORT` or a shared frame's `NAME-HASH`). The bootstrap checks
    `/bridge.json`, then tells its parent that it loaded.
 2. The apex's main thread answers with the frame's page (for example,
-   `npm/@elixir-playground/runtime@1.2.0/exec.html`) and a port to the
+   `npm/@elixir-playground/runtime@2.0.0/exec.html`) and a port to the
    **apex's worker** (`packages/api/src/apexWorker.ts`), a dedicated worker
    on the apex's origin.
 3. The bootstrap registers `/sw.js`, waits for it to activate, picks a

@@ -686,7 +686,7 @@ PACKAGES = {
         # Its Hex cache, an apex plugin (packages/hex), which its index.js adds.
         "files": ["hex.js"],
         "apex": "hex.js",
-        "runtime": "^1.2.0",
+        "runtime": "^2.0.0",
         "peers": ["shell"],
         # Elixir's scripts, and the archives and rebar3 Mix finds by them.
         "playground": {"bin": {name: f"bin/{name}" for name in ELIXIR_BIN},
@@ -722,7 +722,7 @@ PACKAGES = {
                                  "tailscale": {"module": "tailscale.wasm", "glue": "wasm_exec.js"}}},
     # Claude Code (packages/claude): its page program, `claude`, and the
     # shared frame and worker that prepare its files, on the runtime's
-    # pagePrograms and frames seams (its 1.2; docs/packages.md).
+    # pagePrograms and frames seams (runtime 2.0; docs/packages.md).
     "claude": {"version": "2.0.0", "dist": "packages/claude/dist",
                "files": ["claude.html", "frames", "program.js"],
                "playground": {"abi": {"pagePrograms": 1, "frames": 1},
@@ -733,7 +733,7 @@ PACKAGES = {
                               "variables": {"CLAUDE_CODE_EXECUTABLE": "/usr/bin/claude"}},
                # esbuild: the frame compiles Claude Code's modules with the
                # esbuild package's esbuild.js.
-               "runtime": "^1.2.0", "peers": ["nodejs", "esbuild"]},
+               "runtime": "^2.0.0", "peers": ["nodejs", "esbuild"]},
     # Node.js on the page (packages/nodejs): the worker program node (its
     # workers/, which the runtime starts under the workers' policy) and the
     # page programs npm and npx.
@@ -742,7 +742,7 @@ PACKAGES = {
                "playground": {"abi": {"workers": 1, "pagePrograms": 1},
                               "workerPrograms": {"node": "workers/nodejs.js"},
                               "pagePrograms": {"npm": "npm.js", "npx": "npx.js"}},
-               "runtime": "^1.2.0"},
+               "runtime": "^2.0.0"},
     # The tools a Phoenix app's assets need, on the page (packages/esbuild,
     # packages/tailwind, packages/inotify-tools): each a page program; the
     # Hex esbuild and tailwind packages find theirs by the :path their
@@ -753,18 +753,18 @@ PACKAGES = {
                 "playground": {"abi": {"pagePrograms": 1}, "pagePrograms": {"esbuild": "program.js"},
                                "variables": {"ELIXIR_ERL_OPTIONS":
                                              {"append": '-esbuild path <<"/usr/bin/esbuild">>'}}},
-                "runtime": "^1.2.0"},
+                "runtime": "^2.0.0"},
     "tailwind": {"version": "1.0.0", "dist": "packages/tailwind/dist",
                  "files": ["program.js"],
                  "playground": {"abi": {"pagePrograms": 1}, "pagePrograms": {"tailwind": "program.js"},
                                 "variables": {"ELIXIR_ERL_OPTIONS":
                                               {"append": '-tailwind path <<"/usr/bin/tailwind">>'}}},
-                 "runtime": "^1.2.0"},
+                 "runtime": "^2.0.0"},
     "inotify-tools": {"version": "1.0.0", "dist": "packages/inotify-tools/dist",
                       "files": ["program.js"],
                       "playground": {"abi": {"pagePrograms": 1},
                                      "pagePrograms": {"inotifywait": "program.js"}},
-                      "runtime": "^1.2.0"},
+                      "runtime": "^2.0.0"},
 }
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
