@@ -49,9 +49,16 @@ export const environment = (packages: Site): Record<string, string> => ({
 // (programs/inotifywait.ts) is on PATH, for file_system (Phoenix's live
 // reload); without it file_system only warns, where its port would fail.
 // bin: the packages' commands (Site.bin), each linked from /usr/bin.
+// pagePrograms: the packages' page programs (Site.pagePrograms), on PATH
+// as the runtime's own page programs are.
 export function prepare(
   root: Dir,
-  { dns = false, inotifywait = false, bin = new Map<string, string>() } = {},
+  {
+    dns = false,
+    inotifywait = false,
+    bin = new Map<string, string>(),
+    pagePrograms = [] as string[],
+  } = {},
 ): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
@@ -90,8 +97,6 @@ export function prepare(
     'node',
     'npm',
     'npx',
-    // Claude Code, its JavaScript on that Node (programs/claude/claude.ts).
-    'claude',
     'sh',
     'bash',
     'elixir',
@@ -104,6 +109,7 @@ export function prepare(
     // The shell's own processes (utilities.ts UTILITIES).
     ...Object.keys(UTILITIES),
     ...(inotifywait ? ['inotifywait'] : []),
+    ...pagePrograms,
   ])
     if (!bin.has(name)) root.put(`usr/bin/${name}`, new File());
   // What git starts by name from its exec path (on PATH when it runs sh):

@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 ---
 
 # Node.js in the playground
@@ -83,11 +83,18 @@ connect-src ORIGIN/npm/@elixir-playground/ data: blob:
   started one from its URL would have their network. A worker started
   from `nodejs.js` or a chunk takes the same policy from its own response.
 - **Threads** (`threads.ts`) start from blobs, which inherit the policy.
+  In bridge mode they start from `nodejs.js`'s URL, whose response
+  carries the same policy: Firefox does not let the service worker answer
+  a blob worker that a worker starts
+  ([frames.md](frames.md#browser-behavior-found-while-building-it)).
 - **`connect-src`:** the packages' files (the tls package's `tls.wasm`
   and `roots.pem`, whose directory the server cannot tell from the
   runtime's path: so every package's, public and immutable), and `data:`
-  and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin also
-  serves `/git/`, `/hex/` and `/api/v1/nif/`.
+  and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin
+  served `/git/`, `/hex/` and `/api/v1/nif/` before they moved to the
+  apex, and keeps other pages. In bridge mode the frame's service worker
+  sends the policy (`swBridge.ts nodePolicy`), with the bridge's paths, and
+  `/sw.js` in `worker-src`, `script-src` and `connect-src` for Firefox's check.
 - **`'unsafe-eval'`** for the loader's CommonJS wrapper, and
   **`'wasm-unsafe-eval'`** for tls.wasm and `node:wasi`.
 
@@ -418,21 +425,26 @@ on a web stream, `nextTick`'s order, a closed connection read to its
 end, and a connection the gateway keeps open for the next request. Codex's
 npm package is a native binary (Rust); opencode needs Bun.
 
-### Claude Code (`claude`, `programs/claude/claude.ts`)
+### Claude Code (`claude`)
 
 Claude Code's npm package is a Bun executable containing Bun's runtime
 and Claude Code's JavaScript module graph. The `claude` command extracts
 and runs that JavaScript on the playground's Node implementation. The
-site does not host Claude Code's files.
+site does not host Claude Code's files. The command and its preparer are
+the claude package's (`packages/claude`): a page program
+(`program.ts`) and a shared frame (`claude.html`, `worker.ts`)
+([packages.md](packages.md#page-programs-and-shared-frames)). The
+runtime knows nothing of Claude Code but the Bun stand-in, `node`'s
+`bun` option.
 
-- **Version:** `CLAUDE_CODE` in `programs/claude/build.ts` pins a tested
+- **Version:** `CLAUDE_CODE` in `packages/claude/src/build.ts` pins a tested
   version, including the linux-x64 tarball URL and integrity hash. Site
   releases update this version.
 - **First run:** the claude frame's worker downloads the 125 MB tarball
   from the npm registry. It computes the SHA-512 hash while streaming the
   download and checks it against the pinned integrity hash. It also
   decompresses the gzip stream and extracts the executable from the tar
-  archive. `programs/claude/bungraph.ts` parses Bun's undocumented module
+  archive. `bungraph.ts` parses Bun's undocumented module
   graph format, validates the layout, and reports an error for unsupported
   binaries. Bun's loader byte identifies JavaScript modules. The parser
   rewrites imports between modules as relative paths and maps Bun's
@@ -443,9 +455,9 @@ site does not host Claude Code's files.
   compiler, sucrase, misinterprets labels and private names in a minified
   module as imports. Preparation takes about 22 seconds in Chromium.
 - **Cache and execution:** the
-  [claude frame](frames.md#the-claude-frame) prepares and caches files on
-  a separate origin. All projects share its `playground-claude-code`
-  IndexedDB database. The cache key includes the package version and
+  [claude frame](frames.md#packages-page-programs-and-shared-frames)
+  prepares and caches files on its own origin (`claude-HASH`). All the
+  page's projects share its `playground-claude-code` IndexedDB database. The cache key includes the package version and
   `LAYOUT`, which identifies the generated file format; obsolete entries
   are removed. Subsequent projects reuse the cached files. Each run
   loads the files into `files.js` memory at `/opt/claude-code/VERSION`,

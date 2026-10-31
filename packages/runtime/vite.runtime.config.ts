@@ -6,9 +6,10 @@ import { licenses } from '../../vite-licenses.ts';
 // nodejs/), which go into the runtime package
 // (dist/, laid out as /npm/@elixir-playground/runtime@VERSION/ by
 // runtime/build.py) under their names, with the frames
-// (vite.frames.config.ts); and root/: the service worker and the
-// /relay.html bootstrap, which a site serves at its root (the worker's
-// scope is /: runtime/build.py, the vite package).
+// (vite.frames.config.ts); and root/: the service worker and the bridge's
+// bootstrap, which the usercontent domain serves at its root (the
+// worker's scope is /: runtime/build.py's _usercontent/, the vite
+// package).
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
 // harness instead: node.mjs, and beam-node.mjs (beam/), into dist-node/
@@ -39,7 +40,8 @@ export default defineConfig(({ mode }): UserConfig =>
         },
       }
     : {
-        // public/root/relay.html: the bootstrap a site serves at /relay.html.
+        // public/root/bridge.html: the bootstrap the usercontent domain
+        // serves at /bridge.html.
         publicDir: 'public',
         // The runtime package's scripts (docs/licenses.md).
         plugins: [licenses('runtime').plugin],

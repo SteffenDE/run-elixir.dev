@@ -49,9 +49,9 @@ test('two ports of the app show at once, each on its own origin', async ({ page 
   test.setTimeout(300_000);
   await page.goto(`${APEX}/empty`);
   await page.waitForURL(PROJECT);
-  const id = PROJECT.exec(page.url())![1];
-  const port = (n: number) => previewAt(id, n);
   await prompted(page, 1);
+  const origins = { 4000: await previewAt(page, 4000), 4001: await previewAt(page, 4001) };
+  const port = (n: 4000 | 4001) => origins[n];
   await writeText(page, '/work/two.exs', server(port(4001)));
   await page.evaluate(() => window.playground.node.input('elixir two.exs\n'));
   const frame = page.frameLocator('.preview iframe');

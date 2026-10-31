@@ -12,6 +12,7 @@
 // Before, each project ran on an origin of its own under the apex
 // (p-ID.DOMAIN, and a live session's guest on l-ID.DOMAIN): those
 // addresses now go to the apex's.
+import { bridgeKey, siteRoot } from './apexLink';
 import { isId } from './ids';
 
 interface Site {
@@ -27,10 +28,6 @@ interface Site {
   // A name under either domain that is no address (a reserved name, or a
   // mistyped one).
   stray: boolean;
-  // Other sites whose pages may run projects on the usercontent domain
-  // through the API (docs/api.md): its frames take them as their parent,
-  // as they take the apex.
-  embedders: string[];
 }
 
 let site: Site = {
@@ -39,7 +36,6 @@ let site: Site = {
   preview: null,
   moved: null,
   stray: false,
-  embedders: [],
 };
 
 // A preview of one port of a project's app (or a temporary IEx's): v-, its
@@ -60,10 +56,12 @@ function movedFrom(name: string): string | null {
   return null;
 }
 
-// Read the site's configuration, once, before anything asks.
+// Read the site's configuration, once, before anything asks. A bridged
+// frame (bridge mode, docs/frames.md) asks its bridge: the apex's worker
+// answers for the apex, which is its only parent.
 export async function loadSite(): Promise<void> {
-  const config: { domain?: unknown; usercontent?: unknown; embedders?: unknown } = await fetch(
-    '/playground.json',
+  const config: { domain?: unknown; usercontent?: unknown } = await fetch(
+    bridgeKey() ? `${siteRoot()}playground.json` : '/playground.json',
     {
       cache: 'no-cache',
     },
@@ -73,10 +71,7 @@ export async function loadSite(): Promise<void> {
   const domain = typeof config.domain === 'string' && config.domain ? config.domain : null;
   const usercontent =
     typeof config.usercontent === 'string' && config.usercontent ? config.usercontent : null;
-  const embedders = Array.isArray(config.embedders)
-    ? config.embedders.filter((origin): origin is string => typeof origin === 'string')
-    : [];
-  site = { domain, usercontent, preview: null, moved: null, stray: false, embedders };
+  site = { domain, usercontent, preview: null, moved: null, stray: false };
   const host = location.host;
   if (usercontent && host.endsWith(`.${usercontent}`)) {
     site.preview = previewName(host.slice(0, -usercontent.length - 1));
@@ -87,18 +82,16 @@ export async function loadSite(): Promise<void> {
   }
 }
 
-// The pages that may be the usercontent domain's frames' parent: the apex
-// and the embedders the site names. A frame says it loaded to any parent
-// (nothing is in it) and takes calls from these alone.
-export const parentOrigins = () => [apexOrigin(), ...site.embedders];
+// The page that may be a usercontent frame's parent: its apex, the page
+// that bridged it (its playground.json comes from that page's worker). A
+// frame says it loaded to any parent (nothing is in it) and takes calls
+// from it alone.
+export const parentOrigins = () => [apexOrigin()];
 
-// A page that runs a project through the API on another site's usercontent
-// domain (create()'s `usercontent`): no /playground.json of its own names it.
-export function useUsercontent(usercontent: string): void {
-  site = { ...site, usercontent };
-}
 // The usercontent domain, if the site has one.
 export const usercontentDomain = () => site.usercontent;
+// The apex the site names (with a port, if any), or null.
+export const siteDomain = () => site.domain;
 // This page is on a name that is no address.
 export const strayOrigin = () => site.stray;
 // This page is on a preview origin: which project and port.
@@ -115,24 +108,17 @@ export const formerStorage = (id: string) =>
 
 // Where project `id`'s preview shows a port of its app, with {port} for
 // it (v-ID-{port}.USERCONTENT); null without a usercontent domain.
-export function previewOrigins(id: string): string | null {
-  return site.usercontent && isId(id)
-    ? `${location.protocol}//v-${id}-{port}.${site.usercontent}`
-    : null;
+// `usercontent`: a sandbox's own (the api's create()), not the page's.
+export function previewOrigins(id: string, usercontent = site.usercontent): string | null {
+  return usercontent && isId(id) ? `${location.protocol}//v-${id}-{port}.${usercontent}` : null;
 }
-export const previewOrigin = (id: string, port: number) =>
-  previewOrigins(id)?.replace('{port}', String(port)) ?? null;
+export const previewOrigin = (id: string, port: number, usercontent = site.usercontent) =>
+  previewOrigins(id, usercontent)?.replace('{port}', String(port)) ?? null;
 
 // Where the worker that runs project `key` lives (e-KEY.USERCONTENT); null
 // without a usercontent domain.
-export const execOrigin = (key: string) =>
-  site.usercontent && isId(key) ? `${location.protocol}//e-${key}.${site.usercontent}` : null;
-
-// Where Claude Code's files are made and kept for every project
-// (claude.USERCONTENT, programs/claude/frame.ts); null without a
-// usercontent domain.
-export const claudeOrigin = () =>
-  site.usercontent ? `${location.protocol}//claude.${site.usercontent}` : null;
+export const execOrigin = (key: string, usercontent = site.usercontent) =>
+  usercontent && isId(key) ? `${location.protocol}//e-${key}.${usercontent}` : null;
 
 export const projectUrl = (id: string) => apexUrl(`/${id}/`);
 

@@ -54,7 +54,9 @@ export interface ApexInstance {
 
 // What a plugin is told about the sandbox it joins.
 export interface ApexContext {
-  // The project's key (its origins' name).
+  // The project's key for what this page keeps of it (its stores): the
+  // same in both modes. In bridge mode its origins have a salted name of
+  // their own (docs/api.md, "Project keys in bridge mode").
   projectId: string;
   // Whether the project keeps its data (project.persist).
   persist: boolean;
@@ -86,6 +88,28 @@ export type ProjectSource = { id?: string; persist?: boolean } & (
 export type Way = 'tailnet' | 'relay' | 'none';
 export type RelayPolicy = readonly string[] | ((host: unknown) => Way | Promise<Way>);
 
+// The usercontent domain that runs project code (docs/frames.md): a shared
+// one, which serves no packages. The page's worker answers its frames'
+// pages and scripts with the packages' files from `content`, a directory
+// (by default the page's <meta name="playground-content">, else its
+// origin root: each descriptor's `base` resolves below it), and the
+// frames' workers read the packages' data there themselves, with CORS.
+// `worker`: the apex worker's script, if the page's bundler does not emit
+// it beside the api.
+export interface UsercontentOptions {
+  domain: string;
+  content?: string;
+  worker?: string | URL;
+}
+
+// Where the backend's services are (docs/backend.md): a backend's origin,
+// or each service's URL (null: none). By default the site's own backend
+// when this page is its apex, else run-elixir.dev's, which answers the
+// origins on its allowlist.
+export type ServicesOption =
+  | string
+  | { relay?: string | null; nif?: string | null; git?: string | null };
+
 export interface CreateOptions {
   // The packages and plugins the sandbox runs with: OTP, Elixir, the
   // shell and its tools (@elixir-playground/standard), Claude Code.
@@ -98,14 +122,17 @@ export interface CreateOptions {
   env?: Record<string, string>;
   // None by default: the project reaches only hosts that send CORS headers.
   relay?: RelayPolicy;
-  // The usercontent domain that runs project code (with a port, if any):
-  // its e-KEY, v-KEY-PORT and claude names. By default the one the page's
-  // site names (/playground.json).
-  usercontent?: string;
-  // The runtime package's path on the usercontent domain
-  // (/npm/@elixir-playground/runtime@VERSION/). By default the page's
-  // <meta name="playground-runtime">.
+  // The shared usercontent domain that runs project code (with a port, if
+  // any), or it with where this page serves the packages. By default the
+  // one the page's site names (/playground.json), else run-elixir.dev's
+  // (run-elixir-usercontent.org).
+  usercontent?: string | UsercontentOptions;
+  // Where this page serves the runtime package
+  // (/npm/@elixir-playground/runtime@VERSION/, below `content`). By
+  // default the page's <meta name="playground-runtime">.
   runtime?: string;
+  // The backend's services: NIF builds, git's proxy, the TCP relay.
+  services?: ServicesOption;
   // Where the (one-pixel, unseen) exec frame goes: document.body by default.
   container?: HTMLElement;
   onProgress?: (event: Events['progress']) => void;

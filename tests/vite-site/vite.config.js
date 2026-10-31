@@ -4,14 +4,12 @@
 import { defineConfig } from 'vite';
 import { elixirPlayground } from '@elixir-playground/vite';
 
+// The site is below /web/, as an embedder's app below a path is: its
+// packages too. Its shared usercontent domain's hosts are the plugin's,
+// locally (a *.localhost name).
 export default defineConfig({
-  plugins: [
-    elixirPlayground({
-      apex: 'apex.localhost:8099',
-      usercontent: 'usercontent.localhost:8099',
-      https: false,
-    }),
-  ],
+  base: '/web/',
+  plugins: [elixirPlayground({ usercontent: 'usercontent.localhost:8099' })],
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
   resolve: { preserveSymlinks: true },
   build: { target: 'es2022' },

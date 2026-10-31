@@ -4,6 +4,7 @@
 // its parent's to write; messages go both ways as structured clones, so
 // SharedArrayBuffers, WebAssembly memories and modules pass as they are
 // (napi-rs's threads share a memory this way).
+import { bridgeKey } from '../lib/apexLink';
 import { EventEmitter } from 'events';
 import { lockBusyUnder, lockFree, lockStop, lockThread } from '../wasi/shared';
 
@@ -198,10 +199,16 @@ export function createThreads(host: ThreadHost) {
       super();
       this.threadId = nextThread++;
       this.token = lockThread(lock, host.self?.token ?? 1);
+      // A blob's worker inherits this one's policy. In bridge mode
+      // (docs/frames.md) Firefox does not let the service worker answer a
+      // blob worker's imports; the script's own URL carries the same
+      // policy (swBridge.ts nodePolicy).
       const blob = new Blob([`import ${JSON.stringify(host.script)};`], {
         type: 'text/javascript',
       });
-      this.thread = new globalThis.Worker(URL.createObjectURL(blob), { type: 'module' });
+      this.thread = new globalThis.Worker(bridgeKey() ? host.script : URL.createObjectURL(blob), {
+        type: 'module',
+      });
       this.release = host.hold();
       const name = String(filename);
       const file = options.eval

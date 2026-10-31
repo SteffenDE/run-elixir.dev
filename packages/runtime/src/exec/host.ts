@@ -42,15 +42,16 @@ import { inotifywait } from '../programs/inotifywait';
 import { tailwind } from '../programs/tailwind';
 import { filesChanged } from '../programs/watch';
 import { nodeProgram, type Deliver, type Listener, type Ports } from '../programs/nodejs';
-import type { KeptRecord } from '../overlay';
-import { claudeProgram } from '../programs/claude/claude';
 import { npmProgram, npxProgram, type Program } from '../programs/npm';
+import type { KeptRecord } from '../overlay';
+import type { PackageProgram, PageProgramHost } from '../pageProgram';
 import { commandProgram, rebar3Program, shProgram, type StartNode } from '../programs/node';
 import { HEX_PORT, hexEnv } from '../hex';
 import { setup as setupOf, type Setup, type WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '../lib/share';
 import { loadSite, previewOrigin, previewOrigins } from '../lib/site';
+import { countReads, reads, serviceSocket, siteRoot, useApexLink } from '../lib/apexLink';
 
 // What create() starts the project with (api/sandbox.ts).
 export interface ExecStart {
@@ -62,9 +63,14 @@ export interface ExecStart {
   ide: string;
   // The runtime package's path on this frame's origin (shared/lib/build.ts
   // runtimePath), and the packages it runs with: the site manifest
-  // create() made of its plugins, its bases on this origin.
+  // create() made of its plugins, its bases on this origin. Both relative
+  // to the site's root (lib/apexLink.ts siteRoot: the origin's, or in
+  // bridge mode the bridge's).
   build: string;
   site: SiteRef;
+  // A port to the apex's worker (lib/apexLink.ts): the backend's services
+  // (NIF builds, git's proxy, the TCP relay).
+  link?: MessagePort | null;
   // Where the files keep their changes: a port to the apex's store, or
   // none (a temporary IEx keeps nothing).
   store: MessagePort | null;
@@ -325,7 +331,9 @@ const tunnel = async (host: string, port: number): Promise<Tunnel | null> => {
   if (!relayed(host, port)) return tailnetWays().tunnel(host, port);
   const way = await rpc.call<'tailnet' | 'relay' | 'none'>('relayWay', [host]).catch(() => 'none');
   if (way === 'tailnet') return tailnetWays().tunnel(host, port);
-  if (way === 'relay') return (relayTunnel ??= relay())(host, port);
+  // The relay's WebSocket is the apex worker's (lib/apexLink.ts): the
+  // backend checks the apex's Origin.
+  if (way === 'relay') return (relayTunnel ??= relay(() => serviceSocket('relay')))(host, port);
   return null;
 };
 const httpsGateway: Https = (connection, target) =>
@@ -402,6 +410,38 @@ function join(connection: Link, other: Link): void {
 const pagePrograms = (): Record<string, Program> =>
   nodeServices().programs as Record<string, Program>;
 
+// The packages' page programs (pageProgram.ts): each its package's module,
+// imported below the bridge the first time it runs, and given its
+// package's shared frames (through this page's apex: framePort).
+const imported = new Map<string, Promise<{ default: PackageProgram }>>();
+function packagePrograms(): Record<string, Program> {
+  const out: Record<string, Program> = {};
+  for (const [command, { name, version, module }] of new Site(site).pagePrograms()) {
+    const url = new URL(`npm/${name}@${version}/${module.replace(/^\.?\//, '')}`, siteRoot()).href;
+    const host: PageProgramHost = {
+      programs: pagePrograms as PageProgramHost['programs'],
+      frame: (frame) => rpc.call<MessagePort>('framePort', [name, frame]),
+    };
+    out[command] = async (process, context) => {
+      let loaded = imported.get(url);
+      if (!loaded) {
+        loaded = import(/* @vite-ignore */ url) as Promise<{ default: PackageProgram }>;
+        imported.set(url, loaded);
+        loaded.catch(() => imported.delete(url));
+      }
+      try {
+        const program = (await loaded).default;
+        if (typeof program !== 'function') throw new Error(`${module} exports no program`);
+        return await program(process, context, host);
+      } catch (error) {
+        (process.writeError ?? process.write)(`${command}: ${(error as Error).message}\n`);
+        process.exit(1);
+      }
+    };
+  }
+  return out;
+}
+
 function nodeServices() {
   const net = tailnetWays();
   return {
@@ -414,14 +454,15 @@ function nodeServices() {
     onnif: (build: NifBuild) => rpc.emit('nif', build),
     https: httpsGateway,
     programs: {
+      // The packages' first: a runtime's own program of the same name
+      // stays the runtime's.
+      ...packagePrograms(),
       tailwind,
       esbuild,
       inotifywait,
       node: nodeProgram(start!.build, () => files, scriptPorts, new Site(site).tls(), pagePrograms),
       npm: npmProgram(pagePrograms),
       npx: npxProgram(pagePrograms),
-      // Its files from the claude frame, through the IDE's page.
-      claude: claudeProgram(pagePrograms, () => rpc.call<MessagePort>('claudePort')),
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),
@@ -555,12 +596,13 @@ async function kept(change: Promise<void>): Promise<void> {
 const handlers = {
   // The files, from the site and the apex's store.
   async start(options: ExecStart) {
-    start = { ...options, build: new URL(options.build, location.origin).href };
+    if (options.link) useApexLink(options.link);
+    start = { ...options, build: new URL(options.build, siteRoot()).href };
     // The packages fit this runtime and each other, or nothing starts
     // (ERUNTIME, docs/packages.md). create() checked them already; this
     // is the runtime that runs them.
     site = {
-      url: new URL(options.site.url, location.origin).href,
+      url: new URL(options.site.url, siteRoot()).href,
       manifest: options.site.manifest,
     };
     assertSite(site.manifest);
@@ -798,6 +840,8 @@ const handlers = {
     return sets;
   },
   debug: () => ({
+    // The site's files read so far (docs/frames.md, the measurements).
+    reads: structuredClone(reads),
     bridge: bridge?.debug(),
     nodes: Object.fromEntries([...processes].map(([id, { node }]) => [id, node.debug()])),
     commands: [...commands].map(([node, command]) => ({
@@ -824,6 +868,8 @@ const handlers = {
     serveNames = serveEpmd(new EpmdRegistry());
   },
 };
+
+countReads();
 
 self.onmessage = ({ data, ports }: MessageEvent) => {
   if (data?.kind !== 'playground-exec' || rpc || !ports[0]) return;

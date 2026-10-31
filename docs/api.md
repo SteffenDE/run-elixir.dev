@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-28
+last_updated: 2026-10-30
 ---
 
 # The API: running a project from a page
@@ -11,10 +11,12 @@ Elixir project from the page that calls it. The playground's IDE runs
 every project through it, and another site's page can do the same.
 
 The calling page becomes the project's **apex**. It keeps the project's
-stores (its file changes and its Postgres) and frames the usercontent
-domain's frames, which run the project's code
-([frames.md](frames.md)). No `embed.html` sits between them: the
-API's code runs in the caller's origin.
+stores (its file changes and its Postgres), serves the packages it
+installed, and frames the shared usercontent domain's frames, which run
+the project's code ([frames.md](frames.md)). Its worker answers those
+frames with the packages' files (bridge mode), so the site needs no
+second domain of its own. No `embed.html` sits between them: the API's
+code runs in the caller's origin.
 
 This replaces `embed.html` and `embed.js` (apiVersion 2, docs/embed.md
 until 2026-10-28). They were removed before Tidewave's `/web` was
@@ -36,13 +38,15 @@ const sandbox = await create({
   // persist: keep /work, /home (~/.claude, ~/.npm) and Postgres; needs an id.
   env: { ANTHROPIC_API_KEY: '…' },                 // every command's
   relay: ['github.com', 'api.anthropic.com'],      // hosts through the site's TCP relay (relay.md); none by default
-  usercontent: 'run-elixir-usercontent.org',       // the domain that runs project code
-  runtime: '/npm/@elixir-playground/runtime@1.0.0/', // the runtime package's path there
+  usercontent: 'run-elixir-usercontent.org',       // the shared domain that runs project code (the default)
+  // or { domain, content, worker } (below)
+  runtime: '/npm/@elixir-playground/runtime@1.2.0/', // where this page serves the runtime package
+  services: 'https://run-elixir.dev',              // the backend: NIF builds, git's proxy, the TCP relay
   container: document.body,                        // where the 1px exec frame goes
   onProgress: ({ phase, text }) => {},
 });
 sandbox.root;                 // the app's directory: /work, /work/playground, /work/APP
-sandbox.projectId;            // its key, the name of its origins
+sandbox.projectId;            // its origins' key (salted: below)
 sandbox.runtime;              // { otp, elixir }
 
 await sandbox.fs.read(path);                     // Uint8Array
@@ -73,9 +77,15 @@ const unsubscribe = sandbox.on('serving', ({ ports, port }) => {});  // also 'pr
 await sandbox.shutdown();
 ```
 
-`usercontent` and `runtime` default to what the calling page's site
-names: `/playground.json` and `<meta name="playground-runtime">`. The
-IDE relies on these defaults.
+`usercontent` defaults to what the page names
+(`<meta name="playground-usercontent">`, which the Vite plugin writes),
+then its site's `/playground.json`, then run-elixir.dev's shared domain,
+`run-elixir-usercontent.org`. `runtime` defaults to
+`<meta name="playground-runtime">`. The IDE relies on these defaults.
+`services` defaults to the site's own
+backend when `/playground.json` names this page as its apex, and to
+`https://run-elixir.dev` otherwise; that backend answers only the
+origins on its allowlist ([backend.md](backend.md#service-origins)).
 
 Errors carry POSIX's `code`:
 
@@ -83,7 +93,6 @@ Errors carry POSIX's `code`:
 | --- | --- |
 | `ENOENT`, `EEXIST`, `ESTALE`, `EISDIR`, `ECONNREFUSED`, `EINVAL` | As in POSIX |
 | `ERUNTIME` | The plugins do not fit each other or the runtime, or no OTP, Elixir or shell package is among them |
-| `EACCES` | The usercontent domain does not run projects for this page's origin |
 
 Output and events that come before a listener are given to the first
 one.
@@ -95,9 +104,11 @@ them). A name given twice counts once, the first time.
 
 - **A package** is what its module exports: its package.json's `name`,
   `version`, `peerDependencies` and `playground` field, its `files`, and
-  `base`, the path where its files are on the usercontent domain. Each
-  package's `index.js` exports it (`runtime/build.py` `lay`), with
+  `base`, the path where the page serves its files (below `content`).
+  Each package's `index.js` exports it (`runtime/build.py` `lay`), with
   `base` set to the published layout, `/npm/@elixir-playground/NAME@VERSION/`.
+  A package can add commands and shared frames of its own, as the claude
+  package does ([packages.md](packages.md#page-programs-and-shared-frames)).
 - **A plugin with code** has a `name` and `apex(context)`. The function
   runs on the page once per sandbox and returns the plugin's part of that
   sandbox: `services` (by name; `postgres` is port 5432), `handlers`
@@ -113,7 +124,7 @@ them). A name given twice counts once, the first time.
 | `git`, `gnu-tools`, `ripgrep`, `tls` | Their programs; `tls` is a Node.js process's TLS client. | Yes |
 | `pglite` | Postgres on port 5432 for the nodes, PGlite on the page | Yes |
 | `standard` | The preset above | Yes |
-| `claude` | Claude Code: without it, `claude` fails | Yes |
+| `claude` | Claude Code: its `claude` command and the shared frame that prepares it. Without it there is no `claude` | Yes |
 | `phoenix-template` | The playground's Phoenix template | No: the playground's own |
 | `tailscale` | The apex's Tailscale node | No: the playground's own |
 
@@ -136,12 +147,100 @@ load-time check compares them).
 Boot recordings (`boot`) are optional. Without them every file comes
 lazily, and the first boot is slower.
 
+## The usercontent domain, and where the page serves the packages
+
+Projects run on a shared usercontent domain that serves no packages
+([frames.md](frames.md#bridge-mode)). The page serves the packages itself,
+as its own files, and a dedicated worker on the page's origin answers the
+frames. The site needs no second domain, wildcard certificate or backend
+of its own. Implemented 2026-10-29 as an option and made the only mode on
+2026-10-30; run-elixir-usercontent.org is not yet deployed as a shared
+domain.
+
+```js
+const sandbox = await create({
+  plugins: [otp, elixir, standard, claude],
+  project: { id: 'my-project', template: 'empty', persist: true },
+  usercontent: {
+    domain: 'run-elixir-usercontent.org', // the shared domain (the default)
+    content: '/web/elixir-playground/',   // the directory the packages are below: / by default
+    worker: '/assets/apexWorker.js',      // only if the bundler leaves the api's worker out
+  },
+  runtime: '/npm/@elixir-playground/runtime@1.2.0/', // where this page serves it
+  services: 'https://run-elixir.dev',
+});
+```
+
+| Option | Meaning |
+| --- | --- |
+| `usercontent` | The shared domain, with a port if any, or the object below. Defaults as [above](#using-it). |
+| `usercontent.domain` | The shared domain. |
+| `usercontent.content` | The directory the packages are below, on the page's origin or another (a CDN). The descriptors' `base`s, the boot recordings' `base` and `runtime` resolve below it, even with a leading slash. By default what `<meta name="playground-content">` names, else the page's origin root (`/`). |
+| `usercontent.worker` | The apex worker's script, if `new URL('./apexWorker.js', import.meta.url)` does not reach it after bundling. |
+| `services` | The backend's origin, or `{ relay, nif, git }`, each a URL or `null` for none. |
+
+### What the page serves
+
+- Each package directory, unchanged, at its descriptor's `base` below
+  `content`: `CONTENT/npm/@elixir-playground/NAME@VERSION/` for the
+  published ones, and the runtime at `runtime`. With `content:
+  'https://example.com/web/elixir-playground/'`, OTP's files are at
+  `https://example.com/web/elixir-playground/npm/@elixir-playground/otp-29.1.2@1.0.1/`.
+  A boot recording's `base` too, if given.
+- `apexWorker.js` beside the api's `index.js` (Vite emits it; the Vite
+  plugin keeps the api out of dependency pre-bundling).
+- An archive (`project.archive`) with CORS.
+
+**Headers:**
+
+- The page: COOP `same-origin` and COEP `require-corp`.
+- The packages' files (and recordings), wherever they are:
+  `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy:
+  cross-origin`. The frames' workers read them from the shared domain's
+  origins, one per project, so no single origin can be named. Their paths
+  are immutable: `Cache-Control: public, max-age=31536000, immutable`
+  lets the HTTP cache keep them for every project.
+
+**The backend's services** are requested by the page's worker with the
+page's `Origin`. run-elixir.dev answers the origins on its allowlist
+(`PLAYGROUND_SERVICE_ORIGINS`, [backend.md](backend.md#service-origins)).
+A site that is not on it gets 403, and can point `services` at a backend
+of its own or a reverse proxy to one. For local development,
+[backend.md](backend.md#service-origins) shows how.
+
+**The shared domain** serves `/bridge.html`, `/sw.js` and `/bridge.json`,
+which names it. A page cannot bridge any other domain
+([frames.md](frames.md#who-may-bridge)).
+
+**Several sandboxes on one page** each keep their own domain and bridge.
+A sandbox's previews and shared frames stay on its own domain after
+another `create()` on the page names another.
+
+### Project keys
+
+A project has two keys:
+
+- **Its stores' key** names what the page keeps of it (its files and its
+  Postgres, [below](#storage)): the caller's `id` hashed to ten letters
+  and digits, or the `id` itself if it already is ten letters and digits.
+  Only the page reads its own storage, so this key needs no secret. It is
+  the key the usercontent domain's origins had before 2026-10-30, so kept
+  projects keep their files across that change.
+- **Its origins' key** (`sandbox.projectId`) names its frames' origins
+  (`e-KEY`, `v-KEY-PORT`). Every `id` is salted with a secret in the
+  page's local storage, an `id` that is already ten letters and digits
+  too. Then no other frame can tell a project's origins from its `id`
+  ([frames.md](frames.md#what-relies-on-storage-partitioning)).
+
+The page keeps one salt while it is open. If local storage cannot keep it
+(blocked, or full), the next load gets other origin names, and what the
+old origins kept (a preview's cookies and routes, the claude frame's
+cache) starts anew. Kept projects keep their files.
+
 ## A site of your own: the Vite plugin
 
-A site that runs projects needs a second registrable domain for their
-code, the usercontent domain ([frames.md](frames.md)).
-`@elixir-playground/vite` (`packages/vite`) lays out what that domain
-serves:
+`@elixir-playground/vite` (`packages/vite`) lays out what a site serves
+for its projects: the packages, as its own files.
 
 ```js
 // vite.config.js
@@ -149,48 +248,38 @@ import { defineConfig } from 'vite';
 import { elixirPlayground } from '@elixir-playground/vite';
 
 export default defineConfig({
-  plugins: [elixirPlayground({ apex: 'example.com', usercontent: 'example-usercontent.com' })],
+  plugins: [elixirPlayground()],
   optimizeDeps: { exclude: ['@electric-sql/pglite'] },
 });
 ```
 
 | Option | Meaning |
 | --- | --- |
-| `apex` | The site's own host. The usercontent domain's frames take calls from its pages. Required to build; in dev, the dev server's. |
-| `usercontent` | The usercontent domain, with a port if any. |
-| `embedders` | Other sites whose pages may run projects on it. |
+| `usercontent` | The shared usercontent domain, with a port if any. Named in each page's `<meta name="playground-usercontent">`; without it, `create()` takes run-elixir.dev's. A `*.localhost` name (`usercontent.localhost:5173`) is answered by `vite` and `vite preview` themselves, for local work. |
 | `packages` | Package directories that are not installed, such as a template of the site's own. |
-| `outDir` | Where `vite build` writes the usercontent domain's files: `dist-usercontent/` by default. |
-| `https` | The usercontent domain's scheme, for the Node.js worker's policy: `true` by default. |
 
-**`vite build`** writes:
+**`vite build`** lays the runtime package and every installed package
+with a `playground` field out in the site's own output, at
+`dist/npm/@elixir-playground/NAME@VERSION/` (served below Vite's `base`;
+the bootstrap, `root/bridge.html`, left out). Each page gets `<meta
+name="playground-runtime">`, `<meta name="playground-content">` (Vite's
+`base`) and, with `usercontent`, `<meta name="playground-usercontent">`,
+which `create()` reads by default.
 
-- `dist-usercontent/`, for the usercontent domain: the runtime package
-  and every installed package with a `playground` field at
-  `/npm/@elixir-playground/NAME@VERSION/` (where the descriptors' `base`
-  points); the runtime's `sw.js` and `/relay.html` bootstrap (its
-  `root/`); `playground.json`, naming the apex; and `_headers`
-  (Netlify, Cloudflare Pages): COEP and CORP everywhere, `/npm/`
-  immutable, and the Node.js worker's `Content-Security-Policy`, with a
-  wildcard host for the domain's subdomains;
-- in the apex's `dist/`: `playground.json` and, in each page, `<meta
-  name="playground-runtime">`, which `create()` reads by default.
-
-The apex's own pages must be served cross-origin isolated (COOP
-`same-origin`, COEP `require-corp`); that is the site's server's job.
-
-**`vite`** (dev) and **`vite preview`** answer the usercontent
-domain's hosts themselves (`usercontent.localhost:5173`, say: browsers
-resolve `*.localhost` to this machine), and send the apex's pages
-COOP and COEP.
+The site's server sends the pages COOP `same-origin` and COEP
+`require-corp`, and the packages the headers [above](#what-the-page-serves).
+**`vite`** (dev) and **`vite preview`** send them themselves, and answer a
+`*.localhost` usercontent domain's hosts (`/bridge.html`, `/sw.js`,
+`/bridge.json`).
 
 The backend's services (the TCP relay, NIF builds, the `/hex/` and
-`/git/` proxies) are not part of it ([packages.md](packages.md#backend-services)).
+`/git/` proxies) are not part of it ([packages.md](packages.md#backend-services)):
+`create({ services })` names them.
 
 `tests/vite-site/run.sh` builds a fixture site with the plugin over a
-built site's packages, serves it with `vite preview`, and runs
-`elixir -e` in Chromium (2026-10-28: `42` in 0.9 s, localhost).
-`packages/vite/test` checks the layout and the headers.
+built site's packages, below Vite's `base` `/web/`, serves it with `vite
+preview`, and runs `elixir -e` in Chromium. `packages/vite/test` checks
+the layout and the pages' meta tags.
 
 ## How the IDE uses it
 
@@ -205,7 +294,8 @@ project starts. It passes:
 - options of its own (`PlaygroundOptions` in `packages/api/src/sandbox.ts`, not a
   stable interface): `kind: 'iex'` for a temporary IEx, the `/shared`
   store's port, an abort signal, and `connected`, which gets the exec
-  frame's port before the files start.
+  frame's port and where its previews are (their origins' key and their
+  relays' bridge) before the files start.
 
 Its terminals are `sandbox.terminal({ initial })` processes. Project
 management, settings, trust, `/shared`, sharing and git's changes view
@@ -240,7 +330,7 @@ its own, both under the playground's own variables (`PATH`, `HOME`,
   stays.
 - **`CLAUDE_CODE_EXECUTABLE`** is `/usr/bin/claude` in every command's
   environment, so claude-agent-acp (and the Agent SDK under it) runs the
-  playground's Claude Code ([nodejs.md](nodejs.md#claude-code-claude-programsclaudeclaudets)).
+  playground's Claude Code ([nodejs.md](nodejs.md#claude-code-claude)).
 
 **Ports.** `connect(port)` reaches a server the sandbox runs, raw: no
 `Origin`, so Tidewave's `/tidewave/mcp` answers it. `serve(port,
@@ -248,7 +338,7 @@ handler)` makes the sandbox's connections to `127.0.0.1:port` the
 page's, from a node or a Node.js process.
 
 **The preview.** `previewUrl(port, path)` makes the port's relay frame
-and returns the page's URL, `https://v-ID-PORT.USERCONTENT/path`; the
+and returns the page's URL, `https://v-KEY-PORT.USERCONTENT/path`; the
 caller frames it itself. The caller's frame and the relay are both
 under the caller's top-level site, so the browser gives them one
 storage partition, and the relay's service worker answers the frame. The
@@ -260,27 +350,25 @@ through the site's TCP relay, as the relay's own list names them
 host. The relay still connects only to its own list's hosts
 ([relay.md](relay.md)).
 
-## Who may run projects on a usercontent domain
+## Who may run projects on the usercontent domain
 
-The usercontent domain's frames (`exec.html`, `relay.html`,
-`claude.html`) take their parent's calls only from the origins the
-domain's `playground.json` names: its apex (`domain`) and `embedders`.
-Each frame says it loaded to any parent; that message holds nothing
-else. The exec frame answers a page it does not run projects for with
-`playground-exec-refused`, and `create()` fails with `EACCES`.
+Any page may. The shared domain names no one: the page supplies its
+frames' code, and they take it as their apex, their only parent. What
+keeps sites apart there is the browser's storage partitioning and the
+bridge's salted names
+([frames.md](frames.md#what-relies-on-storage-partitioning)). Until
+2026-10-30 the domain served the packages itself, and its
+`playground.json` named the sites whose pages it ran projects for
+(`embedders`, `PLAYGROUND_EMBEDDERS`); a page of another site got
+`EACCES`. Both are gone.
 
-`PLAYGROUND_EMBEDDERS` (space-separated origins) names the other sites
-when building. The default is `https://tidewave.ai
-https://tidewave.steffend.me http://localhost:4000`. `serve.py
---embedders "…"` overrides the list; the tests add
-`http://embedder.localhost:PORT`.
-
-A site that self-hosts its usercontent domain names its own apex there.
-
-**The proxies** (`/hex/`, `/git/`, `/api/v1/nif/`) refuse a browser's
-request from another site's page (`Sec-Fetch-Site: cross-site`), in
-`serve.py` and Caddy. On another site's page, Hex's repository comes
-from the public mirror, because that page's origin has no `/hex/`.
+**The services** (`/git/`, `/api/v1/nif/`, `/relay`) are the apex's
+since 2026-10-29: the page's worker requests them, with the page's
+`Origin`. They answer the apex and the origins on the backend's
+allowlist (with CORS), and refuse another origin with 403
+([backend.md](backend.md#service-origins)). `/hex/` serves the apex's own
+pages only: on another site's page, Hex's repository comes from the
+public mirror, because that page's origin has no `/hex/`.
 
 ## Storage
 
@@ -288,10 +376,12 @@ Everything the apex keeps is in the calling page's origin: the project's
 file changes (`playground-files-KEY`), its Postgres (the pglite plugin's,
 `/pglite/playground-pg-KEY`) and Hex's cache. With `persist`, the
 project's changes below `/work` and `/home` (`~/.claude`'s credentials,
-`~/.npm/_npx`) and its Postgres are kept there, under the project's key
-(the caller's `id`, hashed to ten letters and digits; an id that already
-is ten letters and digits is the key). The claude frame's cache of
-Claude Code is one per top-level site.
+`~/.npm/_npx`) and its Postgres are kept there, under the project's
+stores' key (the caller's `id`, hashed to ten letters and digits; an id
+that already is ten letters and digits is the key;
+[above](#project-keys)). The claude frame's cache of Claude Code is one
+per apex origin and top-level site (its `claude-HASH` origin is salted
+with the page's secret).
 
 ## Projects from an archive
 
@@ -314,8 +404,9 @@ What the caller builds (`tests/embed-archive.sh` does it in Docker):
 - the Repo on database `postgres` with `pool_size: 1` (PGlite is one
   session).
 
-The exec frame fetches the tar from the usercontent domain, so its
-server must answer with CORS (`Access-Control-Allow-Origin`).
+The exec frame fetches the tar from the URL the page gives, from the
+usercontent domain, so its server must answer with CORS
+(`Access-Control-Allow-Origin`).
 
 ## Headers
 
@@ -324,9 +415,13 @@ server must answer with CORS (`Access-Control-Allow-Origin`).
 screen, unseen (`execFrame.ts` `unseen`, inline styles), not `hidden`,
 and ask for `allow="cross-origin-isolated"`.
 
-**The usercontent domain** answers with CORP `cross-origin` (the
-calling page frames it from another site). The Node.js worker's CSP and
-the immutable paths are as in [deploy.md](deploy.md#caddy).
+**The packages' files** carry CORS and CORP `cross-origin`
+([above](#what-the-page-serves)).
+
+**The usercontent domain** answers its three files with CORP
+`cross-origin` (the calling page frames it from another site). Its
+service worker sends the frames' headers itself, the Node.js worker's CSP
+among them ([frames.md](frames.md#bridge-mode)).
 
 ## What Tidewave maps onto it
 
@@ -372,9 +467,19 @@ package.json.
   SIGTERM, an interactive shell on a terminal, `serve(9832)`;
 - claude-agent-acp over pipes against a mock API;
 - an archive built by `tests/embed-archive.sh` (skipped without it);
-- a site that is not named gets `EACCES`; packages that do not fit get
-  `ERUNTIME`;
+- a site that the playground names nowhere runs a project; packages
+  that do not fit get `ERUNTIME`;
 - a kept project's files and `~/.claude` after a reload.
+
+`bridge.spec.ts` runs the embedder on a second shared domain
+(`serve.py --bridge bridge.localhost:PORT`): a Phoenix project and its
+preview, git through the apex's worker with the embedder's `Origin`, a
+NIF build (skipped without `tests/nif/build.py`'s fixtures), the Node.js
+worker's policy, the shared domain hosting nothing top-level, the
+services' allowlist, Claude Code, two sandboxes on one page, and a kept
+project's files after a lost salt. `bridge-guard.spec.ts` checks that no
+other site can bridge the apex. `embedder.ts` holds the helpers the
+specs use.
 
 ## Not yet
 

@@ -45,8 +45,9 @@ Its build instructions and measurements do not describe the current runtime.
 | Document | What it covers |
 | --- | --- |
 | [architecture.md](architecture.md) | The moving parts: page, workers, service worker, shared files, how a request reaches Phoenix. |
-| [frames.md](frames.md) | Origin isolation for the IDE, project runtime, previews, and Claude Code cache. |
-| [api.md](api.md) | `create()`: running a project from a page, plugins, persistence, archives and headers. |
+| [frames.md](frames.md) | Origin isolation for the IDE, project runtime, previews, and packages' shared frames; bridge mode, the shared usercontent domain. |
+| [api.md](api.md) | `create()`: running a project from a page, plugins, persistence, archives and headers; what a page serves for the shared usercontent domain. |
+| [bridge-report.md](bridge-report.md) | Bridge mode for embedders: `create()` options, what to serve, the services' allowlist, measurements (2026-10-29). |
 | [packages.md](packages.md) | The playground as npm packages: the site's layout, the site manifest, fs layers, the load-time ABI check and the service worker's protocol (implemented); publishing (proposal). |
 | [licenses.md](licenses.md) | The playground's license (Apache-2.0), what each package bundles under which licenses, GPL sources, the `/licenses/` page. |
 | [projects.md](projects.md) | Project types, routes, storage, settings, imports, sharing, and tab ownership. |

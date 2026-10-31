@@ -46,13 +46,16 @@ across builds. Beside the packages:
   programs, its ABIs) and the recordings. The runtime
   finds what it runs through it, and checks the packages against itself
   as a project starts;
-- playground.json: the apex and the usercontent domain,
+- playground.json: the apex and the shared usercontent domain,
   PLAYGROUND_DOMAIN and PLAYGROUND_USERCONTENT in the build's environment
-  (packages/runtime/src/lib/site.ts, docs/frames.md), and the other sites whose
-  pages may run projects on the usercontent domain, PLAYGROUND_EMBEDDERS
-  (docs/api.md);
-- sw.js, one for the site's every version (docs/packages.md: its
-  protocol), at the root.
+  (packages/runtime/src/lib/site.ts, docs/frames.md).
+
+- _usercontent/, the usercontent domain's root (docs/frames.md,
+  docs/deploy.md), which the apex answers 404 for: the bridge's bootstrap
+  (bridge.html) and the service worker (sw.js, one for every version:
+  docs/packages.md, its protocol), never in the site's root; with
+  bridge.json, which names PLAYGROUND_USERCONTENT, when it is set
+  (serve.py answers its own).
 
 Each page names the runtime package and the site manifest it runs with
 (<meta name="playground-runtime"> and <meta name="playground-site">, the
@@ -101,6 +104,9 @@ BEAM_DIST = os.path.join(ROOT, "out", "beam-wasm", "site")
 # The Node harness, bundled by the Vite build (node.mjs): the recording
 # runs and tests/nif/layer.py run it.
 NODE = os.path.join(ROOT, "target", "node")
+# The usercontent domain's files, in the site's directory (page()): its
+# Caddy root, which the apex does not serve (docs/deploy.md).
+USERCONTENT_DIR = "_usercontent"
 # OTP's applications by name prefix: what Elixir, IEx and Mix use (the
 # otp-X package's fs layer, otp_files).
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "crypto-", "asn1-", "public_key-", "ssl-",
@@ -568,10 +574,9 @@ def prebuilt():
 
 def page(out):
     """The workspace's Vite builds: the apex's pages and assets (app/dist)
-    into `out` (the site's root), with the runtime package's service worker
-    and its /relay.html bootstrap (its root/); the runtime package's scripts and
-    frames (packages/runtime/dist), whose directory it answers; and the
-    Node harness into NODE."""
+    into `out` (the site's root); the usercontent domain's files (the
+    runtime package's root/) into its _usercontent/; and the Node harness into
+    NODE."""
     source = os.path.join(ROOT, "app")
     package = os.path.join(ROOT, "packages", "runtime")
     vite_build(ROOT)
@@ -582,25 +587,29 @@ def page(out):
             os.remove(os.path.join(out, name))
     shutil.copytree(os.path.join(source, "dist"), out, dirs_exist_ok=True)
     runtime = os.path.join(package, "dist")
-    # One service worker for the site's every version, at the root for its
-    # scope (docs/packages.md: its protocol), and the bootstrap that
-    # updates it before a package's relay: the runtime package's root/.
-    for name in ("sw.js", "relay.html"):
-        shutil.copy(os.path.join(runtime, "root", name), os.path.join(out, name))
+    # The usercontent domain's files (docs/frames.md): the bridge's
+    # bootstrap and the one service worker for every version, at its root
+    # for its scope. Never in the site's root: on the apex, any site could
+    # frame the bootstrap and run its own code there.
+    bridge = os.path.join(out, USERCONTENT_DIR)
+    shutil.rmtree(bridge, ignore_errors=True)
+    os.makedirs(bridge)
+    for name in ("sw.js", "bridge.html"):
+        shutil.copy(os.path.join(runtime, "root", name), os.path.join(bridge, name))
     shutil.rmtree(NODE, ignore_errors=True)
     shutil.copytree(os.path.join(package, "dist-node"), NODE)
     # The apex (PLAYGROUND_DOMAIN, such as run-elixir.dev: every page;
     # packages/runtime/src/lib/site.ts).
     domain = os.environ.get("PLAYGROUND_DOMAIN") or None
-    # And the domain whose subdomains run what a project's code does
-    # (PLAYGROUND_USERCONTENT, another site; docs/frames.md).
+    # And the shared usercontent domain whose subdomains run what a
+    # project's code does (PLAYGROUND_USERCONTENT, another site;
+    # docs/frames.md), which its bridge.json names.
     usercontent = os.environ.get("PLAYGROUND_USERCONTENT") or None
-    # The other sites whose pages may run projects on the usercontent
-    # domain through the API (docs/api.md), space-separated: its frames
-    # take them as their parent, as they take the apex.
-    embedders = (os.environ.get("PLAYGROUND_EMBEDDERS") or EMBEDDERS).split()
     with open(os.path.join(out, "playground.json"), "w") as f:
-        json.dump({"domain": domain, "usercontent": usercontent, "embedders": embedders}, f)
+        json.dump({"domain": domain, "usercontent": usercontent}, f)
+    if usercontent:
+        with open(os.path.join(bridge, "bridge.json"), "w") as f:
+            json.dump({"bridge": usercontent}, f)
     # Link previews want an absolute og:image; a site without a domain
     # keeps the path (most fetchers resolve it against the page).
     if domain:
@@ -612,11 +621,6 @@ def page(out):
         with open(index, "w") as f:
             f.write(text.replace(image, f'<meta property="og:image" content="https://{domain}/og.png"'))
     return runtime
-
-
-# The sites that may run projects on the usercontent domain by default
-# (docs/api.md).
-EMBEDDERS = "https://tidewave.ai https://tidewave.steffend.me http://localhost:4000"
 
 
 def runtime_versions():
@@ -709,11 +713,14 @@ PACKAGES = {
     "tailscale": {"version": "1.0.0", "files": ["tailscale.wasm", "wasm_exec.js"], "publish": False,
                   "playground": {"abi": {"tailscale": 1},
                                  "tailscale": {"module": "tailscale.wasm", "glue": "wasm_exec.js"}}},
-    # Claude Code's preparer: the claude frame and its worker
-    # (packages/claude), which the claude seam joins to the runtime's
-    # `claude` (its 1.1).
-    "claude": {"version": "1.1.0", "files": ["claude.html", "frames"], "playground": {"abi": {"claude": 1}},
-               "runtime": "^1.1.0"},
+    # Claude Code (packages/claude): its page program, `claude`, and the
+    # shared frame and worker that prepare its files, on the runtime's
+    # pagePrograms and frames seams (its 1.2; docs/packages.md).
+    "claude": {"version": "2.0.0", "files": ["claude.html", "frames", "program.js"],
+               "playground": {"abi": {"pagePrograms": 1, "frames": 1},
+                              "pagePrograms": {"claude": "program.js"},
+                              "frames": {"claude": "claude.html"}},
+               "runtime": "^1.2.0"},
 }
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
@@ -1043,10 +1050,10 @@ def lay_runtime(out, runtime):
     module = MODULE
     source = lambda key: json.load(open(os.path.join(ROOT, "packages", key, "package.json")))
     # Each one's module and its declarations (packages/types.mjs).
-    built = lambda key: {name: os.path.join(ROOT, "packages", key, "dist", name)
-                         for name in ("index.js", "index.d.ts", "types")}
+    built = lambda key, more=(): {name: os.path.join(ROOT, "packages", key, "dist", name)
+                                  for name in ("index.js", "index.d.ts", "types", *more)}
     api_version = source("api")["version"]
-    api, _ = lay(out, "api", api_version, built("api"), {},
+    api, _ = lay(out, "api", api_version, built("api", ("apexWorker.js",)), {},
                  {host["name"]: major(host["version"])}, fields=module,
                  licensed=(notices.own().extend(notices.npm("api")), {}))
     # PGlite itself is the embedder's install, which its bundler lays out.
@@ -1155,9 +1162,10 @@ def sources(wasm):
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
             # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
-            # The claude frame (packages/claude's build).
+            # The claude package's frame and page program (packages/claude's build).
             "claude.html": os.path.join(ROOT, "packages", "claude", "dist", "claude.html"),
             "frames": os.path.join(ROOT, "packages", "claude", "dist", "frames"),
+            "program.js": os.path.join(ROOT, "packages", "claude", "dist", "program.js"),
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}

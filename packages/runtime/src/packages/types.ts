@@ -42,6 +42,15 @@ export interface Playground {
   tailscale?: { module: string; glue: string };
   // claude: the Claude Code versions the preparer was tested with.
   claudeCode?: string;
+  // Programs that run on the page (in the exec frame's worker), by name:
+  // each a JavaScript module of the package's whose default export is
+  // the program (docs/packages.md, "Page programs"). The runtime puts
+  // the name on PATH.
+  pagePrograms?: Record<string, string>;
+  // Shared frames, by name: each a page of the package's, which the apex
+  // frames once per page on an origin of its own, for its page programs
+  // (docs/packages.md, "Shared frames").
+  frames?: Record<string, string>;
   // The package's files in the nodes' tree: a layer of the fs image.
   fs?: FsLayer;
 }

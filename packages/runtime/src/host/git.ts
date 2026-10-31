@@ -3,6 +3,7 @@
 import { Site, type SiteRef } from '../packages/manifest';
 import type { GitResult } from '../git';
 import type { Files, FilesChannel } from './files';
+import { linkFor, siteFetch } from '../lib/apexLink';
 import { worker } from './worker';
 
 const encoder = new TextEncoder();
@@ -41,10 +42,13 @@ export class Git {
     this.ready = (async () => {
       const module = new Site(site).programs().get('git');
       if (!module) return false;
-      const response = await fetch(module.url);
+      const response = await siteFetch(module.url);
       const bytes = new Uint8Array(await response.arrayBuffer());
       if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return false;
-      started.postMessage({ kind: 'start', files: channel, git: await WebAssembly.compile(bytes) });
+      const git = await WebAssembly.compile(bytes);
+      // Its way to the apex, for git's proxy (lib/apexLink.ts).
+      const link = linkFor();
+      started.postMessage({ kind: 'start', files: channel, git, link }, link ? [link] : []);
       return true;
     })().catch(() => false);
   }

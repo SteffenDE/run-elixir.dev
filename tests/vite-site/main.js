@@ -1,12 +1,16 @@
 // A page of a site that runs a project with create(): the packages as
-// installed, its usercontent domain the plugin's (vite.config.js).
+// installed, its shared usercontent domain what the plugin names in the
+// page (vite.config.js), as create() reads it by default.
 import { create } from '@elixir-playground/api';
 import otp from '@elixir-playground/otp-29.1.2';
 import elixir from '@elixir-playground/elixir-1.20.4';
 import standard from '@elixir-playground/standard';
 
 window.result = (async () => {
-  const sandbox = await create({ plugins: [otp, elixir, standard], project: { template: 'empty' } });
+  const sandbox = await create({
+    plugins: [otp, elixir, standard],
+    project: { template: 'empty' },
+  });
   const p = sandbox.sh('elixir -e "IO.puts(6 * 7)" && echo $PWD');
   let out = '';
   p.onStdout((bytes) => (out += new TextDecoder().decode(bytes)));

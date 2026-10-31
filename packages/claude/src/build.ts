@@ -13,7 +13,7 @@
 import { sha512 } from '@noble/hashes/sha2.js';
 import { graphParts, type GraphFile } from './bungraph';
 import { load as loadEsbuild } from '@elixir-playground/runtime/programs/esbuild';
-import { DIR } from '@elixir-playground/runtime/programs/claude/protocol';
+import { DIR } from './protocol';
 
 export const CLAUDE_CODE = {
   version: '2.1.306',

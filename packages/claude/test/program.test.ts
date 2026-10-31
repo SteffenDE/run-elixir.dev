@@ -1,9 +1,7 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { Rpc } from '../../../src/lib/rpc';
-import { claudeProgram } from '../../../src/programs/claude/claude';
-import type { Context, Process } from '../../../src/programs/tailwind';
-
-vi.mock('../../../src/programs/claude/build', () => ({ DIR: '/opt/claude-code' }));
+import { Rpc } from '@elixir-playground/runtime/lib/rpc';
+import type { Context, Process } from '@elixir-playground/runtime/pageProgram';
+import { claudeProgram } from '../src/program';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

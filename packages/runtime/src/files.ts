@@ -13,6 +13,7 @@
 // a second after it changes, and laid over the template when the files
 // start again.
 import { Site, type SiteRef } from './packages/manifest';
+import { siteFetch, useLink } from './lib/apexLink';
 import {
   Dir,
   File,
@@ -776,6 +777,7 @@ onmessage = async ({ data }) => {
         store = null,
         storePort = null,
         sharedPort = null,
+        link = null,
       }: {
         // The site manifest: where the fs image is.
         site: SiteRef;
@@ -785,11 +787,17 @@ onmessage = async ({ data }) => {
         store?: string | null;
         storePort?: MessagePort | null;
         sharedPort?: MessagePort | null;
+        // A port to the exec frame's worker, for the services
+        // (lib/apexLink.ts).
+        link?: MessagePort | null;
       } = data;
+      useLink(link);
       const packages = new Site(site);
       const boots = packages.boots(requestedBoots);
       const [images, manifest, version, archived] = await Promise.all([
-        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+        Promise.all(
+          boots.map((boot) => siteFetch(packages.boot(boot)).then((r) => r.arrayBuffer())),
+        ),
         packages.tree(),
         packages.fsVersion(),
         archive

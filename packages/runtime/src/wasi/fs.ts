@@ -1,6 +1,7 @@
 // The node's in-memory filesystem: directories, files, symbolic links and
 // devices under one root, files listed now and fetched when opened, and
 // the tars boot images and bundles come in.
+import { siteGetSync } from '../lib/apexLink';
 import { E, FILETYPE } from './abi';
 
 let inodes = 1;
@@ -74,21 +75,13 @@ export function load(node: Partial<File>, fetch: Fetch): void {
 // synchronously. Each bundle is fetched once; its other files wait in
 // memory until they are opened.
 // A bundle from the site, synchronously (a worker's node waits for its
-// files). The network may fail now and then: three more tries, 0.5, 1 and
-// 2 s apart, before the file is an I/O error.
+// files): from the network, or over the link to the apex (lib/apexLink.ts).
+// The network may fail now and then: three more tries, 0.5, 1 and 2 s
+// apart, before the file is an I/O error.
 export function fetchBundle(url: URL): Uint8Array {
   for (let tries = 0; ; tries++) {
-    let status = 0;
-    try {
-      const request = new XMLHttpRequest();
-      request.open('GET', url, false);
-      request.responseType = 'arraybuffer';
-      request.send();
-      status = request.status;
-      if (status === 200) return new Uint8Array(request.response);
-    } catch {
-      // A network error: as a failed status.
-    }
+    const [status, bytes] = siteGetSync(url);
+    if (status === 200 && bytes) return bytes;
     if (tries === 3 || (status >= 400 && status < 500))
       throw new Error(`${url.pathname}: ${status || 'network error'}`);
     pause(500 * 2 ** tries);

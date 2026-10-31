@@ -86,11 +86,12 @@ target/site/
   storage.html                 each naming what it runs with: <meta name="playground-runtime">
                                (the runtime package's path), <meta name="playground-site">
                                (the site manifest's)
-  sw.js                      the preview origins' service worker, at the root for its scope /,
-                               one for every version (packages.md, its protocol)
-  playground.json            the apex, the usercontent domain (frames.md) and the other
-                               sites whose pages may run projects on it (PLAYGROUND_EMBEDDERS,
-                               api.md)
+  playground.json            the apex and the shared usercontent domain (frames.md)
+  _usercontent/              the usercontent domain's root, which the apex answers 404 for:
+                               bridge.html (the bridge's bootstrap), sw.js (the service
+                               worker, at the root for its scope /, one for every version:
+                               packages.md, its protocol), bridge.json (naming the domain,
+                               from PLAYGROUND_USERCONTENT)
   favicon.ico, icons/,       app/public as it is: the icons, the web app manifest,
   manifest.webmanifest,        the link preview's card (og:image, absolute with a
   og.png                       project domain)
@@ -101,8 +102,9 @@ target/site/
                                artifacts' index.js (their descriptors, api.md):
     runtime@…/                 worker.js, files.js, git.js, nodejs.js and
                                  chunks/ (the runtime's workers); exec.html, relay.html and
-                                 frames/ (the usercontent domain's frames); root/ (sw.js and
-                                 the /relay.html bootstrap)
+                                 frames/ (the usercontent domain's frames); root/ (sw.js
+                                 and the bridge's bootstrap, bridge.html, which only
+                                 _usercontent/ serves: frames.md)
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
     elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3)
@@ -118,7 +120,8 @@ target/site/
     claude@…/                  claude.html and frames/ (the claude frame and its worker,
                                  packages/claude); the Claude Code range tested (package.json)
     api@…/, pglite@…/          index.js: create() (api.md) and the pglite plugin, one ES
-                                 module each (packages/api, packages/pglite)
+                                 module each (packages/api, packages/pglite); the api's
+                                 apexWorker.js beside it (frames.md)
     standard@…/                index.js: the preset of shell, git, gnu-tools, ripgrep, tls
                                  and pglite
   boot/ID/                   the recordings: boot.tar.gz (what IEx reads first),
@@ -185,8 +188,10 @@ OTP's and Elixir's from the site manifest.
    - `packages/runtime`: the runtime's scripts (`vite.runtime.config.ts`:
      `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
      names, the pages start them by URL; and `root/sw.js` with
-     `root/relay.html`, the bootstrap, which `build.py` copies to the
-     site's root) and the usercontent
+     `root/bridge.html`, the bridge's bootstrap
+     ([frames.md](frames.md#who-may-bridge)), which `build.py` copies to
+     the site's `_usercontent/` only, the usercontent domain's root) and
+     the usercontent
      domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
      with a relative base) into `dist/`, the runtime
      package; with `--mode node`, the Node harness (`node.ts` and

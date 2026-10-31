@@ -30,10 +30,11 @@ import type { NifSource } from '../programs';
 import type { FilesChannel } from '../host/files';
 import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
-import { backendNif, get } from './nif';
+import { backendNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
 import { REGISTRY, isProgram, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
+import { serviceUrl, siteFetch, siteGetSync, useLink } from '../lib/apexLink';
 import { UTILITIES } from '../utilities';
 import {
   HOSTED_LIMIT,
@@ -55,7 +56,7 @@ import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 // (it answers with its page).
 async function loadModule(url: URL | null): Promise<WebAssembly.Module | null> {
   if (!url) return null;
-  const response = await fetch(url);
+  const response = await siteFetch(url);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return null;
   return WebAssembly.compile(bytes);
@@ -92,6 +93,8 @@ interface Start {
   brush?: WebAssembly.Module;
   coreutils?: WebAssembly.Module;
   beam?: WebAssembly.Module;
+  // A port to the exec frame's worker (lib/apexLink.ts): the services.
+  link?: MessagePort | null;
 }
 
 // files.ts's SHARED (that module is files.js's worker, not one to import).
@@ -299,8 +302,10 @@ onmessage = async ({
     brush: shellModule,
     coreutils: toolsModule,
     beam: beamModule,
+    link,
   },
 }: MessageEvent<Start>) => {
+  useLink(link);
   setSite(siteRef);
   const packages = artifacts();
   setLaunch(packages);
@@ -311,7 +316,9 @@ onmessage = async ({
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest, brushModule] = await Promise.all([
       tars ??
-        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+        Promise.all(
+          boots.map((boot) => siteFetch(packages.boot(boot)).then((r) => r.arrayBuffer())),
+        ),
       listed ?? packages.tree(),
       // The shell (brush.ts), if the site has it: the terminal's, or a
       // node's sh -c.
@@ -333,6 +340,7 @@ onmessage = async ({
       dns: udpPorts.includes(53),
       inotifywait: pagePrograms.includes('inotifywait'),
       bin: packages.bin(),
+      pagePrograms: [...packages.pagePrograms().keys()],
     });
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
@@ -352,7 +360,7 @@ onmessage = async ({
     const module = () => {
       if (compiled === undefined) {
         const url = packages.multicall();
-        const [status, bytes] = url ? get(url) : [0, null];
+        const [status, bytes] = url ? siteGetSync(url) : [0, null];
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         compiled = wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null;
       }
@@ -366,7 +374,7 @@ onmessage = async ({
       const url = REGISTRY.get(name)?.url;
       if (!url) return null;
       if (!others.has(url.href)) {
-        const [status, bytes] = get(url);
+        const [status, bytes] = siteGetSync(url);
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         others.set(
           url.href,
@@ -646,7 +654,7 @@ onmessage = async ({
       // git's transport for a remote (git.wasm starts it): HTTPS through
       // the site's proxy.
       if (program.split('/').pop() === 'git' && /^remote-https?$/.test(given[0] ?? ''))
-        return remoteHelper(throughProxy(location.origin));
+        return remoteHelper(throughProxy(serviceUrl('git')), siteFetch);
       const found = find(program, given, at, vars);
       if (!found) return null;
       if ('page' in found) return pageProgram(found.page, found.args);

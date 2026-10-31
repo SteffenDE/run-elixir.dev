@@ -4,6 +4,7 @@
 // package.json's `playground` field; and the boot recordings made for
 // them. The runtime finds the BEAM, its
 // programs and the nodes' files through it, never by a path of its own.
+import { siteFetch } from '../lib/apexLink';
 import type { Manifest } from '../wasi/fs';
 import type { FsLayer, PackageEntry, Playground, SiteManifest } from './types';
 
@@ -29,7 +30,7 @@ export interface SiteRef {
 
 export async function loadManifest(url: string | URL): Promise<SiteRef> {
   const href = new URL(url, globalThis.location?.href).href;
-  const response = await fetch(href);
+  const response = await siteFetch(href);
   if (!response.ok) throw new Error(`${href}: ${response.status}`);
   return { url: href, manifest: (await response.json()) as SiteManifest };
 }
@@ -91,6 +92,18 @@ export class Site {
         entry.playground.programs ?? {},
       ))
         if (!out.has(program)) out.set(program, { url: this.file(name, module), multicall });
+    return out;
+  }
+
+  // Every package's page programs (`pagePrograms`), by name, each with its
+  // package and module: the module's path below the package's
+  // (docs/packages.md, "Page programs"). A name two packages give is the
+  // first one's.
+  pagePrograms(): Map<string, { name: string; version: string; module: string }> {
+    const out = new Map<string, { name: string; version: string; module: string }>();
+    for (const [name, entry] of Object.entries(this.manifest.packages))
+      for (const [program, module] of Object.entries(entry.playground.pagePrograms ?? {}))
+        if (!out.has(program)) out.set(program, { name, version: entry.version, module });
     return out;
   }
 
@@ -253,7 +266,7 @@ const at = (root: string, file: string) =>
   file === '.' || file === '' ? root : `${root.replace(/\/+$/, '')}/${file}`;
 
 async function fetchJson(url: URL): Promise<Manifest> {
-  const response = await fetch(url);
+  const response = await siteFetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
   return (await response.json()) as Manifest;
 }

@@ -1,8 +1,8 @@
-// What the exec frame's `claude` (claude.ts) and the claude frame's worker
-// (the claude package's worker.ts) say over the port the page gives: the
-// claude seam (host.json's provides; the claude package's abi). The
-// worker answers `files` with a version's files, and tells `progress`
-// (text) while it makes them.
+// What the package's `claude` (program.ts, a page program) and its shared
+// frame's worker (worker.ts) say over the port the page gives. Both are
+// this package's, so the runtime has no part in it. The worker answers
+// `files` with a version's files, and tells `progress` (text) while it
+// makes them.
 
 // A file of Claude Code as the worker made it: its path below the
 // version's directory (`cli.js`, the entry), and its bytes.

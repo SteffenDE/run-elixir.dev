@@ -2,7 +2,7 @@
 // frames/exec.ts), started by create() (api/sandbox.ts) on the page that
 // drives it: the IDE's, or another site's.
 import { Rpc } from '@elixir-playground/runtime/lib/rpc';
-import { runtimePath } from './runtimePath';
+import { bridgeFrame, type BridgeTable } from './bridge';
 
 // A frame on the screen but unseen: a pixel, transparent, out of the way.
 // Not `hidden`: WebKit slowed a hidden frame's workers (the nodes') until
@@ -32,11 +32,14 @@ export function unseen(element: HTMLIFrameElement): HTMLIFrameElement {
 // frame put in `container`. After the page's load: a frame of another
 // site would hold its load event up (Firefox) until it started. `framed`
 // hears the element as it goes in (the page removes it at its shutdown).
+// `bridge` (bridge.ts): the frame's page below the bridge, and what the
+// frame may ask this page's worker for.
 export async function startExecFrame(
   origin: string,
   signal: AbortSignal,
   container: HTMLElement,
-  framed: (element: HTMLIFrameElement) => void = () => {},
+  framed: (element: HTMLIFrameElement) => void,
+  bridge: { entry: string; table: BridgeTable },
 ): Promise<Rpc> {
   if (document.readyState !== 'complete')
     await new Promise<void>((resolve, reject) => {
@@ -54,22 +57,20 @@ export async function startExecFrame(
   signal.throwIfAborted();
   return new Promise((resolve, reject) => {
     const element = unseen(document.createElement('iframe'));
-    element.src = `${origin}${runtimePath()}exec.html`;
+    let unbridge = () => {};
     const cleanup = () => {
       removeEventListener('message', loaded);
       signal.removeEventListener('abort', cancelled);
       clearTimeout(timer);
     };
-    const cancelled = () => {
+    const fail = (error: Error) => {
       cleanup();
+      unbridge();
       element.remove();
-      reject(signal.reason);
+      reject(error);
     };
-    const timer = setTimeout(() => {
-      cleanup();
-      element.remove();
-      reject(new Error(`${origin}: the project did not start`));
-    }, 30000);
+    const cancelled = () => fail(signal.reason);
+    const timer = setTimeout(() => fail(new Error(`${origin}: the project did not start`)), 30000);
     let channel: MessageChannel | null = null;
     // It loads, takes the port (started) or says it does not run
     // projects for this page (refused: its site names the pages it does).
@@ -78,9 +79,7 @@ export async function startExecFrame(
       const kind = event.data?.kind;
       if (kind === 'playground-exec-loaded' && !channel) {
         if (!event.data.isolated) {
-          cleanup();
-          element.remove();
-          reject(new Error(`${origin} is not cross-origin isolated (see docs/frames.md).`));
+          fail(new Error(`${origin} is not cross-origin isolated (see docs/frames.md).`));
           return;
         }
         channel = new MessageChannel();
@@ -89,9 +88,7 @@ export async function startExecFrame(
         cleanup();
         resolve(new Rpc(channel.port1));
       } else if (kind === 'playground-exec-refused') {
-        cleanup();
-        element.remove();
-        reject(
+        fail(
           Object.assign(
             new Error(`${origin} does not run projects for ${location.origin} (docs/api.md)`),
             { code: 'EACCES' },
@@ -101,6 +98,9 @@ export async function startExecFrame(
     };
     addEventListener('message', loaded);
     signal.addEventListener('abort', cancelled, { once: true });
+    unbridge = bridgeFrame(element, origin, bridge.entry, bridge.table, (message) =>
+      fail(new Error(message)),
+    );
     framed(element);
     container.append(element);
   });

@@ -1,4 +1,10 @@
-import { openPopup, previewKey, previewOriginOf, send } from '@/project/lib/previewChannel';
+import {
+  openPopup,
+  previewKey,
+  previewOriginOf,
+  previewOriginsKey,
+  send,
+} from '@/project/lib/previewChannel';
 import { useStore } from '@/project/lib/store';
 import { previewReady, previewShows } from '@/project/lib/previewHost';
 import { PreviewFrame } from './PreviewFrame';
@@ -36,6 +42,7 @@ export function Preview() {
         const url = new URL('/preview.html', location.href);
         url.searchParams.set('path', current);
         url.searchParams.set('key', previewKey);
+        url.searchParams.set('origins', previewOriginsKey() ?? '');
         if (openPopup(url.href)) popOut(true);
         send({ type: 'navigate', path: current });
       }}

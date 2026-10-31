@@ -3,126 +3,10 @@
 // package and its plugins as installed, and create() runs a project in an
 // exec frame on the playground's usercontent domain, which names the
 // embedder; the embedder frames the project's preview itself.
-import { existsSync, readdirSync } from 'node:fs';
-import type { Page } from '@playwright/test';
+import { existsSync } from 'node:fs';
 import { expect, test } from './fixtures';
+import { EMBEDDER, embedded, get, laidVersions, previewText, run } from './embedder';
 import { PORT } from './helpers';
-
-const EMBEDDER = `http://embedder.localhost:${PORT}/`;
-
-// The site's packages' versions, by short name, as build.py laid them out
-// (NAME@VERSION+ID), which serve.py serves at their published paths.
-function laidVersions(): Record<string, string> {
-  const top = new URL('../../../target/site/npm/@elixir-playground/', import.meta.url);
-  return Object.fromEntries(
-    readdirSync(top).map((entry) => {
-      const [name, version] = entry.split('+')[0].split('@');
-      return [name, version];
-    }),
-  );
-}
-
-declare global {
-  interface Window {
-    // oxlint-disable-next-line typescript/no-explicit-any -- the page's test hooks.
-    embed: any;
-    // oxlint-disable-next-line typescript/no-explicit-any
-    sandbox: any;
-  }
-}
-
-// The embedder's page, and a sandbox of `project` in it (window.sandbox):
-// template 'phoenix' is the embedder's template package; how long
-// create() took.
-async function embedded(
-  page: Page,
-  project: object = { template: 'phoenix' },
-  extra: object = {},
-): Promise<number> {
-  await page.goto(EMBEDDER);
-  await page.waitForFunction(() => window.embed);
-  return page.evaluate(
-    async (given) => {
-      const source =
-        (given.project as { template?: string }).template === 'phoenix'
-          ? { ...given.project, template: await window.embed.template }
-          : given.project;
-      const started = performance.now();
-      window.sandbox = await window.embed.create({
-        ...window.embed.options,
-        project: source,
-        container: document.getElementById('frames'),
-        onProgress: (event: unknown) => window.embed.progress.push(event),
-        ...given.extra,
-      });
-      return performance.now() - started;
-    },
-    { project, extra },
-  );
-}
-
-// A command's stdout, stderr and exit code, run without a tty: a shell
-// line (sh) or its words (spawn).
-function run(page: Page, command: string | string[], options: object = {}) {
-  return page.evaluate(
-    async (given) => {
-      const process =
-        typeof given.command === 'string'
-          ? window.sandbox.sh(given.command, given.options)
-          : window.sandbox.spawn(given.command, given.options);
-      const out: Uint8Array[] = [];
-      const err: Uint8Array[] = [];
-      process.onStdout((bytes: Uint8Array) => out.push(bytes));
-      process.onStderr((bytes: Uint8Array) => err.push(bytes));
-      const { code } = await process.exited;
-      const text = (parts: Uint8Array[]) =>
-        parts.map((part) => new TextDecoder().decode(part)).join('');
-      return { stdout: text(out), stderr: text(err), code };
-    },
-    { command, options },
-  );
-}
-
-// A raw HTTP/1.1 GET over connect(port): the response's text.
-function get(page: Page, port: number, path: string, headers = '') {
-  return page.evaluate(
-    async ({ to, at, more }) => {
-      const stream = await window.sandbox.connect(to);
-      const parts: Uint8Array[] = [];
-      const done = new Promise<void>((resolve) => {
-        stream.onData((bytes: Uint8Array) => parts.push(bytes));
-        stream.onEnd(resolve);
-        stream.onClose(resolve);
-      });
-      stream.write(
-        `GET ${at} HTTP/1.1\r\nhost: localhost:${to}\r\n${more}connection: close\r\n\r\n`,
-      );
-      await done;
-      return parts.map((part) => new TextDecoder().decode(part)).join('');
-    },
-    { to: port, at: path, more: headers },
-  );
-}
-
-// The text of the preview the embedder frames (#preview), as it answers.
-function previewText(page: Page): Promise<string> {
-  return page.evaluate(
-    () =>
-      new Promise<string>((resolve) => {
-        const frame = document.getElementById('preview') as HTMLIFrameElement | null;
-        if (!frame?.contentWindow) return resolve('');
-        const id = Math.random();
-        const heard = (event: MessageEvent) => {
-          if (event.data?.kind !== 'playground-snapshot' || event.data.id !== id) return;
-          removeEventListener('message', heard);
-          resolve(event.data.text);
-        };
-        addEventListener('message', heard);
-        frame.contentWindow.postMessage({ kind: 'playground-snapshot', id }, '*');
-        setTimeout(() => resolve(''), 2000);
-      }),
-  );
-}
 
 test('an embedder runs a Phoenix project: files, commands, its server raw, its preview', async ({
   page,
@@ -535,13 +419,14 @@ test('a Phoenix app from an archive boots, and Tidewave answers on it', async ({
   expect(tools).toContain('project_eval');
 });
 
-test('only the sites the playground names run projects on it, with packages that fit', async ({
+test('any site runs projects on the shared usercontent domain, with packages that fit', async ({
   page,
   browserName,
 }) => {
-  // Another site: the usercontent domain's exec frame does not run
-  // projects for it, and create() says so. Its page imports the
-  // packages from where the site serves them.
+  // Another site, which the playground names nowhere: its page supplies
+  // its frames' code (bridge mode, docs/frames.md), so the shared domain
+  // runs its project. Its page imports the packages from where the site
+  // serves them, and serves them to its frames from there.
   await page.goto(`http://other.localhost:${PORT}/favicon.ico`);
   const other = await page.evaluate(
     async ([usercontent, versions]) => {
@@ -559,7 +444,7 @@ test('only the sites the playground names run projects on it, with packages that
     },
     [`usercontent.localhost:${PORT}`, laidVersions()] as const,
   );
-  expect(other).toMatch(/^EACCES: .* does not run projects for http:\/\/other\.localhost/);
+  expect(other).toBe('created');
 
   // Packages that do not fit each other: refused before any frame starts.
   await page.goto(EMBEDDER);
@@ -630,6 +515,10 @@ test("after a reload, npx and npm install take a kept project's packages without
     return route.continue();
   });
   const metadata = () => registry.filter((url) => !url.includes('/-/'));
+  // Playwright's WebKit does not route what a worker the service worker
+  // controls fetches: a Node.js process's (bridge mode, docs/frames.md).
+  // There the commands are checked, not the registry's requests.
+  const counted = browserName !== 'webkit';
   const project = { id: 'npm-kept', template: 'empty', persist: true };
   const acp = 'npx -y @agentclientprotocol/claude-agent-acp@0.85.1 --version';
   const npm = (command: string) => run(page, command, { cwd: '/work/app' });
@@ -641,6 +530,7 @@ test("after a reload, npx and npm install take a kept project's packages without
   console.log(
     `${browserName}: cold, ${metadata().length} metadata and ${registry.length - metadata().length} tarball requests`,
   );
+  if (counted) expect(metadata().length).toBeGreaterThan(0);
   await page.evaluate(() => window.sandbox.shutdown());
 
   await embedded(page, project);
@@ -651,7 +541,7 @@ test("after a reload, npx and npm install take a kept project's packages without
   expect(await npm('npm install')).toMatchObject({ code: 0 });
   expect(registry).toEqual([]);
   expect((await npm('npm install picocolors@1.1.1')).code).toBe(0);
-  expect(metadata().map((url) => url.slice(27))).toEqual(['picocolors']);
+  if (counted) expect(metadata().map((url) => url.slice(27))).toEqual(['picocolors']);
   expect(
     (await npm("node -p \"require('ms')('1h') + require('picocolors').red('!')\"")).stdout,
   ).toContain('3600000');

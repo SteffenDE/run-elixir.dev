@@ -13,28 +13,39 @@ target/test-nif), and no other is built.
 
     python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
         [--nif DIR] [--embedders "ORIGIN ..."] [--embedder-host HOST --embedder-root DIR]
+        [--bridge DOMAIN] [--immutable]
 
 With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
 machine, and each is a site of its own), /playground.json names the apex,
-which has every page, and the domain whose subdomains run what a
-project's code does (packages/runtime/src/lib/site.ts, docs/frames.md),
-whatever the build says. The usercontent domain's hosts are framed by the
-apex's pages from another site (Cross-Origin-Resource-Policy:
-cross-origin) and open no window of their own isolated; the apex's former
-project addresses (p-ID.DOMAIN) send their visitors to the apex.
+which has every page and serves the packages, and the shared usercontent
+domain whose subdomains run what a project's code does
+(packages/runtime/src/lib/site.ts, docs/frames.md), whatever the build
+says. The usercontent domain's hosts answer /bridge.html and /sw.js from
+build.py's _usercontent/, /bridge.json naming the domain, and nothing
+else: the apex's page supplies its frames' files (bridge mode). The apex
+sends its packages (/npm/, /boot/) with CORS, which the frames' workers
+read directly; its pages are framed only by its own origin
+(frame-ancestors; storage.html also by the apex from a former project
+origin, p-ID.DOMAIN, whose visitors go to the apex). No other host has
+the bootstrap (a package's root/bridge.html answers 404 there too).
 
-The usercontent domain's frames take the origins playground.json names
-(`embedders`, or --embedders) as their parent, as they take the apex:
-another site's page runs projects here through the API (docs/api.md).
 With --embedder-host (embedder.localhost:8081, say) that host is a test
 embedder of its own site, serving --embedder-root's files cross-origin
 isolated, as an embedder serves its page, and the site's packages at
 /node_modules/@elixir-playground/NAME/ (PGlite's at
 /node_modules/@electric-sql/pglite/), as an embedder's install would have
-them. A package's published path, /npm/@elixir-playground/NAME@VERSION/,
-is the directory build.py laid it out in (NAME@VERSION+ID), as the hosted
-mirror would serve it.
+them, and at their published paths, /npm/@elixir-playground/NAME@VERSION/
+(the directory build.py laid each out in, NAME@VERSION+ID), with CORS.
+With --bridge DOMAIN (bridge.localhost:8081, say) that domain is a second
+shared usercontent domain, as --usercontent's.
+
+The backend's services (the NIF builds, the git proxy, the TCP relay) are
+the apex's (docs/frames.md): the apex's worker asks for them, so they
+answer only on the apex's host and the embedder's, never on a usercontent
+domain's, and only for the origins the backend's allowlist would take,
+which here are the apex and --embedders (docs/backend.md): with CORS, and
+a WebSocket's Origin checked.
 """
 import functools
 import http.server
@@ -61,18 +72,58 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     HEX = re.compile(r"^/hex/(names|versions|public_key|(packages|tarballs)/[A-Za-z0-9_.+-]+)$")
 
     def cross_site(self):
-        """A browser's request from another site's page: the proxies answer
-        the site's own frames and pages, not another site's (a page of
-        another site could not read the answer anyway; this keeps the
-        proxies from being anyone's through visitors' browsers). Not a
-        boundary for other clients, which send what they like."""
+        """A browser's request the services do not answer, as the backend
+        decides (PlaygroundWeb.ServiceOrigins.request_allowed?): on the
+        usercontent domain (the apex's worker asks for them, docs/frames.md);
+        with an Origin the site does not let run projects (the apex, this
+        host's own, and the embedders are let, with CORS); or without one,
+        marked cross-site (another site's <img>). Not a boundary for other
+        clients, which send what they like."""
+        if self.usercontent() or self.bridge():
+            return True
+        origin = self.headers.get("Origin")
+        if origin:
+            return origin not in allowed_origins() and origin != self.own_origin()
         return self.headers.get("Sec-Fetch-Site") == "cross-site"
+
+    def own_origin(self):
+        return "http://" + (self.headers.get("Host") or "")
+
+    def foreign(self):
+        """Not the apex's own page's request: /hex/ answers only those
+        (Caddy: any cross-site request is refused)."""
+        origin = self.headers.get("Origin")
+        return self.usercontent() or self.bridge() or (origin is not None and origin != self.own_origin()) \
+            or self.headers.get("Sec-Fetch-Site") == "cross-site"
+
+    def cors(self):
+        """CORS for an allowed origin's request (the apex's worker on another
+        site: an embedder's)."""
+        origin = self.headers.get("Origin")
+        if origin and origin in allowed_origins():
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+
+    def do_OPTIONS(self):
+        """A preflight for git's POST (its Content-Type, Git-Protocol), from
+        an allowed origin."""
+        path = self.path.split("?")[0]
+        service = self.GIT.match(path) or self.API.match(path)
+        if not service or self.cross_site() or not self.headers.get("Origin"):
+            self.send_error(403)
+            return
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Methods", "GET, POST")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Accept, Git-Protocol")
+        self.send_header("Access-Control-Max-Age", "600")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def proxy_hex(self, head):
         path = self.HEX.match(self.path.split("?")[0])
         if not path:
             return False
-        if self.cross_site():
+        if self.foreign():
             self.send_error(403)
             return True
         request = urllib.request.Request("https://repo.hex.pm/" + path.group(1),
@@ -101,7 +152,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             return False
         host, repo, endpoint = match.groups()
         if self.cross_site() or (method, endpoint, query) not in (("GET", "info/refs", "service=git-upload-pack"),
-                                             ("POST", "git-upload-pack", "")):
+                                                                  ("POST", "git-upload-pack", "")):
             self.send_error(403)
             return True
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))) if method == "POST" else None
@@ -119,6 +170,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(upstream.status)
         self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
+        self.cors()
         self.end_headers()
         self.wfile.write(data)
         return True
@@ -146,6 +198,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(upstream.status)
         self.send_header("Content-Type", upstream.headers.get("Content-Type", "application/octet-stream"))
         self.send_header("Content-Length", str(len(data)))
+        self.cors()
         self.end_headers()
         self.wfile.write(data)
         return True
@@ -155,6 +208,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         builds in --nif's directory."""
         path, _, query = self.path.partition("?")
         package, version, *library = path[len("/api/v1/nif/"):].split("/")
+        if not os.path.isdir(os.path.join(NIF, "libraries")):
+            return self.json(404, {"error": "no NIF fixtures (python3 -I tests/nif/build.py)"})
         tar = os.path.join(NIF, "libraries", "{abi}", f"{package}-{version}.tar")
         if library:
             # The page asks without ?abi=, as the backend's url has none.
@@ -167,6 +222,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             self.send_response(200)
             self.send_header("Content-Type", "application/x-tar")
             self.send_header("Content-Length", str(len(data)))
+            self.cors()
             self.end_headers()
             self.wfile.write(data)
             return True
@@ -189,6 +245,7 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(data)))
+        self.cors()
         self.end_headers()
         self.wfile.write(data)
         return True
@@ -200,6 +257,11 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not (path.startswith("/socket/") or path == "/relay") \
                 or self.headers.get("Upgrade", "").lower() != "websocket":
             return False
+        # The TCP relay is the apex's worker's (docs/relay.md): from the
+        # apex or an embedder, never the usercontent domain.
+        if path == "/relay" and (self.cross_site() or not self.headers.get("Origin")):
+            self.send_error(403)
+            return True
         upstream = urllib.parse.urlsplit(API)
         port = upstream.port or (443 if upstream.scheme == "https" else 80)
         try:
@@ -237,8 +299,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         if not self.proxy_git("POST"):
             self.send_error(405)
 
+    # Bridge mode's bootstrap, as a package has it: only the shared
+    # domain's hosts serve one (docs/frames.md, "Who may bridge").
+    BOOTSTRAP = re.compile(r"^(/bridge\.(html|json)|/npm/@elixir-playground/runtime@[^/]+/root/bridge\.html)$")
+
     def do_GET(self):
-        if self.embedder():
+        path = self.path.split("?")[0]
+        if self.bridge():
+            if path == "/bridge.json":
+                data = json.dumps({"bridge": self.bridge()}).encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+            elif path in ("/bridge.html", "/sw.js"):
+                super().do_GET()
+            else:
+                self.send_error(404)
+        elif not self.embedder() and (self.BOOTSTRAP.match(path) or path.startswith("/_usercontent/")):
+            self.send_error(404)
+        elif self.embedder():
             if not self.proxy_hex(False):
                 super().do_GET()
         elif OVERRIDES and self.path.split("?")[0] == "/playground.json":
@@ -253,11 +334,20 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             super().do_GET()
 
     def do_HEAD(self):
-        if not self.proxy_hex(True):
+        path = self.path.split("?")[0]
+        if self.bridge() and path not in ("/bridge.html", "/sw.js"):
+            self.send_error(404)
+        elif not self.bridge() and not self.embedder() and (self.BOOTSTRAP.match(path)
+                                                            or path.startswith("/_usercontent/")):
+            self.send_error(404)
+        elif not self.proxy_hex(True):
             super().do_HEAD()
 
     def translate_path(self, path):
         relative = os.path.normpath("/" + urllib.parse.unquote(path.split("?")[0])).lstrip("/")
+        # The shared domain's files (build.py's _usercontent/).
+        if self.bridge():
+            return os.path.join(BRIDGE_DIRECTORY, relative)
         # The test embedder's page and scripts, from their own directory, and
         # its install: the site's packages (a package's own path, its
         # index.js), and PGlite.
@@ -269,6 +359,13 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 return os.path.join(found, rest) if found else os.path.join(EMBEDDER_ROOT, relative)
             if relative.startswith("node_modules/@electric-sql/pglite/"):
                 return os.path.join(ROOT, relative)
+            # Its packages at their published paths, which their
+            # descriptors' bases name: what bridge mode fetches (docs/frames.md).
+            published = re.match(r"^npm/@elixir-playground/([^/@]+)@([0-9.]+)(/.*)?$", relative)
+            if published:
+                found = laid(published.group(1), published.group(2))
+                if found:
+                    return os.path.join(found, (published.group(3) or "/").lstrip("/"))
             return os.path.join(EMBEDDER_ROOT, relative or "index.html")
         # A package's published path: the directory build.py laid it out in.
         published = re.match(r"^npm/@elixir-playground/([^/@]+)@([0-9.]+)(/.*)?$", relative)
@@ -289,8 +386,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return super().send_head()
 
     def usercontent(self):
+        return self.bridge() is not None
+
+    def bridge(self):
+        """The shared usercontent domain this host is below (--usercontent,
+        or --bridge for a second one), or None."""
         host = (self.headers.get("Host") or "").lower()
-        return USERCONTENT is not None and host.endswith("." + USERCONTENT.lower())
+        for domain in (USERCONTENT, BRIDGE):
+            if domain is not None and host.endswith("." + domain.lower()):
+                return domain
+        return None
 
     def end_headers(self):
         self.send_header("Cross-Origin-Embedder-Policy", "require-corp")
@@ -300,39 +405,42 @@ class Handler(http.server.SimpleHTTPRequestHandler):
             # its files (an app's archive) fetched by the project's frame,
             # another site: with CORS.
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            # Its packages' files, which bridge mode's frames read
+            # themselves with data: 'direct' (another site): CORS and CORP,
+            # as a CDN would send them.
+            public = path.startswith(("/npm/", "/boot/"))
+            self.send_header("Cross-Origin-Resource-Policy", "cross-origin" if public else "same-origin")
             self.send_header("Access-Control-Allow-Origin", "*")
-        elif self.usercontent():
+        elif self.usercontent() or self.bridge():
             # The apex's pages frame these from another site.
             self.send_header("Cross-Origin-Resource-Policy", "cross-origin")
         else:
             self.send_header("Cross-Origin-Opener-Policy", "same-origin")
-            # A project's origin and the apex frame each other (the same site).
-            self.send_header("Cross-Origin-Resource-Policy", "same-site")
-        node = NODE_SCRIPT.match(self.path.split("?")[0])
-        if node:
-            self.send_header("Content-Security-Policy",
-                             node_policy("http://" + (self.headers.get("Host") or ""), node.group(1)))
-        self.send_header("Cache-Control", "no-cache")
+            # The packages' files and the recordings: the frames' workers on
+            # the usercontent domain read them (docs/frames.md, "The data
+            # path"), from origins no single name covers. The rest: a
+            # former project origin and the apex frame each other (the same
+            # site).
+            public = path.startswith(("/npm/", "/boot/"))
+            self.send_header("Cross-Origin-Resource-Policy", "cross-origin" if public else "same-site")
+            if public:
+                self.send_header("Access-Control-Allow-Origin", "*")
+            # No other site frames the apex's pages (its origin would run a
+            # stranger's frames' code, docs/frames.md). A former project
+            # origin's storage.html is framed by the apex itself.
+            ancestors = "'self'"
+            domain = site_config().get("domain")
+            host = (self.headers.get("Host") or "").lower()
+            if path == "/storage.html" and domain and host != domain.lower():
+                ancestors += f" http://{domain} https://{domain}"
+            self.send_header("Content-Security-Policy", f"frame-ancestors {ancestors}")
+        # --immutable: a package's files as production sends them (their
+        # paths are immutable), for measuring with a warm HTTP cache.
+        if IMMUTABLE and path.startswith(("/npm/", "/boot/")):
+            self.send_header("Cache-Control", "public, max-age=31536000, immutable")
+        else:
+            self.send_header("Cache-Control", "no-cache")
         super().end_headers()
-
-
-# A Node.js process's worker (the runtime package's nodejs.js) and the
-# chunks it imports.
-NODE_SCRIPT = re.compile(r"^(/npm/@elixir-playground/runtime@[^/]+)/(?:nodejs\.js|chunks/[^/]+\.js)$")
-
-
-def node_policy(origin, runtime):
-    """A Node.js process's worker's policy (docs/nodejs.md, The worker's
-    policy), as Caddy sends it: its own scripts (a module worker's imports
-    are worker scripts too) and the packages' files (/npm/@elixir-playground/:
-    the tls package's tls.wasm and roots.pem), eval and WebAssembly, and
-    threads from blobs, which inherit it. No other network: a script
-    reaches other hosts only by the process's messages. Its chunks carry it
-    too, so a worker started from one of them is held the same."""
-    scripts = f"{origin}{runtime}/nodejs.js {origin}{runtime}/chunks/"
-    return (f"default-src 'none'; script-src {scripts} 'unsafe-eval' 'wasm-unsafe-eval'; "
-            f"worker-src {scripts} blob:; connect-src {origin}/npm/@elixir-playground/ data: blob:")
 
 
 def laid(name, version=None):
@@ -343,6 +451,15 @@ def laid(name, version=None):
     found = sorted((entry for entry in os.listdir(top) if entry.startswith(prefix)),
                    key=lambda entry: os.path.getmtime(os.path.join(top, entry))) if os.path.isdir(top) else []
     return os.path.join(top, found[-1]) if found else None
+
+
+def allowed_origins():
+    """The origins the services answer, as the backend's allowlist would
+    (PLAYGROUND_SERVICE_ORIGINS, docs/backend.md): the apex (--domain, or
+    playground.json's) and --embedders."""
+    config = site_config()
+    domain = config.get("domain")
+    return set(EMBEDDERS.split() if EMBEDDERS else []) | ({f"http://{domain}", f"https://{domain}"} if domain else set())
 
 
 def site_config():
@@ -357,21 +474,24 @@ def site_config():
 
 
 directory = os.path.join(ROOT, "target", "site")
+BRIDGE_DIRECTORY = os.path.join(directory, "_usercontent")
 args = sys.argv[1:]
-OPTIONS = ("--domain", "--usercontent", "--api", "--nif", "--embedders", "--embedder-host", "--embedder-root")
+OPTIONS = ("--domain", "--usercontent", "--api", "--nif", "--embedders", "--embedder-host", "--embedder-root",
+           "--bridge")
 option = lambda name: args[args.index(name) + 1] if name in args else None
 DOMAIN = option("--domain")
 USERCONTENT = option("--usercontent")
 EMBEDDERS = option("--embedders")
 EMBEDDER_HOST = option("--embedder-host")
+BRIDGE = option("--bridge")
+IMMUTABLE = "--immutable" in args
 EMBEDDER_ROOT = os.path.abspath(option("--embedder-root") or ".")
 NIF = option("--nif") and os.path.abspath(option("--nif"))
-OVERRIDES = {key: value for key, value in (("domain", DOMAIN), ("usercontent", USERCONTENT),
-                                           ("embedders", EMBEDDERS and EMBEDDERS.split()))
+OVERRIDES = {key: value for key, value in (("domain", DOMAIN), ("usercontent", USERCONTENT))
              if value is not None}
 API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir.dev").rstrip("/")
 args = [arg for i, arg in enumerate(args)
-        if arg not in OPTIONS and (i == 0 or args[i - 1] not in OPTIONS)]
+        if arg not in OPTIONS and arg != "--immutable" and (i == 0 or args[i - 1] not in OPTIONS)]
 port = int(args[0]) if args else 8080
 print(f"http://localhost:{port}/ serving {directory}, NIF builds from {NIF or API}, "
       f"live sessions from {API}")

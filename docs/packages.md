@@ -1,7 +1,7 @@
 ---
 kind: design
 status: proposal
-last_updated: 2026-10-28
+last_updated: 2026-10-29
 ---
 
 # Distributing the playground as npm packages
@@ -38,8 +38,10 @@ Tidewave's `/web` is the first other site this is for.
 
 The site is laid out as these packages, the runtime runs from them, and
 `create()` takes them: [What is implemented](#what-is-implemented) has
-the details. They are on npm ([Publishing](#publishing)). The hosted
-mirror is a proposal.
+the details. They are on npm ([Publishing](#publishing)). Projects run on
+a shared usercontent domain that serves no packages (bridge mode, the
+only mode since 2026-10-30); the hosted mirror is a superseded proposal
+([below](#usercontent-bridged)).
 
 ## Packages
 
@@ -53,7 +55,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 
 | Package | Contents | Peer dependencies | Size |
 | --- | --- | --- | --- |
-| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `nodejs.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the `/relay.html` bootstrap) | none | 14 MB |
+| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `nodejs.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the bridge's bootstrap `bridge.html`) | none | 14 MB |
 | `api` | `index.js`: `create()` and its sandbox, one ES module | `runtime` | 93 KB |
 | `pglite` | `index.js`: the pglite plugin (Postgres on port 5432); depends on `@electric-sql/pglite` | `api` | 7 KB |
 | `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, pglite()]`, which it depends on | none | 1 KB |
@@ -66,8 +68,8 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find` | `runtime` | 5.3 MB |
 | `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
 | `tailscale` (not published) | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
-| `claude` | The claude frame and its worker, which prepare Claude Code (`claude.html`, `frames/`, esbuild's WebAssembly among them); the range they were tested with; no Claude Code | `runtime ^1.1` | 12 MB |
-| `vite` | `index.js`: the Vite plugin that lays out a site's usercontent domain ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 9 KB |
+| `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`, esbuild's WebAssembly among them); the range they were tested with; no Claude Code | `runtime ^1.2` | 12 MB |
+| `vite` | `index.js`: the Vite plugin that lays the packages out in a site's own output ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 7 KB |
 
 **Not published:** `phoenix-template` and `tailscale` are the
 playground's own (`"private": true`, `PACKAGES`' `publish` in
@@ -104,8 +106,13 @@ What is still not where it belongs:
   in its `playground` field instead, and only the load-time check enforces
   it.
 
-The repository's packages are all `1.0.0` (`PACKAGES` and `API_VERSION`
-in `build.py`; `packages/runtime/src/packages/host.json` for the runtime). The
+The packages' versions are in `PACKAGES` in `build.py`, each JavaScript
+package's `package.json`, and `packages/runtime/src/packages/host.json`
+for the runtime. On 2026-10-30 (unpublished): runtime 1.2.0 (the
+`pagePrograms` and `frames` seams; the `claude` seam removed, which only
+the claude package used), claude 2.0.0, api
+2.0.0 (`create()`'s `usercontent` changed, `EACCES` gone), vite 2.0.0
+(its options changed) and pglite 1.1.0 (its peer range on api). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
@@ -151,8 +158,8 @@ site/ID.json                              the site manifest
 ```
 
 Each of these is immutable. The pages (`index.html`, `preview.html`,
-`storage.html`, the `/relay.html` upgrade bootstrap), `sw.js` and
-`playground.json` keep their names. Each page names the runtime package's path and the
+`storage.html`), `playground.json` and the usercontent domain's
+`_usercontent/` (`bridge.html`, `sw.js`, `bridge.json`) keep their names. Each page names the runtime package's path and the
 site manifest's (`<meta name="playground-runtime">`, `<meta
 name="playground-site">`); the runtime finds everything else through the
 manifest. [build.md](build.md#what-the-site-is) has the whole tree.
@@ -231,6 +238,8 @@ Every key is optional. A package sets the keys that describe it.
 | `tls` | `tls` | `{ module, roots }`. |
 | `tailscale` | `tailscale` | `{ module, glue }`. |
 | `claudeCode` | `claude` | The tested Claude Code range ([below](#claude-code)). |
+| `pagePrograms` | any | `{ NAME: module }`: commands that run on the page ([below](#page-programs-and-shared-frames)). |
+| `frames` | any | `{ NAME: page }`: shared frames, one per page ([below](#page-programs-and-shared-frames)). |
 | `provides` | `runtime` | `{ seam: [versions] }`: what the runtime speaks. |
 
 From today's build:
@@ -343,6 +352,8 @@ of each.
 | `tls` | `tls.wasm`'s exports and `nodejs/tls.ts` | 1 | its 19 exports (`tls_client`, `tls_alpn`, …) | `tls` major or `runtime` major |
 | `tailscale` | `tailscale.wasm` with its `wasm_exec.js`, and the Tailscale worker | 1 | the worker's calls into the node | `tailscale` major or `runtime` major |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
+| `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 1.2 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`) | `runtime` major |
+| `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 1.2 | 1 | `playground-frame-loaded`, `playground-frame` with a port; the origin's name | `runtime` major |
 | `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings follow |
 | `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
 | template pair | `phoenix-template` and OTP plus Elixir | exact versions | another OTP or Elixir | a new template build |
@@ -367,51 +378,111 @@ new `beamAbi` and keeps every NIF library built so far.
 The embedder's own bundler takes the JavaScript (`api`, `pglite`, the
 descriptors) like any npm dependency. The `vite` package's plugin writes
 what a bundler does not ([api.md](api.md#a-site-of-your-own-the-vite-plugin)):
-the usercontent domain's folder (the runtime and every installed package
-under `/npm/@elixir-playground/NAME@VERSION/`, `sw.js`, the `/relay.html`
-bootstrap, `playground.json`, `_headers`), and the apex's
-`playground.json` and `<meta name="playground-runtime">`.
+the runtime and every installed package in the site's own output, under
+`npm/@elixir-playground/NAME@VERSION/` below Vite's `base`, and the
+pages' `<meta name="playground-runtime">`, `playground-content` and
+`playground-usercontent`.
 
 Proposed beyond it:
 
 - **Boot recordings,** recorded with the Node harness for the installed
   set. They are optional.
 - **A CLI** for sites that don't use Vite, and header configurations for
-  Caddy and nginx beside `_headers`.
+  Caddy, nginx, Netlify and Cloudflare Pages.
 
 `runtime/build.py` does the same for run-elixir.dev from the repository's
 own builds ([build.md](build.md)).
 
-## Usercontent: hosted or self-hosted
+## Usercontent: bridged
 
-An embedder needs a second registrable domain for project code
-([frames.md](frames.md)). There are two ways to get one.
+An embedder's project code runs on a second registrable domain
+([frames.md](frames.md)), a shared one. It serves only `/bridge.html`,
+`/sw.js` and `/bridge.json` (which names it;
+[frames.md](frames.md#who-may-bridge)). The embedder serves the packages
+itself at their descriptors' `base`s
+(`/npm/@elixir-playground/NAME@VERSION/`, as npm installs them), and the
+api's worker answers its frames over MessagePorts
+([frames.md](frames.md#bridge-mode), [api.md](api.md#the-usercontent-domain-and-where-the-page-serves-the-packages)).
+Published descriptors work as they are: their `base` is resolved against
+the embedder's page, not the usercontent domain, so `NAME@VERSION` paths
+need no mirror. The shared domain runs no embedder's code of its own: what
+runs in an embedder's frames is what that embedder served.
+run-elixir-usercontent.org becomes such a domain with this branch (not
+deployed as of 2026-10-30).
 
-**Hosted (offered, optional).** The hosted usercontent domain is an
-npm-backed mirror. Its `playground.json` names the embedders whose pages
-it runs projects for (`embedders`, implemented for run-elixir.dev's own
-usercontent domain: [api.md](api.md#who-may-run-projects-on-a-usercontent-domain)). On first request,
-`https://e-ID.<hosted usercontent>/npm/@elixir-playground/runtime@3.4.1/exec.html`
-is fetched from the published tarball, checked against its `integrity`,
-served with the playground's headers, and cached forever. npm forbids
-republishing a version, so every version in any lockfile stays available,
-and the mirror is compatible by construction. `api` loads its frames,
-workers and artifacts from the exact versions in the embedder's lockfile:
-each descriptor's `base` names its version.
+Whoever controls the shared domain controls `bridge.html` and `sw.js`,
+which see every file and request that pass through them. An embedder that
+does not accept that serves the same three files from a wildcard domain
+of its own (`_usercontent/` of a site build, with its `bridge.json`) and
+names it in `create({ usercontent })`.
 
-**Self-hosted.** The embedder serves `usercontent/` from its own second
-domain, with the generated headers and a wildcard certificate. The disk
-layout is the same as the mirror's, and as run-elixir.dev's own.
+Two other ways were described before and are gone:
 
-**The trust cost of hosted usercontent.** The hosted domain serves the
-code that runs every project, for every embedder that uses it. Whoever
-controls run-elixir.dev's usercontent servers can change what runs in
-those embedders' users' sessions, within the usercontent origins: their
-project files, terminals, and agent credentials passed into projects.
-Integrity checks against
-npm limit the mirror to published versions, but they do not remove the
-operator from the path. An embedder that does not accept this
-self-hosts.
+- **Self-hosted (removed 2026-10-30).** The embedder served the packages
+  from its own second domain, laid out by the Vite plugin's former
+  `usercontent` option (`dist-usercontent/`, `_headers`).
+- **Hosted npm-backed mirror (proposal, superseded by bridge mode).** A
+  mirror would have fetched each package from the published tarball,
+  checked it against its `integrity`, and served it. Bridge mode removes
+  its reasons: an embedder needs no mirror to use published descriptors,
+  and the shared domain's operator does not choose what code runs in an
+  embedder's frames.
+
+## Page programs and shared frames
+
+A package can add a command, and keep state that every project of a page
+shares, without the api or the runtime naming it (implemented
+2026-10-30; the runtime's `pagePrograms` and `frames` seams, 1 since
+runtime 1.2). The claude package is the first.
+
+```json
+"playground": {
+  "abi": { "pagePrograms": 1, "frames": 1 },
+  "pagePrograms": { "claude": "program.js" },
+  "frames": { "claude": "claude.html" }
+}
+```
+
+**A page program** is a JavaScript module of the package's, an ES module
+whose default export is the program:
+
+```ts
+import type { PackageProgram } from '@elixir-playground/runtime/pageProgram';
+
+const program: PackageProgram = async (process, context, host) => {
+  const port = await host.frame('claude');          // this package's shared frame
+  const node = host.programs().node;                // another page program
+  return node(process, { ...context, args: ['/opt/x/cli.js', ...context.args] });
+};
+export default program;
+```
+
+- The runtime puts its name on PATH (`/usr/bin/NAME`) and imports the
+  module in the exec frame's worker the first time the command runs,
+  below the bridge (`npm/NAME@VERSION/MODULE`). A runtime program of the
+  same name (`node`, `npm`, `sh`, …) stays the runtime's.
+- `process` and `context` are what the runtime's own page programs get
+  (`runtime/src/pageProgram.ts`): output, input, exit, kill; the
+  arguments, working directory, environment and the project's files.
+  `node`'s `context.bun` adds Bun's globals (Claude Code needs them).
+- The module is the package's own file, so a site serves it with the
+  package. It runs with the exec frame's worker's reach: the project's
+  files and processes, no network but HTTPS by fetch and the services the
+  site's backend allows.
+
+**A shared frame** is a page of the package's. The page frames it once,
+when a program first asks for it, on its own origin of the usercontent
+domain, `NAME-HASH`. `HASH` is salted with the page's secret and covers
+the package's name ([frames.md](frames.md#packages-page-programs-and-shared-frames)),
+so it has storage of its own, which every project of the page shares,
+and no other frame can tell its origin. Its page calls `serveFrame(take)`
+(`runtime/src/lib/sharedFrame.ts`), which bridges its files and gives
+`take` a port for each `host.frame(name)` of the package's programs. What
+the program and the frame say over that port is the package's (the
+claude package's `protocol.ts`).
+
+`NAME` is 2 to 16 letters and digits, starting with a letter. A program
+reaches only its own package's frames.
 
 ## The preview origin's service worker
 
@@ -420,12 +491,12 @@ So that origin's `sw.js` must be root-scoped, and one worker serves every
 version of the host on it. It is the one shared, unversioned piece.
 
 - It is a router. It passes a preview's requests and WebSockets to its host
-  page, the runtime package's `relay.html`.
-- The parent first loads `/relay.html`, a small bootstrap that updates
-  `sw.js` and waits for activation before navigating to the chosen runtime's
-  relay. The unnumbered worker already exempts this root path; it would
-  otherwise route the new package URL into the app. Both workers leave
-  the bootstrap to the network.
+  page, the runtime package's `relay.html`, which the page loads below a
+  bridge ([bridge messages](#bridge-messages)).
+- The bridge's bootstrap (`/bridge.html`) registers and updates it
+  before it loads the relay. Until 2026-10-30 a `/relay.html` bootstrap
+  at the domain's root did that; the worker still leaves that path and
+  `/bridge.html` to the network.
 - Its protocol is numbered. The host announces `{ kind: 'host', protocol:
   N }`, and the worker answers in that protocol.
 - Changes within a protocol are additive only. A new `sw.js` keeps
@@ -472,8 +543,9 @@ Both ends are the host's version, so the worker never reads them.
 
 - **Navigations:** it answers iframe navigations only. The site's own
   pages go to the network: every path under `/npm/@elixir-playground/`
-  (the runtime package's `relay.html`). It remembers each document it
-  answered.
+  (the runtime package's `relay.html`), and `/bridge.html`. What is below
+  `/_bridge/KEY/` is a bridge's ([below](#bridge-messages)). It remembers
+  each preview document it answered.
 - **Requests:** it sends to the host the requests from the documents it
   answered. Before its routes are loaded, it loads them first. Everything
   else goes to the network without passing through it.
@@ -526,35 +598,101 @@ the relay's local storage). The rest is routing.
   window is a promise about what our `sw.js` keeps speaking. We cannot
   update every copy.
 
+### Bridge messages
+
+Added to protocol 1 on 2026-10-29 (additive: a host that never sends
+them sees no change). On 2026-10-30, before any shared domain was
+deployed, `bridge` became stricter: a new key is taken only on an origin
+below the domain `/bridge.json` names. A host that never sends `bridge`
+still sees no change. What `sw.ts` with `swBridge.ts`, the bootstrap
+(`root/bridge.html`) and a bridged page (`lib/bridgeClient.ts`) exchange
+in bridge mode ([frames.md](frames.md#bridge-mode)). The
+bridge has its own numbers, `BRIDGE_PROTOCOLS` (`[1]`), in
+`swProtocol.ts`.
+
+**Page → worker**, with a port to the apex's worker:
+
+| Message | Meaning |
+| --- | --- |
+| `{ kind: 'bridge', protocol, bridge }` | Serve `/_bridge/KEY/` (`bridge`: the key, 16 to 64 characters of `[A-Za-z0-9_-]`) from this port. Taken from `/bridge.html` for a key the worker does not know, only on an origin below the domain its `/bridge.json` names (`{ "bridge": "DOMAIN" }`, read once and kept while yes), and from a page below `/_bridge/KEY/` for that key. |
+
+**Worker → page:**
+
+| Message | Meaning |
+| --- | --- |
+| `{ kind: 'bridged', bridge, protocol, protocols }` | The answer to `bridge`: the protocol it speaks, or `null` (refused: another key's page, a key taken, a protocol it does not speak, no port, an origin outside the shared domain), with the protocols it does speak. |
+| `{ kind: 'bridge-lost', protocol, bridge }` | The worker has no port for the key (it was stopped). Sent to the window clients below `/_bridge/KEY/` only; one answers with `bridge`. |
+
+**Worker → the apex's worker**, on that port, with a reply port: a
+`LinkRequest` (`lib/apexLink.ts`): `{ kind: 'get', path, method, headers,
+body }`, `path` below the bridge with its query. The reply is
+`{ status, headers, body }` (`LinkResponse`), `body` an `ArrayBuffer`.
+
+**Frame ↔ parent** (window messages, not the worker's):
+
+| Message | From | Meaning |
+| --- | --- | --- |
+| `{ kind: 'playground-bridge-loaded', protocols }` | the bootstrap, to any parent | It loaded, on a shared domain's origin (its `/bridge.json`); nothing else in it. |
+| `{ kind: 'playground-bridge', protocol, entry }` + a port | the parent | The page to load below the bridge (a package's `.html`), and a port to the apex's worker. The bootstrap sends `{ kind: 'serve' }` with a new port over it once the service worker took that port's other end under a new key; a refused or silent worker's port is closed instead. |
+| `{ kind: 'playground-bridge-failed', message }` | the bootstrap, to that parent | Registering or bridging failed. |
+| `{ kind: 'playground-bridge-client', protocol }` | a bridged page, to any parent | It asks for a port of its own. |
+| `{ kind: 'playground-bridge-control' }` + a port | the parent | That port. The page sends `{ kind: 'serve' }` with a new port over it for each `bridge-lost`. |
+
+**What the worker does with them:**
+
+- Requests below `/_bridge/KEY/` go to that key's port, whatever their
+  client: a navigation, a worker's script, an import, a fetch. Paths
+  below `/_bridge/KEY/_services/` answer 404: the services are the exec
+  frame's link's alone.
+- Without a port for the key it sends `bridge-lost` and waits up to 5 s,
+  then answers 503. Without an answer from the apex in 120 s it answers
+  504 and forgets the port.
+- It drops the apex server's caching, cookie and isolation headers, and
+  adds COEP `require-corp`, CORP `cross-origin`, the Node.js worker's
+  policy on `runtime@…/nodejs.js` and `chunks/`, and the documents'
+  `sandbox` policy. It refuses `Content-Disposition: attachment` (403).
+- The apex's answer may carry `x-playground-connect` (space-separated
+  URLs: where the page serves the packages' files, which the frame's
+  workers read there). The worker adds the plain `http(s)` ones to the
+  Node.js worker's `connect-src`, and drops the header.
+- It keeps the ports in memory only, and no files: no Cache Storage, no
+  IndexedDB.
+
 ## Claude Code
 
 The browser always fetches Claude Code from npm. We never republish it.
 
-- `@elixir-playground/claude` holds the preparer and the range it was
-  tested with: `"playground": { "claudeCode": ">=2.1.300 <=2.1.306" }`.
+- `@elixir-playground/claude` holds the `claude` command (a page
+  program), the preparer (a shared frame) and the range it was tested
+  with: `"playground": { "claudeCode": ">=2.1.300 <=2.1.306" }`
+  ([above](#page-programs-and-shared-frames)).
   The upper bound is inclusive and is the newest version tested.
-- The claude frame takes the highest version on the registry within the
-  range.
-- Its cache is keyed by `(Claude Code version, preparer version)`.
-- `create({ claude: { version } })` may pin a version inside the range. A
-  pin outside it is refused.
+- **Planned:** the claude frame takes the highest version on the
+  registry within the range, keys its cache by `(Claude Code version,
+  preparer version)`, and `create({ claude: { version } })` may pin a
+  version inside the range (a pin outside it is refused).
 - **Planned:** a nightly CI job that tests new Claude Code releases. On a
   pass, it publishes a patch of the claude package with a wider range.
 
 Today the app pins one version with its integrity (`CLAUDE_CODE` in
-`packages/runtime/src/programs/claude/build.ts`), and the claude package's range
+`packages/claude/src/build.ts`), and the claude package's range
 is `">=2.1.306 <=2.1.306"`. The range is not read yet.
 
 ## Backend services
 
 These stay servers: the TCP relay (`/relay`, [relay.md](relay.md)), NIF
 builds ([nif.md](nif.md)), the `/hex/` and `/git/` proxies, and live
-sessions (`/socket`).
+sessions (`/socket`). Since 2026-10-29 the page's worker reaches them on
+the apex side, in every mode ([frames.md](frames.md#the-exec-frame)), and
+`create({ services })` names where.
 
-- **Use run-elixir.dev's.** Each embedder's origins go on per-service
-  allowlists, as `PLAYGROUND_EMBEDDERS` does for the usercontent
-  domain's frames today.
-- **Mount them.** The backend could become a Hex package an embedder adds
+- **Use run-elixir.dev's (implemented).** One allowlist of origins,
+  `PLAYGROUND_SERVICE_ORIGINS` ([backend.md](backend.md#service-origins)),
+  for NIF builds, the relay and (in Caddy) the git proxy. `/hex/` is not
+  offered to other sites: they use the public mirror.
+- **Self-host or reverse proxy them (implemented).** `services` takes a
+  backend's origin or each service's URL.
+- **Mount them (proposal).** The backend could become a Hex package an embedder adds
   to its own Phoenix app.
 - **Versioned endpoints.** An embedder's lockfile can hold an `api` for
   months. NIF builds are at `/api/v1/nif/NAME/VERSION?abi=NIF_ABI`
@@ -570,8 +708,9 @@ sessions (`/socket`).
   package size, but it gives no numbers. A third-party listing says 100 MB
   per npm package. None of this is verified, and these CDNs also don't send
   COEP-compatible CORP headers for every file, the Node.js worker's CSP,
-  or our `frame-ancestors`. Such a mode probably needs the hosted mirror
-  anyway.
+  or our `frame-ancestors`. Bridge mode would take these files through the
+  apex's worker, which needs only CORS from the CDN (not verified with a
+  public npm CDN).
 - **npm package size.** `phoenix-template` is 47 MB on disk (570
   bundles) and `otp-29.1.2` 39 MB. npm documents no tarball limit that I
   found. Large tarballs slow every `npm install`. Rarely used OTP
@@ -626,8 +765,8 @@ As of 2026-10-28:
 - **`create()` on the calling page** ([api.md](api.md), 2026-10-28):
   `embed.html` and `embed.js` are gone. The IDE starts every project
   through it, with the site's packages, `pglite()` and its own
-  `tailscale` plugin. The usercontent domain's frames take the apex and
-  the `embedders` as their parent.
+  `tailscale` plugin. The usercontent domain's frames take the page that
+  bridged them as their only parent.
 - **Descriptors and the JavaScript packages:** every published artifact
   package's `index.js`; `api`, `pglite` and `standard`
   (`packages/api`, `packages/pglite`, `build.py` `lay_runtime`).
@@ -640,13 +779,22 @@ As of 2026-10-28:
 
 **Deploying it** needs, besides the release:
 
-- Caddy's matchers ([deploy.md](deploy.md#caddy)): the Node.js worker's
-  CSP on `/npm/@elixir-playground/runtime@…/nodejs.js` and `chunks/`, the
-  immutable paths (`/npm/*`, `/boot/*`, `/site/*`), and the
-  proxies' `/api/v1/nif/*`;
+- Caddy's matchers ([deploy.md](deploy.md#caddy)): the immutable paths
+  (`/npm/*`, `/boot/*`, `/site/*`) with CORS on the first two, the
+  usercontent domain's root (`current/_usercontent`), and the proxies'
+  `/api/v1/nif/*`;
 - the backend deployed with `/api/v1/nif/` and a root disk built anew
   (`sandbox/build`), whose `manifest.json` has `nif_abi`;
 - Tidewave's `/web` moved to `create()` (`embed.html` is gone).
 
-Not built: a CLI beside the Vite plugin, the npm-backed mirror, the `.r4.` host level, the claude package's range in
-use, and the Claude CI job.
+- **Bridge mode** (2026-10-29; the only mode since 2026-10-30): the
+  bootstrap, the service worker's bridge messages, the apex's worker, the
+  runtime's data seam (`lib/apexLink.ts`), and the Vite plugin. The
+  backend's services moved to the apex, with the origin allowlist.
+- **Page programs and shared frames** (2026-10-30): the runtime's
+  `pagePrograms` and `frames` seams (runtime 1.2); the claude package
+  (2.0) moved onto them.
+
+Not built: a CLI beside the Vite plugin, the npm-backed mirror (superseded
+by bridge mode), the deployed shared domain, the `.r4.` host level, the
+claude package's range in use, and the Claude CI job.

@@ -1,3 +1,4 @@
+import type { PreviewPlace } from '@elixir-playground/api/previewOrigins';
 import { newId } from '@elixir-playground/runtime/lib/ids';
 import { previewOrigin } from '@elixir-playground/runtime/lib/site';
 
@@ -32,14 +33,38 @@ export function onPreviewMessage(listener: (event: MessageEvent<PreviewMessage>)
 export function setPreviewKey(): void {
   const key = keyOf();
   if (key === previewKey) return;
+  forgetPreviewPlace();
   previewChannel.close();
   previewKey = key;
   previewChannel = new BroadcastChannel(`playground-preview:${previewKey}`);
   previewChannel.onmessage = (event) => listeners.forEach((listener) => listener(event));
 }
 
-// Where the preview shows `port` (site.ts previewOrigin), for PreviewFrame.
-export const previewOriginOf = (port: number) => previewOrigin(previewKey, port);
+// Where the project's previews are (the api's PreviewPlace): their
+// origins' key, which create() salts with this page's secret, and their
+// relays' mode. The project's page learns it as the project starts
+// (setPreviewPlace); the popped-out window gets the key in its URL
+// (`origins`).
+let origins = new URLSearchParams(location.search).get('origins');
+let placed: (place: PreviewPlace) => void = () => {};
+let place = new Promise<PreviewPlace>((resolve) => (placed = resolve));
+export function setPreviewPlace(at: PreviewPlace): void {
+  origins = at.key;
+  placed(at);
+}
+// The project's previews' place, once it started.
+export const previewPlace = () => place;
+// The project on the page changed (setPreviewKey): its own place, later.
+function forgetPreviewPlace(): void {
+  origins = null;
+  place = new Promise<PreviewPlace>((resolve) => (placed = resolve));
+}
+export const previewOriginsKey = () => origins;
+
+// Where the preview shows `port` (site.ts previewOrigin), for PreviewFrame:
+// null before the project started.
+export const previewOriginOf = (port: number) =>
+  origins === null ? null : previewOrigin(origins, port);
 
 export function send(message: PreviewMessage): void {
   previewChannel.postMessage(message);

@@ -1,6 +1,6 @@
 {
   "name": "@elixir-playground/runtime",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "provides": {
     "manifest": [2],
     "fs": [3],
@@ -11,6 +11,7 @@
     "tls": [1],
     "tailscale": [1],
     "nif": [1],
-    "claude": [1]
+    "pagePrograms": [1],
+    "frames": [1]
   }
 }

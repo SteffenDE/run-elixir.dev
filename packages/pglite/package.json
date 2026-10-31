@@ -1,6 +1,6 @@
 {
   "name": "@elixir-playground/pglite",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "description": "The pglite plugin of create(): Postgres on port 5432 for a project's nodes (docs/api.md). Its published package.json is runtime/build.py's.",

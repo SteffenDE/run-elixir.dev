@@ -1,7 +1,7 @@
-// The claude frame's worker (frame.ts, on claude.USERCONTENT): it answers
-// each port the frame passes on (an exec frame's `claude`, through the
-// page that runs it: the api package's claudeFrame.ts) with Claude Code's
-// files (the runtime's programs/claude/protocol.ts), made once for every
+// The claude frame's worker (frame.ts, on claude-HASH.USERCONTENT): it
+// answers each port the frame passes on (program.ts, an exec frame's
+// `claude`, through the page: the api package's sharedFrame.ts) with Claude Code's
+// files (protocol.ts), made once for every
 // project and every tab (build.ts; a lock, so two never make them at
 // once). It runs none of Claude Code: it fetches, checks, reads and
 // compiles, and keeps the result.

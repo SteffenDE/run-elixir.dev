@@ -1,14 +1,16 @@
-// claude: Claude Code on the page, its JavaScript on the playground's Node
-// with a stand-in for Bun's own APIs (nodejs/claude/bun.ts). The site
-// hosts none of it: the claude frame (worker.ts, on claude.USERCONTENT)
-// makes its files once a version for every project (the claude package),
-// and hands them over a port the page gives (protocol.ts). Each run puts them in
+// claude, the claude package's page program (the runtime's
+// pageProgram.ts; docs/packages.md, "Page programs"): Claude Code on the
+// page, its JavaScript on the playground's Node with a stand-in for Bun's
+// own APIs (the runtime's nodejs/claude/bun.ts: node's `bun` option). The
+// site hosts none of it: the package's shared frame, `claude` (frame.ts and
+// worker.ts), makes its files once a version for every project of the
+// page, and hands them over a port (protocol.ts). Each run puts them in
 // /opt/claude-code/VERSION (files.js's memory, outside /work, so a project
 // does not keep them) and runs cli.js there with node.
-import type { Files } from '../../host/files';
-import { Rpc } from '../../lib/rpc';
+import type { Files } from '@elixir-playground/runtime/host/files';
+import { Rpc } from '@elixir-playground/runtime/lib/rpc';
+import type { Context, PackageProgram, Process } from '@elixir-playground/runtime/pageProgram';
 import { DIR, type ClaudeFiles, type GraphFile } from './protocol';
-import type { Context, Process } from '../tailwind';
 
 // The files in `dir`, unless they are there already (cli.js last, so its
 // being there means they all are).
@@ -43,7 +45,7 @@ async function install(
 type Program = (process: Process, context: Context) => void | Promise<void>;
 
 // The claude frame's files for this version, its progress written as it
-// goes; over a port to it (`connect`: the IDE's page's).
+// goes; over a port to it (`connect`: through the page).
 async function claudeFiles(
   connect: () => Promise<MessagePort>,
   say: (text: string) => void,
@@ -122,3 +124,8 @@ export const claudeProgram =
     for (const bytes of pending.splice(0)) process.oninput?.(bytes);
     return running;
   };
+
+// The page program: node is the runtime's, the claude frame this package's.
+const claude: PackageProgram = (process, context, host) =>
+  claudeProgram(host.programs, () => host.frame('claude'))(process, context);
+export default claude;

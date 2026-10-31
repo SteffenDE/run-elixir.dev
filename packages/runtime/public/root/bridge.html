@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Elixir Playground</title>
+  </head>
+  <body>
+    <script type="module">
+      // The bridge mode's bootstrap (docs/frames.md): the one page a shared
+      // usercontent domain serves for its origins (e-KEY, v-KEY-PORT,
+      // claude), with /sw.js. The page that frames it (the apex) supplies
+      // everything else over a port to its worker. It runs only framed,
+      // takes messages only from its parent, and nothing from its URL or
+      // an opener. It registers the origin's service worker, gives it a
+      // port to the apex's worker under a random key, and loads the
+      // frame's page below /_bridge/KEY/, which the worker answers from
+      // that port. The navigation is a new document, which the active
+      // worker controls: no reload is needed.
+      const PROTOCOL = 1;
+      // The path of the frame's page below the bridge: a package's file.
+      const ENTRY = /^npm\/@elixir-playground\/[a-z0-9.-]+@[A-Za-z0-9.+-]+\/[A-Za-z0-9._\/-]*\.html$/;
+      if (window.top === window) throw new Error('the bridge runs only in a frame');
+      if (window.opener) throw new Error('the bridge takes nothing from an opener');
+      // Only on a shared usercontent domain (docs/frames.md, "Who may
+      // bridge"): its directory alone has /bridge.json, which names it.
+      // The apex and a usercontent domain that serves the packages answer
+      // no such file (or their page), so no other site's page bridges them.
+      // sw.js checks the same (swProtocol.ts belowBridge).
+      const config = await fetch('/bridge.json', { cache: 'no-cache' })
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null);
+      const domain = typeof config?.bridge === 'string' ? config.bridge.toLowerCase() : '';
+      if (!domain || !location.host.toLowerCase().endsWith(`.${domain}`))
+        throw new Error('this origin is no shared usercontent domain’s (/bridge.json)');
+
+      // A bridge's key: random, one per attempt.
+      function newKey() {
+        const random = crypto.getRandomValues(new Uint8Array(24));
+        return btoa(String.fromCharCode(...random))
+          .replace(/\+/g, '-')
+          .replace(/\//g, '_')
+          .replace(/=+$/, '');
+      }
+
+      // The active worker. Its update runs in the background: it takes
+      // about a second in Firefox (157, 2026-10-29) even when sw.js is
+      // current. `newest`: wait for it (an older worker may not speak the
+      // bridge). A newer worker that takes over later asks the bridged page
+      // for a port (bridge-lost).
+      async function activeWorker(newest) {
+        const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        const updating = registration.update().catch(() => {});
+        if (newest) await updating;
+        const worker = registration.installing ?? registration.waiting ?? registration.active;
+        if (!worker) throw new Error('no service worker');
+        if (worker.state !== 'activated')
+          await new Promise((resolve, reject) => {
+            worker.addEventListener('statechange', () => {
+              if (worker.state === 'activated') resolve();
+              else if (worker.state === 'redundant') reject(new Error('service worker update failed'));
+            });
+          });
+        return worker;
+      }
+
+      // The worker takes a new key and a port to the apex's worker; the
+      // key. The apex's worker gets its end of the port only once the
+      // worker took the other: a refused or silent worker's is closed, and
+      // the apex never answers it.
+      function bridged(worker, control, wait) {
+        return new Promise((resolve, reject) => {
+          const key = newKey();
+          const channel = new MessageChannel();
+          let settled = false;
+          const settle = (error) => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            navigator.serviceWorker.removeEventListener('message', heard);
+            if (error) {
+              channel.port1.close();
+              reject(error);
+            } else {
+              control.postMessage({ kind: 'serve' }, [channel.port1]);
+              resolve(key);
+            }
+          };
+          const timer = setTimeout(() => settle(new Error('the service worker did not answer')), wait);
+          const heard = (event) => {
+            const answer = event.data;
+            if (answer?.kind !== 'bridged' || answer.bridge !== key) return;
+            settle(
+              answer.protocol === PROTOCOL
+                ? null
+                : new Error(`the service worker speaks bridge protocols ${answer.protocols}`),
+            );
+          };
+          navigator.serviceWorker.addEventListener('message', heard);
+          navigator.serviceWorker.startMessages();
+          worker.postMessage({ kind: 'bridge', protocol: PROTOCOL, bridge: key }, [channel.port2]);
+        });
+      }
+
+      let started = false;
+      addEventListener('message', async (event) => {
+        if (event.source !== window.parent || started) return;
+        const data = event.data;
+        if (data?.kind !== 'playground-bridge' || data.protocol !== PROTOCOL) return;
+        const control = event.ports[0];
+        if (!control || typeof data.entry !== 'string' || !ENTRY.test(data.entry)) return;
+        if (data.entry.split('/').some((part) => part === '..' || part === '.')) return;
+        started = true;
+        try {
+          // The active worker; if it does not speak the bridge, the newest.
+          const key = await bridged(await activeWorker(false), control, 3000).catch(async () =>
+            bridged(await activeWorker(true), control, 10000),
+          );
+          location.replace(`/_bridge/${key}/${data.entry}`);
+        } catch (error) {
+          // Why, to the parent that asked.
+          window.parent.postMessage(
+            { kind: 'playground-bridge-failed', message: String(error?.message ?? error) },
+            event.origin,
+          );
+        }
+      });
+      // Nothing in it but that it loaded: any parent may hear it.
+      window.parent.postMessage({ kind: 'playground-bridge-loaded', protocols: [PROTOCOL] }, '*');
+    </script>
+  </body>
+</html>

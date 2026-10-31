@@ -11,3 +11,15 @@ export const runtimePath = () => runtime;
 export function setRuntimePath(path: string): void {
   runtime = path.endsWith('/') ? path : `${path}/`;
 }
+
+// In bridge mode, the directory the page serves the packages below
+// (usercontent.content's default): what the page's
+// <meta name="playground-content"> names (the Vite plugin names its
+// `base`), else the page's origin root.
+// The shared usercontent domain the page's <meta name="playground-usercontent">
+// names (the Vite plugin's `usercontent`), or null.
+export const usercontentMeta = () =>
+  document.querySelector<HTMLMetaElement>('meta[name="playground-usercontent"]')?.content || null;
+
+export const contentPath = () =>
+  document.querySelector<HTMLMetaElement>('meta[name="playground-content"]')?.content ?? '/';

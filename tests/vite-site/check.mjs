@@ -9,7 +9,7 @@ try {
     if (message.type() === 'error') console.log(`console: ${message.text()}`);
   });
   const started = Date.now();
-  await page.goto(`http://apex.localhost:${port}/`);
+  await page.goto(`http://apex.localhost:${port}/web/`);
   const result = await page.evaluate(() => window.result);
   console.log(`${JSON.stringify(result)} in ${Date.now() - started} ms`);
   if (result.out !== '42\n/work\n' || result.exit?.code !== 0) process.exitCode = 1;

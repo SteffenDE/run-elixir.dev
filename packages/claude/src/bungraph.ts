@@ -1,6 +1,6 @@
 // The JavaScript a Bun-compiled executable carries (bun build --compile):
 // its module graph, appended to the binary and ended by a trailer, read
-// out as files that the playground's Node runs (programs/claude/claude.ts).
+// out as files that the playground's Node runs (program.ts).
 //
 // The graph's layout is Bun's own (StandaloneModuleGraph.zig), not
 // documented, and changes between Bun's versions: the reader checks what
@@ -27,8 +27,8 @@ const NAPI = 10;
 
 // A file of the graph: its path below the graph's root (`cli`, the
 // entry, as `cli.js`).
-export type { GraphFile } from '@elixir-playground/runtime/programs/claude/protocol';
-import type { GraphFile } from '@elixir-playground/runtime/programs/claude/protocol';
+export type { GraphFile } from './protocol';
+import type { GraphFile } from './protocol';
 
 function lastIndexOf(bytes: Uint8Array, needle: Uint8Array): number {
   outer: for (let at = bytes.length - needle.length; at >= 0; at--) {
@@ -87,7 +87,7 @@ export function readGraph(binary: Uint8Array): {
 // The graph for Node: its modules' sources (the entry as cli.js), whose
 // imports of each other are relative, with Bun's import.meta.require and
 // import.meta.dir as Node has them (require: a CommonJS module's, which
-// programs/claude/claude.ts compiles them to); its assets,
+// program.ts compiles them to); its assets,
 // zstd-compressed ones decompressed (what reads them takes either); native
 // addons left out.
 export function graphParts(binary: Uint8Array): {

@@ -24,13 +24,16 @@ import { tailscale } from '@/tailscale/plugin';
 import { connectTailscale, IEX, setTailnetProject, tailscaleBlocked } from '@/tailscale/client';
 import { relayWay, setRelayProject } from '@/relay/client';
 import { relayed } from '@elixir-playground/runtime/relay';
-import { previewOrigins, usercontentDomain } from '@elixir-playground/runtime/lib/site';
+import { usercontentDomain } from '@elixir-playground/runtime/lib/site';
 import {
   closePopup,
   onPreviewMessage,
   previewKey,
+  previewOriginOf,
+  previewPlace,
   send,
   setPreviewKey,
+  setPreviewPlace,
   type PreviewMessage,
 } from '@/project/lib/previewChannel';
 import { disposeTerminals } from '@/project/lib/terminal-handle';
@@ -313,7 +316,11 @@ export function connectServer(port: number): Connection | null {
 const serveRelay = (requests: MessagePort) =>
   void exec?.call('relay', [requests], [requests]).catch(() => requests.close());
 const preview: PreviewHost = {
-  ready: (port) => previewRelay(previewKey, port, serveRelay),
+  // Once the project's frame started: where its previews are.
+  ready: async (port) => {
+    const { key, mode } = await previewPlace();
+    return previewRelay(key, port, serveRelay, mode);
+  },
   shows: (port) => void exec?.call('previewShows', [port]),
 };
 
@@ -600,7 +607,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     return false;
   }
   const usercontent = usercontentDomain();
-  if (!usercontent || !previewOrigins(previewKey)) {
+  if (!usercontent) {
     store.failedToStart(
       "This site names no usercontent domain (playground.json's usercontent; docs/frames.md).",
     );
@@ -670,7 +677,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       signal,
       // Before the files start: this page hears what they tell from the
       // first, and /shared's peers' changes wait for them.
-      connected: (rpc) => {
+      connected: (rpc, at) => {
+        setPreviewPlace(at);
         exec = rpc;
         listen(rpc);
         if (share) sharing = share(rpc);
@@ -742,6 +750,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     Object.assign(window, {
       playground: {
         database: () => postgres().database(),
+        // Where the preview shows a port (its origins are salted).
+        previewOrigin: (port: number) => previewOriginOf(port),
         files,
         git,
         sessions,
