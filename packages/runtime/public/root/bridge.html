@@ -18,7 +18,7 @@
       // worker controls: no reload is needed.
       const PROTOCOL = 1;
       // The path of the frame's page below the bridge: a package's file.
-      const ENTRY = /^npm\/@elixir-playground\/[a-z0-9.-]+@[A-Za-z0-9.+-]+\/[A-Za-z0-9._\/-]*\.html$/;
+      const ENTRY = /^npm\/(?:@[a-z0-9._-]+\/)?[a-z0-9._-]+@[A-Za-z0-9.+-]+\/[A-Za-z0-9._\/-]*\.html$/;
       if (window.top === window) throw new Error('the bridge runs only in a frame');
       if (window.opener) throw new Error('the bridge takes nothing from an opener');
       // Only on a shared usercontent domain (docs/frames.md, "Who may

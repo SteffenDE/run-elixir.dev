@@ -125,7 +125,7 @@ prepare() {
 # pages revalidated, no bridge on the apex, and the usercontent domain's
 # bootstrap, service worker and bridge.json.
 check() {
-  local runtime=$1 site=$2 base page headers beam
+  local runtime=$1 site=$2 base page headers beam path
   [ -n "$DOMAIN" ] && [ -n "$CHECK_RESOLVE" ] || return 0
   base=https://$DOMAIN
   local curl=(curl -fsS --max-time 30 --resolve "$DOMAIN:443:$CHECK_RESOLVE")
@@ -138,6 +138,8 @@ check() {
     echo "check: / runs $(meta_of "$page" runtime | grep . || echo '(none named)'), not $runtime: is Caddy's root $SITE/current?" >&2
     return 1
   fi
+  # Check the page before headers is reused for immutable package files.
+  grep -qi '^cache-control: no-cache' <<<"$headers" || { echo "check: / is not no-cache" >&2; return 1; }
   # The emulator, as the site manifest names it: WebAssembly, immutable.
   beam=$("${curl[@]}" "$base$site" | sed -n 's|.*"base": "\.\./\(npm/@elixir-playground/otp-[^"]*\)/".*|\1|p' | head -n 1)
   [ -n "$beam" ] || { echo "check: $site names no otp package" >&2; return 1; }
@@ -152,10 +154,10 @@ check() {
   # No bridge on the apex (docs/frames.md, Who may bridge), and no other
   # site frames its pages.
   local code
-  for page in bridge.html bridge.json _usercontent/bridge.html; do
+  for path in bridge.html bridge.json _usercontent/bridge.html; do
     code=$(curl -sS --max-time 30 --resolve "$DOMAIN:443:$CHECK_RESOLVE" -o /dev/null \
-      -w '%{http_code}' "$base/$page") || true
-    [ "$code" = 404 ] || { echo "check: the apex answers /$page ($code), not 404" >&2; return 1; }
+      -w '%{http_code}' "$base/$path") || true
+    [ "$code" = 404 ] || { echo "check: the apex answers /$path ($code), not 404" >&2; return 1; }
   done
   "${curl[@]}" -o /dev/null -D - "$base/" | grep -qi "^content-security-policy: frame-ancestors 'self'" ||
     { echo "check: / has no frame-ancestors 'self'" >&2; return 1; }
@@ -167,8 +169,6 @@ check() {
   licenses=$("${curl[@]}" "$base/licenses/") || { echo "check: /licenses/ failed" >&2; return 1; }
   grep -q '<title>Licenses' <<<"$licenses" ||
     { echo "check: /licenses/ is not the licenses page (Caddy's try_files: {path}/index.html)" >&2; return 1; }
-  # The pages revalidate (nothing needs purging); what is versioned does not.
-  grep -qi '^cache-control: no-cache' <<<"$headers" || { echo "check: / is not no-cache" >&2; return 1; }
   # The usercontent domain: its bootstrap and service worker (framed by
   # the apex, from another site; revalidated), and bridge.json naming it.
   if [ -n "$USERCONTENT" ]; then

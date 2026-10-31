@@ -191,6 +191,24 @@ it('gives the worker a port under a random key, then loads the page below it', a
   expect(location.replace).toHaveBeenCalledTimes(1);
 });
 
+it.each(['npm/@acme/tool@1.0.0/tool.html', 'npm/tool@1.0.0/pages/tool.html'])(
+  'loads a third-party shared frame: %s',
+  async (entry) => {
+    const { loading, send, self, worker, location } = frame();
+    await loading;
+    const port = control();
+    await send({
+      source: self.parent,
+      origin: 'https://apex.test',
+      data: { kind: 'playground-bridge', protocol: 1, entry },
+      ports: [port],
+    });
+    const [announce] = worker.postMessage.mock.calls[0] as unknown as [{ bridge: string }];
+    expect(location.replace).toHaveBeenCalledWith(`/_bridge/${announce.bridge}/${entry}`);
+    port.close();
+  },
+);
+
 it('bridges with the active worker without waiting for its update', async () => {
   const { loading, send, self, location, container } = frame();
   await loading;

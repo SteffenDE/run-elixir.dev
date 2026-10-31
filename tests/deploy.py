@@ -5,6 +5,7 @@
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -64,13 +65,13 @@ class Activate(unittest.TestCase):
             (partial / "_usercontent" / name).write_text("x")
         (partial / "_usercontent/bridge.json").write_text(f'{{"bridge": "{bridge}"}}')
 
-    def activate(self, directory, rid):
+    def activate(self, directory, rid, **env):
         return subprocess.run(
             ["bash", str(ROOT / "deploy/server/playground-deploy"), "activate", rid],
             env={**os.environ, "SITE": directory, "DOMAIN": "run-elixir.dev",
                  "USERCONTENT": "run-elixir-usercontent.org", "CHECK_RESOLVE": "",
                  "PLAYGROUND_DEPLOY_CONFIG": str(Path(directory) / "no-config"),
-                 "SSH_ORIGINAL_COMMAND": ""}, capture_output=True, text=True)
+                 "SSH_ORIGINAL_COMMAND": "", **env}, capture_output=True, text=True)
 
     def test_the_usercontent_domains_files_name_it(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -84,6 +85,70 @@ class Activate(unittest.TestCase):
             result = self.activate(directory, "20261030T000001Z-bbbbbbb")
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertTrue((site / "current/_usercontent/bridge.html").exists())
+
+    def test_health_check_keeps_page_and_package_cache_policies_separate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            site = Path(directory)
+            rid = "20261030T000000Z-aaaaaaa"
+            self.release(site, rid, "run-elixir-usercontent.org")
+            # A healthy server: immutable package files, revalidated pages.
+            # Substitute curl so activation checks every endpoint without TLS
+            # setup or a production server.
+            bin_dir = site / "bin"
+            bin_dir.mkdir()
+            curl = bin_dir / "curl"
+            curl.write_text(f"#!{sys.executable}\n" + r'''
+import os
+from pathlib import Path
+import sys
+from urllib.parse import urlsplit
+args = sys.argv[1:]
+url = urlsplit(args[-1])
+path = url.path
+root = Path(os.environ["SITE"]) / "current"
+if url.hostname.endswith(".run-elixir-usercontent.org"):
+    root /= "_usercontent"
+file = root / path.lstrip("/")
+if file.is_dir():
+    file /= "index.html"
+exists = file.is_file() and not path.startswith("/_usercontent/")
+if "-w" in args:
+    value = args[args.index("-w") + 1]
+    print(value.replace("%{http_code}", "200" if exists else "404")
+          .replace("%{content_type}", "application/wasm"), end="")
+if "-D" in args:
+    cache = "immutable" if path.startswith(("/npm/", "/site/")) else os.environ["PAGE_CACHE"]
+    print("Cache-Control: " + cache)
+    print("Cross-Origin-Opener-Policy: same-origin")
+    print("Cross-Origin-Embedder-Policy: require-corp")
+    print("Cross-Origin-Resource-Policy: cross-origin")
+    print("Access-Control-Allow-Origin: *")
+    print("Content-Security-Policy: frame-ancestors 'self'")
+if "-o" in args:
+    output = args[args.index("-o") + 1]
+    if output != "/dev/null":
+        Path(output).write_bytes(file.read_bytes())
+elif exists:
+    sys.stdout.flush()
+    sys.stdout.buffer.write(file.read_bytes())
+''')
+            curl.chmod(0o755)
+            partial = site / f"releases/{rid}.partial"
+            (partial / "site/aaaa.json").write_text(
+                '{"base": "../npm/@elixir-playground/otp-29@1.0.0/"}\n')
+            beam = partial / "npm/@elixir-playground/otp-29@1.0.0/beam.wasm"
+            beam.parent.mkdir(parents=True)
+            beam.write_bytes(b"wasm")
+            (partial / "licenses/index.html").write_text("<title>Licenses</title>")
+            env = {"PATH": f"{bin_dir}:{os.environ['PATH']}", "CHECK_RESOLVE": "127.0.0.1"}
+            # A page accidentally served immutable must still be rejected.
+            result = self.activate(directory, rid, **env, PAGE_CACHE="immutable")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("check: / is not no-cache", result.stderr)
+            (site / f"releases/{rid}").rename(partial)
+            result = self.activate(directory, rid, **env, PAGE_CACHE="no-cache")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue((site / "current").exists())
 
 
 if __name__ == "__main__":
