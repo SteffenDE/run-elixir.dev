@@ -11,7 +11,7 @@
     "tls": [1],
     "tailscale": [1],
     "nif": [1],
-    "node": [1],
+    "workers": [1],
     "pagePrograms": [1],
     "frames": [1]
   }

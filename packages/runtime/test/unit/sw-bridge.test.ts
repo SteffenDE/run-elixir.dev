@@ -5,7 +5,7 @@ import {
   DOCUMENT_POLICY,
   bridgeConfig,
   bridgeRouter,
-  nodePolicy,
+  workerPolicy,
   type BridgeClient,
 } from '../../src/swBridge';
 import { belowBridge, bridgePath, isOwnFrame } from '../../src/swProtocol';
@@ -208,7 +208,7 @@ describe('the bridge router', () => {
     expect(served.asked.map(({ path }) => path)).toEqual(['file.bin', 'page.txt']);
   });
 
-  it('sends the Node.js worker’s policy with its scripts, and drops the apex’s own headers', async () => {
+  it('sends the worker programs’ policy with their scripts, and drops the apex’s own headers', async () => {
     const bridges = router();
     const served = apex(() =>
       ok('js', [
@@ -223,23 +223,38 @@ describe('the bridge router', () => {
     ]);
     const nodejs = 'npm/@elixir-playground/nodejs@1.0.0';
     const script = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/nodejs.js`),
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/workers/nodejs.js`),
     );
-    expect(script.headers.get('content-security-policy')).toBe(nodePolicy(ORIGIN, KEY, nodejs));
+    expect(script.headers.get('content-security-policy')).toBe(workerPolicy(ORIGIN, KEY, nodejs));
     expect(script.headers.get('set-cookie')).toBeNull();
     expect(script.headers.get('content-type')).toBe('text/javascript');
     const chunk = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/chunks/a-1.js`),
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/workers/chunks/a-1.js`),
     );
-    expect(chunk.headers.get('content-security-policy')).toBe(nodePolicy(ORIGIN, KEY, nodejs));
-    // Not its page programs (the exec frame's worker imports them), nor
-    // the runtime's scripts.
-    for (const path of [`${nodejs}/npm.js`, 'npm/@elixir-playground/runtime@1.2.0/worker.js']) {
-      const other = await bridges.respond(new Request(`${ORIGIN}/_bridge/${KEY}/${path}`));
-      expect(other.headers.get('content-security-policy')).toBeNull();
+    expect(chunk.headers.get('content-security-policy')).toBe(workerPolicy(ORIGIN, KEY, nodejs));
+    // Any package's workers/, an unscoped one's too, with its own path.
+    const other = 'npm/pyodide-shell@0.3.1';
+    const theirs = await bridges.respond(
+      new Request(`${ORIGIN}/_bridge/${KEY}/${other}/workers/python.js`),
+    );
+    expect(theirs.headers.get('content-security-policy')).toBe(workerPolicy(ORIGIN, KEY, other));
+    // Not a package's page programs (the exec frame's worker imports
+    // them), nor the runtime's scripts, nor a workers/ that is no
+    // package's.
+    for (const path of [
+      `${nodejs}/npm.js`,
+      'npm/@elixir-playground/runtime@1.2.0/worker.js',
+      'workers/x.js',
+      `${nodejs}/workers/page.html`,
+    ]) {
+      const response = await bridges.respond(new Request(`${ORIGIN}/_bridge/${KEY}/${path}`));
+      expect(response.headers.get('content-security-policy'), path).toBeNull();
     }
-    expect(nodePolicy(ORIGIN, KEY, nodejs)).toContain(
-      `connect-src ${ORIGIN}/_bridge/${KEY}/npm/@elixir-playground/ ${ORIGIN}/sw.js `,
+    const policy = workerPolicy(ORIGIN, KEY, nodejs);
+    const base = `${ORIGIN}/_bridge/${KEY}/`;
+    expect(policy).toContain(`script-src ${base}${nodejs}/workers/ ${ORIGIN}/sw.js `);
+    expect(policy).toContain(
+      `connect-src ${base}${nodejs}/ ${base}npm/@elixir-playground/ ${ORIGIN}/sw.js `,
     );
   });
 
@@ -286,7 +301,7 @@ describe('the bridge router', () => {
     ]);
     const nodejs = 'npm/@elixir-playground/nodejs@1.0.0';
     const script = await bridges.respond(
-      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/nodejs.js`),
+      new Request(`${ORIGIN}/_bridge/${KEY}/${nodejs}/workers/nodejs.js`),
     );
     const policy = script.headers.get('content-security-policy')!;
     expect(policy).toContain('https://apex.test/npm/@elixir-playground/tls@1.0.0/ data: blob:');

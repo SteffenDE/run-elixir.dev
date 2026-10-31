@@ -29,8 +29,8 @@ export interface BridgeTable {
   // has none.
   services: { relay: string | null; nif: string | null; git: string | null } | null;
   // Where the exec frame's workers read the packages' data themselves:
-  // the service worker adds them to a Node.js worker's connect-src
-  // (swBridge.ts nodePolicy).
+  // the service worker adds them to a worker program's connect-src
+  // (swBridge.ts workerPolicy).
   connect?: string[];
 }
 

@@ -41,7 +41,7 @@ import { esbuild } from '../programs/esbuild';
 import { inotifywait } from '../programs/inotifywait';
 import { tailwind } from '../programs/tailwind';
 import { filesChanged } from '../programs/watch';
-import { nodeProgram, type Deliver, type Listener, type Ports } from '../programs/nodejs';
+import { workerProgram, type Deliver, type Listener, type Ports } from '../programs/workerProgram';
 import type { KeptRecord } from '../overlay';
 import type { PackageProgram, PageProgram as Program, PageProgramHost } from '../pageProgram';
 import { commandProgram, shProgram, type StartNode } from '../programs/node';
@@ -104,7 +104,7 @@ export type ExecEvents = {
   processOutput: { id: number; fd: number; bytes: Uint8Array };
   processStatus: { id: number; text: string };
   processExit: { id: number; code: number | null; signal: string | null };
-  // scripts: the ports Node.js processes serve on (programs/nodejs.ts).
+  // scripts: the ports worker programs serve on (programs/workerProgram.ts).
   serving: {
     ports: number[];
     port: number | null;
@@ -190,7 +190,7 @@ function apex(service: string) {
   };
 }
 
-// The ports Node.js processes listen on (programs/nodejs.ts): what
+// The ports worker programs listen on (programs/workerProgram.ts): what
 // listens, and whether a server named the port (not 0, a free one).
 const scripts = new Map<number, { listener: Listener; serving: boolean }>();
 let ephemeralPort = 49152 + Math.floor(Math.random() * 16384);
@@ -446,14 +446,24 @@ function packagePrograms(): Record<string, Program> {
   return out;
 }
 
-// `node`: the nodejs package's worker, which the runtime starts with the
-// project's files, ports and TLS (programs/nodejs.ts; the node seam).
-function nodeJs(): Record<string, Program> {
+// The packages' worker programs (programs/workerProgram.ts; the workers
+// seam): each its package's script, started in a worker of its own with
+// the project's files, ports and TLS (the nodejs package's `node`).
+function workerPrograms(): Record<string, Program> {
   const packages = new Site(site);
-  const node = packages.node();
-  if (!node) return {};
-  const worker = new URL(belowBridge(node.name, node.version, node.worker), siteRoot());
-  return { node: nodeProgram(worker, () => files, scriptPorts, packages.tls(), pagePrograms) };
+  const out: Record<string, Program> = {};
+  for (const [command, { name, version, script }] of packages.workerPrograms()) {
+    const url = new URL(belowBridge(name, version, script), siteRoot());
+    out[command] = workerProgram(
+      command,
+      url,
+      () => files,
+      scriptPorts,
+      packages.tls(),
+      pagePrograms,
+    );
+  }
+  return out;
 }
 
 function nodeServices() {
@@ -474,9 +484,8 @@ function nodeServices() {
       tailwind,
       esbuild,
       inotifywait,
-      // Node.js, with a nodejs package (its npm and npx are its page
-      // programs, above).
-      ...nodeJs(),
+      // The packages' worker programs (node, with a nodejs package).
+      ...workerPrograms(),
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),

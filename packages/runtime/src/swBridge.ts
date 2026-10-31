@@ -66,32 +66,35 @@ const DROPPED = [
   'access-control-allow-origin',
 ];
 
-// A Node.js process's worker (the nodejs package's nodejs.js) and the
-// chunks it imports, below a bridge: their policy (docs/nodejs.md, "The
-// worker's policy"), as serve.py and Caddy send it on a usercontent domain
-// that serves the packages.
-const NODE_SCRIPT = /^(npm\/@elixir-playground\/nodejs@[^/]+)\/(?:nodejs\.js|chunks\/[^/]+\.js)$/;
+// A package's worker programs (`workerPrograms`: the nodejs package's
+// node) and what they import, all below the package's workers/, below a
+// bridge: their policy (docs/packages.md, "Worker programs";
+// docs/nodejs.md, "The worker's policy"). Any package's: the policy only
+// takes away.
+const WORKER_SCRIPT = /^(npm\/(?:@[^/]+\/)?[^/@]+@[^/]+)\/workers\/[^?#]+\.m?js$/;
 // Firefox (157, Playwright 1.64; 2026-10-29) checks what this worker
 // answered (the Node.js worker's own script, its dynamic imports, the
 // files it fetches) against worker-src, script-src and connect-src by this
 // worker's script's URL (/sw.js), not the request's: /sw.js is listed in
 // each. It is public, and outside a service worker's scope it only adds
 // listeners that never fire.
-// `nodejs`: the nodejs package's path below the bridge.
+// `pkg`: the package's path below the bridge (npm/NAME@VERSION).
 // `direct`: where the page serves the packages' files, which the exec
 // frame's workers read there.
-export function nodePolicy(
+export function workerPolicy(
   origin: string,
   key: string,
-  nodejs: string,
+  pkg: string,
   direct: string[] = [],
 ): string {
   const base = `${origin}/_bridge/${key}/`;
-  const scripts = `${base}${nodejs}/nodejs.js ${base}${nodejs}/chunks/`;
+  const scripts = `${base}${pkg}/workers/`;
+  // Its own package's files, and the playground's (the tls package's).
+  const files = [`${base}${pkg}/`, `${base}npm/@elixir-playground/`, `${origin}/sw.js`, ...direct];
   return (
     `default-src 'none'; script-src ${scripts} ${origin}/sw.js 'unsafe-eval' 'wasm-unsafe-eval'; ` +
     `worker-src ${scripts} ${origin}/sw.js blob:; ` +
-    `connect-src ${[`${base}npm/@elixir-playground/`, `${origin}/sw.js`, ...direct].join(' ')} data: blob:`
+    `connect-src ${files.join(' ')} data: blob:`
   );
 }
 
@@ -256,8 +259,9 @@ export function bridgeRouter({
       .split(' ')
       .filter((each) => /^https?:\/\/[^\s;,'"]+$/.test(each));
     headers.delete('x-playground-connect');
-    const node = rest.match(NODE_SCRIPT);
-    if (node) headers.set('Content-Security-Policy', nodePolicy(origin, key, node[1], direct));
+    const worker = rest.match(WORKER_SCRIPT);
+    if (worker)
+      headers.set('Content-Security-Policy', workerPolicy(origin, key, worker[1], direct));
     else if (request.mode === 'navigate') headers.set('Content-Security-Policy', DOCUMENT_POLICY);
     headers.set('Cache-Control', 'no-store');
     const status = answered.status || 502;

@@ -123,7 +123,7 @@ export class Connection {
 }
 
 // A connection to what listens on a port: a node's (Connection), or a
-// Node.js process's (programs/nodejs.ts).
+// worker program's (programs/workerProgram.ts).
 export type Link = Pick<Connection, 'ondata' | 'onend' | 'onclose' | 'write' | 'end' | 'close'>;
 
 // A connection a page service answers (postgres.ts, epmd.ts, fetcher.ts,

@@ -109,8 +109,8 @@ target/site/
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
     elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3;
                                  Elixir's scripts)
-    nodejs@…/                  nodejs.js and chunks/ (a Node.js process's worker);
-                                 npm.js, npx.js (its page programs)
+    nodejs@…/                  workers/ (nodejs.js and chunks/: the worker program
+                                 node); npm.js, npx.js (its page programs)
     phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
     shell@…/                   brush.wasm (3.4 MB, 1.2 MB gzipped), coreutils.wasm (7.8 MB,
                                  3.0 MB gzipped); fs/ (the terminfo entry)
@@ -205,9 +205,9 @@ OTP's and Elixir's from the site manifest.
      `dist/index.js` (their `vite.config.ts`), with their declarations;
    - `packages/claude`: the claude frame (`claude.html`) and its worker
      into `dist/` (`vite.config.ts`);
-   - `packages/nodejs`: a Node.js process's worker (`nodejs.js`, its
-     `chunks/`) and the page programs `npm.js` and `npx.js` into `dist/`
-     (`vite.config.ts`);
+   - `packages/nodejs`: the worker program `node` (`workers/nodejs.js`
+     and `workers/chunks/`) and the page programs `npm.js` and `npx.js`
+     into `dist/` (`vite.config.ts`);
    - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
    - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
      `dist/`, which goes to the site's root. NIF libraries

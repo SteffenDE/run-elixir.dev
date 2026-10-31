@@ -68,7 +68,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find` | `runtime` | 5.3 MB |
 | `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
 | `tailscale` (not published) | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
-| `nodejs` | A Node.js process's worker (`nodejs.js`, `chunks/`: Node's modules, the Bun stand-in for Claude Code) and the page programs `npm` and `npx` (`npm.js`, `npx.js`) | `runtime ^1.2` | 1.2 MB |
+| `nodejs` | The worker program `node` (`workers/nodejs.js`, `workers/chunks/`: Node's modules, the Bun stand-in for Claude Code) and the page programs `npm` and `npx` (`npm.js`, `npx.js`) | `runtime ^1.2` | 1.2 MB |
 | `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`, esbuild's WebAssembly among them); the range they were tested with; no Claude Code | `runtime ^1.2`, `nodejs` | 12 MB |
 | `vite` | `index.js`: the Vite plugin that lays the packages out in a site's own output ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 7 KB |
 
@@ -110,7 +110,7 @@ What is still not where it belongs:
 The packages' versions are in `PACKAGES` in `build.py`, each JavaScript
 package's `package.json`, and `packages/runtime/src/packages/host.json`
 for the runtime. On 2026-10-30 (unpublished): runtime 1.2.0 (the
-`pagePrograms`, `frames` and `node` seams; the `claude` seam removed,
+`pagePrograms`, `frames` and `workers` seams; the `claude` seam removed,
 which only the claude package used; Node.js, npm and npx moved to the
 nodejs package; Elixir's commands are its package's scripts), claude
 2.0.0 (now needs nodejs), elixir-X 2.0.0 (Elixir's scripts; needs the
@@ -240,7 +240,7 @@ Every key is optional. A package sets the keys that describe it.
 | `fs` | packages with files in the nodes' tree | `{ format, root, manifest, bundles, count, version }`: its fs layer, and where it goes ([above](#fs-layers-fs-format-3)). |
 | `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`, each run as its `#!` line says ([below](#scripts-and-direct-programs)). |
 | `env` | `otp-X`, `elixir-X` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |
-| `node` | `nodejs` | `{ worker }`: a Node.js process's worker script, which the runtime starts as `node`. |
+| `workerPrograms` | any (`nodejs`) | `{ NAME: script }`: commands that each run in a worker of their own, from a script below the package's `workers/` ([below](#worker-programs)). |
 | `tls` | `tls` | `{ module, roots }`. |
 | `tailscale` | `tailscale` | `{ module, glue }`. |
 | `claudeCode` | `claude` | The tested Claude Code range ([below](#claude-code)). |
@@ -359,7 +359,7 @@ of each.
 | `tailscale` | `tailscale.wasm` with its `wasm_exec.js`, and the Tailscale worker | 1 | the worker's calls into the node | `tailscale` major or `runtime` major |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
 | `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 1.2 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`) | `runtime` major |
-| `node` | the nodejs package's worker (`nodejs.js`) and the runtime's `programs/nodejs.ts`, since runtime 1.2 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `bun`) and the net, child, stdin, resize and `changed` messages | `nodejs` major or `runtime` major |
+| `workers` | a package's worker program and the runtime's `programs/workerProgram.ts`, since runtime 1.2 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `options`), the net, child, stdin, resize and `changed` messages; the policy below `workers/` | `runtime` major |
 | `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 1.2 | 1 | `playground-frame-loaded`, `playground-frame` with a port; the origin's name | `runtime` major |
 | `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings follow |
 | `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
@@ -443,7 +443,7 @@ A package provides a command in one of two ways, as a real system does
 | Kind | What the package ships | How it runs |
 | --- | --- | --- |
 | Script | A file of its layer, listed in `bin` | As its `#!` line says (`runtime/src/shebang.ts`): `#!/bin/sh` through the shell (brush); `#!/usr/bin/env NAME` or `#!/path/NAME` by that program directly, with the script's path as an argument |
-| Direct program | A WebAssembly module (`programs`), a JavaScript module (`pagePrograms`), or the BEAM (the `beam` seam) | By its name, without a shell |
+| Direct program | A WebAssembly module (`programs`), a JavaScript module (`pagePrograms`, `workerPrograms`), or the BEAM (the `beam` seam) | By its name, without a shell |
 
 The difference matches `System.shell` and `System.cmd`: a script for sh
 needs the shell package and a worker to run it, a direct program does not.
@@ -534,6 +534,45 @@ claude package's `protocol.ts`).
 
 `NAME` is 2 to 16 letters and digits, starting with a letter. A program
 reaches only its own package's frames.
+
+## Worker programs
+
+A package can add a command that runs in a worker of its own, confined
+by a policy, rather than in the exec frame's worker (implemented
+2026-10-31; the runtime's `workers` seam, 1 since runtime 1.2). The
+nodejs package's `node` is the first.
+
+```json
+"playground": {
+  "abi": { "workers": 1 },
+  "workerPrograms": { "node": "workers/nodejs.js" }
+}
+```
+
+| | Page program | Worker program |
+| --- | --- | --- |
+| Runs in | the exec frame's worker | a worker of its own, nested in it |
+| Reaches | what the exec frame's worker reaches | its messages to the runtime, and the package's and the playground's files |
+| For | the playground's own glue (`npm`, `claude`) | code a project brings (`node`'s scripts) |
+
+- **The script** is below the package's `workers/`, with everything it
+  imports. The runtime starts it below the bridge, on the frame's own
+  origin (a worker's script is same-origin), and puts its name on PATH.
+- **The policy:** the frame's service worker answers every script below
+  any package's `workers/` with the worker programs' policy
+  (`swBridge.ts` `workerPolicy`; [nodejs.md](nodejs.md#a-process-workersnodejsjs-programsworkerprogramts)
+  shows it). It lets the worker load only its own package's `workers/`,
+  so the worker reaches no network but its messages.
+- **The messages** (`runtime/src/programs/workerProgram.ts`): the runtime
+  sends `start` (arguments, working directory, environment, a channel to
+  the shared files, the terminal, the tls package's files, and the
+  caller's `options`, which only the worker reads: node's `bun`), stdin,
+  the terminal's size and changed files. The worker sends output, its
+  exit, and net and child messages: the runtime routes its ports and
+  connections as a node's, and runs its children with `sh`.
+- **A program's own options:** a page program that hands its process to
+  a worker program passes `options` in its context (the claude program
+  asks `node` for Bun's globals with `{ bun: true }`).
 
 ## The preview origin's service worker
 
@@ -700,8 +739,8 @@ body }`, `path` below the bridge with its query. The reply is
   504 and forgets the port.
 - It drops the apex server's caching, cookie and isolation headers, and
   adds COEP `require-corp`, CORP `cross-origin`, the Node.js worker's
-  policy on the nodejs package's `nodejs.js` and `chunks/`
-  (`nodejs@…/`), and the documents'
+  worker programs' policy on any package's `workers/` scripts
+  (`npm/NAME@VERSION/workers/`), and the documents'
   `sandbox` policy. It refuses `Content-Disposition: attachment` (403).
 - The apex's answer may carry `x-playground-connect` (space-separated
   URLs: where the page serves the packages' files, which the frame's
@@ -847,8 +886,13 @@ As of 2026-10-28:
   `pagePrograms` and `frames` seams (runtime 1.2); the claude package
   (2.0) moved onto them.
 - **The nodejs package** (2026-10-30): Node.js's modules, npm and npx
-  moved out of the runtime; the runtime starts the package's worker
-  through the `node` seam (1, runtime 1.2).
+  moved out of the runtime; `node` is the package's worker program (the
+  `workers` seam, 1, runtime 1.2; 2026-10-31). Tested 2026-10-31: the
+  unit tests; in Chromium the e2e specs for Node.js, npm, child
+  processes, the node policy, Node.js networking, Claude Code, Vite,
+  bridge, the api and rebar3 (33 passed, 2 skipped); in Firefox and
+  WebKit those for the node policy, bridge, child processes, Node.js,
+  npm and Claude Code (30 passed, 2 skipped).
 - **Scripts by their `#!` lines** (2026-10-30): the elixir package (2.0)
   ships Elixir's own scripts; the runtime's TypeScript copy of them is
   gone.

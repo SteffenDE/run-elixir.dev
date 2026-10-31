@@ -1,23 +1,26 @@
-// node: Node.js scripts on the browser's own JavaScript engine, each
-// process in a worker of its own (the nodejs package's nodejs.js) with a
-// channel to the shared files, as a node has. Its output is the process's,
-// and its exit status; closing the port (Ctrl+C) stops the worker.
+// A package's worker program (`playground.workerPrograms`; the runtime's
+// workers seam): each process a worker of its own, started from the
+// package's script (the nodejs package's workers/nodejs.js: `node`), with
+// a channel to the shared files, as a node has. Its output is the
+// process's, and its exit status; closing the port (Ctrl+C) stops the
+// worker. Its messages are this file's (the seam's protocol): start,
+// stdin, resize, changed, net and child.
 //
 // A port the process listens on is the exec frame's to route (`ports`),
 // as a node's is: the preview and the project's nodes connect to it here,
 // and the connection's bytes go to the process as messages
-// (nodejs/net.ts). A connection the process makes goes where a node's
+// (the nodejs package's net.ts). A connection the process makes goes where a node's
 // would: to the services (Postgres), another process's port, a node's, or
 // another host through the tailnet; its DNS messages to the node's DNS.
 // Its UDP ports are the exec frame's too (`ports.udp()`), as a node's are.
 // What changes in the files goes to it too, for fs.watch. Its children
 // (child_process) are command lines the page program sh runs.
 //
-// Its worker starts from nodejs.js's own URL, not a blob (host/worker.ts):
+// Its worker starts from its script's own URL, not a blob (host/worker.ts):
 // a worker from a URL keeps the Content-Security-Policy its script was
-// served with (the service worker's: swBridge.ts nodePolicy), which
-// reaches only the site's files, and
-// the threads it starts from blobs inherit it. So the process's code has
+// served with (the service worker's for a package's workers/:
+// swBridge.ts workerPolicy), which reaches only the site's files, and the
+// threads it starts from blobs inherit it. So the process's code has
 // no network but this one's messages, whatever browser API it calls
 // (docs/nodejs.md, The worker's policy).
 import type { Files } from '../host/files';
@@ -118,15 +121,18 @@ type NetMessage =
   | { kind: 'net'; op: 'udp-send'; from: number; address: string; port: number; bytes: Uint8Array }
   | { kind: 'net'; op: 'udp-close'; port: number };
 
-// The tls package's files (Site.tls): Node.js's TLS client and its roots.
+// The tls package's files (Site.tls): a TLS client and its roots.
 type TlsFiles = { module: string; roots: string };
 
 // A page program, as programs() answers them.
 type PageProgram = (process: Process, context: Context) => void | Promise<void>;
 
-export const nodeProgram =
+// `name`: the command (its errors say it); `script`: its worker's script,
+// below the bridge.
+export const workerProgram =
   (
-    worker: URL,
+    name: string,
+    script: URL,
     files: () => Files | null,
     ports?: Ports,
     tls: TlsFiles | null = null,
@@ -135,11 +141,11 @@ export const nodeProgram =
   (process: Process, context: Context): void => {
     const shared = files();
     if (!shared) {
-      process.write('node: no files\n');
+      process.write(`${name}: no files\n`);
       return process.exit(1);
     }
     const channel = shared.connect();
-    const thread = new Worker(worker, {
+    const thread = new Worker(script, {
       type: 'module',
     });
     const connections = new Map<number, ScriptConnection>();
@@ -363,7 +369,7 @@ export const nodeProgram =
     thread.onerror = (event) => {
       event.preventDefault();
       (process.writeError ?? process.write)(
-        `node: ${event.message || 'the worker failed to start'}\n`,
+        `${name}: ${event.message || 'the worker failed to start'}\n`,
       );
       stop(1);
     };
@@ -379,7 +385,7 @@ export const nodeProgram =
       tls,
       tty: context.tty?.stdout ?? false,
       stdinTty: context.tty?.stdin ?? false,
-      bun: context.bun ?? false,
+      options: context.options ?? {},
       columns: process.size?.()[0] ?? 80,
       rows: process.size?.()[1] ?? 24,
     });

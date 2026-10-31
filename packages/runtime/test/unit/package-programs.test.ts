@@ -1,5 +1,5 @@
-// Packages' page programs and shared frames (docs/packages.md, "Page
-// programs and shared frames"): the site manifest names them, the api
+// Packages' page programs, worker programs and shared frames
+// (docs/packages.md): the site manifest names them, the api
 // names a frame's origin (salted, one per package and frame), and the
 // frame's page takes ports from its parent alone.
 import { afterEach, beforeAll, expect, it, vi } from 'vitest';
@@ -30,20 +30,20 @@ it('lists the packages’ page programs, the first package’s for a name', () =
   ]);
 });
 
-it('names the nodejs package’s worker by its package, for its path below the bridge', () => {
+it('lists the packages’ worker programs, by their packages, for their paths below the bridge', () => {
   const site = manifest({
     '@elixir-playground/nodejs': entry({
-      node: { worker: 'nodejs.js' },
+      workerPrograms: { node: 'workers/nodejs.js' },
       pagePrograms: { npm: 'npm.js', npx: 'npx.js' },
     }),
+    'other-tool': entry({ workerPrograms: { node: 'workers/theirs.js', python: 'workers/py.js' } }),
   });
-  expect(site.node()).toEqual({
-    name: '@elixir-playground/nodejs',
-    version: '2.0.0',
-    worker: 'nodejs.js',
-  });
+  expect([...site.workerPrograms()]).toEqual([
+    ['node', { name: '@elixir-playground/nodejs', version: '2.0.0', script: 'workers/nodejs.js' }],
+    ['python', { name: 'other-tool', version: '2.0.0', script: 'workers/py.js' }],
+  ]);
   expect([...site.pagePrograms().keys()]).toEqual(['npm', 'npx']);
-  expect(manifest({}).node()).toBeNull();
+  expect([...manifest({}).workerPrograms()]).toEqual([]);
 });
 
 let api: typeof import('../../../api/src/sharedFrame');

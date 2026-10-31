@@ -162,7 +162,7 @@ test('the services answer the apex and the origins on the list, never a usercont
 });
 
 // The Node.js worker's policy comes from the service worker in bridge mode
-// (swBridge.ts nodePolicy): each browser applies a policy a service worker
+// (swBridge.ts workerPolicy): each browser applies a policy a service worker
 // made to the worker it answered (docs/frames.md). Its TLS roots come from
 // the embedder directly, which the policy names.
 test('a Node.js process reaches no network but its own, bridged', async ({ page }) => {

@@ -1,7 +1,7 @@
 // claude, the claude package's page program (the runtime's
 // pageProgram.ts; docs/packages.md, "Page programs"): Claude Code on the
 // page, its JavaScript on the playground's Node with a stand-in for Bun's
-// own APIs (the runtime's nodejs/claude/bun.ts: node's `bun` option). The
+// own APIs (the nodejs package's claude/bun.ts: node's `bun` option). The
 // site hosts none of it: the package's shared frame, `claude` (frame.ts and
 // worker.ts), makes its files once a version for every project of the
 // page, and hands them over a port (protocol.ts). Each run puts them in
@@ -119,7 +119,8 @@ export const claudeProgram =
         SHELL: '/usr/bin/bash',
         ...context.env,
       },
-      bun: true,
+      // node's own option (the nodejs package's worker reads it).
+      options: { bun: true },
     });
     for (const bytes of pending.splice(0)) process.oninput?.(bytes);
     return running;

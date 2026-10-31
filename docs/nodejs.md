@@ -18,15 +18,15 @@ It supports Vite builds and dev servers, Vue and Svelte project creation,
 and coding agents. Unsupported APIs fail explicitly; the limits below
 are part of the current implementation.
 
-## A process (`nodejs.js`, `programs/nodejs.ts`)
+## A process (`workers/nodejs.js`, `programs/workerProgram.ts`)
 
-`node` is a page program (in the exec frame's worker, `exec/host.ts`, as
-the others now are): each process is a worker of its own, nested in that
-one (the nodejs package's entry `src/index.ts`, built as `nodejs.js`),
-started with a channel to the shared files (`Files.connect()`), as a
-node's worker is. The runtime starts it: the package names the script in
-its `node` field (the runtime's `node` seam, 1), and the runtime's
-`programs/nodejs.ts` gives the process the project's files, ports and TLS. Its
+`node` is the nodejs package's worker program
+([packages.md](packages.md#worker-programs)): each process is a worker
+of its own, nested in the exec frame's worker (the package's entry
+`src/index.ts`, built as `workers/nodejs.js`), started with a channel to
+the shared files (`Files.connect()`), as a node's worker is. The
+runtime's `programs/workerProgram.ts` starts it and gives the process the
+project's files, ports and TLS. Its
 output and exit come back as messages; closing its port (Ctrl+C) stops the
 worker. `/usr/bin/node` is a stand-in, so `System.cmd("node", …)` finds it,
 and the shell runs a script whose first line names `node` (a package's bin
@@ -66,19 +66,19 @@ browser's APIs as well as Node's: `self.fetch` behind Node's, `XMLHttpRequest`,
 `WebSocket`, `EventSource`, `import()` of a URL, `caches.add`, a `Worker`.
 Those would bypass the process's messages, through which all of its other
 network goes (the gateway, the tailnet's gates). The process's worker
-therefore starts from `nodejs.js`'s URL, not a blob (`programs/nodejs.ts`).
-A worker from a URL takes the `Content-Security-Policy` its script was
-served with. The frame's service worker answers the nodejs package's
-`nodejs.js` and `chunks/*.js` with this policy (`swBridge.ts`
-`nodePolicy`; `NODEJS` below is the package's path below the bridge,
-`ORIGIN/_bridge/KEY/npm/@elixir-playground/nodejs@VERSION`,
-[packages.md](packages.md)):
+therefore starts from its script's URL, not a blob
+(`programs/workerProgram.ts`). A worker from a URL takes the
+`Content-Security-Policy` its script was served with. The frame's
+service worker answers every script below a package's `workers/` with
+this policy (`swBridge.ts` `workerPolicy`; `PKG` below is the package's
+path below the bridge, `ORIGIN/_bridge/KEY/npm/NAME@VERSION`, here
+`@elixir-playground/nodejs`'s):
 
 ```
 default-src 'none';
-script-src  NODEJS/nodejs.js NODEJS/chunks/ ORIGIN/sw.js 'unsafe-eval' 'wasm-unsafe-eval';
-worker-src  NODEJS/nodejs.js NODEJS/chunks/ ORIGIN/sw.js blob:;
-connect-src ORIGIN/_bridge/KEY/npm/@elixir-playground/ ORIGIN/sw.js DIRECT data: blob:
+script-src  PKG/workers/ ORIGIN/sw.js 'unsafe-eval' 'wasm-unsafe-eval';
+worker-src  PKG/workers/ ORIGIN/sw.js blob:;
+connect-src PKG/ ORIGIN/_bridge/KEY/npm/@elixir-playground/ ORIGIN/sw.js DIRECT data: blob:
 ```
 
 `DIRECT` is where the page serves the packages' files, which the frame's
@@ -86,21 +86,20 @@ workers read there.
 
 - **Its own scripts in `worker-src` too:** a module worker's imports are
   fetched as worker scripts, so `worker-src blob:` alone refuses its
-  chunks. Only those paths, not the runtime package's: its workers
-  (`worker.js`, `files.js`, `git.js`) carry no policy, and a script that
-  started one from its URL would have their network. The package's page
-  programs (`npm.js`, `npx.js`) run in the exec frame's worker and get no
-  policy either. A worker started
-  from `nodejs.js` or a chunk takes the same policy from its own response.
+  chunks. Only the package's own `workers/`, not the runtime package's
+  scripts: its workers (`worker.js`, `files.js`, `git.js`) carry no
+  policy, and a script that started one from its URL would have their
+  network. The package's page programs (`npm.js`, `npx.js`) run in the
+  exec frame's worker and get no policy either. A worker started from a
+  script below `workers/` takes the same policy from its own response.
 - **Threads** (`threads.ts`) start from blobs, which inherit the policy.
-  In bridge mode they start from `nodejs.js`'s URL, whose response
+  In bridge mode they start from `workers/nodejs.js`'s URL, whose response
   carries the same policy: Firefox does not let the service worker answer
   a blob worker that a worker starts
   ([frames.md](frames.md#browser-behavior-found-while-building-it)).
-- **`connect-src`:** the packages' files (the tls package's `tls.wasm`
-  and `roots.pem`, whose directory the server cannot tell from the
-  runtime's path: so every package's, public and immutable), and `data:`
-  and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin
+- **`connect-src`:** its own package's files, the playground's packages'
+  files (the tls package's `tls.wasm` and `roots.pem`, public and
+  immutable), and `data:` and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin
   served `/git/`, `/hex/` and `/api/v1/nif/` before they moved to the
   apex, and keeps other pages. `/sw.js` is in `worker-src`, `script-src`
   and `connect-src` for Firefox's check.

@@ -1,5 +1,5 @@
 // node:child_process: a child is a command line the exec frame's sh runs
-// (programs/nodejs.ts, brush in a worker of its own), as the terminal's
+// (the runtime's programs/workerProgram.ts, brush in a worker of its own), as the terminal's
 // shell would: node, npm, npx, git, mix, coreutils and node_modules/.bin's
 // scripts. Without `shell`, the command and its arguments are quoted.
 //
@@ -205,7 +205,7 @@ export function createChildProcess(
         Object.entries(options.env ?? own.env).filter(([, v]) => v !== undefined),
       ) as Record<string, string>;
       // Which of the process's stdin and stdout it inherits: the terminal,
-      // where they are it (programs/nodejs.ts).
+      // where they are it (the runtime's programs/workerProgram.ts).
       const terminal = [inherits(stdio[0], 0), inherits(stdio[1], 1)];
       post({ kind: 'child', op: 'spawn', id: this.id, line, cwd: String(cwd), env, terminal });
       // Its abort signal and timeout, which hold nothing once it has exited.

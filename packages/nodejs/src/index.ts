@@ -1,5 +1,6 @@
-// nodejs.js: a Node.js process in a worker of its own (the page program
-// `node`, programs/nodejs.ts), or one of its worker threads in a worker
+// workers/nodejs.js: a Node.js process in a worker of its own (the
+// worker program `node`, the runtime's programs/workerProgram.ts), or one
+// of its worker threads in a worker
 // nested in it (threads.ts). Scripts run on the browser's own JavaScript
 // engine; Node's modules are this directory's, over the shared files
 // (files.js, reached synchronously as a node reaches them; a process's
@@ -47,8 +48,10 @@ interface Start {
   thread?: ThreadStart;
   // The tls package's files (tls.wasm, its roots).
   tls?: TlsFiles | null;
-  // Bun's globals too (claude/bun.ts): Claude Code's process (programs/claude/claude.ts).
-  bun?: boolean;
+  // The program's options (the runtime's workerProgram.ts passes them as
+  // the caller gave them): bun, Bun's globals too (claude/bun.ts), for
+  // Claude Code's process (the claude package's program.ts).
+  options?: { bun?: boolean };
 }
 
 const USAGE = `Usage: node [options] [ script.js | -e "script" ] [arguments]
@@ -345,7 +348,7 @@ async function run(start: Start) {
     proc.end(1);
   });
 
-  if (start.bun && !thread)
+  if (start.options?.bun && !thread)
     await installBun({
       readFile: (p) => (files.module.readFileSync as (p: string, e: string) => string)(p, 'utf8'),
       crc32: (data) => (builtin('zlib') as { crc32(d: Uint8Array): number }).crc32(data),

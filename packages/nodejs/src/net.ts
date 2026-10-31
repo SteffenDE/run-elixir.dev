@@ -1,5 +1,5 @@
 // node:net on the project's TCP: a process's listeners and connections
-// are the exec frame's to route (programs/nodejs.ts), as a node's are, so
+// are the exec frame's to route (the runtime's programs/workerProgram.ts), as a node's are, so
 // the preview and the project's other processes reach a port a script
 // listens on, and a script reaches theirs and the services (Postgres);
 // other hosts through the user's tailnet (docs/tailscale.md).

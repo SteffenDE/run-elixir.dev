@@ -22,7 +22,7 @@ apex: React IDE, project storage, PGlite, Hex cache, Tailscale device
   ├─ e-ID.USERCONTENT: exec frame and host worker
   │    ├─ files.js: shared project filesystem
   │    ├─ worker.js: shell and BEAM workers
-  │    ├─ nodejs.js: Node.js processes (the nodejs package)
+  │    ├─ workers/nodejs.js: Node.js processes (the nodejs package)
   │    └─ Tailwind, esbuild, Git, network routing, preview bridge
   ├─ v-ID-PORT.USERCONTENT: relay frame and preview for each server port
   └─ claude.USERCONTENT: Claude Code preparation and cache

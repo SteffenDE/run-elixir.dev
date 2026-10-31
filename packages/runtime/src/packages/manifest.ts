@@ -77,14 +77,17 @@ export class Site {
     return { loader: this.file(otp.name, loader), wasm: this.file(otp.name, wasm) };
   }
 
-  // A Node.js process's worker script (the nodejs package's nodejs.js),
-  // with its package: `node` runs it below the bridge, on the frame's own
-  // origin, as a page program's module (a worker's script is same-origin).
-  node(): { name: string; version: string; worker: string } | null {
-    const node = this.find('node');
-    return node
-      ? { name: node.name, version: node.entry.version, worker: node.value.worker }
-      : null;
+  // Every package's worker programs (`workerPrograms`), by name, each with
+  // its package and script: the script's path below the package's, which
+  // the runtime starts below the bridge, on the frame's own origin (a
+  // worker's script is same-origin). A name two packages give is the
+  // first one's.
+  workerPrograms(): Map<string, { name: string; version: string; script: string }> {
+    const out = new Map<string, { name: string; version: string; script: string }>();
+    for (const [name, entry] of Object.entries(this.manifest.packages))
+      for (const [program, script] of Object.entries(entry.playground.workerPrograms ?? {}))
+        if (!out.has(program)) out.set(program, { name, version: entry.version, script });
+    return out;
   }
 
   // brush.wasm.

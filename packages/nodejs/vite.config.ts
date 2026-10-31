@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite';
 import { licenses } from '../../vite-licenses.ts';
 
-// The nodejs package (docs/nodejs.md): a Node.js process's worker,
-// nodejs.js, with the chunks it imports; and the page programs npm.js and
-// npx.js (`npm`, `npx`, which the exec frame's worker imports), into dist/
-// (runtime/build.py lays it out as /npm/@elixir-playground/nodejs@VERSION/).
-// The descriptor names nodejs.js and the programs: they keep their names.
-// The service worker gives nodejs.js and chunks/ their policy
-// (runtime/src/swBridge.ts nodePolicy).
+// The nodejs package (docs/nodejs.md): the worker program `node`,
+// workers/nodejs.js, with the chunks it imports (workers/chunks/); and the
+// page programs npm.js and npx.js (`npm`, `npx`, which the exec frame's
+// worker imports), into dist/ (runtime/build.py lays it out as
+// /npm/@elixir-playground/nodejs@VERSION/). The descriptor names them:
+// they keep their names. The service worker gives everything below
+// workers/ the worker programs' policy (runtime/src/swBridge.ts
+// workerPolicy); the page programs' chunks are there too, which the exec
+// frame's worker imports as it would any module.
 const src = (name: string) => new URL(`./src/${name}`, import.meta.url).pathname;
 
 export default defineConfig({
@@ -30,8 +32,8 @@ export default defineConfig({
       preserveEntrySignatures: 'exports-only',
       output: {
         format: 'es',
-        entryFileNames: '[name].js',
-        chunkFileNames: 'chunks/[name]-[hash].js',
+        entryFileNames: (chunk) => (chunk.name === 'nodejs' ? 'workers/nodejs.js' : '[name].js'),
+        chunkFileNames: 'workers/chunks/[name]-[hash].js',
       },
     },
   },

@@ -207,7 +207,7 @@ export function createThreads(host: ThreadHost) {
       // A blob's worker inherits this one's policy. In bridge mode
       // (docs/frames.md) Firefox does not let the service worker answer a
       // blob worker's imports; the script's own URL carries the same
-      // policy (swBridge.ts nodePolicy).
+      // policy (swBridge.ts workerPolicy).
       const blob = new Blob([`import ${JSON.stringify(host.script)};`], {
         type: 'text/javascript',
       });

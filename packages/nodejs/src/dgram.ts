@@ -1,5 +1,5 @@
 // node:dgram on the project's UDP: a process's ports are the exec frame's
-// to route (programs/nodejs.ts), as a node's are, so datagrams go between
+// to route (the runtime's programs/workerProgram.ts), as a node's are, so datagrams go between
 // processes and the project's nodes as between processes on one machine,
 // to the node's DNS on 53, and to other hosts through the user's tailnet
 // (docs/tailscale.md; dropped without it).

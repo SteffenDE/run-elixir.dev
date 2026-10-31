@@ -50,8 +50,9 @@ export interface Context {
   fs: Files;
   // Whether its stdin and stdout are the terminal.
   tty?: { stdin: boolean; stdout: boolean };
-  // node: Bun's globals too (programs/claude/claude.ts).
-  bun?: boolean;
+  // A worker program's own options (programs/workerProgram.ts), which its
+  // worker reads (node's `bun`: Bun's globals, for Claude Code).
+  options?: Record<string, unknown>;
 }
 
 function option(args: string[], long: string, short: string): string | undefined {
