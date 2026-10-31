@@ -55,10 +55,10 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 
 | Package | Contents | Peer dependencies | Size |
 | --- | --- | --- | --- |
-| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the bridge's bootstrap `bridge.html`) | none | 13 MB |
+| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the bridge's bootstrap `bridge.html`) | none | 0.4 MB |
 | `api` | `index.js`: `create()` and its sandbox, one ES module | `runtime` | 93 KB |
 | `pglite` | `index.js`: the pglite plugin (Postgres on port 5432); depends on `@electric-sql/pglite` | `api` | 7 KB |
-| `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, nodejs, pglite()]`, which it depends on | none | 1 KB |
+| `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, nodejs, esbuild, tailwind, inotify-tools, pglite()]`, which it depends on | none | 1 KB |
 | `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (the Emscripten build and its glue); OTP's applications (an fs layer, 831 files) | `runtime` | 39 MB |
 | `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3; Elixir's scripts `bin/elixir`, `bin/elixirc`, `bin/iex`, `bin/mix` (an fs layer) | `runtime ^1.2`, `shell` | 14 MB |
 | `phoenix-template` (not published) | The phx.new app at `/work/playground`, with `deps/` and its `_build`, compiled for one OTP and Elixir pair (an fs layer, 4,640 files) | `runtime`, `otp-X ^N`, `elixir-Y ^N` | 47 MB |
@@ -68,6 +68,9 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `gnu-tools` | GNU `sed`, `grep`, `diff`, `cmp`, `diff3`, `sdiff`, `gawk`, `find` | `runtime` | 5.3 MB |
 | `tls` | `tls.wasm` (a Node.js process's TLS client), `roots.pem`; the nodes' CA bundle (an fs layer) | `runtime` | 1.1 MB |
 | `tailscale` (not published) | `tailscale.wasm` (the apex's Tailscale node) and `wasm_exec.js`, the glue of the Go that built it | `runtime` | 28 MB |
+| `esbuild` | The page program `esbuild` (`program.js`) and `esbuild.js`, esbuild-wasm for another package's code; its WebAssembly in `files/` | `runtime ^1.2` | 12 MB |
+| `tailwind` | The page program `tailwind` (`program.js`, Tailwind CSS 4.3.3's compiler) | `runtime ^1.2` | 0.4 MB |
+| `inotify-tools` | The page program `inotifywait` (`program.js`), for `file_system` | `runtime ^1.2` | 64 KB |
 | `nodejs` | The worker program `node` (`workers/nodejs.js`, `workers/chunks/`: Node's modules, the Bun stand-in for Claude Code) and the page programs `npm` and `npx` (`npm.js`, `npx.js`) | `runtime ^1.2` | 1.2 MB |
 | `claude` | The page program `claude` (`program.js`) and the shared frame that prepares Claude Code (`claude.html`, `frames/`, esbuild's WebAssembly among them); the range they were tested with; no Claude Code | `runtime ^1.2`, `nodejs` | 12 MB |
 | `vite` | `index.js`: the Vite plugin that lays the packages out in a site's own output ([api.md](api.md#a-site-of-your-own-the-vite-plugin)) | `vite` | 7 KB |
@@ -82,9 +85,8 @@ a plugin of its own (`tailscale/plugin.ts`).
 
 What is still not where it belongs:
 
-- **esbuild's WebAssembly** (12 MB) is in the runtime package's frames
-  (the page program `esbuild`) and again in the claude package's (the
-  preparer compiles with it); it could be a package of its own.
+- **esbuild's WebAssembly** (12 MB) is in the esbuild package and again
+  in the claude package's frames (the preparer compiles with it).
 
 ## Versioning
 
@@ -109,13 +111,13 @@ What is still not where it belongs:
 
 The packages' versions are in `PACKAGES` in `build.py`, each JavaScript
 package's `package.json`, and `packages/runtime/src/packages/host.json`
-for the runtime. On 2026-10-30 (unpublished): runtime 1.2.0 (the
+for the runtime. On 2026-10-31 (unpublished): runtime 1.2.0 (the
 `pagePrograms`, `frames` and `workers` seams; the `claude` seam removed,
 which only the claude package used; Node.js, npm and npx moved to the
-nodejs package; Elixir's commands are its package's scripts), claude
+nodejs package, and esbuild, tailwind and inotifywait to theirs; Elixir's commands are its package's scripts), claude
 2.0.0 (now needs nodejs), elixir-X 2.0.0 (Elixir's scripts; needs the
-shell package), nodejs 1.0.0 (new), standard 1.1.0 (adds nodejs), api
-2.0.0 (`create()`'s `usercontent` changed, `EACCES` gone), vite 2.0.0
+shell package), nodejs, esbuild, tailwind and inotify-tools 1.0.0
+(new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s `usercontent` changed, `EACCES` gone), vite 2.0.0
 (its options changed) and pglite 1.1.0 (its peer range on api). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
@@ -504,8 +506,9 @@ Both the shell (`worker/index.ts` `find`) and a node's ports
 new worker, whose shell runs `erl` in its own worker. A file with a `#!`
 line runs as one even when its name is a direct program's.
 
-The runtime passes its own flags to `bin/elixir` in `ELIXIR_ERL_OPTIONS`
-(the Hex `esbuild` and `tailwind` packages' `:path`). An elixir package
+The esbuild and tailwind packages pass their flags to `bin/elixir` in
+`ELIXIR_ERL_OPTIONS` (the Hex `esbuild` and `tailwind` packages' `:path`;
+their `variables`, appended). An elixir package
 without `bin/elixir` (before 2.0.0) fails the load-time check.
 
 **Cost** (2026-10-30, one aarch64 Linux machine, warm, medians of 7, a
@@ -942,6 +945,13 @@ As of 2026-10-28:
   bridge, the api and rebar3 (33 passed, 2 skipped); in Firefox and
   WebKit those for the node policy, bridge, child processes, Node.js,
   npm and Claude Code (30 passed, 2 skipped).
+- **The tools as packages** (2026-10-31): esbuild, tailwind and
+  inotifywait are the esbuild, tailwind and inotify-tools packages' page
+  programs, no longer the runtime's (0.4 MB, from 13 MB); their
+  `ELIXIR_ERL_OPTIONS` flags are theirs. Tested 2026-10-31 in Chromium:
+  the e2e specs for esbuild, live reload (edit, brush, isolation), the
+  template, the terminal, Claude Code, the api and the preview (42
+  passed; one live-session test failed once and passed on its own).
 - **Scripts by their `#!` lines** (2026-10-30): the elixir package (2.0)
   ships Elixir's own scripts; the runtime's TypeScript copy of them is
   gone.

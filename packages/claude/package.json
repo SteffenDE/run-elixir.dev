@@ -16,8 +16,9 @@
     "format:check": "oxfmt --check src test"
   },
   "dependencies": {
+    "@elixir-playground/esbuild": "*",
     "@elixir-playground/runtime": "*",
-    "fzstd": "0.1.1",
-    "@noble/hashes": "2.0.1"
+    "@noble/hashes": "2.0.1",
+    "fzstd": "0.1.1"
   }
 }

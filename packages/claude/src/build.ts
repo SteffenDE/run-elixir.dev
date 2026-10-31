@@ -12,7 +12,7 @@
 // otherwise. Update it with the site.
 import { sha512 } from '@noble/hashes/sha2.js';
 import { graphParts, type GraphFile } from './bungraph';
-import { load as loadEsbuild } from '@elixir-playground/runtime/programs/esbuild';
+import { load as loadEsbuild } from '@elixir-playground/esbuild/esbuild';
 import { DIR } from './protocol';
 
 export const CLAUDE_CODE = {

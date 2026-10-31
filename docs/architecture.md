@@ -23,7 +23,7 @@ apex: React IDE, project storage, PGlite, Hex cache, Tailscale device
   │    ├─ files.js: shared project filesystem
   │    ├─ worker.js: shell and BEAM workers
   │    ├─ workers/nodejs.js: Node.js processes (the nodejs package)
-  │    └─ Tailwind, esbuild, Git, network routing, preview bridge
+  │    └─ page programs (esbuild, tailwind, …), Git, network routing, preview bridge
   ├─ v-ID-PORT.USERCONTENT: relay frame and preview for each server port
   └─ claude.USERCONTENT: Claude Code preparation and cache
 ```
@@ -161,7 +161,8 @@ runtime dispatches it by name:
   and find. Tools that spawn children use the worker's process table.
 - **Native-build adapter:** `make` obtains the package's WebAssembly NIF
   library from the site or backend and unpacks it into the app's `priv`.
-- **Host programs:** Tailwind, esbuild, Node.js, npm, and npx run through
+- **Host programs:** the packages' page programs (esbuild, tailwind,
+  inotifywait, npm, npx, claude) and worker programs (Node.js) run through
   the exec host. Project plugins execute on the usercontent origin.
 - **BEAM commands:** `erl` and `escript` start a BEAM in a worker over
   the same project files. `elixir`, `iex`, `elixirc` and `mix` are
@@ -180,8 +181,9 @@ also includes OTP application headers for dependency compilation.
 The Hex `esbuild` and `tailwind` packages run the playground's programs
 whatever the project: Elixir starts with their `:path` set to
 `/usr/bin/esbuild` and `/usr/bin/tailwind` (`-esbuild path …` in
-`ELIXIR_ERL_OPTIONS`, which `bin/elixir` adds to `erl`'s command line), so
-they never download a binary. A project's own `:path`
+`ELIXIR_ERL_OPTIONS`, which the esbuild and tailwind packages append to
+and `bin/elixir` adds to `erl`'s command line), so they never download a
+binary. A project's own `:path`
 wins. The packages check the program's `--version` against the configured
 one, so a project configuring another version gets their "Outdated …
 version" warning. The node presents itself as Linux x86_64, so other tool

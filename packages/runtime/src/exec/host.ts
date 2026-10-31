@@ -1,7 +1,7 @@
 // The worker that runs a project, in its exec frame on the usercontent
 // domain (frames/exec.ts, docs/frames.md): the shared files, a node per
-// shell and per command the nodes run, the page programs (Tailwind, with
-// the project's plugins; esbuild; git), epmd, HTTPS by fetch, and the
+// shell and per command the nodes run, the packages' page and worker
+// programs (esbuild, tailwind, node, …), git, epmd, HTTPS by fetch, and the
 // bridge to the app for the preview. The IDE's page on the apex drives it
 // over a port (rpc.ts): calls in, events out. What the apex keeps for the
 // project (its files' changes, its Postgres, Hex's cache) the apex
@@ -37,9 +37,6 @@ import { relay, relayed } from '../relay';
 import { dnsTcp, dnsUdp } from '../dns';
 import { carry } from '../portConnection';
 import { tailnet } from '../tailnet/tailnet';
-import { esbuild } from '../programs/esbuild';
-import { inotifywait } from '../programs/inotifywait';
-import { tailwind } from '../programs/tailwind';
 import { filesChanged, watchers } from '../programs/watch';
 import { workerProgram, type Deliver, type Listener, type Ports } from '../programs/workerProgram';
 import type { KeptRecord } from '../overlay';
@@ -485,9 +482,6 @@ function nodeServices() {
       // The packages' first: a runtime's own program of the same name
       // stays the runtime's.
       ...packagePrograms(),
-      tailwind,
-      esbuild,
-      inotifywait,
       // The packages' worker programs (node, with a nodejs package).
       ...workerPrograms(),
       sh: shProgram(startNode),

@@ -17,7 +17,8 @@ in it), with its package.json and its files:
   as its commands;
 - phoenix-template: a phx.new app, an fs layer at /work/playground;
 - shell, git, ripgrep, gnu-tools, tls, tailscale: the WebAssembly tools,
-  built by their own scripts; claude;
+  built by their own scripts; claude, nodejs, esbuild, tailwind and
+  inotify-tools (their packages' Vite builds);
 - api (create(), docs/api.md), pglite (a plugin of it) and standard (a
   preset: the shell, its tools and pglite), JavaScript an embedder
   installs and bundles.
@@ -720,7 +721,8 @@ PACKAGES = {
     # Claude Code (packages/claude): its page program, `claude`, and the
     # shared frame and worker that prepare its files, on the runtime's
     # pagePrograms and frames seams (its 1.2; docs/packages.md).
-    "claude": {"version": "2.0.0", "files": ["claude.html", "frames", "program.js"],
+    "claude": {"version": "2.0.0", "dist": "packages/claude/dist",
+               "files": ["claude.html", "frames", "program.js"],
                "playground": {"abi": {"pagePrograms": 1, "frames": 1},
                               "pagePrograms": {"claude": "program.js"},
                               "frames": {"claude": "claude.html"}},
@@ -728,11 +730,34 @@ PACKAGES = {
     # Node.js on the page (packages/nodejs): the worker program node (its
     # workers/, which the runtime starts under the workers' policy) and the
     # page programs npm and npx.
-    "nodejs": {"version": "1.0.0", "files": ["workers", "npm.js", "npx.js"],
+    "nodejs": {"version": "1.0.0", "dist": "packages/nodejs/dist",
+               "files": ["workers", "npm.js", "npx.js"],
                "playground": {"abi": {"workers": 1, "pagePrograms": 1},
                               "workerPrograms": {"node": "workers/nodejs.js"},
                               "pagePrograms": {"npm": "npm.js", "npx": "npx.js"}},
                "runtime": "^1.2.0"},
+    # The tools a Phoenix app's assets need, on the page (packages/esbuild,
+    # packages/tailwind, packages/inotify-tools): each a page program; the
+    # Hex esbuild and tailwind packages find theirs by the :path their
+    # ELIXIR_ERL_OPTIONS flag sets. esbuild.js is esbuild-wasm for another
+    # package's code (the claude frame's).
+    "esbuild": {"version": "1.0.0", "dist": "packages/esbuild/dist",
+                "files": ["program.js", "esbuild.js", "chunks", "files"],
+                "playground": {"abi": {"pagePrograms": 1}, "pagePrograms": {"esbuild": "program.js"},
+                               "variables": {"ELIXIR_ERL_OPTIONS":
+                                             {"append": '-esbuild path <<"/usr/bin/esbuild">>'}}},
+                "runtime": "^1.2.0"},
+    "tailwind": {"version": "1.0.0", "dist": "packages/tailwind/dist",
+                 "files": ["program.js"],
+                 "playground": {"abi": {"pagePrograms": 1}, "pagePrograms": {"tailwind": "program.js"},
+                                "variables": {"ELIXIR_ERL_OPTIONS":
+                                              {"append": '-tailwind path <<"/usr/bin/tailwind">>'}}},
+                 "runtime": "^1.2.0"},
+    "inotify-tools": {"version": "1.0.0", "dist": "packages/inotify-tools/dist",
+                      "files": ["program.js"],
+                      "playground": {"abi": {"pagePrograms": 1},
+                                     "pagePrograms": {"inotifywait": "program.js"}},
+                      "runtime": "^1.2.0"},
 }
 # A module's imports, by the seam (host.json's provides) they belong to.
 IMPORT_SEAMS = {"wasi_snapshot_preview1": "wasi", "processes": "processes", "crossterm": "crossterm",
@@ -1036,7 +1061,10 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
         for peer in package.get("peers", ()):
             peers[f"{SCOPE}/{named(peer)}"] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
         _, entries[f"{SCOPE}/{named(key)}"] = lay(
-            out, named(key), package["version"], {file: sources[file] for file in package["files"]},
+            out, named(key), package["version"],
+            # A workspace package's files are its build's (`dist`), the others' by name.
+            {file: os.path.join(ROOT, package["dist"], file) if "dist" in package else sources[file]
+             for file in package["files"]},
             {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()),
             licensed[key], package.get("root", "").format(**versions) or None,
             publish=package.get("publish", True), descriptor=package.get("publish", True))
@@ -1105,7 +1133,8 @@ def lay_runtime(out, runtime):
 # The preset's own version, and what @elixir-playground/standard installs
 # besides pglite (packages/api and packages/pglite name their own).
 STANDARD_VERSION = "1.1.0"
-STANDARD = ("shell", "git", "gnu-tools", "ripgrep", "tls", "nodejs")
+STANDARD = ("shell", "git", "gnu-tools", "ripgrep", "tls", "nodejs", "esbuild", "tailwind",
+            "inotify-tools")
 identifier = lambda key: re.sub(r"-(.)", lambda m: m.group(1).upper(), key)
 
 
@@ -1125,6 +1154,11 @@ def tool_notices():
         "claude": (notices.own().extend(notices.npm("claude")), {}),
         # Node.js's modules, with what its Vite build bundled.
         "nodejs": (notices.own().extend(notices.npm("nodejs")), {}),
+        # The page's tools, with what their Vite builds bundled (esbuild-wasm,
+        # tailwindcss).
+        "esbuild": (notices.own().extend(notices.npm("esbuild")), {}),
+        "tailwind": (notices.own().extend(notices.npm("tailwind")), {}),
+        "inotify-tools": (notices.own().extend(notices.npm("inotify-tools")), {}),
     }
 
 
@@ -1176,14 +1210,6 @@ def sources(wasm):
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
             # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
-            # The claude package's frame and page program (packages/claude's build).
-            "claude.html": os.path.join(ROOT, "packages", "claude", "dist", "claude.html"),
-            "frames": os.path.join(ROOT, "packages", "claude", "dist", "frames"),
-            "program.js": os.path.join(ROOT, "packages", "claude", "dist", "program.js"),
-            # The nodejs package's worker program (workers/: its script and
-            # chunks) and its page programs (packages/nodejs's build).
-            **{name: os.path.join(ROOT, "packages", "nodejs", "dist", name)
-               for name in ("workers", "npm.js", "npx.js")},
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}

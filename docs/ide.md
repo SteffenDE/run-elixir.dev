@@ -133,9 +133,10 @@ Highlighting:
 
 ## Tailwind on the page
 
-The app's dev config starts Tailwind with `--watch`. The runtime overrides
-its executable path with `/usr/bin/tailwind` and dispatches it to
-`programs/tailwind.ts` in the exec host worker:
+The app's dev config starts Tailwind with `--watch`. The tailwind package
+sets its executable path to `/usr/bin/tailwind` (its `ELIXIR_ERL_OPTIONS`
+flag), and its page program (`packages/tailwind/src/tailwind.ts`) runs in
+the exec host worker:
 
 - **Options:** `--input`, `--output`, `--watch`, and `--help` (the Hex
   package's version check), over `tailwindcss` 4.3.3's `compile()`.
@@ -155,9 +156,10 @@ its executable path with `/usr/bin/tailwind` and dispatches it to
 
 ## esbuild on the page
 
-`src/project/lib/programs/esbuild.ts` is esbuild 0.25.4 (esbuild-wasm,
-loaded on first use, about 11 MB) in place of the binary the Hex package
-runs; the node's `:path` for it is `/usr/bin/esbuild`
+The esbuild package's page program (`packages/esbuild/src/esbuild.ts`) is
+esbuild 0.25.4 (esbuild-wasm, loaded on first use, about 12 MB) in place
+of the binary the Hex package runs; the node's `:path` for it is
+`/usr/bin/esbuild`, which the package's `ELIXIR_ERL_OPTIONS` flag sets
 ([architecture.md](architecture.md#programs)).
 
 - **Options:** entry points, `--bundle`, `--minify`, `--splitting`,

@@ -1,0 +1,21 @@
+{
+  "name": "@elixir-playground/esbuild",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "esbuild on the page (esbuild-wasm): the esbuild page program, and esbuild.js, esbuild-wasm loaded and started for another package's code (docs/packages.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*",
+    "esbuild-wasm": "0.25.4"
+  }
+}

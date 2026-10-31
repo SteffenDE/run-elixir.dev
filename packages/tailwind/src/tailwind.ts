@@ -9,9 +9,16 @@ import indexCss from 'tailwindcss/index.css?raw';
 import preflightCss from 'tailwindcss/preflight.css?raw';
 import themeCss from 'tailwindcss/theme.css?raw';
 import utilitiesCss from 'tailwindcss/utilities.css?raw';
-import type { Context, Process } from '../pageProgram';
-import { SyncFiles, evaluate, made, path, withFaults } from './modules';
-import { type Watcher, watchers } from './watch';
+import type { Context, PageProgramHost, Process } from '@elixir-playground/runtime/sdk/program';
+
+type Watcher = (paths: string[]) => void;
+import {
+  SyncFiles,
+  evaluate,
+  made,
+  path,
+  withFaults,
+} from '@elixir-playground/runtime/sdk/modules';
 
 export const TAILWIND_VERSION = '4.3.3';
 
@@ -37,7 +44,11 @@ function option(args: string[], long: string, short: string): string | undefined
 
 const decoder = new TextDecoder();
 
-export async function tailwind(process: Process, { args, cwd, env, fs }: Context): Promise<void> {
+export async function tailwind(
+  process: Process,
+  { args, cwd, env, fs }: Context,
+  watchFiles: PageProgramHost['watch'],
+): Promise<void> {
   if (args.includes('--help') || args.includes('-h') || args.includes('--version')) {
     process.write(`≈ tailwindcss v${TAILWIND_VERSION}\n`);
     process.exit(0);
@@ -177,9 +188,9 @@ export async function tailwind(process: Process, { args, cwd, env, fs }: Context
       build().catch((error: Error) => process.write(`Error: ${error.message}\n`));
     }, 50);
   };
-  watchers.add(watcher);
+  const unwatch = watchFiles(watcher);
   process.onkill = () => {
-    watchers.delete(watcher);
+    unwatch();
     if (pending) clearTimeout(pending);
   };
 }

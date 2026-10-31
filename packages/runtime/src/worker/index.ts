@@ -247,7 +247,6 @@ onmessage = async ({
     }
     prepare(root, {
       dns: udpPorts.includes(53),
-      inotifywait: pagePrograms.includes('inotifywait'),
       workerPrograms: [...packages.workerPrograms().keys()],
       bin: packages.bin(),
       pagePrograms: [...packages.pagePrograms().keys()],

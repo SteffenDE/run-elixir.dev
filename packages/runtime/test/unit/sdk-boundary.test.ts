@@ -2,15 +2,13 @@
 // imports the runtime only from there, so what it bundles of the runtime
 // is what a seam versions. The api is the runtime's own other half (its
 // major: docs/packages.md, "process API") and is not held to it.
-import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { expect, it } from 'vitest';
 
 const PACKAGES = join(__dirname, '../../..');
 // Packages that ship code to sites, other than the runtime and the api.
-const CHECKED = ['claude', 'nodejs'];
-// Until the esbuild package (it is the runtime's program today).
-const ALLOWED = new Set(['programs/esbuild']);
+const CHECKED = ['claude', 'nodejs', 'esbuild', 'tailwind', 'inotify-tools'];
 
 function* sources(dir: string): Generator<string> {
   for (const name of readdirSync(dir)) {
@@ -23,12 +21,12 @@ function* sources(dir: string): Generator<string> {
 it('keeps the packages’ code to the runtime’s sdk/', () => {
   const outside: string[] = [];
   for (const pkg of CHECKED)
-    for (const dir of ['src', 'test'])
+    for (const dir of ['src', 'test'].filter((each) => existsSync(join(PACKAGES, pkg, each))))
       for (const file of sources(join(PACKAGES, pkg, dir)))
         for (const [, module] of readFileSync(file, 'utf8').matchAll(
           /['"]@elixir-playground\/runtime\/([^'"]+)['"]/g,
         ))
-          if (!module.startsWith('sdk/') && !ALLOWED.has(module))
+          if (!module.startsWith('sdk/'))
             outside.push(`${file.slice(PACKAGES.length + 1)}: ${module}`);
   expect(outside).toEqual([]);
 });

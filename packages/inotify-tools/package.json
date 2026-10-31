@@ -1,0 +1,20 @@
+{
+  "name": "@elixir-playground/inotify-tools",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "inotifywait on the page, for file_system (Phoenix's live reload) (docs/packages.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*"
+  }
+}

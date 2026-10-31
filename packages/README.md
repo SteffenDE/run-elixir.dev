@@ -27,6 +27,7 @@ sources.
 | `pglite/` | `@elixir-playground/pglite` | The pglite plugin: Postgres on port 5432 for the nodes | `dist/index.js`, `dist/index.d.ts` and `dist/types/` |
 | `claude/` | `@elixir-playground/claude` | The `claude` page program, and the shared frame and worker that prepare Claude Code; `build.py` adds the descriptor and the tested range | `dist/` |
 | `nodejs/` | `@elixir-playground/nodejs` | Node.js on the page: the worker program `node` (`workers/nodejs.js`, Node's modules), and the `npm` and `npx` page programs; `build.py` adds the descriptor | `dist/` |
+| `esbuild/`, `tailwind/`, `inotify-tools/` | `@elixir-playground/esbuild`, `…/tailwind`, `…/inotify-tools` | The page programs `esbuild` (and `esbuild.js`, esbuild-wasm for other packages), `tailwind` and `inotifywait`; `build.py` adds the descriptors | `dist/` |
 | `vite/` | `@elixir-playground/vite` | The Vite plugin that lays a site's packages out in its own output | `dist/index.js`, `dist/index.d.ts` (tsc) |
 
 `api`'s and `pglite`'s declarations come from `tsc -p tsconfig.build.json`

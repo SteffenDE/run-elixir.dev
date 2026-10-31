@@ -2,7 +2,7 @@
 // environment, the files around the installation, and its programs.
 import { File, Symlink, devnull, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
-import { esbuild, tailwind, make, memsup, type NifSource } from './programs';
+import { make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
 import { REGISTRY } from './coreutils';
 import { UTILITIES } from './utilities';
@@ -10,11 +10,13 @@ import type { Site } from './packages/manifest';
 
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
 // Hex tool wrappers take their Linux paths; its architecture is its own
-// (wasm32): the esbuild and tailwind packages run /usr/bin/esbuild and
-// /usr/bin/tailwind (their :path, ELIXIR_ERL_OPTIONS), the programs below,
-// and with :path set look no further (esbuild from 0.10.1).
+// (wasm32): the Hex esbuild and tailwind packages run /usr/bin/esbuild and
+// /usr/bin/tailwind (their :path, which the esbuild and tailwind
+// packages' ELIXIR_ERL_OPTIONS set), the page's programs, and with :path
+// set look no further (esbuild from 0.10.1).
 // The runtime's own; the packages add theirs (environment: ROOTDIR,
-// MIX_ARCHIVES, MIX_REBAR3, each a path of a package's layer).
+// MIX_ARCHIVES, MIX_REBAR3, each a path of a package's layer; their
+// variables).
 export const ENV = {
   // Home is not the project's: Mix's, Hex's and the tools' caches and
   // escripts are kept with the project (files.ts) but are not its files.
@@ -31,10 +33,6 @@ export const ENV = {
   TARGET_ARCH: 'wasm32',
   TARGET_OS: 'unknown',
   TARGET_ABI: 'wasi',
-  // bin/elixir's erl flags: the Hex esbuild and tailwind packages run the
-  // page's programs (their :path, unless a project's config sets one), so
-  // no project downloads them.
-  ELIXIR_ERL_OPTIONS: '-esbuild path <<"/usr/bin/esbuild">> -tailwind path <<"/usr/bin/tailwind">>',
 };
 
 // Every node's environment on `packages`: the runtime's own under the
@@ -49,18 +47,15 @@ export const environment = (packages: Site): Record<string, string> => ({
 // The node's own tree around the installation (/work and /tmp may be
 // shared: files.js). dns: names other than the hosts file's are asked of
 // the page's DNS at 127.0.0.53 (UDP and TCP port 53; Tailscale's resolver,
-// docs/tailscale.md), else they do not resolve. inotifywait: the page's
-// (programs/inotifywait.ts) is on PATH, for file_system (Phoenix's live
-// reload); without it file_system only warns, where its port would fail.
+// docs/tailscale.md), else they do not resolve.
 // workerPrograms: the packages' worker programs (Site.workerPrograms),
 // on PATH. bin: the packages' commands (Site.bin), each linked from /usr/bin.
-// pagePrograms: the packages' page programs (Site.pagePrograms), on PATH
-// as the runtime's own page programs are.
+// pagePrograms: the page programs (Site.pagePrograms: esbuild, tailwind,
+// inotifywait, with their packages), on PATH.
 export function prepare(
   root: Dir,
   {
     dns = false,
-    inotifywait = false,
     workerPrograms = [] as string[],
     bin = new Map<string, string>(),
     pagePrograms = [] as string[],
@@ -96,8 +91,6 @@ export function prepare(
   for (const [name, target] of bin) root.put(`usr/bin/${name}`, new Symlink(target));
   for (const name of [
     'git',
-    'esbuild',
-    'tailwind',
     'make',
     // The packages' worker programs (node).
     ...workerPrograms,
@@ -110,7 +103,6 @@ export function prepare(
     ...REGISTRY.keys(),
     // The shell's own processes (utilities.ts UTILITIES).
     ...Object.keys(UTILITIES),
-    ...(inotifywait ? ['inotifywait'] : []),
     ...pagePrograms,
   ])
     if (!bin.has(name)) root.put(`usr/bin/${name}`, new File());
@@ -125,7 +117,5 @@ export function prepare(
 // library build (make), or null.
 export const programs = (fs: Vfs, nif: NifSource = () => null): Programs => ({
   memsup,
-  esbuild,
-  tailwind,
   make: make(fs, nif),
 });

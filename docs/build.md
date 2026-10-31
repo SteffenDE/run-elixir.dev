@@ -233,7 +233,7 @@ OTP's and Elixir's from the site manifest.
      tailwind, which run on the page; the natively built assets are where
      they start.
    - **`runtime.exs`:** phx.new's live reload block stays: `file_system`
-     runs the page's `inotifywait` (`programs/inotifywait.ts`, fed the
+     runs the page's `inotifywait` (the inotify-tools package, fed the
      node's and the editor's changes), and Phoenix reloads the preview and
      swaps its CSS. A cache from before gets the block back.
 4. **Files.** Each package's layer from its source: OTP's installation,

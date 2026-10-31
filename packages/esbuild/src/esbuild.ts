@@ -7,13 +7,15 @@
 // mode it rebuilds when a file it read changes.
 import type { BuildOptions, Loader, Message, Plugin } from 'esbuild-wasm';
 import wasmURL from 'esbuild-wasm/esbuild.wasm?url';
-import { made, path } from './modules';
-import type { Context, Process } from '../pageProgram';
-import { type Watcher, watchers } from './watch';
+import { made, path } from '@elixir-playground/runtime/sdk/modules';
+import type { Context, PageProgramHost, Process } from '@elixir-playground/runtime/sdk/program';
+
+type Watcher = (paths: string[]) => void;
 
 export const ESBUILD_VERSION = '0.25.4';
 
-// esbuild-wasm, loaded and started once, on first use (claude.ts's too).
+// esbuild-wasm, loaded and started once, on first use (the claude
+// package's frame's too: this package's esbuild.js).
 let loading: Promise<typeof import('esbuild-wasm')> | null = null;
 export function load() {
   loading ??= import('esbuild-wasm').then(async (module) => {
@@ -185,7 +187,11 @@ function base64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export async function esbuild(process: Process, { args, cwd, env, fs }: Context): Promise<void> {
+export async function esbuild(
+  process: Process,
+  { args, cwd, env, fs }: Context,
+  watch: PageProgramHost['watch'],
+): Promise<void> {
   if (args.includes('--version')) {
     process.write(`${ESBUILD_VERSION}\n`);
     process.exit(0);
@@ -333,9 +339,9 @@ export async function esbuild(process: Process, { args, cwd, env, fs }: Context)
     if (building) during.push(...paths);
     else if (relevant(paths)) schedule();
   };
-  if (command.watch) watchers.add(watcher);
+  const unwatch = command.watch ? watch(watcher) : () => {};
   process.onkill = () => {
-    watchers.delete(watcher);
+    unwatch();
     if (pending) clearTimeout(pending);
   };
 

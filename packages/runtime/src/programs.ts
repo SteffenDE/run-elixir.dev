@@ -1,5 +1,5 @@
 import { entries } from './wasi/fs';
-import type { Process, Program, ProgramContext } from './wasi/process';
+import type { Program } from './wasi/process';
 import type { Vfs } from './vfs';
 
 // A package's NIF library build for make: its tar, why there is none, or
@@ -13,27 +13,6 @@ export type NifSource = (
 // Programs a playground node can run (open_port, System.cmd), in place of
 // the OS's. Each gets its Process (write, exit) and { args, cwd, env }.
 // fs: vfs.ts's files (readText).
-export const ESBUILD_VERSION = '0.25.4';
-export const TAILWIND_VERSION = '4.3.3';
-
-export function esbuild(process: Process, { args }: ProgramContext): void {
-  if (args[0] === '--version') {
-    process.write(ESBUILD_VERSION + '\n');
-    return process.exit(0);
-  }
-  process.write('esbuild: not yet available in the playground\n');
-  process.exit(1);
-}
-
-export function tailwind(process: Process, { args }: ProgramContext): void {
-  if (args[0] === '--help') {
-    process.write(`\u2248 tailwindcss v${TAILWIND_VERSION}\n`);
-    return process.exit(0);
-  }
-  process.write('tailwind: not yet available in the playground\n');
-  process.exit(1);
-}
-
 // make, as elixir_make runs it to build a Hex package's native code: the
 // package's NIF library built to WebAssembly, from the playground's
 // backend (docs/nif.md), into the app's priv directory (MIX_APP_PATH).

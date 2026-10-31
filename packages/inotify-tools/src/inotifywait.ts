@@ -7,9 +7,10 @@
 // it exits after the first event, else when it is killed (file_system's
 // sh -c line runs it in the background, and kills it when its port's
 // input ends).
-import { path } from './modules';
-import type { Context, Process } from '../pageProgram';
-import { type Watcher, watchers } from './watch';
+import { path } from '@elixir-playground/runtime/sdk/modules';
+import type { Context, PageProgramHost, Process } from '@elixir-playground/runtime/sdk/program';
+
+type Watcher = (paths: string[]) => void;
 
 const USAGE = 'inotifywait [-m] [-r] [-q] [-e event]... [--format fmt] [--exclude re] file...\n';
 
@@ -82,7 +83,11 @@ function line(format: string | null, watched: string, file: string, events: stri
   );
 }
 
-export async function inotifywait(process: Process, { args, cwd, fs }: Context): Promise<void> {
+export async function inotifywait(
+  process: Process,
+  { args, cwd, fs }: Context,
+  watch: PageProgramHost['watch'],
+): Promise<void> {
   const options = parse(args);
   if (typeof options === 'string') {
     process.write(options);
@@ -129,10 +134,11 @@ export async function inotifywait(process: Process, { args, cwd, fs }: Context):
   };
 
   let done = false;
+  let unwatch = () => {};
   const stop = () => {
     if (done) return;
     done = true;
-    watchers.delete(watcher);
+    unwatch();
   };
   // In the order they came, one change at a time.
   let queue = Promise.resolve();
@@ -159,7 +165,7 @@ export async function inotifywait(process: Process, { args, cwd, fs }: Context):
   const watcher: Watcher = (paths) => {
     for (const changed of new Set(paths)) queue = queue.then(() => report(changed));
   };
-  watchers.add(watcher);
+  unwatch = watch(watcher);
   process.onkill = stop;
   process.onowner = stop;
 }
