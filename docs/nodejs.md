@@ -92,10 +92,9 @@ workers read there.
   network. The package's page programs (`npm.js`, `npx.js`) run in the
   exec frame's worker and get no policy either. A worker started from a
   script below `workers/` takes the same policy from its own response.
-- **Threads** (`threads.ts`) start from blobs, which inherit the policy.
-  In bridge mode they start from `workers/nodejs.js`'s URL, whose response
-  carries the same policy: Firefox does not let the service worker answer
-  a blob worker that a worker starts
+- **Threads** (`threads.ts`) start from `workers/nodejs.js`'s URL, whose
+  response carries the same policy, not from blobs: Firefox does not let
+  the service worker answer a blob worker that a worker starts
   ([frames.md](frames.md#browser-behavior-found-while-building-it)).
 - **`connect-src`:** its own package's files, the playground's packages'
   files (the tls package's `tls.wasm` and `roots.pem`, public and

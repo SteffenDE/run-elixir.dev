@@ -27,7 +27,7 @@ import { createProcess, VERSION } from './process';
 import { createThreads, nodeMessageChannel, type ThreadStart } from './threads';
 import { inspect } from './util';
 import { createWasi } from './wasi';
-import { processLock, sharedClient } from '@elixir-playground/runtime/wasi/shared';
+import { processLock, sharedClient } from '@elixir-playground/runtime/sdk/files';
 import type { TlsFiles } from './tls';
 
 interface Start {

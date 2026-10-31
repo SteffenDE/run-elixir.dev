@@ -5,8 +5,8 @@
 import { Buffer } from './buffer';
 import { EventEmitter } from 'events';
 import * as streams from 'readable-stream';
-import { E } from '@elixir-playground/runtime/wasi/abi';
-import type { SharedCall } from '@elixir-playground/runtime/wasi/shared';
+import { E } from '@elixir-playground/runtime/sdk/wasi';
+import type { SharedCall } from '@elixir-playground/runtime/sdk/files';
 
 const { Readable, Writable, finished } = streams as typeof import('node:stream');
 

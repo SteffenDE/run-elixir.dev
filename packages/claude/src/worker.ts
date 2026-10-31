@@ -5,7 +5,7 @@
 // project and every tab (build.ts; a lock, so two never make them at
 // once). It runs none of Claude Code: it fetches, checks, reads and
 // compiles, and keeps the result.
-import { Rpc, transfer } from '@elixir-playground/runtime/lib/rpc';
+import { Rpc, transfer } from '@elixir-playground/runtime/sdk/frame';
 import { CLAUDE_CODE, claudeFiles } from './build';
 
 const LOCK = 'playground-claude-code';

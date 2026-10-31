@@ -7,9 +7,9 @@
 // page, and hands them over a port (protocol.ts). Each run puts them in
 // /opt/claude-code/VERSION (files.js's memory, outside /work, so a project
 // does not keep them) and runs cli.js there with node.
-import type { Files } from '@elixir-playground/runtime/host/files';
-import { Rpc } from '@elixir-playground/runtime/lib/rpc';
-import type { Context, PackageProgram, Process } from '@elixir-playground/runtime/pageProgram';
+import type { Files } from '@elixir-playground/runtime/sdk/program';
+import { Rpc } from '@elixir-playground/runtime/sdk/frame';
+import type { Context, PackageProgram, Process } from '@elixir-playground/runtime/sdk/program';
 import { DIR, type ClaudeFiles, type GraphFile } from './protocol';
 
 // The files in `dir`, unless they are there already (cli.js last, so its

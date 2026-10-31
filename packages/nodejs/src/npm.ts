@@ -16,9 +16,9 @@
 // from its entries without the registry (as npm ci), and one is written
 // (lockfileVersion 3).
 import { intersects, maxSatisfying, rcompare, satisfies, valid, validRange } from 'semver';
-import type { Files } from '@elixir-playground/runtime/host/files';
-import { entries, gunzip } from '@elixir-playground/runtime/wasi/fs';
-import type { Context, Process } from '@elixir-playground/runtime/pageProgram';
+import type { Files } from '@elixir-playground/runtime/sdk/program';
+import { entries, gunzip } from '@elixir-playground/runtime/sdk/wasi';
+import type { Context, Process } from '@elixir-playground/runtime/sdk/program';
 
 const REGISTRY = 'https://registry.npmjs.org/';
 const CACHE = 'playground-npm';

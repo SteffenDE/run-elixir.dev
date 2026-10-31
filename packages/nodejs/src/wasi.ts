@@ -2,9 +2,9 @@
 // programs and libraries (napi-rs's wasm32-wasi builds) on the shared
 // files, which hold every path a project has (/work, /tmp, /home,
 // /shared).
-import { Exit, WASI as RuntimeWasi } from '@elixir-playground/runtime/wasi/index';
-import { Dir } from '@elixir-playground/runtime/wasi/fs';
-import type { SharedCall } from '@elixir-playground/runtime/wasi/shared';
+import { Exit, WASI as RuntimeWasi } from '@elixir-playground/runtime/sdk/wasi';
+import { Dir } from '@elixir-playground/runtime/sdk/wasi';
+import type { SharedCall } from '@elixir-playground/runtime/sdk/files';
 
 const PREFIXES = ['/work', '/tmp', '/home', '/shared'];
 

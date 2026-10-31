@@ -320,7 +320,11 @@ lockfile can still hold a set that does not fit, for example after
 `--force` or `--legacy-peer-deps`, or with a hand-written descriptor.
 So `create()` checks the manifest before any frame starts, and the exec
 frame checks it again as it starts (`packages/runtime/src/packages/check.ts`).
-A mismatch fails with `ERUNTIME`. It checks:
+A mismatch fails with `ERUNTIME`. Both check against the runtime the page
+serves: `create()` reads its version and seams from the runtime package's
+own `package.json` (`playground.provides`; api `runtimeHost`, since
+2026-10-31), not from the api's build, which may be of an older minor. It
+checks:
 
 - the manifest version is one the runtime reads (`provides.manifest`);
 - each package's peer dependencies are present and in range. That
@@ -359,7 +363,7 @@ of each.
 | `tailscale` | `tailscale.wasm` with its `wasm_exec.js`, and the Tailscale worker | 1 | the worker's calls into the node | `tailscale` major or `runtime` major |
 | `beam` | `beam.mjs` and the runtime's `beam/run.ts`, `worker/beam.ts` | 1 | the `Module` hooks the runtime fills: `beamSpawn`, PROXYFS mounts, sockets, the tty, `nifs.js` | `otp-X` major or `runtime` major |
 | `pagePrograms` | a package's page program and the exec frame's worker (`runtime/src/pageProgram.ts`), since runtime 1.2 | 1 | the default export's arguments: the process, its context, the host (`programs()`, `frame(name)`) | `runtime` major |
-| `workers` | a package's worker program and the runtime's `programs/workerProgram.ts`, since runtime 1.2 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `options`), the net, child, stdin, resize and `changed` messages; the policy below `workers/` | `runtime` major |
+| `workers` | a package's worker program and the runtime's `programs/workerProgram.ts`, since runtime 1.2 | 1 | the start message (args, cwd, env, the files channel, tty, `tls`, `options`), the net, child, stdin, resize and `changed` messages; the files channel's calls and lock (`sdk/files`); the policy below `workers/` | `runtime` major |
 | `frames` | a package's shared frame and the page (`runtime/src/lib/sharedFrame.ts`, the api's `sharedFrame.ts`), since runtime 1.2 | 1 | `playground-frame-loaded`, `playground-frame` with a port; the origin's name | `runtime` major |
 | `beamAbi` | an OTP build and what is made for it | an id | any change to emsdk, the patch stack, or `beam.wasm`'s imports or exports | a new id; recordings follow |
 | `nifAbi` | a NIF library and `nif.ts` plus patch 0021 | `1-2.18` | the layer: `beamos_nif_abi`/`input`/`run`/`output`, the request and answer terms; OTP's `erl_nif.h` | `BEAMOS_NIF_ABI` (and `provides.nif`), or OTP's NIF version |
@@ -399,6 +403,26 @@ Proposed beyond it:
 
 `runtime/build.py` does the same for run-elixir.dev from the repository's
 own builds ([build.md](build.md)).
+
+## The packages' surface
+
+A package's code imports the runtime only from
+`@elixir-playground/runtime/sdk/` (since 2026-10-31). A package bundles
+what it imports when it is built. So each module there is tied to the
+seam that numbers its protocol, and a package's `abi` names those seams:
+
+| Module | What | Seam |
+| --- | --- | --- |
+| `sdk/program` | A program's process and context, a page program's host (`programs()`, `frame(name)`), the files' types | `pagePrograms`, `workers` |
+| `sdk/frame` | `serveFrame` for a shared frame's page; `Rpc` over its ports | `frames` (the messages over a port are the package's own) |
+| `sdk/files` | A worker program's channel to the project's files, and its process lock | `workers` |
+| `sdk/wasi` | The runtime's WASI implementation, tar and gzip, errno values: code a package bundles, no protocol | none |
+
+`test/unit/sdk-boundary.test.ts` fails when the claude or nodejs package
+imports anything else (but the claude package's `programs/esbuild`, until
+esbuild is a package of its own). The api is not held to it: it bundles about 20
+runtime modules (the exec frame's RPC, the store, the relay), and its
+peer range is the runtime's major (the process API row above).
 
 ## Usercontent: bridged
 

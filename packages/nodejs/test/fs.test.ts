@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { createFs } from '../src/fs';
 import { createUtil } from '../src/util';
-import { E } from '@elixir-playground/runtime/wasi/abi';
+import { E } from '@elixir-playground/runtime/sdk/wasi';
 
 const util = createUtil(() => {});
 

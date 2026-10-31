@@ -3,6 +3,7 @@
 // site's playground.json, or run-elixir.dev's), whose frames get every
 // file from this page's worker (bridge mode). And where the backend's
 // services are, which this page's worker reaches.
+import { HOST, type Host } from '@elixir-playground/runtime/packages/check';
 import type { Boot } from '@elixir-playground/runtime/packages/types';
 import { loadSite, siteDomain, usercontentDomain } from '@elixir-playground/runtime/lib/site';
 import type { BridgeTable } from './apexWorker';
@@ -40,6 +41,8 @@ export interface Bridge {
   table: BridgeTable;
   // The runtime's path below the bridge, and each package's.
   runtime: string;
+  // Where this page serves the runtime package (its package.json there).
+  runtimeUrl: string;
   packages: Map<string, string>;
 }
 
@@ -182,9 +185,36 @@ export async function useBridge(
       connect: [...new Set(sources.map(([, url]) => url))],
     },
     runtime,
+    runtimeUrl: runtimeUrl.href,
     packages: paths,
   };
   return { packages: bridged, boot: recordings, bridge };
+}
+
+// The runtime the page serves, as the load-time check needs it: its
+// version and seams from its own package.json (`playground.provides`, the
+// published package's), not this api's build of them, which may be an
+// older minor. A package.json without `provides` (a workspace's) has this
+// build's seams. By URL, once.
+const hosts = new Map<string, Promise<Host>>();
+export function runtimeHost(runtimeUrl: string): Promise<Host> {
+  let known = hosts.get(runtimeUrl);
+  if (!known) {
+    known = fetch(new URL('package.json', runtimeUrl)).then(async (response) => {
+      if (!response.ok) throw new Error(`${runtimeUrl}package.json: ${response.status}`);
+      const pkg = await response.json();
+      if (pkg.name !== HOST.name || typeof pkg.version !== 'string')
+        throw new Error(`${runtimeUrl} is no ${HOST.name}`);
+      return {
+        name: pkg.name,
+        version: pkg.version,
+        provides: pkg.playground?.provides ?? HOST.provides,
+      };
+    });
+    known.catch(() => hosts.delete(runtimeUrl));
+    hosts.set(runtimeUrl, known);
+  }
+  return known;
 }
 
 // What a frame other than the exec frame's worker may ask for: files, no

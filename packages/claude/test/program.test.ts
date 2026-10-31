@@ -1,6 +1,6 @@
 import { afterEach, expect, test, vi } from 'vitest';
-import { Rpc } from '@elixir-playground/runtime/lib/rpc';
-import type { Context, Process } from '@elixir-playground/runtime/pageProgram';
+import { Rpc } from '@elixir-playground/runtime/sdk/frame';
+import type { Context, Process } from '@elixir-playground/runtime/sdk/program';
 import { claudeProgram } from '../src/program';
 
 function deferred<T>() {

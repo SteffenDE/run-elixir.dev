@@ -5,7 +5,7 @@
 // Code's files once. It starts the worker that makes them (worker.ts) and
 // hands it each port the page gives, over which the package's `claude`
 // (program.ts) asks (protocol.ts).
-import { serveFrame } from '@elixir-playground/runtime/lib/sharedFrame';
+import { serveFrame } from '@elixir-playground/runtime/sdk/frame';
 
 const worker = new Worker(new URL('./worker.ts', import.meta.url), {
   type: 'module',
