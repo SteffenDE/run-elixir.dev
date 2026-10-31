@@ -45,7 +45,7 @@ import { nodeProgram, type Deliver, type Listener, type Ports } from '../program
 import { npmProgram, npxProgram, type Program } from '../programs/npm';
 import type { KeptRecord } from '../overlay';
 import type { PackageProgram, PageProgramHost } from '../pageProgram';
-import { commandProgram, rebar3Program, shProgram, type StartNode } from '../programs/node';
+import { commandProgram, shProgram, type StartNode } from '../programs/node';
 import { HEX_PORT, hexEnv } from '../hex';
 import { setup as setupOf, type Setup, type WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
@@ -466,18 +466,16 @@ function nodeServices() {
       sh: shProgram(startNode),
       // Claude Code's shell: bash -c -l LINE, as sh's.
       bash: shProgram(startNode),
-      rebar3: rebar3Program(startNode, environment(new Site(site)).MIX_REBAR3),
-      ...Object.fromEntries(
-        ['mix', 'elixir', 'iex', 'erl', 'escript'].map((name) => [
-          name,
-          commandProgram(startNode, name),
-        ]),
-      ),
+      // OTP's own commands, each a node (programs/node.ts). Elixir's are
+      // its package's scripts: a node's port runs them as their #! lines
+      // say (beam/run.ts spawn), through sh or escript.
+      erl: commandProgram(startNode, 'erl'),
+      escript: commandProgram(startNode, 'escript'),
     },
   };
 }
 
-// A node for one command a node ran (sh, rebar3), in its own worker.
+// A node for one command a node ran (sh, erl, escript), in its own worker.
 const startNode: StartNode = (command, { cwd, env, tty }, output, exit, terminal) => {
   if (!files || !start) {
     exit(1);

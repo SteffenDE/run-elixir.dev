@@ -11,7 +11,7 @@ import type { Site } from './packages/manifest';
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
 // Hex tool wrappers take their Linux paths; its architecture is its own
 // (wasm32): the esbuild and tailwind packages run /usr/bin/esbuild and
-// /usr/bin/tailwind (their :path, worker/index.ts), the programs below,
+// /usr/bin/tailwind (their :path, ELIXIR_ERL_OPTIONS), the programs below,
 // and with :path set look no further (esbuild from 0.10.1).
 // The runtime's own; the packages add theirs (environment: ROOTDIR,
 // MIX_ARCHIVES, MIX_REBAR3, each a path of a package's layer).
@@ -31,12 +31,16 @@ export const ENV = {
   TARGET_ARCH: 'wasm32',
   TARGET_OS: 'unknown',
   TARGET_ABI: 'wasi',
+  // bin/elixir's erl flags: the Hex esbuild and tailwind packages run the
+  // page's programs (their :path, unless a project's config sets one), so
+  // no project downloads them.
+  ELIXIR_ERL_OPTIONS: '-esbuild path <<"/usr/bin/esbuild">> -tailwind path <<"/usr/bin/tailwind">>',
 };
 
 // Every node's environment on `packages`: the runtime's own under the
 // packages' (OTP's ROOTDIR; Elixir's MIX_ARCHIVES and MIX_REBAR3, the
-// rebar3 escript Mix builds rebar3 dependencies with, which the page's
-// rebar3 program runs).
+// rebar3 escript Mix builds rebar3 dependencies with, which runs by its
+// #! line).
 export const environment = (packages: Site): Record<string, string> => ({
   ...ENV,
   ...packages.environment(),
@@ -83,10 +87,10 @@ export function prepare(
         '{host, {127,0,0,1}, ["localhost"]}.\n{host, {0,0,0,0,0,0,0,1}, ["localhost"]}.\n',
     ),
   );
-  // The packages' commands (mix: Mix's script, which the mix launcher
-  // runs), and stand-ins for the programs the node finds on PATH
-  // (os:find_executable, System.cmd) that are the page's or the
-  // launchers' (worker/index.ts command).
+  // The packages' commands (Elixir's scripts: bin/elixir, bin/mix, …,
+  // which run as their #! lines say: shebang.ts), and stand-ins for the
+  // programs the node finds on PATH (os:find_executable, System.cmd) that
+  // are the page's, or OTP's (worker/index.ts command).
   for (const [name, target] of bin) root.put(`usr/bin/${name}`, new Symlink(target));
   for (const name of [
     'git',
@@ -99,8 +103,6 @@ export function prepare(
     'npx',
     'sh',
     'bash',
-    'elixir',
-    'iex',
     'erl',
     'escript',
     // coreutils.wasm's, and the site's other WASI programs (coreutils.ts

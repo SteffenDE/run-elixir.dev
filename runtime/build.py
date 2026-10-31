@@ -13,7 +13,8 @@ in it), with its package.json and its files:
   beam.mjs, beam.emu.mjs and beam.wasm), and OTP's applications (the
   installation, target/otp) as an fs layer at /opt/otp/X in the node;
 - elixir-X: the host's Elixir, Hex, phx_new and rebar3, an fs layer at
-  /opt/elixir/X, with Mix's script (bin/mix) as its command;
+  /opt/elixir/X, with Elixir's scripts (bin/elixir, bin/iex, bin/mix, …)
+  as its commands;
 - phoenix-template: a phx.new app, an fs layer at /work/playground;
 - shell, git, ripgrep, gnu-tools, tls, tailscale: the WebAssembly tools,
   built by their own scripts; claude;
@@ -115,6 +116,9 @@ APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "crypto-", "asn1-", "public_
 # Elixir's applications, the host installation's (the elixir-X package's
 # fs layer, elixir_files).
 ELIXIR_APPS = ("elixir", "eex", "ex_unit", "iex", "logger", "mix")
+# Elixir's commands: its scripts as it installs them (sh scripts that end
+# in erl; mix's #! line runs it with elixir).
+ELIXIR_BIN = ("elixir", "elixirc", "iex", "mix")
 # The mtime of every file in an fs layer and a boot image (2000-01-01),
 # and of nothing a node writes (now). The same files then make the same
 # bundles and images, byte for byte, and a package keeps its directory's
@@ -142,10 +146,10 @@ def root_of(key, versions):
 
 
 def record_args(boot, versions):
-    """What a boot image's command is: erl arguments (as worker/index.ts
-    launches IEx, with the page's esbuild and tailwind, from where the
-    packages are), the working directory, the node harness's environment,
-    and standard input."""
+    """What a boot image's command is: erl arguments (those Elixir's
+    bin/iex ends in, with setup.ts's ELIXIR_ERL_OPTIONS: the page's esbuild
+    and tailwind, from where the packages are), the working directory, the
+    node harness's environment, and standard input."""
     elixir = root_of("elixir-{elixir}", versions)
     iex = ["-noshell", "-elixir_root", f"{elixir}/lib", "-pa", f"{elixir}/lib/elixir/ebin",
            "-esbuild", "path", '<<"/usr/bin/esbuild">>', "-tailwind", "path", '<<"/usr/bin/tailwind">>',
@@ -269,8 +273,8 @@ def elixir_files():
     """The elixir-X package's fs layer, below its root: the host's Elixir
     applications (ELIXIR_APPS: ebin, priv, include) at lib/, Mix's archives
     (Hex, phx_new) and rebar3 as the host's Mix installs them (the same OTP
-    runs them) at mix/, and Mix's script, bin/mix (the mix command, which
-    the launcher runs with Elixir)."""
+    runs them) at mix/, and Elixir's scripts at bin/ (ELIXIR_BIN: the
+    commands, which the runtime runs as their #! lines say)."""
     elixir = host_elixir()
     out = []
     for app in ELIXIR_APPS:
@@ -284,11 +288,7 @@ def elixir_files():
             out += [(f"mix/archives/{name}/{relative}", path)
                     for relative, path in walk(os.path.join(archives, name))]
     out.append(("mix/rebar3", rebar3))
-    os.makedirs(CACHE, exist_ok=True)
-    mix = os.path.join(CACHE, "mix")
-    with open(mix, "w") as f:
-        f.write("Mix.CLI.main()\n")
-    out.append(("bin/mix", mix))
+    out += [(f"bin/{name}", os.path.join(elixir, "bin", name)) for name in ELIXIR_BIN]
     return out
 
 
@@ -678,11 +678,15 @@ PACKAGES = {
                        "env": {"ROOTDIR": "."}},
     },
     "elixir-{elixir}": {
-        "version": "1.0.0",
+        # 2: its commands are Elixir's own scripts, which need the shell
+        # and a runtime that runs them by their #! lines.
+        "version": "2.0.0",
         "root": "/opt/elixir/{elixir}",
         "files": [],
-        # Mix's script, and the archives and rebar3 Mix finds by them.
-        "playground": {"bin": {"mix": "bin/mix"},
+        "runtime": "^1.2.0",
+        "peers": ["shell"],
+        # Elixir's scripts, and the archives and rebar3 Mix finds by them.
+        "playground": {"bin": {name: f"bin/{name}" for name in ELIXIR_BIN},
                        "env": {"MIX_ARCHIVES": "mix/archives", "MIX_REBAR3": "mix/rebar3"}},
     },
     # The playground's own: a site brings its own templates (docs/api.md).
@@ -1299,8 +1303,10 @@ def main():
     # template's files go only in the Phoenix image; an empty project has
     # none of them.
     otp_root = root_of("otp-{otp}", versions).lstrip("/")
+    elixir_root = root_of("elixir-{elixir}", versions).lstrip("/")
+    # (Elixir's scripts too: the shell reads them before the node starts.)
     needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(
-        (f"{otp_root}/releases/", f"{otp_root}/lib/erts/"))
+        (f"{otp_root}/releases/", f"{otp_root}/lib/erts/", f"{elixir_root}/bin/"))
     images = {
         "boot": [(path, here) for path, here, key in files
                  if key != "phoenix-template" and (path in fetched["boot"] or needed(path))],

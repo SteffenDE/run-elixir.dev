@@ -163,21 +163,25 @@ runtime dispatches it by name:
   library from the site or backend and unpacks it into the app's `priv`.
 - **Host programs:** Tailwind, esbuild, Node.js, npm, and npx run through
   the exec host. Project plugins execute on the usercontent origin.
-- **BEAM commands:** `mix`, `elixir`, `iex`, `erl`, `escript`, and
-  `rebar3` run in workers over the same project files.
+- **BEAM commands:** `erl` and `escript` start a BEAM in a worker over
+  the same project files. `elixir`, `iex`, `elixirc` and `mix` are
+  Elixir's own scripts from the elixir package, which run as their `#!`
+  lines say and end in `erl`.
 - **Shell commands:** `sh -c` runs brush, including pipelines,
   redirections, and child processes. `os:cmd`'s `sh -s` input path is
   not supported.
 
-`rebar3` runs the installed escript (`MIX_REBAR3`, the Elixir package's
-`mix/rebar3`). `/usr/bin/mix` links to the package's Mix script; stand-ins
-on `PATH` let Erlang and Elixir find the other supported programs. The installation
+Mix runs rebar3 from `MIX_REBAR3` (the elixir package's `mix/rebar3`), an
+escript that runs by its `#!` line. `/usr/bin/elixir`, `iex`, `elixirc` and
+`mix` link to the package's scripts; empty stand-ins on `PATH` let Erlang
+and Elixir find the other supported programs. The installation
 also includes OTP application headers for dependency compilation.
 
 The Hex `esbuild` and `tailwind` packages run the playground's programs
 whatever the project: Elixir starts with their `:path` set to
-`/usr/bin/esbuild` and `/usr/bin/tailwind` (`-esbuild path …` on the command
-line, worker.js), so they never download a binary. A project's own `:path`
+`/usr/bin/esbuild` and `/usr/bin/tailwind` (`-esbuild path …` in
+`ELIXIR_ERL_OPTIONS`, which `bin/elixir` adds to `erl`'s command line), so
+they never download a binary. A project's own `:path`
 wins. The packages check the program's `--version` against the configured
 one, so a project configuring another version gets their "Outdated …
 version" warning. The node presents itself as Linux x86_64, so other tool

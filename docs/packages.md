@@ -60,7 +60,7 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 | `pglite` | `index.js`: the pglite plugin (Postgres on port 5432); depends on `@electric-sql/pglite` | `api` | 7 KB |
 | `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, pglite()]`, which it depends on | none | 1 KB |
 | `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (the Emscripten build and its glue); OTP's applications (an fs layer, 831 files) | `runtime` | 39 MB |
-| `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3 (an fs layer, 604 files) | `runtime` | 14 MB |
+| `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3; Elixir's scripts `bin/elixir`, `bin/elixirc`, `bin/iex`, `bin/mix` (an fs layer) | `runtime ^1.2`, `shell` | 14 MB |
 | `phoenix-template` (not published) | The phx.new app at `/work/playground`, with `deps/` and its `_build`, compiled for one OTP and Elixir pair (an fs layer, 4,640 files) | `runtime`, `otp-X ^N`, `elixir-Y ^N` | 47 MB |
 | `shell` | `brush.wasm` (the shell), `coreutils.wasm` (78 tools); the terminfo entry (an fs layer) | `runtime` | 11 MB |
 | `git` | `git.wasm`; its shell-script commands (an fs layer, 13 files) | `runtime` | 3.8 MB |
@@ -110,7 +110,9 @@ The packages' versions are in `PACKAGES` in `build.py`, each JavaScript
 package's `package.json`, and `packages/runtime/src/packages/host.json`
 for the runtime. On 2026-10-30 (unpublished): runtime 1.2.0 (the
 `pagePrograms` and `frames` seams; the `claude` seam removed, which only
-the claude package used), claude 2.0.0, api
+the claude package used; Elixir's commands are its package's scripts),
+claude 2.0.0, elixir-X 2.0.0 (Elixir's scripts; needs the shell
+package), api
 2.0.0 (`create()`'s `usercontent` changed, `EACCES` gone), vite 2.0.0
 (its options changed) and pglite 1.1.0 (its peer range on api). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
@@ -184,12 +186,13 @@ manifest's order (`Site.tree`, `Site.bundle`), so a lazy file is
   template at `/work/playground`.
 - **The runtime finds OTP and Elixir by their packages' roots**
   (`Site.otp`, `Site.elixir`): erl's `-root`, `-bindir` and `-boot`, and
-  the launchers' `-elixir_root` and `-pa`. It has no path of its own.
+  escript's boot script. Elixir's scripts find Elixir's root themselves.
+  The runtime has no path of its own.
 - **A package's commands are its `bin`:** files of its layer, which the
-  runtime links from `/usr/bin/NAME` (Elixir's `mix`, Mix's script). The
-  programs the runtime itself runs (the launchers `elixir`, `iex`, `erl`,
-  `escript`; the page's `node`, `claude`, …; the WebAssembly programs)
-  keep empty stand-ins there.
+  runtime links from `/usr/bin/NAME`. Each runs as its `#!` line says
+  (see "Scripts and direct programs" below). The programs the runtime
+  itself runs (OTP's `erl` and `escript`; the page's `node`, `claude`, …;
+  the WebAssembly programs) keep empty stand-ins there.
 - **A package's variables are its `env`:** each a path of its layer,
   which every node gets: OTP's `ROOTDIR`, Elixir's `MIX_ARCHIVES` and
   `MIX_REBAR3`.
@@ -233,7 +236,7 @@ Every key is optional. A package sets the keys that describe it.
 | `elixir`, `requires.otp` | `elixir-X` | Elixir's version, and the OTP range it runs on. |
 | `template` | `phoenix-template` | `{ kind, id, label, otp, elixir }`: the id is a digest of its files without its build; `otp` and `elixir` are the pair it was compiled with. Its files are its fs layer's, at the layer's root. |
 | `fs` | packages with files in the nodes' tree | `{ format, root, manifest, bundles, count, version }`: its fs layer, and where it goes ([above](#fs-layers-fs-format-3)). |
-| `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`. |
+| `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`, each run as its `#!` line says ([below](#scripts-and-direct-programs)). |
 | `env` | `otp-X`, `elixir-X` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |
 | `tls` | `tls` | `{ module, roots }`. |
 | `tailscale` | `tailscale` | `{ module, glue }`. |
@@ -427,6 +430,50 @@ Two other ways were described before and are gone:
   its reasons: an embedder needs no mirror to use published descriptors,
   and the shared domain's operator does not choose what code runs in an
   embedder's frames.
+
+## Scripts and direct programs
+
+A package provides a command in one of two ways, as a real system does
+(implemented 2026-10-30):
+
+| Kind | What the package ships | How it runs |
+| --- | --- | --- |
+| Script | A file of its layer, listed in `bin` | As its `#!` line says (`runtime/src/shebang.ts`): `#!/bin/sh` through the shell (brush); `#!/usr/bin/env NAME` or `#!/path/NAME` by that program directly, with the script's path as an argument |
+| Direct program | A WebAssembly module (`programs`), a JavaScript module (`pagePrograms`), or the BEAM (the `beam` seam) | By its name, without a shell |
+
+The difference matches `System.shell` and `System.cmd`: a script for sh
+needs the shell package and a worker to run it, a direct program does not.
+
+The elixir package (2.0.0) ships Elixir's own scripts, unchanged:
+
+- `bin/elixir` and `bin/iex` are sh scripts. They read Elixir's options
+  (`--sname`, `--erl`, `-S mix`, …) and end in `exec erl …`.
+- `bin/mix` is `#!/usr/bin/env elixir`, so `elixir` runs it.
+- Mix's `mix/rebar3` (`MIX_REBAR3`) is `#!/usr/bin/env escript`.
+
+OTP's two native programs, `erl` and `escript` (`erlexec` and
+`escript.c` on a real system), are the runtime's: they start a BEAM over
+the otp package's files (`worker/index.ts` `command`). Every Elixir
+command ends in `erl`.
+
+Both the shell (`worker/index.ts` `find`) and a node's ports
+(`beam/run.ts` `spawn`, for `System.cmd`) follow the `#!` lines.
+`System.cmd("mix", …)` thus runs `sh /usr/bin/elixir /usr/bin/mix …` in a
+new worker, whose shell runs `erl` in its own worker. A file with a `#!`
+line runs as one even when its name is a direct program's.
+
+The runtime passes its own flags to `bin/elixir` in `ELIXIR_ERL_OPTIONS`
+(the Hex `esbuild` and `tailwind` packages' `:path`). An elixir package
+without `bin/elixir` (before 2.0.0) fails the load-time check.
+
+**Cost** (2026-10-30, one aarch64 Linux machine, warm, medians of 7, a
+benchmark script outside the repository): the scripts take 7–29 ms for
+`bin/elixir` and 13–62 ms for `bin/iex` through `bin/elixir`, before the
+BEAM starts. WebKit was the slowest each time. A whole
+`elixir -e "IO.puts(42)"` took 0.57–0.73 s, and `System.cmd` of it
+1.2–1.45 s, within −20 to +36 ms of the earlier TypeScript copy of the
+scripts. Not measured: the `mix` chain (one hop more), Phoenix's boot, a
+compile.
 
 ## Page programs and shared frames
 
@@ -794,6 +841,13 @@ As of 2026-10-28:
 - **Page programs and shared frames** (2026-10-30): the runtime's
   `pagePrograms` and `frames` seams (runtime 1.2); the claude package
   (2.0) moved onto them.
+- **Scripts by their `#!` lines** (2026-10-30): the elixir package (2.0)
+  ships Elixir's own scripts; the runtime's TypeScript copy of them is
+  gone.
+- **Tested** (2026-10-30): the unit tests; in Chromium the e2e specs
+  for the terminal, shells, distribution, rebar3, esbuild, Hex, the api,
+  bridge, template, preview, NIFs, persistence, Claude Code and child
+  processes. `@slow` specs (Livebook among them) were not run.
 
 Not built: a CLI beside the Vite plugin, the npm-backed mirror (superseded
 by bridge mode), the deployed shared domain, the `.r4.` host level, the

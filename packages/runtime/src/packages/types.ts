@@ -30,7 +30,9 @@ export interface Playground {
   // fs layer's, at the layer's root.
   template?: { kind: string; id: string; label: string; otp: string; elixir: string };
   // Commands: each a file of the package's fs layer (relative to its
-  // root), which the runtime links from /usr/bin/NAME.
+  // root), which the runtime links from /usr/bin/NAME and runs as its #!
+  // line says (shebang.ts): through the shell (#!/bin/sh), or by another
+  // program directly (#!/usr/bin/env elixir).
   bin?: Record<string, string>;
   // Variables every node gets, each a path of the package's fs layer
   // (relative to its root; "." the root itself).

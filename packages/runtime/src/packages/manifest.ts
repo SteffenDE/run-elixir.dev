@@ -156,7 +156,7 @@ export class Site {
   }
 
   // Elixir as installed: its version and its root (lib/APP/ebin below it:
-  // elixir's launchers' -elixir_root and -pa).
+  // the version create() reports; Elixir's scripts find it themselves).
   elixir(): { version: string; root: string } | null {
     const elixir = this.find('elixir');
     const root = elixir?.entry.playground.fs?.root;

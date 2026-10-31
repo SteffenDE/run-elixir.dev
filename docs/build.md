@@ -107,7 +107,8 @@ target/site/
                                  _usercontent/ serves: frames.md)
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
-    elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3)
+    elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3;
+                                 Elixir's scripts)
     phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
     shell@…/                   brush.wasm (3.4 MB, 1.2 MB gzipped), coreutils.wasm (7.8 MB,
                                  3.0 MB gzipped); fs/ (the terminfo entry)
@@ -170,8 +171,9 @@ The filesystem holds:
   (`APPS` in `build.py`);
 - `/opt/elixir/1.20.4`: the `elixir-X` package's layer, the host's Elixir
   applications (`ELIXIR_APPS`) under `lib/`, Mix's archives at
-  `mix/archives/`, `mix/rebar3`, and Mix's script `bin/mix` (its `mix`
-  command, linked from `/usr/bin/mix`);
+  `mix/archives/`, `mix/rebar3`, and Elixir's scripts `bin/elixir`,
+  `bin/elixirc`, `bin/iex` and `bin/mix` (its commands, linked from
+  `/usr/bin`);
 - `/work/playground`: the Phoenix template's app, which only a Phoenix
   project mounts;
 - `/usr/libexec/git-core`, `/etc/ssl`, `/usr/share/terminfo`: the git,
