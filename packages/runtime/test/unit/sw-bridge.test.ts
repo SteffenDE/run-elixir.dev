@@ -187,6 +187,21 @@ describe('the bridge router', () => {
     expect(await (await answered).text()).toBe('again');
   });
 
+  it('asks once for a port while many requests wait for it', async () => {
+    const own = page(`/_bridge/${KEY}/npm/@elixir-playground/runtime@1.1.0/exec.html`);
+    const bridges = router([own], 1000);
+    const served = apex(() => ok('again'));
+    const answered = [1, 2, 3].map((n) =>
+      bridges.respond(new Request(`${ORIGIN}/_bridge/${KEY}/${n}.js`)),
+    );
+    await vi.waitFor(() => expect(own.said).toHaveLength(1));
+    await bridges.accept({ kind: 'bridge', protocol: 1, bridge: KEY }, own, [served.port]);
+    for (const response of answered) expect(await (await response).text()).toBe('again');
+    expect(
+      own.said.filter((message) => (message as { kind: string }).kind === 'bridge-lost'),
+    ).toHaveLength(1);
+  });
+
   it('answers 503 when no page of the bridge gives a port', async () => {
     const response = await router([], 20).respond(new Request(`${ORIGIN}/_bridge/${KEY}/a.js`));
     expect(response.status).toBe(503);

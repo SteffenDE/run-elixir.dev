@@ -137,7 +137,9 @@ export function bridgeRouter({
   answer = 120_000,
 }: BridgeOptions) {
   const ports = new Map<string, MessagePort>();
-  const waiting = new Map<string, (() => void)[]>();
+  // A key's wait for a port: one for all its requests, gone when a port
+  // arrives or the wait times out.
+  const waiting = new Map<string, { arrived: Promise<void>; resolve: () => void }>();
 
   // A page's port for its key: the bootstrap's for a new key (only on a
   // shared domain's origin: `bridgeable`), a bridged page's for its own.
@@ -177,7 +179,7 @@ export function bridgeRouter({
     }
     ports.get(key)?.close();
     ports.set(key, port);
-    for (const resolve of waiting.get(key)?.splice(0) ?? []) resolve();
+    waiting.get(key)?.resolve();
     return true;
   }
 
@@ -186,11 +188,19 @@ export function bridgeRouter({
   async function portFor(key: string): Promise<MessagePort | null> {
     const known = ports.get(key);
     if (known) return known;
-    const arrived = new Promise<void>((resolve) => {
-      const list = waiting.get(key) ?? [];
-      list.push(resolve);
-      waiting.set(key, list);
-      setTimeout(resolve, reconnect);
+    const pending = waiting.get(key);
+    if (pending) {
+      await pending.arrived;
+      return ports.get(key) ?? null;
+    }
+    let resolve = () => {};
+    const arrived = new Promise<void>((done) => (resolve = done));
+    const wait = { arrived, resolve };
+    waiting.set(key, wait);
+    const timer = setTimeout(resolve, reconnect);
+    void arrived.then(() => {
+      clearTimeout(timer);
+      if (waiting.get(key) === wait) waiting.delete(key);
     });
     for (const client of await clients()) {
       let path = '';
