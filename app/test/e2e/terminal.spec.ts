@@ -41,8 +41,10 @@ test('terminals fit their panel, also after resizing', async ({ page }) => {
     await page.mouse.down();
     await page.mouse.move(box.x + box.width / 2 + dx, box.y + box.height / 2 + dy, { steps: 8 });
     await page.mouse.up();
-    await page.waitForTimeout(300);
-    expect(await slack(page), `after dragging ${selector}`).toBeGreaterThanOrEqual(-0.5);
+    // The terminal refits after the resize settles.
+    await expect
+      .poll(() => slack(page), { message: `after dragging ${selector}` })
+      .toBeGreaterThanOrEqual(-0.5);
   }
 });
 
