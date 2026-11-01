@@ -119,6 +119,8 @@ nodejs and esbuild), elixir-X 2.0.0 (Elixir's scripts; needs the
 shell package), nodejs, esbuild, tailwind and inotify-tools 1.0.0
 (new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s
 `usercontent` changed, `EACCES` gone), vite 2.0.0 (its options changed) and pglite 1.1.0 (its peer range on api). The
+api 2.1.0 (2026-11-01) adds `usercontent.packagePath`, sets package
+files' `Content-Type` by extension, and exports `./apexWorker.js`. The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
