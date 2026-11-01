@@ -40,12 +40,23 @@ export async function newProject(page: Page, kind: 'phoenix' | 'empty'): Promise
   return new URL(page.url()).pathname.slice(1, -1);
 }
 
+// The server is up. Fails once its output has not changed for 90 s
+// (WebKit in CI sometimes stops a boot for good after the BEAM's banner),
+// instead of waiting out the 240 s a slow boot may take.
 export async function serverRunning(page: Page): Promise<void> {
-  await page.waitForFunction(
-    () => /Running PlaygroundWeb.Endpoint/.test(window.playground?.output ?? ''),
-    null,
-    { timeout: 240_000 },
-  );
+  const deadline = Date.now() + 240_000;
+  let last = '';
+  let changed = Date.now();
+  for (;;) {
+    const shown = await page.evaluate(() => window.playground?.output ?? '');
+    if (/Running PlaygroundWeb.Endpoint/.test(shown)) return;
+    if (shown !== last) [last, changed] = [shown, Date.now()];
+    const tail = JSON.stringify(shown.slice(-300));
+    if (Date.now() - changed > 90_000)
+      throw new Error(`the server's output stopped for 90 s before it ran: ${tail}`);
+    if (Date.now() > deadline) throw new Error(`the server did not run in 240 s: ${tail}`);
+    await page.waitForTimeout(500);
+  }
 }
 
 // A shell's output as its screen shows it (the first shell's by default):
@@ -80,11 +91,25 @@ export function output(page: Page, session = 1): Promise<string> {
 // A prompt: the directory (~ for home), then $.
 export const prompts = (text: string) => (text.match(/(?:~|\/)\S* \$ /g) ?? []).length;
 
-// Until shell `session` has shown `count` prompts.
+// Until shell `session` has shown `count` prompts. Fails once its screen
+// has not changed for 120 s (a command stopped for good, as WebKit in CI
+// sometimes stops a node), instead of waiting out the 240 s.
 export async function prompted(page: Page, count: number, session = 1): Promise<void> {
-  await expect
-    .poll(async () => prompts(await output(page, session)), { timeout: 240_000 })
-    .toBeGreaterThanOrEqual(count);
+  const deadline = Date.now() + 240_000;
+  let last = '';
+  let changed = Date.now();
+  for (;;) {
+    const shown = await output(page, session);
+    const seen = prompts(shown);
+    if (seen >= count) return;
+    if (shown !== last) [last, changed] = [shown, Date.now()];
+    const tail = JSON.stringify(shown.slice(-300));
+    if (Date.now() - changed > 120_000)
+      throw new Error(`shell ${session} stopped for 120 s at ${seen} of ${count} prompts: ${tail}`);
+    if (Date.now() > deadline)
+      throw new Error(`shell ${session} showed ${seen} of ${count} prompts in 240 s: ${tail}`);
+    await page.waitForTimeout(500);
+  }
 }
 
 // Run a command line in a shell and wait for its next prompt; its output.
