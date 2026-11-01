@@ -106,18 +106,23 @@ async function page(path: string): Promise<ReactNode> {
   if (SHORTCUTS[name]) {
     const project = await createProject(SHORTCUTS[name]);
     history.replaceState(null, '', projectUrl(project.id));
-    return projectPage(project.id, location.pathname);
+    return projectPage(project.id, location.pathname, { fresh: true });
   }
   if (!isId(name)) return <NotFound />;
   return projectPage(name, path);
 }
 
-// Project `id`'s page, at /ID/.
-async function projectPage(id: string, path: string): Promise<ReactNode> {
+// Project `id`'s page, at /ID/. `fresh`: made just now, so it has no
+// former origin to ask.
+async function projectPage(
+  id: string,
+  path: string,
+  { fresh = false }: { fresh?: boolean } = {},
+): Promise<ReactNode> {
   const project = await getProject(id);
   if (!project) return <NotFound project />;
   // Its stores from the former layout (p-ID), if this browser has any.
-  await moveFormerStores(project.id);
+  if (!fresh) await moveFormerStores(project.id);
   const home = `/${project.id}/`;
   if (path !== home) history.replaceState(null, '', home);
   document.title = `${project.name} · Elixir Playground`;
