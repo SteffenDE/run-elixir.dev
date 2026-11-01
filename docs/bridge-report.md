@@ -1,7 +1,7 @@
 ---
 kind: report
 status: experiment
-last_updated: 2026-10-30
+last_updated: 2026-11-01
 ---
 
 # Bridge mode: a report for embedders (Tidewave's `/web`)
@@ -44,16 +44,21 @@ const sandbox = await create({
 });
 ```
 
-- `usercontent: { domain, content, worker }` takes these two besides the
-  domain.
+- `usercontent: { domain, content, worker, packagePath }` takes these
+  besides the domain.
 - `usercontent.content`: the directory the packages are below
   (`/web/elixir-playground/`, or a CDN's URL). The descriptors' `base`s
   and `runtime` resolve below it, even with a leading slash. By default
   what `<meta name="playground-content">` names (the Vite plugin names
   Vite's `base`), else the page's origin root.
-- `usercontent.worker`: the URL of `apexWorker.js`, if the bundler does
-  not emit it beside the api. Vite emits it; the Vite plugin excludes the
-  api from dependency pre-bundling, which would lose it in `vite` dev.
+- `usercontent.worker`: the apex worker's script, if the bundler does
+  not emit it, or the page's scripts are on another origin
+  ([api.md](api.md#the-apex-worker)). Vite emits it. The Vite plugin
+  excludes the api from dependency pre-bundling; on 2026-11-01 a plain
+  Vite 8.3.4 app also ran with the api pre-bundled in `vite` dev
+  (`tests/vite-site/plain.sh`).
+- `usercontent.packagePath` (added 2026-11-01): each package's directory
+  below `content`, such as `'{name}@{version}/'` for unpkg.
 - `runtime` can be left out when the page has `<meta
   name="playground-runtime">` (the Vite plugin adds it).
 
@@ -75,7 +80,7 @@ the option names one (`tests/vite-site/run.sh` does this).
 | --- | --- | --- |
 | The page | its own | COOP `same-origin`, COEP `require-corp` |
 | Each package's files, and boot recordings if given | its descriptor's `base`: `/npm/@elixir-playground/NAME@VERSION/` | `Access-Control-Allow-Origin: *`, `Cross-Origin-Resource-Policy: cross-origin`; `Cache-Control: public, max-age=31536000, immutable` recommended |
-| `apexWorker.js` | beside the api's `index.js`, as bundled | a JavaScript `Content-Type` |
+| The apex worker | the page's origin, as the bundler emits it, or `usercontent.worker` ([api.md](api.md#the-apex-worker)) | a JavaScript `Content-Type` |
 | An app archive (`project: { archive }`) | anywhere | CORS: the exec frame fetches it from the shared domain |
 
 The frames' workers read the packages' data (fs bundles, layer manifests,
@@ -84,10 +89,37 @@ project: hence `*`. The apex's worker fetches the frames' pages, worker
 scripts and imports for the service worker. Both use the HTTP cache, so
 each file is downloaded once for all of the page's projects; nothing is
 stored on the shared domain. The same headers work for a CDN of another
-origin (`usercontent.content`). Not tested with a CDN.
+origin (`usercontent.content`): see [below](#a-public-npm-cdn).
 
 The Vite plugin sends these headers in `vite` and `vite preview`. A
 production host has to send them itself.
+
+## A public npm CDN
+
+Tested on 2026-11-01 in Playwright's Chromium on localhost, with
+`tests/vite-site/cdn.sh`. The page bundles this branch's api with Vite
+8.3.4. Its descriptors, the runtime and every package file come from the
+CDN, as published: runtime 2.0.0, `otp-29.1.2` 1.0.3, `elixir-1.20.4`
+2.0.0 and `shell` 1.0.3. `runtime/serve.py` is the shared domain. Each run
+is one `elixir -e "IO.puts(6 * 7)" && echo $PWD` in an empty project:
+
+| `content` | Options | Result |
+| --- | --- | --- |
+| `https://cdn.jsdelivr.net/` | the descriptors' `base`s | `42`, `/work`; 12.4 s from page load, cold cache |
+| `https://unpkg.com/` | `packagePath: '{name}@{version}/'` | `42`, `/work`; 16.2 s, cold cache |
+| `https://cdn.jsdelivr.net/`, api built before the fix | | The project did not start: `exec.html` came as `text/plain` and showed as text |
+
+Before 2026-11-01 the apex worker passed the server's `Content-Type`
+through, and jsDelivr sends `.html` as `text/plain`. The worker now sets
+the type from the extension for `.html`, `.js`, `.mjs`, `.wasm`, `.json`
+and `.css`. HEAD requests on 2026-11-01 showed that both CDNs send
+`Access-Control-Allow-Origin: *` and CORP `cross-origin`, and correct
+types for `.wasm` and `.js`. unpkg's `/npm/…` is the `npm` package, so
+unpkg needs `packagePath`.
+
+Not tested: Firefox, WebKit, a Phoenix project, Claude Code, boot
+recordings from a CDN, and a warm-cache comparison with a self-hosted
+`content`.
 
 ## The backend's services
 
@@ -235,9 +267,10 @@ Tested on 2026-10-30; see the final report on the branch for the runs.
 
 ## Open questions
 
-- **Deploying the shared domain.** run-elixir-usercontent.org becomes
-  it (decided 2026-10-30): its Caddy root moves to
-  `current/_usercontent`. Older `sw.js` copies on preview origins route
+- **The deployed shared domain.** run-elixir-usercontent.org is it
+  (decided 2026-10-30). On 2026-11-01 its subdomains served
+  `/bridge.html`, `/sw.js` and `/bridge.json`, and the bare domain served
+  no bootstrap. Older `sw.js` copies on preview origins route
   `/bridge.html` into the app until they update (one failed load), and
   most of those origins are not visited again, because origin names are
   salted now.
@@ -254,5 +287,5 @@ Tested on 2026-10-30; see the final report on the branch for the runs.
 - **Downloads in previews.** The shared domain refuses attachments only
   for bridged files. A project's own app can still serve one in its
   preview, as it can today.
-- **Not measured:** a deployed setup (none exists), a real Safari, a
-  mobile browser, and a CDN as the packages' origin.
+- **Not measured:** a page against the deployed shared domain, a real
+  Safari, a mobile browser, and a CDN in Firefox or WebKit.

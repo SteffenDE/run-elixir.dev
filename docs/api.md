@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-30
+last_updated: 2026-11-01
 ---
 
 # The API: running a project from a page
@@ -39,7 +39,7 @@ const sandbox = await create({
   env: { ANTHROPIC_API_KEY: '…' },                 // every command's
   relay: ['github.com', 'api.anthropic.com'],      // hosts through the site's TCP relay (relay.md); none by default
   usercontent: 'run-elixir-usercontent.org',       // the shared domain that runs project code (the default)
-  // or { domain, content, worker } (below)
+  // or { domain, content, worker, packagePath } (below)
   runtime: '/npm/@elixir-playground/runtime@2.0.0/', // where this page serves the runtime package
   services: 'https://run-elixir.dev',              // the backend: NIF builds, git's proxy, the TCP relay
   container: document.body,                        // where the 1px exec frame goes
@@ -172,8 +172,9 @@ Projects run on a shared usercontent domain that serves no packages
 as its own files, and a dedicated worker on the page's origin answers the
 frames. The site needs no second domain, wildcard certificate or backend
 of its own. Implemented 2026-10-29 as an option and made the only mode on
-2026-10-30; run-elixir-usercontent.org is not yet deployed as a shared
-domain.
+2026-10-30. run-elixir-usercontent.org is deployed as the shared domain:
+on 2026-11-01 its subdomains served `/bridge.html`, `/sw.js` and
+`/bridge.json`, and the bare domain served no bootstrap.
 
 ```js
 const sandbox = await create({
@@ -194,7 +195,8 @@ const sandbox = await create({
 | `usercontent` | The shared domain, with a port if any, or the object below. Defaults as [above](#using-it). |
 | `usercontent.domain` | The shared domain. |
 | `usercontent.content` | The directory the packages are below, on the page's origin or another (a CDN). The descriptors' `base`s, the boot recordings' `base` and `runtime` resolve below it, even with a leading slash. By default what `<meta name="playground-content">` names, else the page's origin root (`/`). |
-| `usercontent.worker` | The apex worker's script, if `new URL('./apexWorker.js', import.meta.url)` does not reach it after bundling. |
+| `usercontent.worker` | The apex worker's script, if the bundler leaves the api's own out, or the page's scripts are on another origin ([below](#the-apex-worker)). |
+| `usercontent.packagePath` | Each package's directory below `content`, with `{name}` and `{version}` in it: `'{name}@{version}/'` for unpkg's layout. By default each descriptor's `base` (`/npm/NAME@VERSION/`, jsDelivr's layout). A `base` that is a URL of its own stays as it is. |
 | `services` | The backend's origin, or `{ relay, nif, git }`, each a URL or `null` for none. |
 
 ### What the page serves
@@ -205,8 +207,7 @@ const sandbox = await create({
   'https://example.com/web/elixir-playground/'`, OTP's files are at
   `https://example.com/web/elixir-playground/npm/@elixir-playground/otp-29.1.2@1.0.1/`.
   A boot recording's `base` too, if given.
-- `apexWorker.js` beside the api's `index.js` (Vite emits it; the Vite
-  plugin keeps the api out of dependency pre-bundling).
+- The api's apex worker, on the page's origin ([below](#the-apex-worker)).
 - An archive (`project.archive`) with CORS.
 
 **Headers:**
@@ -218,6 +219,67 @@ const sandbox = await create({
   origins, one per project, so no single origin can be named. Their paths
   are immutable: `Cache-Control: public, max-age=31536000, immutable`
   lets the HTTP cache keep them for every project.
+
+Each package file's `Content-Type` comes from its extension: the apex
+worker sets `.html`, `.js`, `.mjs`, `.wasm`, `.json` and `.css` itself,
+whatever the server sends. Other files, and error answers, keep the
+server's type.
+
+### The apex worker
+
+The api starts a dedicated worker, the apex worker, which answers the
+frames. A dedicated worker's script must be on the page's origin. The
+api's `index.js` starts it with
+`new Worker(new URL('./apexWorker.js', import.meta.url), { type: 'module' })`,
+the form that Vite and webpack 5 document for workers: the bundler
+emits the worker with the page's own scripts. The package also exports
+`@elixir-playground/api/apexWorker.js`.
+
+Tested on 2026-11-01 with Vite 8.3.4 (`tests/vite-site/plain.sh`): a
+plain Vite app without the Vite plugin, its packages on another origin,
+ran `elixir -e` after `vite build` and on the dev server, with the api
+pre-bundled. Webpack and other bundlers were not tested.
+
+A page needs `usercontent.worker` when:
+
+- its bundler leaves the worker out;
+- or its scripts come from another origin than the page: a Vite dev
+  server beside a Phoenix page, or a CDN. A `Worker` from another origin
+  fails to start.
+
+For scripts on another origin, give the worker as a `blob:` URL of the
+page's origin that imports the real script. Tidewave does this, roughly
+as below; this repository's tests do not cover it:
+
+```js
+import workerUrl from '@elixir-playground/api/apexWorker.js?url';
+
+const worker = URL.createObjectURL(
+  new Blob([`import ${JSON.stringify(new URL(workerUrl, import.meta.url).href)};`], {
+    type: 'text/javascript',
+  }),
+);
+await create({ /* … */ usercontent: { domain, content, worker } });
+```
+
+The imported script needs CORS (and CORP `cross-origin` under COEP), as
+the packages' files do.
+
+### From a public npm CDN
+
+A page can take the packages from a public npm CDN as `content`, without
+serving about 85 MB itself. On 2026-11-01 both of these ran `elixir -e`
+in Chromium with the published packages (`tests/vite-site/cdn.sh`;
+results in [bridge-report.md](bridge-report.md#a-public-npm-cdn)):
+
+| CDN | Options |
+| --- | --- |
+| jsDelivr | `content: 'https://cdn.jsdelivr.net/'`, `runtime: '/npm/@elixir-playground/runtime@VERSION/'`. The descriptors' `base`s already name its layout. |
+| unpkg | `content: 'https://unpkg.com/'`, `packagePath: '{name}@{version}/'`, `runtime: '/@elixir-playground/runtime@VERSION/'`. |
+
+Both send `Access-Control-Allow-Origin: *` and CORP `cross-origin`.
+jsDelivr sends `.html` as `text/plain`, which the apex worker corrects
+(above). The page still serves its own scripts and the apex worker.
 
 **The backend's services** are requested by the page's worker with the
 page's `Origin`. run-elixir.dev answers the origins on its allowlist
@@ -411,7 +473,12 @@ gzipped tar whose top directory (`demo/`) becomes `/work/demo`
 mtimes kept, so Mix finds its build current. The project also unpacks
 the Phoenix server's boot image, if the `boot` recordings have one.
 
-What the caller builds (`tests/embed-archive.sh` does it in Docker):
+The playground's own Phoenix template (`phoenix-template`) is not
+published, and there is no plan to publish it: it is built for the
+playground's IDE. An embedder builds an archive instead.
+
+What the caller builds (`tests/embed-archive.sh` does it in Docker, or
+with `--native` on a host with exactly the runtime's OTP and Elixir):
 
 - the app compiled natively with the runtime's OTP and Elixir, `deps/`
   and `_build/dev` in the tar;
@@ -427,6 +494,12 @@ What the caller builds (`tests/embed-archive.sh` does it in Docker):
 The exec frame fetches the tar from the URL the page gives, from the
 usercontent domain, so its server must answer with CORS
 (`Access-Control-Allow-Origin`).
+
+`tests/embed-archive.sh` builds phx_new 1.8.15 with Tidewave 0.9 (about
+15 MB). `--native` checks the host's OTP and Elixir versions, builds in
+`WORK` (default `/work`, which must exist and be writable) and keeps Mix
+and Hex in scratch homes. Below a path other than `/work`, the app's own
+sources compile again in the playground.
 
 ## Headers
 
@@ -501,8 +574,19 @@ project's files after a lost salt. `bridge-guard.spec.ts` checks that no
 other site can bridge the apex. `embedder.ts` holds the helpers the
 specs use.
 
+Outside Playwright's suite, each over a built site:
+
+- `tests/vite-site/run.sh`: a Vite site with the Vite plugin, below
+  `base: '/web/'` (CI).
+- `tests/vite-site/plain.sh`: a plain Vite app without the plugin, the
+  packages on another origin, the apex worker as Vite emits it; after
+  `vite build` and on the dev server (CI).
+- `tests/vite-site/cdn.sh jsdelivr|unpkg`: the published packages from a
+  public npm CDN. It needs the network, so it is not in CI.
+
 ## Not yet
 
-- **A real Safari**, and Tidewave's side (`/web` on the API).
+- **A real Safari.**
+- **Tidewave's side** (`/web` on the published packages): in progress.
 - **`fs.watch`'s kinds**: a change says only whether the path is there
   now (`changed`) or not (`deleted`); a rename is the two.
