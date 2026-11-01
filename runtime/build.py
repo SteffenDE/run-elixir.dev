@@ -985,15 +985,7 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
                      "base": f"/{NPM}/{name}@{version}/", "files": listed,
                      **({"peerDependencies": peers} if peers else {}), "playground": playground}
         with open(os.path.join(scratch, "index.js"), "w") as f:
-            if apex:
-                f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
-                        "// with its plugin.\n"
-                        f"import plugin from './{apex}';\n\n"
-                        f"const descriptor = {json.dumps(described, indent=1)};\n\n"
-                        "export default [descriptor, plugin()];\n")
-            else:
-                f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
-                        f"export default {json.dumps(described, indent=1)};\n")
+            f.write(descriptor_module(described, apex))
         with open(os.path.join(scratch, "index.d.ts"), "w") as f:
             f.write(PLUGIN_TYPES if apex else DESCRIPTOR_TYPES)
         added = [*added, "index.js", "index.d.ts"]
@@ -1026,6 +1018,22 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
     if peers:
         entry["peerDependencies"] = peers
     return directory, entry
+
+
+def descriptor_module(described, apex=None):
+    """A descriptor package's index.js: its descriptor (`described`), with
+    the plugin its `apex` module makes beside it. runtime/publish.py sets
+    the descriptor's version and base where it follows `export default `
+    or `const descriptor = `: a shape of its own needs publish.py's too
+    (tests/publish.py checks each)."""
+    if apex:
+        return ("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
+                "// with its plugin.\n"
+                f"import plugin from './{apex}';\n\n"
+                f"const descriptor = {json.dumps(described, indent=1)};\n\n"
+                "export default [descriptor, plugin()];\n")
+    return ("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
+            f"export default {json.dumps(described, indent=1)};\n")
 
 
 # Where every package is built from: npm's provenance (publish.py

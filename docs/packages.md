@@ -141,6 +141,14 @@ stages them and prints what it would publish. For each package:
 - **Staged** in `target/publish/NAME/` at that version, and published from
   there (`npm publish --access public`, with npm's credentials).
 
+A package with a `playground` field and an `index.js` is a descriptor.
+`publish.py` finds its descriptor in either form `build.py`
+(`descriptor_module`) writes: `export default {…}`, or
+`const descriptor = {…}` beside a plugin (the elixir package's Hex). When
+it finds none, publishing stops. Up to 2026-11-01 it skipped the second
+form without a word, so `elixir-1.20.4@2.0.1`'s `index.js` names 2.0.0's
+`version` and `base`.
+
 Dependencies name ranges of majors (`^1.0.0`), so a patch of one package
 needs no new version of another. The 13 packages were published at
 1.0.0 on 2026-10-28 (the largest, `otp-29.1.2`, is 25 MB packed, 40 MB
