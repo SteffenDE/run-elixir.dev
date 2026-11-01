@@ -1,4 +1,5 @@
 import { expect, test as base, type Page, type TestInfo } from '@playwright/test';
+import { webProcessThreads } from './threads';
 
 // What a failed test's page was doing: the runtime's debug dump (each
 // node's programs, its last messages from its worker; exec/host.ts debug)
@@ -24,9 +25,10 @@ async function report(page: Page, testInfo: TestInfo, console: string[]): Promis
       .catch((error: Error) => `debug failed: ${error.message}`),
     new Promise((resolve) => setTimeout(() => resolve('debug did not answer in 5 s'), 5000)),
   ]);
-  const body = JSON.stringify({ debug, console: console.slice(-50) }, null, 2);
+  const threads = await webProcessThreads().catch((error: Error) => error.message);
+  const body = JSON.stringify({ debug, threads, console: console.slice(-50) }, null, 2);
   await testInfo.attach('runtime-debug.json', { body, contentType: 'application/json' });
-  process.stdout.write(`\n--- ${testInfo.title}: runtime debug\n${body.slice(0, 8000)}\n`);
+  process.stdout.write(`\n--- ${testInfo.title}: runtime debug\n${body.slice(0, 16000)}\n`);
 }
 
 // Every test fails on an uncaught error in the page, and at once when the
