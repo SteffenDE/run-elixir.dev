@@ -13,7 +13,7 @@ target/test-nif), and no other is built.
 
     python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
         [--nif DIR] [--embedders "ORIGIN ..."] [--embedder-host HOST --embedder-root DIR]
-        [--bridge DOMAIN] [--immutable]
+        [--bridge DOMAIN] [--https-bridge DOMAIN] [--immutable]
 
 With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
@@ -38,7 +38,11 @@ isolated, as an embedder serves its page, and the site's packages at
 them, and at their published paths, /npm/@elixir-playground/NAME@VERSION/
 (the directory build.py laid each out in, NAME@VERSION+ID), with CORS.
 With --bridge DOMAIN (bridge.localhost:8081, say) that domain is a second
-shared usercontent domain, as --usercontent's.
+shared usercontent domain, as --usercontent's. With --https-bridge
+DOMAIN (bridge.localhost:8084, say) another, over https on DOMAIN's port,
+with a self-signed certificate (made with openssl into
+target/serve-tls/): an http page's frames on an https shared domain, as
+an embedder on http://localhost frames run-elixir-usercontent.org's.
 
 The backend's services (the NIF builds, the git proxy, the TCP relay) are
 the apex's (docs/frames.md): the apex's worker asks for them, so they
@@ -87,7 +91,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return self.headers.get("Sec-Fetch-Site") == "cross-site"
 
     def own_origin(self):
-        return "http://" + (self.headers.get("Host") or "")
+        scheme = "https" if isinstance(self.connection, ssl.SSLSocket) else "http"
+        return f"{scheme}://" + (self.headers.get("Host") or "")
 
     def foreign(self):
         """Not the apex's own page's request: /hex/ answers only those
@@ -399,9 +404,9 @@ class Handler(http.server.SimpleHTTPRequestHandler):
 
     def bridge(self):
         """The shared usercontent domain this host is below (--usercontent,
-        or --bridge for a second one), or None."""
+        or --bridge and --https-bridge for others), or None."""
         host = (self.headers.get("Host") or "").lower()
-        for domain in (USERCONTENT, BRIDGE):
+        for domain in (USERCONTENT, BRIDGE, HTTPS_BRIDGE):
             if domain is not None and host.endswith("." + domain.lower()):
                 return domain
         return None
@@ -486,13 +491,14 @@ directory = os.path.join(ROOT, "target", "site")
 BRIDGE_DIRECTORY = os.path.join(directory, "_usercontent")
 args = sys.argv[1:]
 OPTIONS = ("--domain", "--usercontent", "--api", "--nif", "--embedders", "--embedder-host", "--embedder-root",
-           "--bridge")
+           "--bridge", "--https-bridge")
 option = lambda name: args[args.index(name) + 1] if name in args else None
 DOMAIN = option("--domain")
 USERCONTENT = option("--usercontent")
 EMBEDDERS = option("--embedders")
 EMBEDDER_HOST = option("--embedder-host")
 BRIDGE = option("--bridge")
+HTTPS_BRIDGE = option("--https-bridge")
 IMMUTABLE = "--immutable" in args
 EMBEDDER_ROOT = os.path.abspath(option("--embedder-root") or ".")
 NIF = option("--nif") and os.path.abspath(option("--nif"))
@@ -504,4 +510,32 @@ args = [arg for i, arg in enumerate(args)
 port = int(args[0]) if args else 8080
 print(f"http://localhost:{port}/ serving {directory}, NIF builds from {NIF or API}, "
       f"live sessions from {API}")
-http.server.ThreadingHTTPServer(("", port), functools.partial(Handler, directory=directory)).serve_forever()
+
+
+def tls_context(domain):
+    """A TLS context with a self-signed certificate for `domain` and its
+    subdomains (and localhost), made once with openssl."""
+    import subprocess
+    name = domain.split(":")[0]
+    out = os.path.join(ROOT, "target", "serve-tls")
+    os.makedirs(out, exist_ok=True)
+    cert, key = os.path.join(out, f"{name}.pem"), os.path.join(out, f"{name}.key")
+    if not os.path.exists(cert):
+        subprocess.run(["openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "3650",
+                        "-keyout", key, "-out", cert, "-subj", f"/CN={name}",
+                        "-addext", f"subjectAltName=DNS:{name},DNS:*.{name},DNS:localhost"],
+                       check=True, capture_output=True)
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(cert, key)
+    return context
+
+
+handler = functools.partial(Handler, directory=directory)
+if HTTPS_BRIDGE:
+    import threading
+    tls_port = int(HTTPS_BRIDGE.rsplit(":", 1)[1]) if ":" in HTTPS_BRIDGE else 443
+    tls = http.server.ThreadingHTTPServer(("", tls_port), handler)
+    tls.socket = tls_context(HTTPS_BRIDGE).wrap_socket(tls.socket, server_side=True)
+    threading.Thread(target=tls.serve_forever, daemon=True).start()
+    print(f"https://{HTTPS_BRIDGE}/ a shared usercontent domain over https (self-signed)")
+http.server.ThreadingHTTPServer(("", port), handler).serve_forever()

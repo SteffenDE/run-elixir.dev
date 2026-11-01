@@ -9,10 +9,12 @@ const domains = (on: number) =>
 // A test embedder (docs/api.md), a site of its own on the same port,
 // which the site lets embed it.
 // And a shared usercontent domain in bridge mode (docs/frames.md), which
-// serves only its bootstrap and service worker.
+// serves only its bootstrap and service worker; and another over https on
+// port + 3 (self-signed), which the http embedder frames.
 const embedder = (on: number) =>
   `--embedders http://embedder.localhost:${on} --embedder-host embedder.localhost:${on} ` +
-  `--embedder-root test/embedder --bridge bridge.localhost:${on}`;
+  `--embedder-root test/embedder --bridge bridge.localhost:${on} ` +
+  `--https-bridge bridge.localhost:${on + 3}`;
 // The NIF libraries the servers answer /api/v1/nif/ with.
 const NIF = '--nif ../target/test-nif';
 const DEVICES: Record<string, string> = {
