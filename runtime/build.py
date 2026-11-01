@@ -1144,8 +1144,12 @@ def lay_runtime(out, runtime):
     built = lambda key, more=(): {name: os.path.join(ROOT, "packages", key, "dist", name)
                                   for name in ("index.js", "index.d.ts", "types", *more)}
     api_version = source("api")["version"]
+    # Its apex worker, for a site whose bundler does not follow index.js's
+    # `new Worker(new URL("./apexWorker.js", import.meta.url))`: create()'s
+    # usercontent.worker (docs/api.md).
+    api_fields = {**module, "exports": {**module["exports"], "./apexWorker.js": "./apexWorker.js"}}
     api, _ = lay(out, "api", api_version, built("api", ("apexWorker.js",)), {},
-                 {host["name"]: major(host["version"])}, fields=module,
+                 {host["name"]: major(host["version"])}, fields=api_fields,
                  licensed=(notices.own().extend(notices.npm("api")), {}))
     # PGlite itself is the embedder's install, which its bundler lays out.
     pglite_source = source("pglite")
