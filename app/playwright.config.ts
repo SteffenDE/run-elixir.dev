@@ -8,9 +8,11 @@ const domains = (on: number) =>
   `--domain playground.localhost:${on} --usercontent usercontent.localhost:${on}`;
 // A test embedder (docs/api.md), a site of its own on the same port,
 // which the site lets embed it.
+// And a shared usercontent domain in bridge mode (docs/frames.md), which
+// serves only its bootstrap and service worker.
 const embedder = (on: number) =>
   `--embedders http://embedder.localhost:${on} --embedder-host embedder.localhost:${on} ` +
-  `--embedder-root test/embedder`;
+  `--embedder-root test/embedder --bridge bridge.localhost:${on}`;
 // The NIF libraries the servers answer /api/v1/nif/ with.
 const NIF = '--nif ../target/test-nif';
 const DEVICES: Record<string, string> = {

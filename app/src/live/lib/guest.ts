@@ -3,11 +3,12 @@
 // the local one would do itself; what the host sends (signed) keeps the
 // tree, terminals, open files and people up to date.
 import * as Y from 'yjs';
-import { previewKey } from '@/project/lib/previewChannel';
+import { previewKey, setPreviewPlace } from '@/project/lib/previewChannel';
+import { previewPlace as placeOf } from '@elixir-playground/api/sandbox';
 import { useStore } from '@/project/lib/store';
 import { Bridge, type Connection } from '@elixir-playground/runtime/bridge';
 import { serveRelayRequests } from '@elixir-playground/runtime/relayRequests';
-import { previewRelay } from '@elixir-playground/api/previewOrigins';
+import { previewRelay, type PreviewPlace } from '@elixir-playground/api/previewOrigins';
 import { setPreviewHost } from '@/project/lib/previewHost';
 import { previewSnapshot } from '@/project/lib/previewSnapshot';
 import { previewOrigins } from '@elixir-playground/runtime/lib/site';
@@ -149,16 +150,30 @@ const shows = (switched: number) => {
   void preview(hostPort);
 };
 
+// Where this guest's previews of the host's project are: origins of this
+// page's own (salted with its secret), relays bridged by this page.
+let place: Promise<PreviewPlace> | null = null;
+
 async function preview(port: number | null) {
   hostPort = port;
   if (!bridge) {
-    bridge = new Bridge({ connect }, port ?? 4000, previewOrigins(previewKey));
-    bridge.onport = shows;
-    setPreviewHost({
-      ready: (at) =>
-        previewRelay(previewKey, at, (relayed) => serveRelayRequests(relayed, () => bridge)),
-      shows,
-    });
+    place ??= placeOf(previewKey);
+    const at = await place;
+    if (!bridge) {
+      setPreviewPlace(at);
+      bridge = new Bridge({ connect }, port ?? 4000, previewOrigins(at.key, at.mode.usercontent));
+      bridge.onport = shows;
+      setPreviewHost({
+        ready: (shown) =>
+          previewRelay(
+            at.key,
+            shown,
+            (relayed) => serveRelayRequests(relayed, () => bridge),
+            at.mode,
+          ),
+        shows,
+      });
+    }
   }
   const shown = port === null ? null : (chosenPort ?? port);
   if (shown !== null) bridge.port = shown;

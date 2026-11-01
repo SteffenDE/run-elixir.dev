@@ -9,8 +9,10 @@
 // takes them along, and an answer's are set here.
 import { Bridge, type PreviewResponse } from '../bridge';
 import { cookieString, readJar, setCookie, writeJar } from '../cookies';
+import { bridgeClient } from '../lib/bridgeClient';
 import { loadSite, parentOrigins, previewSite } from '../lib/site';
 
+bridgeClient();
 await loadSite();
 const preview = previewSite();
 const parents = new Set(parentOrigins());

@@ -16,7 +16,9 @@ export type Locate = (url: URL) => string | null;
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-// The site's proxy at /git/HOST/OWNER/REPO (serve.py, Caddy: docs/deploy.md).
+// The site's proxy at /git/HOST/OWNER/REPO (serve.py, Caddy: docs/deploy.md),
+// reached through the apex (lib/apexLink.ts serviceUrl('git')), whose
+// worker fetches it.
 const PROXIED = ['github.com', 'gitlab.com', 'codeberg.org'];
 
 // The shell's git only fetches: a push goes from the page, with the user's
@@ -44,11 +46,12 @@ export const GIT_CONFIG: Record<string, string> = (() => {
     ]),
   ]);
 })();
+// `base`: the proxy's root (…/git), below which are HOST/OWNER/REPO.
 export const throughProxy =
-  (origin: string): Locate =>
+  (base: string): Locate =>
   (url) =>
     PROXIED.includes(url.hostname) && /^\/[\w.-]+\/[\w.-]+\/?$/.test(url.pathname)
-      ? `${origin}/git/${url.hostname}${url.pathname.replace(/\/$/, '')}`
+      ? `${base}/${url.hostname}${url.pathname.replace(/\/$/, '')}`
       : null;
 
 // What a pipe's reader has: bytes as they come, a line, a packet.
@@ -131,7 +134,10 @@ function advertisement(bytes: Uint8Array): Uint8Array | null {
   return packet(at).text === 'version 2\n' ? bytes.subarray(at) : null;
 }
 
-export function remoteHelper(locate: Locate, fetcher: typeof fetch = fetch): Program {
+export function remoteHelper(
+  locate: Locate,
+  fetcher: (input: string, init?: RequestInit) => Promise<Response> = fetch,
+): Program {
   return async (child, { args, stdio: [input, output, errors] }) => {
     const write = (bytes: Uint8Array | string) =>
       writeAll(output, typeof bytes === 'string' ? encoder.encode(bytes) : bytes, child, null);

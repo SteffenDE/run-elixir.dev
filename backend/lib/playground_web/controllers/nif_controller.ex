@@ -59,8 +59,13 @@ defmodule PlaygroundWeb.NifController do
       nil ->
         conn |> put_status(404) |> json(%{error: "not built"})
 
+      # One answer for every origin: a CDN caches it once and ignores
+      # `Vary: Origin`, so an echoed origin would be the first asker's. The
+      # archive is a finished build's, public; the 403 check already ran.
       build ->
         conn
+        |> delete_resp_header("vary")
+        |> put_resp_header("access-control-allow-origin", "*")
         |> put_resp_content_type("application/x-tar", nil)
         |> put_resp_header("cache-control", "public, max-age=31536000, immutable")
         |> put_resp_header("etag", ~s("#{build.sha256}"))

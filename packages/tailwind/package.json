@@ -1,0 +1,21 @@
+{
+  "name": "@elixir-playground/tailwind",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Tailwind CSS on the page: the tailwind page program, in place of the binary the Hex tailwind package runs (docs/packages.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*",
+    "tailwindcss": "4.3.3"
+  }
+}

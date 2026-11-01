@@ -360,7 +360,9 @@ export class Bridge {
 
   constructor(
     node: { connect(port: number): Connection },
-    port = 4000,
+    // The port the preview shows until one serves (its template's
+    // server's); 0: none yet.
+    port = 0,
     origins: string | null = null,
     ide: string = location.origin,
   ) {

@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'vite';
 import { expect, test } from 'vitest';
-import { elixirPlayground, findPackages, headers } from '../src/index';
+import { elixirPlayground, findPackages } from '../src/index';
 
 function write(path: string, text: string): void {
   mkdirSync(join(path, '..'), { recursive: true });
@@ -28,6 +28,7 @@ function fixture(): string {
   write(join(scope, 'runtime', 'exec.html'), '<!doctype html>');
   write(join(scope, 'runtime', 'root', 'sw.js'), '// sw');
   write(join(scope, 'runtime', 'root', 'relay.html'), '<!doctype html>');
+  write(join(scope, 'runtime', 'root', 'bridge.html'), '<!doctype html><title>bridge</title>');
   write(
     join(scope, 'git', 'package.json'),
     JSON.stringify({
@@ -42,6 +43,20 @@ function fixture(): string {
     join(scope, 'api', 'package.json'),
     JSON.stringify({ name: '@elixir-playground/api', version: '1.0.0' }),
   );
+  // Another scope's playground package, one of none, and a package whose
+  // `playground` is no object.
+  write(
+    join(root, 'node_modules', '@acme', 'python', 'package.json'),
+    JSON.stringify({ name: '@acme/python', version: '0.2.0', playground: { workerPrograms: {} } }),
+  );
+  write(
+    join(root, 'node_modules', 'ruby-shell', 'package.json'),
+    JSON.stringify({ name: 'ruby-shell', version: '3.0.0', playground: { pagePrograms: {} } }),
+  );
+  write(
+    join(root, 'node_modules', 'left-pad', 'package.json'),
+    JSON.stringify({ name: 'left-pad', version: '1.3.0', playground: 'yes' }),
+  );
   write(
     join(root, 'template', 'package.json'),
     JSON.stringify({ name: 'my-template', version: '0.1.0', playground: { template: {} } }),
@@ -49,70 +64,75 @@ function fixture(): string {
   return root;
 }
 
-test('finds the runtime and the packages with a playground field', () => {
+test('finds the runtime and the packages with a playground field, of any scope', () => {
   const root = fixture();
   expect(findPackages(root, ['template']).map(({ name }) => name)).toEqual([
     'my-template',
+    '@acme/python',
     '@elixir-playground/git',
     '@elixir-playground/runtime',
+    'ruby-shell',
   ]);
 });
 
-test('vite build lays out the usercontent domain and tells the apex where the runtime is', async () => {
+test('vite build lays the packages out in the apex’s own output, and names them in its pages', async () => {
   const root = fixture();
   await build({
     root,
     logLevel: 'silent',
     plugins: [
-      elixirPlayground({
-        apex: 'example.com',
-        usercontent: 'example-usercontent.com',
-        embedders: ['https://other.example'],
-        packages: ['template'],
-      }),
+      elixirPlayground({ usercontent: 'run-elixir-usercontent.org', packages: ['template'] }),
     ],
   });
-  // The apex's page and configuration.
-  const page = readFileSync(join(root, 'dist', 'index.html'), 'utf8');
+  const dist = join(root, 'dist');
+  const page = readFileSync(join(dist, 'index.html'), 'utf8');
   expect(page).toContain(
     '<meta name="playground-runtime" content="/npm/@elixir-playground/runtime@1.2.0/">',
   );
-  const site = {
-    domain: 'example.com',
-    usercontent: 'example-usercontent.com',
-    embedders: ['https://other.example'],
-  };
-  expect(JSON.parse(readFileSync(join(root, 'dist', 'playground.json'), 'utf8'))).toEqual(site);
-  // The usercontent domain's.
-  const out = join(root, 'dist-usercontent');
-  expect(JSON.parse(readFileSync(join(out, 'playground.json'), 'utf8'))).toEqual(site);
+  expect(page).toContain('<meta name="playground-content" content="/">');
+  expect(page).toContain(
+    '<meta name="playground-usercontent" content="run-elixir-usercontent.org">',
+  );
+  expect(readFileSync(join(dist, 'npm/@elixir-playground/git@1.0.3/git.wasm'), 'utf8')).toBe(
+    'wasm',
+  );
   for (const file of [
-    'sw.js',
-    'relay.html',
-    '_headers',
     'npm/@elixir-playground/runtime@1.2.0/exec.html',
-    'npm/@elixir-playground/git@1.0.3/git.wasm',
+    'npm/@elixir-playground/runtime@1.2.0/root/sw.js',
     'npm/@elixir-playground/git@1.0.3/fs/manifest.json',
     'npm/my-template@0.1.0/package.json',
   ])
-    expect(existsSync(join(out, file)), file).toBe(true);
-  expect(existsSync(join(out, 'npm/@elixir-playground/api@1.0.0'))).toBe(false);
+    expect(existsSync(join(dist, file)), file).toBe(true);
+  expect(existsSync(join(dist, 'npm/@elixir-playground/api@1.0.0'))).toBe(false);
+  expect(existsSync(join(dist, 'npm/@acme/python@0.2.0/package.json'))).toBe(true);
+  expect(existsSync(join(dist, 'npm/ruby-shell@3.0.0/package.json'))).toBe(true);
+  expect(existsSync(join(dist, 'npm/left-pad@1.3.0'))).toBe(false);
+  // The bootstrap is the shared domain's alone: any site could frame it
+  // and run its code on the apex.
+  for (const file of ['bridge.html', 'npm/@elixir-playground/runtime@1.2.0/root/bridge.html'])
+    expect(existsSync(join(dist, file)), file).toBe(false);
+  // No usercontent domain of its own: no folder for one, no playground.json.
+  expect(existsSync(join(root, 'dist-usercontent'))).toBe(false);
+  expect(existsSync(join(dist, 'playground.json'))).toBe(false);
 });
 
-test("the headers: isolation everywhere, the packages immutable, the Node.js worker's policy", () => {
-  const text = headers({ usercontent: 'u.example' }, '/npm/@elixir-playground/runtime@1.2.0/');
-  expect(text).toContain('/*\n  Cross-Origin-Embedder-Policy: require-corp\n');
-  expect(text).toContain('/npm/*\n  Cache-Control: public, max-age=31536000, immutable\n');
-  expect(text).toContain(
-    '/npm/@elixir-playground/runtime@1.2.0/nodejs.js\n  Content-Security-Policy: ' +
-      "default-src 'none'; script-src https://*.u.example/npm/@elixir-playground/runtime@1.2.0/nodejs.js " +
-      "https://*.u.example/npm/@elixir-playground/runtime@1.2.0/chunks/ 'unsafe-eval' 'wasm-unsafe-eval';",
+test('without a usercontent domain, the pages name none (create() takes run-elixir.dev’s)', async () => {
+  const root = fixture();
+  await build({ root, logLevel: 'silent', plugins: [elixirPlayground()] });
+  expect(readFileSync(join(root, 'dist', 'index.html'), 'utf8')).not.toContain(
+    'playground-usercontent',
   );
 });
 
-test('a build without the apex fails', async () => {
+test("the packages follow Vite's base", async () => {
   const root = fixture();
-  await expect(
-    build({ root, logLevel: 'silent', plugins: [elixirPlayground({ usercontent: 'u.example' })] }),
-  ).rejects.toThrow(/name the site's host \(apex\)/);
+  await build({ root, base: '/web/', logLevel: 'silent', plugins: [elixirPlayground()] });
+  const dist = join(root, 'dist');
+  const page = readFileSync(join(dist, 'index.html'), 'utf8');
+  expect(page).toContain('<meta name="playground-content" content="/web/">');
+  expect(page).toContain(
+    '<meta name="playground-runtime" content="/npm/@elixir-playground/runtime@1.2.0/">',
+  );
+  // dist/ is served at /web/: the packages at /web/npm/….
+  expect(existsSync(join(dist, 'npm/@elixir-playground/git@1.0.3/git.wasm'))).toBe(true);
 });

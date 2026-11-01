@@ -3,11 +3,12 @@
 # site's packages (python3 -I runtime/build.py first): the fixture here
 # installs them in target/vite-site/node_modules (links to the laid-out
 # packages, as npm would install the published ones), `vite build` lays
-# out its usercontent domain, `vite preview` serves both the apex
-# (apex.localhost:PORT) and the usercontent domain's hosts, and Chromium
-# runs `elixir -e` in a project of the page's.
+# the packages out in the site's own dist/ (below Vite's base /web/: at
+# /web/npm/…), `vite preview` serves both the apex (apex.localhost:PORT)
+# and the shared usercontent domain's hosts (usercontent.localhost:PORT,
+# docs/frames.md), and Chromium runs `elixir -e` in a project of the page's.
 #
-#   tests/vite-site/run.sh   (PORT: 8099)
+#   tests/vite-site/run.sh            (PORT: 8099)
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$(dirname "$here")")

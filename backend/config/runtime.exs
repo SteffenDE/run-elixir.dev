@@ -107,16 +107,27 @@ if config_env() == :prod do
   origins =
     String.split(env.("PLAYGROUND_ORIGINS") || "//run-elixir.dev", ",", trim: true)
 
-  # The TCP relay's socket is opened by projects' exec frames, each on a
-  # subdomain of the usercontent domain (PLAYGROUND_RELAY_ORIGINS,
-  # comma-separated host names, `*.domain` for its subdomains).
-  config :playground,
-    relay_origins:
-      String.split(
-        env.("PLAYGROUND_RELAY_ORIGINS") || "*.run-elixir-usercontent.org",
-        ",",
-        trim: true
-      )
+  # The pages whose browsers use the services (the TCP relay, NIF builds:
+  # PlaygroundWeb.ServiceOrigins): the apex and the sites that embed it,
+  # whose apex worker asks with their origin (docs/backend.md).
+  # PLAYGROUND_SERVICE_ORIGINS: space- or comma-separated origins.
+  service_origins =
+    String.split(
+      env.("PLAYGROUND_SERVICE_ORIGINS") ||
+        "https://run-elixir.dev https://tidewave.ai https://tidewave.steffend.me",
+      [" ", ","],
+      trim: true
+    )
+
+  # A host alone (PLAYGROUND_RELAY_ORIGINS took them) would never match.
+  for origin <- service_origins, not String.match?(origin, ~r{^https?://[^/]+$}) do
+    raise """
+    PLAYGROUND_SERVICE_ORIGINS: #{inspect(origin)} is not an origin.
+    List exact origins with their scheme, such as https://tidewave.ai.
+    """
+  end
+
+  config :playground, service_origins: service_origins
 
   config :playground, PlaygroundWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],

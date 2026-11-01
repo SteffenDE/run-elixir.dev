@@ -32,7 +32,7 @@ per-call allocation.
 | `host/` | page | `node.ts`: `Node` (start, type into, interrupt, connect to a node); `programs.ts`: the node's programs that run on the page; `files.ts`: `Files` (the shared filesystem from the page). |
 | `setup.ts` | worker, Node | What every node gets: environment, files around the installation (`/etc/hosts`; `/etc/resolv.conf` when the page serves DNS), programs. |
 | `coreutils.ts` | worker | uutils coreutils' tools (`coreutils.wasm`): the shell's commands, a node's programs by name (on `PATH`); a node's `sh -c` goes to the page's `sh`. The site's other WASI programs run the same way, each of its own module (`PROGRAMS`: ripgrep's `rg`, `rg.wasm`; git's `git`, `git.wasm`, the shell's `git` but for a remote: [git.md](git.md#gitwasm-git-itself)); the shell runs them as processes (`processes.ts`). |
-| `nodejs/` (`nodejs.js`) | worker | A Node.js process or worker thread: Node's modules over the shared files ([nodejs.md](nodejs.md)). |
+| `programs/workerProgram.ts` | page | The packages' worker programs (the nodejs package's `node`): each process a worker of its own from the package's script, with the project's files, ports, children and TLS over messages ([packages.md](packages.md#worker-programs), [nodejs.md](nodejs.md)). |
 | `worker/brush.ts` | worker | The terminal's shell: brush, built to WebAssembly, and its host (JSPI). |
 | `processes.ts` | worker, Node | A worker's processes: programs built for WASI (and the host's) running at once as coroutines under JSPI, their descriptors shared, pipes between them ([below](#processes-processests)). |
 | `git-remote.ts` | worker, Node | git's remote helper for HTTPS (`git remote-https`): protocol v2's `stateless-connect` through the site's proxy, as a process ([git.md](git.md#gitwasm-git-itself)). |
@@ -431,7 +431,10 @@ user's tailnet or restricted relay, [tailscale.md](tailscale.md) and
 
 `node.connect(port)` gives a connection to the node's listener: `ondata`,
 `onend` and `onclose`, with `write`, `end` and `close`. `serve: { port:
-handler }` answers the node's connections to those ports (5432: PGlite).
+handler }` answers the node's connections to those ports: the apex
+plugins' services on the ports they name (`create()` passes them in the
+exec frame's `start`: pglite's 5432, the elixir package's Hex port), and
+the runtime's own epmd and DNS.
 
 `outbound: (connection, { address, port }) => …` takes the node's
 connections to other hosts: `connection.dialed(local)` once there (from

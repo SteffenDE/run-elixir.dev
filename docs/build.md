@@ -86,11 +86,12 @@ target/site/
   storage.html                 each naming what it runs with: <meta name="playground-runtime">
                                (the runtime package's path), <meta name="playground-site">
                                (the site manifest's)
-  sw.js                      the preview origins' service worker, at the root for its scope /,
-                               one for every version (packages.md, its protocol)
-  playground.json            the apex, the usercontent domain (frames.md) and the other
-                               sites whose pages may run projects on it (PLAYGROUND_EMBEDDERS,
-                               api.md)
+  playground.json            the apex and the shared usercontent domain (frames.md)
+  _usercontent/              the usercontent domain's root, which the apex answers 404 for:
+                               bridge.html (the bridge's bootstrap), sw.js (the service
+                               worker, at the root for its scope /, one for every version:
+                               packages.md, its protocol), bridge.json (naming the domain,
+                               from PLAYGROUND_USERCONTENT)
   favicon.ico, icons/,       app/public as it is: the icons, the web app manifest,
   manifest.webmanifest,        the link preview's card (og:image, absolute with a
   og.png                       project domain)
@@ -99,13 +100,17 @@ target/site/
   npm/@elixir-playground/    the packages (packages.md), each NAME@VERSION+ID/ (ID a digest
                                of what is in it) with its package.json, and the published
                                artifacts' index.js (their descriptors, api.md):
-    runtime@…/                 worker.js, files.js, git.js, nodejs.js and
-                                 chunks/ (the runtime's workers); exec.html, relay.html and
-                                 frames/ (the usercontent domain's frames); root/ (sw.js and
-                                 the /relay.html bootstrap)
+    runtime@…/                 worker.js, files.js, git.js and chunks/ (the
+                                 runtime's workers); exec.html, relay.html and
+                                 frames/ (the usercontent domain's frames); root/ (sw.js
+                                 and the bridge's bootstrap, bridge.html, which only
+                                 _usercontent/ serves: frames.md)
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
-    elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3)
+    elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3;
+                                 Elixir's scripts)
+    nodejs@…/                  workers/ (nodejs.js and chunks/: the worker program
+                                 node); npm.js, npx.js (its page programs)
     phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
     shell@…/                   brush.wasm (3.4 MB, 1.2 MB gzipped), coreutils.wasm (7.8 MB,
                                  3.0 MB gzipped); fs/ (the terminfo entry)
@@ -118,7 +123,8 @@ target/site/
     claude@…/                  claude.html and frames/ (the claude frame and its worker,
                                  packages/claude); the Claude Code range tested (package.json)
     api@…/, pglite@…/          index.js: create() (api.md) and the pglite plugin, one ES
-                                 module each (packages/api, packages/pglite)
+                                 module each (packages/api, packages/pglite); the api's
+                                 apexWorker.js beside it (frames.md)
     standard@…/                index.js: the preset of shell, git, gnu-tools, ripgrep, tls
                                  and pglite
   boot/ID/                   the recordings: boot.tar.gz (what IEx reads first),
@@ -167,8 +173,9 @@ The filesystem holds:
   (`APPS` in `build.py`);
 - `/opt/elixir/1.20.4`: the `elixir-X` package's layer, the host's Elixir
   applications (`ELIXIR_APPS`) under `lib/`, Mix's archives at
-  `mix/archives/`, `mix/rebar3`, and Mix's script `bin/mix` (its `mix`
-  command, linked from `/usr/bin/mix`);
+  `mix/archives/`, `mix/rebar3`, and Elixir's scripts `bin/elixir`,
+  `bin/elixirc`, `bin/iex` and `bin/mix` (its commands, linked from
+  `/usr/bin`);
 - `/work/playground`: the Phoenix template's app, which only a Phoenix
   project mounts;
 - `/usr/libexec/git-core`, `/etc/ssl`, `/usr/share/terminfo`: the git,
@@ -183,10 +190,12 @@ OTP's and Elixir's from the site manifest.
 1. **Vite build.** `npm ci && npm run build` at the root (the npm
    workspace: `packages/*`, then `app`), in Docker:
    - `packages/runtime`: the runtime's scripts (`vite.runtime.config.ts`:
-     `worker.js`, `files.js`, `git.js`, `nodejs.js`, which keep their
+     `worker.js`, `files.js`, `git.js`, which keep their
      names, the pages start them by URL; and `root/sw.js` with
-     `root/relay.html`, the bootstrap, which `build.py` copies to the
-     site's root) and the usercontent
+     `root/bridge.html`, the bridge's bootstrap
+     ([frames.md](frames.md#who-may-bridge)), which `build.py` copies to
+     the site's `_usercontent/` only, the usercontent domain's root) and
+     the usercontent
      domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
      with a relative base) into `dist/`, the runtime
      package; with `--mode node`, the Node harness (`node.ts` and
@@ -195,6 +204,9 @@ OTP's and Elixir's from the site manifest.
    - `packages/api` and `packages/pglite`: one ES module each into
      `dist/index.js` (their `vite.config.ts`), with their declarations;
    - `packages/claude`: the claude frame (`claude.html`) and its worker
+     into `dist/` (`vite.config.ts`);
+   - `packages/nodejs`: the worker program `node` (`workers/nodejs.js`
+     and `workers/chunks/`) and the page programs `npm.js` and `npx.js`
      into `dist/` (`vite.config.ts`);
    - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
    - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
@@ -221,7 +233,7 @@ OTP's and Elixir's from the site manifest.
      tailwind, which run on the page; the natively built assets are where
      they start.
    - **`runtime.exs`:** phx.new's live reload block stays: `file_system`
-     runs the page's `inotifywait` (`programs/inotifywait.ts`, fed the
+     runs the page's `inotifywait` (the inotify-tools package, fed the
      node's and the editor's changes), and Phoenix reloads the preview and
      swaps its CSS. A cache from before gets the block back.
 4. **Files.** Each package's layer from its source: OTP's installation,

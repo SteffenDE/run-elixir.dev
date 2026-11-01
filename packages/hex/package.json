@@ -1,0 +1,22 @@
+{
+  "name": "@elixir-playground/hex",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The elixir package's Hex cache: an apex plugin of create() (docs/api.md). Built into dist/hex.js, which runtime/build.py ships in the elixir package.",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@elixir-playground/api": "*",
+    "@elixir-playground/runtime": "*"
+  }
+}

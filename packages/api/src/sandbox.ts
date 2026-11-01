@@ -1,9 +1,11 @@
 // create() and its sandbox (docs/api.md): a project run from the page that
 // calls it, which is the project's apex: it frames the project's exec frame
-// on the usercontent domain (exec/host.ts), keeps what is the apex's (the
-// project's stores, its plugins' services: PGlite; Hex's cache), makes the
-// preview's relays, gives Claude Code's files (claudeFrame.ts),
-// and carries connections to the ports its caller serves. Processes are
+// on the shared usercontent domain (exec/host.ts) and answers it with the
+// packages' files (bridge mode, usercontent.ts), keeps what is the apex's
+// (the project's stores, its plugins' services: PGlite; Hex's cache),
+// makes the preview's relays, frames the packages' shared frames
+// (sharedFrame.ts), and carries connections to the ports its caller
+// serves. Processes are
 // the exec frame's (its process API, which keeps a terminal's line
 // discipline). The playground's IDE and other sites' pages run projects
 // through it alike.
@@ -14,21 +16,26 @@ import { assertSite } from '@elixir-playground/runtime/packages/check';
 import { Site, type Boot, type SiteManifest } from '@elixir-playground/runtime/packages/manifest';
 import { listed } from '@elixir-playground/runtime/relay';
 import { SIGNALS, type Signal } from '@elixir-playground/runtime/signals';
-import { claudePort } from './claudeFrame';
+import { framePort } from './sharedFrame';
 import type { WorkspaceKind } from '@elixir-playground/runtime/kinds';
-import { forgetRelays, previewRelay } from './previewOrigins';
+import { forgetRelays, previewRelay, type PreviewPlace, type RelayMode } from './previewOrigins';
 import { runtimePath, setRuntimePath } from './runtimePath';
 import { startExecFrame } from './execFrame';
 import { isId, newId } from '@elixir-playground/runtime/lib/ids';
 import { Rpc } from '@elixir-playground/runtime/lib/rpc';
-import {
-  execOrigin,
-  loadSite,
-  previewOrigin,
-  useUsercontent,
-} from '@elixir-playground/runtime/lib/site';
+import { execOrigin, previewOrigin } from '@elixir-playground/runtime/lib/site';
 import { filesStore } from './stores';
 import { apexServices } from './services';
+import { apexPort } from './bridge';
+import {
+  bridgeSalt,
+  frameTable,
+  nameOf,
+  servicesOf,
+  runtimeHost,
+  useBridge,
+  usercontentOf,
+} from './usercontent';
 import type {
   ApexInstance,
   ApexPlugin,
@@ -56,14 +63,42 @@ const bytesOf = (data: string | Uint8Array) =>
 const failure = (code: string, message: string) => Object.assign(new Error(message), { code });
 
 // A caller's own name for a project as a project's key (ten letters and
-// digits, its origins' name): the same name is the same key.
+// digits): the same name is the same key.
 async function keyFor(name: string): Promise<string> {
-  if (isId(name)) return name;
-  const digest = new Uint8Array(
-    await crypto.subtle.digest('SHA-256', encoder.encode(`elixir-playground:${name}`)),
-  );
-  const alphabet = 'abcdefghijklmnopqrstuvwxyz0123456789';
-  return Array.from(digest.subarray(0, 10), (byte) => alphabet[byte % 36]).join('');
+  return isId(name) ? name : nameOf(`elixir-playground:${name}`);
+}
+
+// A project's two keys. `store` names what this page keeps of it (its
+// files, its Postgres): this page's own storage, which no frame reads, so
+// the same across page loads, and as before bridge mode. `origin` names
+// its origins (e-KEY, v-KEY-PORT), salted with this page's secret
+// (usercontent.ts bridgeSalt), an id already ten letters and digits too,
+// so that no frame can tell a project's origins from its id
+// (docs/frames.md, "What relies on storage partitioning"). Without an id,
+// both are one random id.
+/** @internal */
+export async function projectKeys(
+  id: string | undefined,
+): Promise<{ store: string; origin: string }> {
+  if (!id) {
+    const key = newId();
+    return { store: key, origin: key };
+  }
+  return {
+    store: await keyFor(id),
+    origin: await nameOf(`elixir-playground:${bridgeSalt()}:${id}`),
+  };
+}
+
+// Where the previews of project `id` (a project another page runs: a live
+// session's host's) are for this page: its origins' key (salted with this
+// page's secret) and a bridge with the runtime alone, which answers their
+// relays (docs/collaboration.md).
+/** @internal */
+export async function previewPlace(id: string): Promise<PreviewPlace> {
+  const { domain } = await usercontentOf(undefined);
+  const { bridge } = await useBridge({ domain }, runtimePath(), [], null, null);
+  return { key: (await projectKeys(id)).origin, mode: { usercontent: domain, bridge } };
 }
 
 async function sha256(bytes: Uint8Array): Promise<string> {
@@ -98,6 +133,18 @@ function flatten(plugins: readonly Plugin[]): {
   return { packages: [...packages.values()], apex: [...apex.values()] };
 }
 
+// What the plugins answer on the project's ports, and the variables they
+// give every process: the first plugin's for a port or a name.
+function servicesOfPlugins(instances: Map<string, ApexInstance>): ExecStart['services'] {
+  const ports: Record<number, string> = {};
+  const env: Record<string, string> = {};
+  for (const instance of instances.values()) {
+    for (const [port, name] of Object.entries(instance.ports ?? {})) ports[Number(port)] ??= name;
+    for (const [name, value] of Object.entries(instance.env ?? {})) env[name] ??= value;
+  }
+  return { ports, env };
+}
+
 // The site manifest the runtime reads (docs/packages.md), made of the
 // packages: each package's files at its `base`, below the usercontent
 // domain's root.
@@ -116,11 +163,16 @@ export function siteOf(packages: PackageDescriptor[], boot: Boot | null): SiteMa
 export interface PlaygroundOptions {
   // A temporary IEx: an empty project whose first shell runs IEx.
   kind?: WorkspaceKind;
+  // The port the preview shows first when it serves, without a
+  // template's (the IDE's empty projects: Phoenix's 4000).
+  previewPort?: number;
   // /shared's store (the user's, every project's), if the project has it.
   shared?: MessagePort | null;
   signal?: AbortSignal;
   // The exec frame's port, once it started, before the project's files do.
-  connected?: (exec: Rpc) => void;
+  // With where its previews are (their origins' key, and their relays'
+  // mode).
+  connected?: (exec: Rpc, preview: PreviewPlace) => void;
 }
 
 // What came before anyone listened, given to the first listener: one
@@ -288,6 +340,8 @@ export class Sandbox {
   private servers = new Map<number, (stream: Stream) => void>();
   private listeners = new Map<string, Set<(data: never) => void>>();
   private closed = false;
+  // Its preview relays' origins (previewOrigins.ts), which go with it.
+  private relays = new Set<string>();
   // The exec frame's port: the playground's own calls go over it too
   // (project/lib/playground.ts). Not a stable interface.
   /** @internal */
@@ -305,6 +359,10 @@ export class Sandbox {
     private env: Record<string, string>,
     // The plugins' parts of this sandbox, by plugin name.
     readonly instances: Map<string, ApexInstance>,
+    // Where its previews are: its usercontent domain, its bridge, its
+    // runtime's path. Its own, whatever another create() on the page
+    // uses.
+    private place: RelayMode,
   ) {
     this.exec = exec;
     const call = <T>(method: string, ...args: unknown[]) => this.running().call<T>(method, args);
@@ -439,13 +497,7 @@ export class Sandbox {
       tty: null,
       ...start,
       cwd: cwd ?? this.root,
-      env: {
-        // Claude Code for the Agent SDK (claude-agent-acp): the
-        // playground's `claude` (docs/api.md).
-        CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
-        ...this.env,
-        ...env,
-      },
+      env: { ...this.env, ...env },
     };
     const failed = (error: Error) => {
       process.output(2, encoder.encode(`${error.message}\n`));
@@ -485,8 +537,13 @@ export class Sandbox {
   // go through it to the project.
   relay(port: number): Promise<void> {
     const exec = this.running();
-    return previewRelay(this.projectId, port, (requests) =>
-      exec.call('relay', [requests], [requests]).catch(() => requests.close()),
+    const origin = previewOrigin(this.projectId, port, this.place.usercontent);
+    if (origin) this.relays.add(origin);
+    return previewRelay(
+      this.projectId,
+      port,
+      (requests) => exec.call('relay', [requests], [requests]).catch(() => requests.close()),
+      this.place,
     );
   }
 
@@ -494,7 +551,7 @@ export class Sandbox {
   // once its relay is ready.
   async previewUrl(port: number, path = '/'): Promise<string> {
     await this.relay(port);
-    const origin = previewOrigin(this.projectId, port);
+    const origin = previewOrigin(this.projectId, port, this.place.usercontent);
     if (!origin) throw new Error('no usercontent domain');
     return new URL(path, origin).href;
   }
@@ -505,10 +562,16 @@ export class Sandbox {
     await this.exec.call('shutdown').catch(() => {});
     this.exec.close();
     this.frame.remove();
-    forgetRelays();
+    this.forgetRelays();
     for (const process of this.processes.values()) process.exit({ code: null, signal: 'SIGKILL' });
     this.processes.clear();
     await Promise.all([...this.instances.values()].map((each) => each.close?.()));
+  }
+
+  /** @internal */
+  forgetRelays(): void {
+    forgetRelays(this.relays);
+    this.relays.clear();
   }
 
   // What the exec frame tells, and asks.
@@ -561,20 +624,43 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
     );
   if (source.persist && !source.id)
     throw failure('EINVAL', 'a kept project needs an id (project: { id, persist: true })');
-  if (options.usercontent) useUsercontent(options.usercontent);
-  else await loadSite();
+  // The shared usercontent domain (usercontent.ts), and this sandbox's
+  // runtime path, as they are now: another create() on the page may name
+  // others while this one starts.
+  const usercontent = await usercontentOf(options.usercontent);
+  const domain = usercontent.domain;
   if (options.runtime) setRuntimePath(options.runtime);
+  const runtimeAt = runtimePath();
+  const serviceUrls = servicesOf(options.services);
 
   // The packages, the template among them, as the runtime reads them;
   // checked here first, so that a set that does not fit fails before any
   // frame starts (ERUNTIME).
-  const { packages, apex } = flatten(options.plugins);
+  const { packages: given, apex } = flatten(options.plugins);
   const template = 'template' in source && source.template !== 'empty' ? source.template : null;
   if (template && !template.playground.template)
     throw failure('EINVAL', `${template.name} is not a template`);
-  if (template && !packages.some(({ name }) => name === template.name)) packages.push(template);
-  const manifest = siteOf(packages, options.boot ?? null);
-  assertSite(manifest);
+  if (template && !given.some(({ name }) => name === template.name)) given.push(template);
+  // Their files are below the bridge (usercontent.ts).
+  const { packages, boot, bridge } = await useBridge(
+    {
+      domain,
+      content: usercontent.content,
+      worker: usercontent.worker ? String(usercontent.worker) : undefined,
+    },
+    runtimeAt,
+    given,
+    options.boot ?? null,
+    serviceUrls,
+  );
+  const place: RelayMode = { usercontent: domain, bridge };
+  const manifest = siteOf(packages, boot);
+  // Against the runtime the page serves (its own package.json), as the
+  // exec frame checks it again.
+  const runtimeFound = await runtimeHost(bridge.runtimeUrl).catch((error: Error) => {
+    throw failure('ERUNTIME', `the runtime did not load: ${error.message}`);
+  });
+  assertSite(manifest, runtimeFound);
   const site = new Site({ url: location.href, manifest });
   const runtime = site.versions();
   if (!site.beam()) throw failure('ERUNTIME', 'no OTP package among the plugins');
@@ -586,16 +672,16 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
   const archive = 'archive' in source ? new URL(source.archive, location.href).href : null;
   const kind: WorkspaceKind =
     options.kind ?? (template?.playground.template?.kind === 'phoenix' ? 'phoenix' : 'empty');
-  const key = source.id ? await keyFor(source.id) : newId();
+  const { store: storeKey, origin: key } = await projectKeys(source.id);
   const persist = source.persist === true;
-  const origin = execOrigin(key);
-  if (!origin) throw new Error('no usercontent domain: create({ usercontent })');
+  const origin = execOrigin(key, domain)!;
 
   const startup = new AbortController();
   const abort = () => startup.abort(signal?.reason);
   signal?.addEventListener('abort', abort, { once: true });
   let exec: Rpc | null = null;
   let element: HTMLIFrameElement | null = null;
+  let made: Sandbox | null = null;
   const instances = new Map<string, ApexInstance>();
   try {
     progress('frame', 'Starting the project’s frame…');
@@ -606,10 +692,11 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       (frame) => {
         element = frame;
       },
+      { entry: `${bridge.runtime}exec.html`, table: frameTable(bridge.table) },
     );
-    options.connected?.(exec);
+    options.connected?.(exec, { key, mode: place });
     for (const plugin of apex)
-      instances.set(plugin.name, await plugin.apex({ projectId: key, persist }));
+      instances.set(plugin.name, await plugin.apex({ projectId: storeKey, persist }));
     startup.signal.throwIfAborted();
     const services = apexServices(
       [...instances.values()].map((instance) => instance.services ?? {}),
@@ -623,10 +710,10 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       runtime,
       { ...options.env },
       instances,
+      place,
     );
+    made = sandbox;
     const way = wayOf(options.relay);
-    // The claude package, whose frame makes Claude Code's files.
-    const claude = packages.find(({ playground }) => playground.claudeCode);
     sandbox.listen({
       connect: (service: string, node: number, id: number, port: MessagePort) => {
         const served = service.match(/^port:(\d+)$/);
@@ -642,15 +729,29 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       tailnetResolve: () => Promise.reject(new Error('no tailnet')),
       ...handlers,
       relayWay: (host: unknown) => way(host),
-      claudePort: () =>
-        claude
-          ? claudePort(claude.base)
-          : Promise.reject(new Error('no claude package among the plugins (docs/api.md)')),
+      // A port to a package's shared frame (sharedFrame.ts), for its page
+      // program (the claude package's `claude`).
+      framePort: (name: unknown, frame: unknown) => {
+        const found = packages.find((each) => each.name === name);
+        const page = typeof frame === 'string' ? found?.playground.frames?.[frame] : undefined;
+        return found && page
+          ? framePort(
+              bridge,
+              found.name,
+              frame as string,
+              page,
+              Object.keys(found.peerDependencies ?? {}),
+            )
+          : Promise.reject(new Error(`${String(name)} has no frame ${String(frame)}`));
+      },
     });
+    // The exec frame's worker's link to this page's worker: the services,
+    // and the site's files (lib/apexLink.ts).
+    const link = apexPort('link', bridge.table);
     let store: MessagePort | null = null;
     if (persist) {
       const channel = new MessageChannel();
-      serveStore(channel.port1, filesStore(key));
+      serveStore(channel.port1, filesStore(storeKey));
       store = channel.port2;
     }
     const shared = options.shared ?? null;
@@ -664,15 +765,26 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
           // The preview's framer: this page. The app's frame-ancestors
           // take it, its first frame tells it where it is (bridge.ts).
           ide: location.origin,
-          build: runtimePath(),
-          // Its bases below the exec frame's own origin.
-          site: { url: `${origin}/`, manifest },
+          // Its bases below its bridge (relative to it).
+          build: bridge.runtime,
+          site: { url: './', manifest },
           store,
           shared,
           archive,
+          link,
+          services: servicesOfPlugins(instances),
+          // The template's recording and port; an archive's app takes every
+          // recording the site has (its Phoenix server's too).
+          boots: archive
+            ? (manifest.boot?.images ?? ['boot'])
+            : [
+                'boot',
+                ...(template?.playground.template?.boot ? [template.playground.template.boot] : []),
+              ],
+          previewPort: template?.playground.template?.port ?? options.previewPort ?? null,
         } satisfies ExecStart,
       ],
-      [store, shared].filter((port): port is MessagePort => port !== null),
+      [store, shared, link].filter((port): port is MessagePort => port !== null),
     );
     startup.signal.throwIfAborted();
     if (archive) {
@@ -685,7 +797,7 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
     await exec?.call('shutdown').catch(() => {});
     exec?.close();
     (element as HTMLIFrameElement | null)?.remove();
-    forgetRelays();
+    (made as Sandbox | null)?.forgetRelays();
     await Promise.all([...instances.values()].map((each) => each.close?.()));
     throw error;
   } finally {

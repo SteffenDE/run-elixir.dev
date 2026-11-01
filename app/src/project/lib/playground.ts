@@ -19,18 +19,22 @@ import { sitePackages } from '@/shared/lib/build';
 import type { Rpc } from '@elixir-playground/runtime/lib/rpc';
 import type { Process, Sandbox } from '@elixir-playground/api';
 import { createSandbox } from '@elixir-playground/api/sandbox';
+import { hex } from '@elixir-playground/hex';
 import { PGLITE_PLUGIN, pglite, type PgliteInstance } from '@elixir-playground/pglite';
 import { tailscale } from '@/tailscale/plugin';
 import { connectTailscale, IEX, setTailnetProject, tailscaleBlocked } from '@/tailscale/client';
 import { relayWay, setRelayProject } from '@/relay/client';
 import { relayed } from '@elixir-playground/runtime/relay';
-import { previewOrigins, usercontentDomain } from '@elixir-playground/runtime/lib/site';
+import { usercontentDomain } from '@elixir-playground/runtime/lib/site';
 import {
   closePopup,
   onPreviewMessage,
   previewKey,
+  previewOriginOf,
+  previewPlace,
   send,
   setPreviewKey,
+  setPreviewPlace,
   type PreviewMessage,
 } from '@/project/lib/previewChannel';
 import { disposeTerminals } from '@/project/lib/terminal-handle';
@@ -50,7 +54,8 @@ import { setWorkspace, type Workspace } from './workspace';
 import { previewRelay } from '@elixir-playground/api/previewOrigins';
 import { previewSnapshot } from './previewSnapshot';
 import { setPreviewHost, type PreviewHost } from './previewHost';
-import { setup as setupOf, type Setup, type WorkspaceKind } from '@elixir-playground/runtime/kinds';
+import type { WorkspaceKind } from '@elixir-playground/runtime/kinds';
+import { setup as setupOf, type Setup } from '@/shared/lib/kinds';
 
 type Output = (text: string) => void;
 
@@ -313,7 +318,11 @@ export function connectServer(port: number): Connection | null {
 const serveRelay = (requests: MessagePort) =>
   void exec?.call('relay', [requests], [requests]).catch(() => requests.close());
 const preview: PreviewHost = {
-  ready: (port) => previewRelay(previewKey, port, serveRelay),
+  // Once the project's frame started: where its previews are.
+  ready: async (port) => {
+    const { key, mode } = await previewPlace();
+    return previewRelay(key, port, serveRelay, mode);
+  },
   shows: (port) => void exec?.call('previewShows', [port]),
 };
 
@@ -600,7 +609,7 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     return false;
   }
   const usercontent = usercontentDomain();
-  if (!usercontent || !previewOrigins(previewKey)) {
+  if (!usercontent) {
     store.failedToStart(
       "This site names no usercontent domain (playground.json's usercontent; docs/frames.md).",
     );
@@ -658,7 +667,12 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       share = shareWithPeers;
     }
     const started = await createSandbox({
-      plugins: [packages, pglite(), tailscale],
+      // The elixir package's Hex cache: its index.js adds it for an
+      // embedder; the IDE takes the packages from the site manifest.
+      plugins: [packages, pglite(), hex(), tailscale],
+      // An empty project's server is most often Phoenix's (a template has
+      // its own port).
+      previewPort: 4000,
       project: { id: previewKey, persist: id !== null, template: template ?? 'empty' },
       boot,
       // The tailnet and the relay as the user lets this project use them
@@ -670,7 +684,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
       signal,
       // Before the files start: this page hears what they tell from the
       // first, and /shared's peers' changes wait for them.
-      connected: (rpc) => {
+      connected: (rpc, at) => {
+        setPreviewPlace(at);
         exec = rpc;
         listen(rpc);
         if (share) sharing = share(rpc);
@@ -742,6 +757,8 @@ export async function start(workspaceKind: WorkspaceKind, id: string | null): Pr
     Object.assign(window, {
       playground: {
         database: () => postgres().database(),
+        // Where the preview shows a port (its origins are salted).
+        previewOrigin: (port: number) => previewOriginOf(port),
         files,
         git,
         sessions,

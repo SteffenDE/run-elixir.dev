@@ -27,21 +27,52 @@ export interface Playground {
   requires?: { otp?: string };
   // A template: its kind, id (a digest of its files, without its build),
   // label, and the OTP and Elixir it was compiled with. Its files are its
-  // fs layer's, at the layer's root.
-  template?: { kind: string; id: string; label: string; otp: string; elixir: string };
+  // fs layer's, at the layer's root. `boot`: the boot recording its
+  // project unpacks beside the site's first (boot-phoenix: what its
+  // server reads first); `port`: the port its preview shows first (its
+  // server's).
+  template?: {
+    kind: string;
+    id: string;
+    label: string;
+    otp: string;
+    elixir: string;
+    boot?: string;
+    port?: number;
+  };
   // Commands: each a file of the package's fs layer (relative to its
-  // root), which the runtime links from /usr/bin/NAME.
+  // root), which the runtime links from /usr/bin/NAME and runs as its #!
+  // line says (shebang.ts): through the shell (#!/bin/sh), or by another
+  // program directly (#!/usr/bin/env elixir).
   bin?: Record<string, string>;
   // Variables every node gets, each a path of the package's fs layer
   // (relative to its root; "." the root itself).
   env?: Record<string, string>;
+  // Variables every node gets, with values of their own: a string (the
+  // first package's, as `env`), or { append } (each package's, space-
+  // separated in the packages' order: the esbuild and tailwind packages'
+  // ELIXIR_ERL_OPTIONS flags).
+  variables?: Record<string, string | { append: string }>;
+  // Programs that run in a worker of their own, by name: each the
+  // package's script below its workers/ (which holds what the script
+  // imports too), started by the runtime under the workers' policy
+  // (docs/packages.md, "Worker programs"). The runtime puts the name on
+  // PATH.
+  workerPrograms?: Record<string, string>;
   // tls: a Node.js process's TLS client and the roots it trusts.
   tls?: { module: string; roots: string };
   // tailscale: the apex's Tailscale node, and Go's glue for it (the Go
   // that built it has its own: wasm_exec.js).
   tailscale?: { module: string; glue: string };
-  // claude: the Claude Code versions the preparer was tested with.
-  claudeCode?: string;
+  // Programs that run on the page (in the exec frame's worker), by name:
+  // each a JavaScript module of the package's whose default export is
+  // the program (docs/packages.md, "Page programs"). The runtime puts
+  // the name on PATH.
+  pagePrograms?: Record<string, string>;
+  // Shared frames, by name: each a page of the package's, which the apex
+  // frames once per page on an origin of its own, for its page programs
+  // (docs/packages.md, "Shared frames").
+  frames?: Record<string, string>;
   // The package's files in the nodes' tree: a layer of the fs image.
   fs?: FsLayer;
 }

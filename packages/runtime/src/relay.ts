@@ -5,8 +5,9 @@
 // relay checks it again, and that the connection's first bytes are a
 // ClientHello naming the host.
 //
-// One WebSocket (/relay, on this frame's own origin) carries every
-// connection: binary frames of a kind, a 32-bit id and a payload
+// One WebSocket (`connect`: the apex's worker opens /relay on the apex,
+// lib/apexLink.ts serviceSocket, so the backend sees the apex's Origin)
+// carries every connection: binary frames of a kind, a 32-bit id and a payload
 // (PlaygroundWeb.RelaySocket). It opens with the first connection and
 // closes LINGER after its last. Either side sends at most WINDOW bytes the
 // other has not acknowledged; the page acknowledges what it hands on.
@@ -67,7 +68,7 @@ type Socket = WebSocket;
 
 // The relay's tunnels: `tunnel(host, port)` for https.ts, which resolves
 // null (fetch() after all) when the relay cannot be reached.
-export function relay(connect: () => Socket = () => new WebSocket(defaultUrl())) {
+export function relay(connect: () => Socket) {
   let socket: Socket | null = null;
   let ready: Promise<Socket | null> | null = null;
   let linger: ReturnType<typeof setTimeout> | null = null;
@@ -210,7 +211,3 @@ export function relay(connect: () => Socket = () => new WebSocket(defaultUrl()))
     });
   };
 }
-
-// The relay on this frame's origin (the exec frame's, on the usercontent
-// domain; the site's proxy passes /relay to the backend).
-const defaultUrl = () => `${self.location.origin.replace(/^http/, 'ws')}/relay`;

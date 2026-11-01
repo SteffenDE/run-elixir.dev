@@ -10,6 +10,7 @@ import type { Files, FilesChannel } from './files';
 import { spawn, type PageProcess, type PageProgram } from './programs';
 import { trace } from '../trace';
 import { local } from '../wasi/net';
+import { linkFor, siteFetch } from '../lib/apexLink';
 import { worker } from './worker';
 
 export const FRAME = {
@@ -122,7 +123,7 @@ export class Connection {
 }
 
 // A connection to what listens on a port: a node's (Connection), or a
-// Node.js process's (programs/nodejs.ts).
+// worker program's (programs/workerProgram.ts).
 export type Link = Pick<Connection, 'ondata' | 'onend' | 'onclose' | 'write' | 'end' | 'close'>;
 
 // A connection a page service answers (postgres.ts, epmd.ts, fetcher.ts,
@@ -235,7 +236,7 @@ function siteModule(location: URL | null): Promise<WebAssembly.Module | null> {
   const url = location.href;
   let module = modules.get(url);
   if (!module) {
-    module = fetch(url)
+    module = siteFetch(url)
       .then(async (response) => {
         const bytes = new Uint8Array(await response.arrayBuffer());
         return response.ok && bytes[0] === 0 && bytes[1] === 0x61
@@ -431,29 +432,35 @@ export class Node {
       siteModule(packages.beam()?.wasm ?? null),
     ]).then(([boot, module, coreutils, beam]) => {
       const images = boot && names.every((name) => boot.images[name]);
-      this.worker.postMessage({
-        shared: this.shared,
-        site: this.site,
-        files: this.channel,
-        shell,
-        args,
-        command,
-        env,
-        initial,
-        cwd,
-        boots,
-        images: images ? names.map((name) => boot.images[name]) : undefined,
-        manifest: images ? boot.manifest : undefined,
-        brush: module ?? undefined,
-        coreutils: coreutils ?? undefined,
-        beam: beam ?? undefined,
-        ports: Object.keys(this.serve).map(Number),
-        udpPorts: Object.keys(this.udpServe).map(Number),
-        outbound: Boolean(this.outbound),
-        https: Boolean(this.https),
-        pagePrograms: Object.keys(this.programs),
-        tty,
-      });
+      // Its way to the apex (lib/apexLink.ts): NIF builds, git's proxy.
+      const link = linkFor();
+      this.worker.postMessage(
+        {
+          shared: this.shared,
+          site: this.site,
+          files: this.channel,
+          shell,
+          args,
+          command,
+          env,
+          initial,
+          cwd,
+          boots,
+          images: images ? names.map((name) => boot.images[name]) : undefined,
+          manifest: images ? boot.manifest : undefined,
+          brush: module ?? undefined,
+          coreutils: coreutils ?? undefined,
+          beam: beam ?? undefined,
+          ports: Object.keys(this.serve).map(Number),
+          udpPorts: Object.keys(this.udpServe).map(Number),
+          outbound: Boolean(this.outbound),
+          https: Boolean(this.https),
+          pagePrograms: Object.keys(this.programs),
+          tty,
+          link,
+        },
+        link ? [link] : [],
+      );
     });
   }
 

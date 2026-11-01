@@ -56,6 +56,12 @@ export function checkSite(site: SiteManifest, host: Host = HOST): string[] {
   };
   const otp = one('otp');
   const elixir = one('elixir');
+  // Elixir's commands are its package's own scripts (from its 2.0.0).
+  if (elixir && !elixir.playground.bin?.elixir)
+    problems.push(
+      `Elixir ${elixir.playground.elixir}'s package ${elixir.version} has no bin/elixir: ` +
+        `${host.name}@${host.version} runs Elixir's own scripts (its package 2.0.0 or later)`,
+    );
   const range = elixir?.playground.requires?.otp;
   if (otp && range && !fits(otp.playground.otp!, range))
     problems.push(

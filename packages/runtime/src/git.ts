@@ -4,6 +4,7 @@
 // its output whole; git's own locks (index.lock) are then never the IDE's
 // own to race.
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from './git-remote';
+import { serviceUrl, siteFetch, useLink } from './lib/apexLink';
 import type { FilesChannel } from './host/files';
 import { Processes, inputPipe, release, wasmProgram } from './processes';
 import { ENV } from './setup';
@@ -15,6 +16,8 @@ export interface GitStart {
   kind: 'start';
   files: FilesChannel;
   git: WebAssembly.Module;
+  // A port to the exec frame's worker, for git's proxy (lib/apexLink.ts).
+  link?: MessagePort | null;
 }
 
 export interface GitRun {
@@ -94,6 +97,7 @@ async function drain() {
 
 onmessage = ({ data }: MessageEvent<GitStart | GitRun>) => {
   if (data.kind === 'start') {
+    useLink(data.link);
     const root = new Dir();
     for (const dir of [...SHARED.map((path) => path.slice(1)), 'home/user']) root.mkdirs(dir);
     // git's templates (setup.ts prepare): init warns without the directory.
@@ -111,7 +115,7 @@ onmessage = ({ data }: MessageEvent<GitStart | GitRun>) => {
       // A remote's transport (a project cloned from a repository: the
       // shell's own, worker/index.ts), through the site's proxy.
       if (name === 'git' && /^remote-https?$/.test(given[0] ?? ''))
-        return remoteHelper(throughProxy(location.origin));
+        return remoteHelper(throughProxy(serviceUrl('git')), siteFetch);
       if (name !== 'git' && !GIT_DASHED.has(name)) return null;
       return wasmProgram(processes!, data.git, {
         root,

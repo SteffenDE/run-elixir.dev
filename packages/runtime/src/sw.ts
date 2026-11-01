@@ -13,6 +13,7 @@
 // documents it answered, in IndexedDB, since a service worker is stopped
 // when idle and starts again without its memory.
 import type { PreviewResponse } from './bridge';
+import { bridgeRouter } from './swBridge';
 import {
   ROUTES,
   announcedProtocol,
@@ -26,6 +27,7 @@ import {
 // out.
 interface Client {
   id: string;
+  url: string;
   postMessage(message: unknown, transfer?: Transferable[]): void;
 }
 interface ExtendableEvent extends Event {
@@ -58,6 +60,15 @@ declare const self: {
 };
 
 self.addEventListener('install', () => self.skipWaiting());
+
+// Bridge mode (swBridge.ts): what is below /_bridge/KEY/ comes from the
+// apex that framed the origin, over a port the bootstrap or a bridged page
+// gave. Every origin of a shared usercontent domain has this worker: the
+// exec frame's, the claude frame's, a preview's.
+const bridges = bridgeRouter({
+  origin: self.location.origin,
+  clients: () => self.clients.matchAll({ includeUncontrolled: true, type: 'window' }),
+});
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 
 // What every answer to the preview carries: it is in a cross-origin
@@ -169,6 +180,10 @@ self.addEventListener('message', (event) => {
     return;
   }
   const kind = event.data?.kind;
+  if (kind === 'bridge') {
+    event.waitUntil(bridges.accept(event.data, event.source, event.ports));
+    return;
+  }
   // A preview's WebSocket (bridge.ts): its port goes to the host as it is.
   if (kind === 'websocket') {
     event.waitUntil(
@@ -209,6 +224,10 @@ function sibling(url: URL): number | null {
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  if (bridges.handles(url)) {
+    event.respondWith(bridges.respond(request));
+    return;
+  }
   if (url.origin !== self.location.origin) {
     const port = request.mode === 'navigate' ? null : sibling(url);
     if (port !== null && event.clientId && previews.has(event.clientId))

@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-28
+last_updated: 2026-10-29
 ---
 
 # Deploying the site
@@ -14,9 +14,7 @@ Forgejo runner and makes it live on the server as a new release
    Tailscale and TLS WebAssembly modules, then the site with
    the Emscripten BEAM (emsdk 6.0.2 at `~/emsdk`, mise's Erlang 29.1.2 and
    Elixir 1.20.4), with `PLAYGROUND_DOMAIN` and `PLAYGROUND_USERCONTENT`
-   from the repository's variables (and `PLAYGROUND_EMBEDDERS`, the other
-   sites whose pages may run projects on the usercontent domain:
-   [api.md](api.md))).
+   from the repository's variables.
 2. **Upload** (`upload.sh SITE user@host`): the server seeds
    `releases/RID.partial` with the live release's files, hard-linked, and
    each package directory the build names and the live release lacks
@@ -28,22 +26,27 @@ Forgejo runner and makes it live on the server as a new release
    written to.
 3. **Activate** (`playground-deploy activate RID`, on the server): the
    release must hold the pages, its runtime package's `worker.js` and
-   `exec.html`, its site manifest and every directory that names, and a
-   `playground.json` naming `DOMAIN`. It keeps what the newest
+   `exec.html`, its site manifest and every directory that names, a
+   `playground.json` naming `DOMAIN` and `USERCONTENT`, and
+   `_usercontent/` with `bridge.json` naming `USERCONTENT`. It keeps what the newest
    `KEEP_BUILDS` releases run with (their packages, recordings and site
    manifests, for pages loaded before; a release of the layout before
    packages, its `b/ID/` and `r/RID/`), then `current` is pointed at it in
-   one rename. The site is checked as served (the isolation headers, the
-   page naming this runtime, the pages and `sw.js` no-cache, the site
-   manifest and its OTP package's `beam.wasm` immutable, `beam.wasm` as
-   WebAssembly, and with a usercontent domain an exec frame's headers
-   there and its Node.js worker's `Content-Security-Policy`);
+   one rename. The site is checked as served (the isolation headers and
+   `frame-ancestors 'self'`, the page naming this runtime, the pages
+   no-cache, the site manifest and its OTP package's `beam.wasm`
+   immutable, `beam.wasm` as WebAssembly with CORS, 404 for the bootstrap
+   on the apex, and with a usercontent domain its `/bridge.html` and
+   `/sw.js` headers and its `/bridge.json` there);
    if that fails, the previous release is live again and the deploy fails.
    Then Cloudflare drops its copies of the apex's pages (if configured), and
    releases beyond `KEEP_RELEASES` go.
 
 `playground-deploy rollback` makes the release before the live one live
-again; `status` names the live one. Both also work over the deploy key
+again; `status` names the live one. With a usercontent domain, it refuses
+a release whose `_usercontent/bridge.json` does not name that domain,
+such as one built before bridge mode: Caddy serves the domain from that
+directory, so every project would fail to start. Both also work over the deploy key
 (`ssh user@host rollback`).
 
 Deploying by hand from a machine with the key is the same:
@@ -123,7 +126,7 @@ repository's variable `DEPLOY_TARGET` (`deploy@server`) and secrets
 
 ### Cloudflare
 
-HTML pages, `sw.js`, `playground.json` and public assets keep
+HTML pages, the usercontent domain's `/sw.js`, `playground.json` and public assets keep
 their names across releases. Serve them with `Cache-Control: no-cache`
 and configure the CDN to honor revalidation. A cache rule that overrides
 these headers can leave users on an older release.
@@ -150,16 +153,27 @@ and preview host has its own cached URLs.
   ([architecture.md](architecture.md#hex)). Only what Hex fetches is
   proxied. Without it, the page falls back to a public mirror that sends
   CORS headers (hexpm.upyun.com, slower).
-- **The proxies refuse other sites' pages** (`Sec-Fetch-Site:
-  cross-site`, [api.md](api.md#who-may-run-projects-on-a-usercontent-domain)).
+- **The services answer the apex and the sites on their allowlist.** The
+  apex's worker asks for them ([frames.md](frames.md#the-exec-frame)), so
+  a request carries the page's `Origin`. One list decides,
+  `PLAYGROUND_SERVICE_ORIGINS` ([backend.md](backend.md#service-origins)).
+  `/api/v1/nif/`, `/relay` and `/git/` answer an origin on it, with CORS,
+  and refuse (403) another origin, or another site's request without
+  one. `/hex/` serves the apex's pages only: other sites use the public
+  mirror ([api.md](api.md#who-may-run-projects-on-the-usercontent-domain)).
+- **No other site frames the apex's pages.** They carry
+  `Content-Security-Policy: frame-ancestors 'self'`; a former project
+  origin's `storage.html` also lets the apex
+  ([frames.md](frames.md#who-may-bridge)).
 - **git clones at `/git/`.** Git dependencies are fetched by the page
   over git's smart HTTP, which GitHub, GitLab and Codeberg serve without
   CORS headers; the site proxies cloning and fetching only (no pushes).
 - **The page for every route.** `/`, `/phoenix`, `/empty`, `/iex` and each
   project's `/ID/` are all `index.html`: a path that is no file gets it.
-- **The service worker at the site's root.** `/sw.js` controls the scope
-  `/`. Serve it with `Cache-Control: no-cache`, so that an update reaches
-  browsers.
+- **The usercontent domain's service worker.** `/sw.js` on each
+  usercontent origin controls the scope `/`. Serve it with
+  `Cache-Control: no-cache`, so that an update reaches browsers. The apex
+  has no service worker.
 - **Compression.** `beam.wasm`, the JavaScript and the bundles (`.tar`,
   uncompressed on purpose: the node reads them synchronously) should be
   compressed in transit. The boot images (`boot/ID/*.tar.gz`) are gzipped already. Caddy does not
@@ -170,7 +184,7 @@ and preview host has its own cached URLs.
     ([build.md](build.md#what-the-site-is)): all can be cached for good,
     and a deploy of JavaScript alone keeps the other packages' names.
   - The pages (`index.html`, `preview.html`, `storage.html`),
-    `sw.js`, `playground.json` and `app/public`'s files
+    the usercontent domain's `sw.js`, `playground.json` and `app/public`'s files
     (`favicon.ico`, `icons/`, `manifest.webmanifest`, `og.png`) keep their
     names, so they are served `Cache-Control: no-cache`: they revalidate
     (ETag or Last-Modified, which Caddy's file_server sends) at the
@@ -192,62 +206,152 @@ building, written to `playground.json`; [frames.md](frames.md)):
 
 - **The apex** (run-elixir.dev): every page, cross-origin isolated (COOP
   `same-origin`, COEP `require-corp`), each response with
-  `Cross-Origin-Resource-Policy: same-site`. Its subdomains stay served
-  for the former layout's addresses (`p-ID`, `l-ID`), which send their
-  visitors to the apex, and whose `storage.html` moves a project's
-  stores to it ([frames.md](frames.md#moving-the-former-layouts-stores));
-  they can go once those have moved.
+  `Cross-Origin-Resource-Policy: same-site`, except the packages and the
+  recordings (`/npm/`, `/boot/`), which the frames' workers read from the
+  usercontent domain: `Access-Control-Allow-Origin: *` and
+  `Cross-Origin-Resource-Policy: cross-origin`. Its pages carry
+  `frame-ancestors 'self'`. Its subdomains stay served for the former
+  layout's addresses (`p-ID`, `l-ID`), which send their visitors to the
+  apex, and whose `storage.html` moves a project's stores to it
+  ([frames.md](frames.md#moving-the-former-layouts-stores)); they can go
+  once those have moved.
 - **The usercontent domain** (run-elixir-usercontent.org), another
-  registrable domain (so another
-  site: none of the apex's cookies, its own processes): `e-ID` (a
-  project's exec frame), `v-ID-PORT` (its preview) and `claude` (package
-  preparation), every response with
-  COEP `require-corp` and `Cross-Origin-Resource-Policy: cross-origin`,
-  for the apex's pages to frame. The same files; the Hex and git proxies
-  and `/api/v1/nif/`, which the exec frame's nodes and programs request from
-  their own origin, plus `/relay` for TCP relay connections. Live sessions
-  use `/socket` on the apex.
+  registrable domain (so another site: none of the apex's cookies, its
+  own processes), shared: any site's page may run projects on it, and
+  supplies its frames' files ([frames.md](frames.md#bridge-mode)). It
+  serves the release's `_usercontent/` on every subdomain and nothing
+  else: `/bridge.html`, `/sw.js` and `/bridge.json`, with COEP
+  `require-corp`, CORP `cross-origin` and `Cache-Control: no-cache`. Other
+  paths answer 404. The backend's services (`/api/v1/nif/`, `/relay`, the
+  git proxy) are the apex's: the page's worker asks for them. Live
+  sessions use `/socket` on the apex.
+
+`_usercontent/bridge.json` names the domain (`{"bridge":
+"run-elixir-usercontent.org"}`; `build.py` writes it from
+`PLAYGROUND_USERCONTENT`). Without it, or with another domain in it, the
+bootstrap and `sw.js` refuse to bridge ([frames.md](frames.md#who-may-bridge)).
+The apex answers 404 for `/_usercontent/` and for any bootstrap: there,
+any site could frame it and run its own code on the apex. The two files
+are the runtime's, from the same release, so they change together:
+`sw.js` must keep speaking every protocol in its support window
+([packages.md](packages.md#the-preview-origins-service-worker)).
 
 Both need wildcard certificates, and so DNS challenges: a Caddy built
 with its DNS provider's module (`xcaddy build --with
 github.com/caddy-dns/PROVIDER`). A site without the usercontent domain
-starts no project: its pages say so.
+starts no project.
+
+**Switching run-elixir-usercontent.org** from serving the site's files to
+bridge mode (this branch, not deployed as of 2026-10-30): its Caddy root
+becomes `current/_usercontent`, the backend drops
+`PLAYGROUND_RELAY_ORIGINS` (any site's code runs on that domain now, so
+none of its origins may open the relay), and the apex sends its packages
+with CORS. Kept projects keep their files: their stores' key does not
+change ([api.md](api.md#project-keys)). Their origins' names do, so what
+the old origins kept (preview cookies, the claude frame's cache) starts
+anew, and a preview origin's older `sw.js` routes `/bridge.html` into the
+app once, until it updates
+([frames.md](frames.md#browser-behavior-found-while-building-it)).
+
+Deploy the site first, then the backend. The backend refuses `/relay`
+from usercontent origins, and the old site's exec frames open it from
+there: with the backend first, live projects lose their TCP connections
+until the site is deployed.
 
 ## Caddy
 
 ```caddy
-# The apex's headers, and the usercontent domain's (frames.md).
+# The apex's headers, and the usercontent domain's (frames.md). No other
+# site frames the apex's pages (frames.md, Who may bridge); a former
+# project origin's storage.html is framed by the apex ({args[0]}).
 (apex) {
 	header {
 		Cross-Origin-Opener-Policy same-origin
 		Cross-Origin-Embedder-Policy require-corp
+		Content-Security-Policy "frame-ancestors 'self'"
 	}
 	header Cross-Origin-Resource-Policy same-site
-}
-(usercontent) {
-	header {
-		Cross-Origin-Embedder-Policy require-corp
+	@storage path /storage.html
+	header @storage Content-Security-Policy "frame-ancestors 'self' https://{args[0]}"
+	# The packages and the recordings: the frames' workers on the
+	# usercontent domain read them, from one origin per project.
+	@public path /npm/* /boot/*
+	header @public {
+		Access-Control-Allow-Origin *
 		Cross-Origin-Resource-Policy cross-origin
 	}
-	# A Node.js process's worker and its chunks (nodejs.md, The worker's
-	# policy): its own scripts and the packages' files, no other network.
-	# serve.py sends the same.
-	@nodejs path_regexp nodejs ^(/npm/@elixir-playground/runtime@[^/]+)/(nodejs\.js|chunks/[^/]+\.js)$
-	header @nodejs Content-Security-Policy "default-src 'none'; script-src https://{host}{re.nodejs.1}/nodejs.js https://{host}{re.nodejs.1}/chunks/ 'unsafe-eval' 'wasm-unsafe-eval'; worker-src https://{host}{re.nodejs.1}/nodejs.js https://{host}{re.nodejs.1}/chunks/ blob:; connect-src https://{host}/npm/@elixir-playground/ data: blob:"
+}
+# The bridge's bootstrap is the usercontent domain's alone (frames.md,
+# Who may bridge): the apex serves neither its directory nor a package's
+# copy.
+(nobootstrap) {
+	@bootstrap path_regexp ^(/bridge\.(html|json)|/_usercontent/.*|/npm/@elixir-playground/runtime@[^/]+/root/bridge\.html)$
+	handle @bootstrap {
+		respond 404
+	}
 }
 
-# The proxies answer the site's own pages and frames, not another site's
-# (api.md: no boundary for other clients). Imported first in each site:
-# handle blocks are tried in the order they appear (and a bare respond
-# would run after them all).
-(proxies) {
-	@crosssite {
-		path /hex/* /git/* /api/v1/nif/*
+# The services answer the apex's pages and the origins on the allowlist
+# (the apex's worker asks for them, with the page's Origin), and refuse
+# another site's (api.md: no boundary for other clients). One list,
+# PLAYGROUND_SERVICE_ORIGINS, the backend's (backend.md): it refuses
+# another origin itself on /api/v1/nif/ and /relay, and Caddy asks it
+# (forward_auth, /api/v1/origin) before its own git proxy, then echoes
+# the origin it let. /hex/ is the apex's alone: any cross-site request is
+# refused. Imported first: handle blocks are tried in the order they
+# appear (and a bare respond would run after them all).
+(services) {
+	@crosshex {
 		header Sec-Fetch-Site cross-site
+		path /hex/*
 	}
-	handle @crosssite {
+	handle @crosshex {
 		respond 403
 	}
+	@gitorigin {
+		path /git/*
+		header Origin *
+	}
+	handle @gitorigin {
+		# In order: the backend's verdict first (a 403 ends here).
+		route {
+			forward_auth 127.0.0.1:4000 {
+				uri /api/v1/origin
+			}
+			header Access-Control-Allow-Origin {http.request.header.Origin}
+			header Vary Origin
+			@preflight method OPTIONS
+			handle @preflight {
+				header Access-Control-Allow-Methods "GET, POST"
+				header Access-Control-Allow-Headers "Content-Type, Accept, Git-Protocol"
+				header Access-Control-Max-Age 600
+				respond 204
+			}
+			import gitproxy
+		}
+	}
+}
+
+# git's smart HTTP, for cloning and fetching only (GitHub, GitLab and
+# Codeberg send no CORS headers): /git/HOST/OWNER/REPO/...
+(gitproxy) {
+	@git path_regexp git ^/git/(github\.com|gitlab\.com|codeberg\.org)(/[\w.-]+/[\w.-]+/(info/refs|git-upload-pack))$
+	handle @git {
+		@clone expression `({method} == "GET" && {re.git.3} == "info/refs" && {query} == "service=git-upload-pack") || ({method} == "POST" && {re.git.3} == "git-upload-pack")`
+		handle @clone {
+			rewrite * {re.git.2}?{query}
+			# A placeholder upstream takes no scheme: TLS by transport.
+			reverse_proxy {re.git.1}:443 {
+				header_up Host {re.git.1}
+				transport http {
+					tls
+					tls_server_name {re.git.1}
+				}
+			}
+		}
+		respond 403
+	}
+	respond 403
 }
 
 (playground) {
@@ -279,23 +383,18 @@ starts no project: its pages say so.
 			header_up Host repo.hex.pm
 		}
 	}
-	# git's smart HTTP, for cloning and fetching only (GitHub, GitLab and
-	# Codeberg send no CORS headers): /git/HOST/OWNER/REPO/...
-	@git path_regexp git ^/git/(github\.com|gitlab\.com|codeberg\.org)(/[\w.-]+/[\w.-]+/(info/refs|git-upload-pack))$
-	handle @git {
-		@clone expression `({method} == "GET" && {re.git.3} == "info/refs" && {query} == "service=git-upload-pack") || ({method} == "POST" && {re.git.3} == "git-upload-pack")`
-		handle @clone {
-			rewrite * {re.git.2}?{query}
-			# A placeholder upstream takes no scheme: TLS by transport.
-			reverse_proxy {re.git.1}:443 {
-				header_up Host {re.git.1}
-				transport http {
-					tls
-					tls_server_name {re.git.1}
-				}
-			}
-		}
+	# git's smart HTTP without an Origin (the apex's own GET; services
+	# took the requests with one, and another site's without one is
+	# refused there).
+	@gitcrosssite {
+		path /git/*
+		header Sec-Fetch-Site cross-site
+	}
+	handle @gitcrosssite {
 		respond 403
+	}
+	handle /git/* {
+		import gitproxy
 	}
 	# Everything else: files, a directory's index.html (/licenses/), and
 	# the page for every route. (In a handle of its own: try_files, a
@@ -309,8 +408,9 @@ starts no project: its pages say so.
 # Without a usercontent domain it starts no project (frames.md).
 elixir-playground.steffend.me {
 	root * /srv/playground/elixir-playground/current
-	import proxies
-	import apex
+	import nobootstrap
+	import services
+	import apex elixir-playground.steffend.me
 	import playground
 }
 
@@ -321,33 +421,37 @@ run-elixir.dev, *.run-elixir.dev {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
 	root * /srv/playground/run-elixir/current
-	import proxies
-	# The backend (backend.md): NIF builds, and /socket for live sessions.
-	@backend path /api/v1/nif/* /socket /socket/*
+	import nobootstrap
+	import services
+	# The backend (backend.md): NIF builds, the TCP relay, and /socket for
+	# live sessions. It refuses another origin on the first two itself.
+	@backend path /api/v1/nif/* /relay /socket /socket/*
 	handle @backend {
 		reverse_proxy 127.0.0.1:4000
 	}
-	import apex
+	import apex run-elixir.dev
 	import playground
 }
 
-# The usercontent domain (PLAYGROUND_USERCONTENT=run-elixir-usercontent.org):
-# projects' exec frames
-# and previews, the same files, framed by the apex from another site.
+# The shared usercontent domain (PLAYGROUND_USERCONTENT=run-elixir-usercontent.org):
+# the bridge's bootstrap, the service worker and bridge.json, from the
+# live release; the page that frames it supplies everything else
+# (frames.md). No services: the page's worker asks for those.
 *.run-elixir-usercontent.org {
 	tls {
 		dns PROVIDER {env.DNS_API_TOKEN}
 	}
-	root * /srv/playground/run-elixir/current
-	import proxies
-	# NIF builds, which the exec frame's nodes fetch from their origin,
-	# and the TCP relay its gateway opens (relay.md).
-	@backend path /api/v1/nif/* /relay
-	handle @backend {
-		reverse_proxy 127.0.0.1:4000
+	root * /srv/playground/run-elixir/current/_usercontent
+	header {
+		Cross-Origin-Embedder-Policy require-corp
+		Cross-Origin-Resource-Policy cross-origin
+		Cache-Control no-cache
 	}
-	import usercontent
-	import playground
+	@own path /bridge.html /sw.js /bridge.json
+	handle @own {
+		file_server
+	}
+	respond 404
 }
 
 # The backend's admin.
@@ -363,6 +467,26 @@ phoenix-playground.steffend.me {
 	redir https://elixir-playground.steffend.me/phoenix
 }
 ```
+
+The `services` snippet and the usercontent domain's 404s were written on
+2026-10-29; `forward_auth`, the `frame-ancestors` headers and
+`nobootstrap` on 2026-10-30. None of them has been run against a live
+Caddy. `serve.py` implements the same rules and is what the tests check.
+
+**Which layer enforces what:**
+
+| Service | Who checks the origin | With which list |
+| --- | --- | --- |
+| `/api/v1/nif/`, `/relay` | the backend (`PlaygroundWeb.ServiceOrigins`) | `PLAYGROUND_SERVICE_ORIGINS` |
+| `/git/` | Caddy, asking the backend (`/api/v1/origin`) | the same |
+| `/hex/` | Caddy: refuses any cross-site request | none: the apex only |
+| all of them, locally | `serve.py`, as the backend does | the apex and `--embedders` |
+
+A request without an `Origin` that is not marked `Sec-Fetch-Site:
+cross-site` goes on everywhere: a non-browser client, or the apex's own
+same-origin GET. Such a client can send any `Origin` it likes, so the
+list is no boundary for it. The `elixir-playground.steffend.me` block
+asks the same backend (`127.0.0.1:4000`) for its git proxy.
 
 ## Locally
 
@@ -380,11 +504,17 @@ the backend: production's (run-elixir.dev), or the one `--api URL`
 names (`--api http://localhost:4000` for a local `mix phx.server`). It
 does not compress. With `--domain playground.localhost:PORT --usercontent
 usercontent.localhost:PORT` it answers `playground.json` with the two
-domains, whatever the build says, and the usercontent domain's hosts
-with its headers: browsers resolve `*.localhost` to this machine, and
-with two labels each is a site of its own (Chromium takes `localhost` for
-a top-level domain). `--embedders "ORIGIN …"` names the other sites
-whose pages may run projects on the usercontent domain instead of the
-build's, and `--embedder-host HOST --embedder-root DIR` serves a test
-embedder's page there, cross-origin isolated, with the site's packages
-as its install ([api.md](api.md#tests)).
+domains, whatever the build says, and the usercontent domain's hosts as
+production does (`/bridge.html` and `/sw.js` from `target/site/_usercontent/`,
+`/bridge.json` naming the domain, nothing else): browsers resolve
+`*.localhost` to this machine, and with two labels each is a site of its
+own (Chromium takes `localhost` for a top-level domain). `--bridge DOMAIN`
+serves a second usercontent domain the same way. `--embedders "ORIGIN
+…"` names the origins the services answer besides the apex (the
+backend's allowlist's stand-in), and `--embedder-host HOST
+--embedder-root DIR` serves a test embedder's page there, cross-origin
+isolated, with the site's packages as its install and at their published
+paths ([api.md](api.md#tests)). The services answer the apex's host and
+the embedder's origin (CORS), and never a usercontent host, and
+`--immutable` sends the packages' files `immutable`, as production does
+(for measuring with a warm cache).

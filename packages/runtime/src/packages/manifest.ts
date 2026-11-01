@@ -4,6 +4,7 @@
 // package.json's `playground` field; and the boot recordings made for
 // them. The runtime finds the BEAM, its
 // programs and the nodes' files through it, never by a path of its own.
+import { siteFetch } from '../lib/apexLink';
 import type { Manifest } from '../wasi/fs';
 import type { FsLayer, PackageEntry, Playground, SiteManifest } from './types';
 
@@ -29,7 +30,7 @@ export interface SiteRef {
 
 export async function loadManifest(url: string | URL): Promise<SiteRef> {
   const href = new URL(url, globalThis.location?.href).href;
-  const response = await fetch(href);
+  const response = await siteFetch(href);
   if (!response.ok) throw new Error(`${href}: ${response.status}`);
   return { url: href, manifest: (await response.json()) as SiteManifest };
 }
@@ -76,6 +77,19 @@ export class Site {
     return { loader: this.file(otp.name, loader), wasm: this.file(otp.name, wasm) };
   }
 
+  // Every package's worker programs (`workerPrograms`), by name, each with
+  // its package and script: the script's path below the package's, which
+  // the runtime starts below the bridge, on the frame's own origin (a
+  // worker's script is same-origin). A name two packages give is the
+  // first one's.
+  workerPrograms(): Map<string, { name: string; version: string; script: string }> {
+    const out = new Map<string, { name: string; version: string; script: string }>();
+    for (const [name, entry] of Object.entries(this.manifest.packages))
+      for (const [program, script] of Object.entries(entry.playground.workerPrograms ?? {}))
+        if (!out.has(program)) out.set(program, { name, version: entry.version, script });
+    return out;
+  }
+
   // brush.wasm.
   shell(): URL | null {
     const shell = this.find('shell');
@@ -91,6 +105,18 @@ export class Site {
         entry.playground.programs ?? {},
       ))
         if (!out.has(program)) out.set(program, { url: this.file(name, module), multicall });
+    return out;
+  }
+
+  // Every package's page programs (`pagePrograms`), by name, each with its
+  // package and module: the module's path below the package's
+  // (docs/packages.md, "Page programs"). A name two packages give is the
+  // first one's.
+  pagePrograms(): Map<string, { name: string; version: string; module: string }> {
+    const out = new Map<string, { name: string; version: string; module: string }>();
+    for (const [name, entry] of Object.entries(this.manifest.packages))
+      for (const [program, module] of Object.entries(entry.playground.pagePrograms ?? {}))
+        if (!out.has(program)) out.set(program, { name, version: entry.version, module });
     return out;
   }
 
@@ -143,7 +169,7 @@ export class Site {
   }
 
   // Elixir as installed: its version and its root (lib/APP/ebin below it:
-  // elixir's launchers' -elixir_root and -pa).
+  // the version create() reports; Elixir's scripts find it themselves).
   elixir(): { version: string; root: string } | null {
     const elixir = this.find('elixir');
     const root = elixir?.entry.playground.fs?.root;
@@ -163,8 +189,9 @@ export class Site {
     return out;
   }
 
-  // The variables the packages give every node (ROOTDIR, MIX_ARCHIVES, …),
-  // each an absolute path in the tree.
+  // The variables the packages give every node: their `env` (ROOTDIR,
+  // MIX_ARCHIVES, …), each an absolute path in the tree, then their
+  // `variables`, set or appended to.
   environment(): Record<string, string> {
     const out: Record<string, string> = {};
     for (const entry of Object.values(this.manifest.packages)) {
@@ -173,6 +200,11 @@ export class Site {
       for (const [name, file] of Object.entries(entry.playground.env ?? {}))
         out[name] ??= at(root, file);
     }
+    for (const entry of Object.values(this.manifest.packages))
+      for (const [name, value] of Object.entries(entry.playground.variables ?? {}))
+        if (typeof value === 'string') out[name] ??= value;
+        else if (typeof value?.append === 'string')
+          out[name] = out[name] ? `${out[name]} ${value.append}` : value.append;
     return out;
   }
 
@@ -253,7 +285,7 @@ const at = (root: string, file: string) =>
   file === '.' || file === '' ? root : `${root.replace(/\/+$/, '')}/${file}`;
 
 async function fetchJson(url: URL): Promise<Manifest> {
-  const response = await fetch(url);
+  const response = await siteFetch(url);
   if (!response.ok) throw new Error(`${url}: ${response.status}`);
   return (await response.json()) as Manifest;
 }

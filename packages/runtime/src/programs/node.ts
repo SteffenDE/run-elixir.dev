@@ -1,11 +1,12 @@
-// Programs that are OTP's and Elixir's commands, each run as a node of its own over the
-// project's files, as the shell runs its commands: `sh -c 'mix deps.get'`
-// (open_port's {spawn, Command}, System.shell; phx.new runs Mix that way)
-// and rebar3, the escript Mix builds rebar3 dependencies with.
+// Programs that run a node of their own over the project's files: OTP's
+// commands (erl, escript: Mix's rebar3, by its #! line) and sh, as the
+// shell runs its commands: `sh -c 'mix deps.get'` (open_port's {spawn,
+// Command}, System.shell; phx.new runs Mix that way), and a package's sh
+// script (Elixir's bin/elixir, which System.cmd("mix", …) ends in).
 import { CHUNK, FRAME } from '../host/node';
-import type { Context, Process } from './tailwind';
+import type { Context, Process } from '../pageProgram';
 
-// Start a node for `command` (['mix', 'deps.get']): its output is the
+// Start a node for `command` (['escript', 'rebar3', 'compile']): its output is the
 // process's (fd 1, or its standard error 2), and its exit status the
 // process's; terminal(raw, signals):
 // it set the terminal's input mode. It takes the process's input (as
@@ -68,16 +69,9 @@ export const shProgram =
   (process: Process, context: Context): void =>
     run(start, process, ['sh', ...context.args], context);
 
-// A node command run as a program (System.cmd("mix", ...) finds
-// /usr/bin/mix on PATH; igniter.new runs `mix deps.get` that way).
+// OTP's command run as a program (erl, escript; System.cmd("mix", ...)
+// ends in erl, through sh).
 export const commandProgram =
   (start: StartNode, name: string) =>
   (process: Process, context: Context): void =>
     run(start, process, [name, ...context.args], context);
-
-// rebar3 ARGS: escript REBAR3 ARGS, the escript Mix builds rebar3
-// dependencies with (MIX_REBAR3, the elixir package's).
-export const rebar3Program =
-  (start: StartNode, rebar3: string) =>
-  (process: Process, context: Context): void =>
-    run(start, process, ['escript', rebar3, ...context.args], context);

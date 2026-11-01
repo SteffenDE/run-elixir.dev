@@ -47,6 +47,7 @@ export function pgliteInstance({ projectId, persist }: ApexContext): PgliteInsta
   const serve = postgres(database);
   return {
     services: { postgres: serve },
+    ports: { 5432: 'postgres' },
     database,
     debug: () => serve.debug(),
     async close() {

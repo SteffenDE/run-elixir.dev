@@ -1,7 +1,7 @@
 ---
 kind: design
 status: prototype
-last_updated: 2026-10-23
+last_updated: 2026-10-29
 ---
 
 # The TCP relay
@@ -120,12 +120,15 @@ The host's bytes are read while the page has acknowledged all but a
 window of them. The page acknowledges what it hands on, so a slow node
 holds the relay back, not the backend's memory.
 
-**Origins.** Production uses `PLAYGROUND_RELAY_ORIGINS` to allow the
-usercontent frames that open the socket. It accepts comma-separated
-host names and `*.domain` patterns; the default is
-`*.run-elixir-usercontent.org`. Development accepts any origin when the
-setting is unset. Origin checks are additional browser restrictions;
-the destination allowlist and TLS checks apply to every client.
+**Origins.** The apex's worker opens the socket (since 2026-10-29,
+[frames.md](frames.md#the-exec-frame)), on the apex's `/relay`, so its
+`Origin` is the page's: the apex's, or an embedder's. Production allows
+the service origins (`PLAYGROUND_SERVICE_ORIGINS`,
+[backend.md](backend.md#service-origins)), never a usercontent domain's
+origin, where any site's code runs. Development accepts any origin when
+the list is unset. Origin
+checks are additional browser restrictions; the destination allowlist
+and TLS checks apply to every client.
 
 The relay implementation does not log client-to-destination activity.
 Reverse-proxy and deployment logging are configured separately.

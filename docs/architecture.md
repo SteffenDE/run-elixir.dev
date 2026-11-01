@@ -22,8 +22,8 @@ apex: React IDE, project storage, PGlite, Hex cache, Tailscale device
   ├─ e-ID.USERCONTENT: exec frame and host worker
   │    ├─ files.js: shared project filesystem
   │    ├─ worker.js: shell and BEAM workers
-  │    ├─ nodejs.js: Node.js processes
-  │    └─ Tailwind, esbuild, Git, network routing, preview bridge
+  │    ├─ workers/nodejs.js: Node.js processes (the nodejs package)
+  │    └─ page programs (esbuild, tailwind, …), Git, network routing, preview bridge
   ├─ v-ID-PORT.USERCONTENT: relay frame and preview for each server port
   └─ claude.USERCONTENT: Claude Code preparation and cache
 ```
@@ -126,8 +126,9 @@ Hex uses a local HTTP adapter. The browser can fetch hex.pm's API
 directly, but repo.hex.pm's registry and tarballs need a proxy because
 they do not allow CORS. Shells start with `HEX_MIRROR=http://localhost:49180/repo` and
 `HEX_API_URL=http://localhost:49180/api`; the page serves that port with
-`packages/runtime/src/fetcher.ts`, which answers each request with a `fetch()`
-(`src/project/lib/hex.ts`):
+the elixir package's Hex plugin (`packages/hex`, its `ports` and `env`),
+over `packages/runtime/src/fetcher.ts`, which answers each request with a
+`fetch()`:
 
 - `/repo/…` goes to the site's own proxy at `/hex/` (`serve.py`, Caddy in
   [deploy.md](deploy.md)), or, on a site without one, to hexpm.upyun.com,
@@ -161,23 +162,29 @@ runtime dispatches it by name:
   and find. Tools that spawn children use the worker's process table.
 - **Native-build adapter:** `make` obtains the package's WebAssembly NIF
   library from the site or backend and unpacks it into the app's `priv`.
-- **Host programs:** Tailwind, esbuild, Node.js, npm, and npx run through
+- **Host programs:** the packages' page programs (esbuild, tailwind,
+  inotifywait, npm, npx, claude) and worker programs (Node.js) run through
   the exec host. Project plugins execute on the usercontent origin.
-- **BEAM commands:** `mix`, `elixir`, `iex`, `erl`, `escript`, and
-  `rebar3` run in workers over the same project files.
+- **BEAM commands:** `erl` and `escript` start a BEAM in a worker over
+  the same project files. `elixir`, `iex`, `elixirc` and `mix` are
+  Elixir's own scripts from the elixir package, which run as their `#!`
+  lines say and end in `erl`.
 - **Shell commands:** `sh -c` runs brush, including pipelines,
   redirections, and child processes. `os:cmd`'s `sh -s` input path is
   not supported.
 
-`rebar3` runs the installed escript (`MIX_REBAR3`, the Elixir package's
-`mix/rebar3`). `/usr/bin/mix` links to the package's Mix script; stand-ins
-on `PATH` let Erlang and Elixir find the other supported programs. The installation
+Mix runs rebar3 from `MIX_REBAR3` (the elixir package's `mix/rebar3`), an
+escript that runs by its `#!` line. `/usr/bin/elixir`, `iex`, `elixirc` and
+`mix` link to the package's scripts; empty stand-ins on `PATH` let Erlang
+and Elixir find the other supported programs. The installation
 also includes OTP application headers for dependency compilation.
 
 The Hex `esbuild` and `tailwind` packages run the playground's programs
 whatever the project: Elixir starts with their `:path` set to
-`/usr/bin/esbuild` and `/usr/bin/tailwind` (`-esbuild path …` on the command
-line, worker.js), so they never download a binary. A project's own `:path`
+`/usr/bin/esbuild` and `/usr/bin/tailwind` (`-esbuild path …` in
+`ELIXIR_ERL_OPTIONS`, which the esbuild and tailwind packages append to
+and `bin/elixir` adds to `erl`'s command line), so they never download a
+binary. A project's own `:path`
 wins. The packages check the program's `--version` against the configured
 one, so a project configuring another version gets their "Outdated …
 version" warning. The node presents itself as Linux x86_64, so other tool

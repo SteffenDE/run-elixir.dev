@@ -17,7 +17,11 @@ export const PORT = Number(process.env.PORT || 8081);
 export const APEX = `http://playground.localhost:${PORT}`;
 export const USERCONTENT = `usercontent.localhost:${PORT}`;
 // Where project `id`'s preview shows `port`.
-export const previewAt = (id: string, port: number) => `http://v-${id}-${port}.${USERCONTENT}`;
+// Where the project's preview shows `port`: an origin of the usercontent
+// domain whose name is salted with the page's secret (docs/api.md,
+// "Project keys"), so the page says which.
+export const previewAt = (page: Page, port: number): Promise<string> =>
+  page.evaluate((at) => window.playground.previewOrigin(at), port);
 export const HOME_HEEX = `${APP}/lib/playground_web/controllers/page_html/home.html.heex`;
 
 // oxlint-disable-next-line no-control-regex -- terminal colours.

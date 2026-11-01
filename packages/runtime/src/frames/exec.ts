@@ -4,8 +4,12 @@
 // the worker that runs the project (exec/host.ts) and hands it the port
 // that page gave, then does nothing else. Its own page's timers would be
 // slowed while the frame is hidden; the worker's are not.
+import { bridgeClient } from '../lib/bridgeClient';
 import { loadSite, parentOrigins } from '../lib/site';
 
+// In bridge mode (docs/frames.md), its files come from the parent: the
+// apex's worker answers its loadSite() as the apex, its only parent.
+bridgeClient();
 await loadSite();
 const parents = new Set(parentOrigins());
 let started = false;

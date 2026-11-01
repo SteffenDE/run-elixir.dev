@@ -1,28 +1,32 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-10-23
+last_updated: 2026-10-30
 ---
 
 # Node.js in the playground
 
-The playground provides `node`, `npm`, and `npx` in project terminals and
-as child commands. JavaScript runs on the browser's engine in workers
-under the project's exec frame. Node-compatible modules in
-`packages/runtime/src/nodejs/` provide access to project files, processes, and
-network services.
+The nodejs package (`@elixir-playground/nodejs`, in the standard preset)
+provides `node`, `npm`, and `npx` in project terminals and as child
+commands. JavaScript runs on the browser's engine in workers under the
+project's exec frame. Node-compatible modules in `packages/nodejs/src/`
+provide access to project files, processes, and network services. A
+site without the package has none of the three commands.
 
 This is a compatibility implementation, not an embedded Node.js binary.
 It supports Vite builds and dev servers, Vue and Svelte project creation,
 and coding agents. Unsupported APIs fail explicitly; the limits below
 are part of the current implementation.
 
-## A process (`nodejs.js`, `programs/nodejs.ts`)
+## A process (`workers/nodejs.js`, `programs/workerProgram.ts`)
 
-`node` is a page program (in the exec frame's worker, `exec/host.ts`, as
-the others now are): each process is a worker of its own, nested in that
-one (the runtime's entry `nodejs/index.ts`, built as `nodejs.js`), started with a
-channel to the shared files (`Files.connect()`), as a node's worker is. Its
+`node` is the nodejs package's worker program
+([packages.md](packages.md#worker-programs)): each process is a worker
+of its own, nested in the exec frame's worker (the package's entry
+`src/index.ts`, built as `workers/nodejs.js`), started with a channel to
+the shared files (`Files.connect()`), as a node's worker is. The
+runtime's `programs/workerProgram.ts` starts it and gives the process the
+project's files, ports and TLS. Its
 output and exit come back as messages; closing its port (Ctrl+C) stops the
 worker. `/usr/bin/node` is a stand-in, so `System.cmd("node", …)` finds it,
 and the shell runs a script whose first line names `node` (a package's bin
@@ -62,41 +66,51 @@ browser's APIs as well as Node's: `self.fetch` behind Node's, `XMLHttpRequest`,
 `WebSocket`, `EventSource`, `import()` of a URL, `caches.add`, a `Worker`.
 Those would bypass the process's messages, through which all of its other
 network goes (the gateway, the tailnet's gates). The process's worker
-therefore starts from `nodejs.js`'s URL, not a blob (`programs/nodejs.ts`).
-A worker from a URL takes the `Content-Security-Policy` its script was
-served with, and `serve.py` and Caddy ([deploy.md](deploy.md#caddy))
-answer the runtime package's `nodejs.js` and `chunks/*.js`
-(`RUNTIME` below: `/npm/@elixir-playground/runtime@VERSION+ID`,
-[packages.md](packages.md)) with:
+therefore starts from its script's URL, not a blob
+(`programs/workerProgram.ts`). A worker from a URL takes the
+`Content-Security-Policy` its script was served with. The frame's
+service worker answers every script below a package's `workers/` with
+this policy (`swBridge.ts` `workerPolicy`; `PKG` below is the package's
+path below the bridge, `ORIGIN/_bridge/KEY/npm/NAME@VERSION`, here
+`@elixir-playground/nodejs`'s):
 
 ```
 default-src 'none';
-script-src  ORIGIN/RUNTIME/nodejs.js ORIGIN/RUNTIME/chunks/ 'unsafe-eval' 'wasm-unsafe-eval';
-worker-src  ORIGIN/RUNTIME/nodejs.js ORIGIN/RUNTIME/chunks/ blob:;
-connect-src ORIGIN/npm/@elixir-playground/ data: blob:
+script-src  PKG/workers/ ORIGIN/sw.js 'unsafe-eval' 'wasm-unsafe-eval';
+worker-src  PKG/workers/ ORIGIN/sw.js blob:;
+connect-src ORIGIN/_bridge/KEY/npm/ ORIGIN/sw.js DIRECT data: blob:
 ```
+
+`DIRECT` is where the page serves the packages' files, which the frame's
+workers read there.
 
 - **Its own scripts in `worker-src` too:** a module worker's imports are
   fetched as worker scripts, so `worker-src blob:` alone refuses its
-  chunks. Only those paths, not the runtime package's: its other workers
-  (`worker.js`, `files.js`, `git.js`) carry no policy, and a script that
-  started one from its URL would have their network. A worker started
-  from `nodejs.js` or a chunk takes the same policy from its own response.
-- **Threads** (`threads.ts`) start from blobs, which inherit the policy.
-- **`connect-src`:** the packages' files (the tls package's `tls.wasm`
-  and `roots.pem`, whose directory the server cannot tell from the
-  runtime's path: so every package's, public and immutable), and `data:`
-  and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin also
-  serves `/git/`, `/hex/` and `/api/v1/nif/`.
+  chunks. Only the package's own `workers/`, not the runtime package's
+  scripts: its workers (`worker.js`, `files.js`, `git.js`) carry no
+  policy, and a script that started one from its URL would have their
+  network. The package's page programs (`npm.js`, `npx.js`) run in the
+  exec frame's worker and get no policy either. A worker started from a
+  script below `workers/` takes the same policy from its own response.
+- **Threads** (`threads.ts`) start from `workers/nodejs.js`'s URL, whose
+  response carries the same policy, not from blobs: Firefox does not let
+  the service worker answer a blob worker that a worker starts
+  ([frames.md](frames.md#browser-behavior-found-while-building-it)).
+- **`connect-src`:** the packages' files below the bridge, whatever their
+  scope (its own, the tls package's `tls.wasm` and `roots.pem`: public and
+  immutable), and `data:` and `blob:` URLs for Node's `fetch`. Not `'self'`: the exec origin
+  served `/git/`, `/hex/` and `/api/v1/nif/` before they moved to the
+  apex, and keeps other pages. `/sw.js` is in `worker-src`, `script-src`
+  and `connect-src` for Firefox's check.
 - **`'unsafe-eval'`** for the loader's CommonJS wrapper, and
   **`'wasm-unsafe-eval'`** for tls.wasm and `node:wasi`.
 
 `nodepolicy.spec.ts` tries each API against something that would succeed
 without the policy (the exec origin's `/exec.html`, a `data:` module,
 `worker.js`) and expects each to be refused, in all three browsers.
-Without the header (a server that does not send it) the process still
-runs, unconfined: the deploy's check fails a release whose exec origin
-does not send it ([deploy.md](deploy.md)).
+Without the header the process would still run, unconfined. The service
+worker sends it for the `@elixir-playground/nodejs` package's paths only:
+a Node.js package under another name gets no policy.
 
 ## Standard input and the terminal
 
@@ -130,7 +144,12 @@ the IDE's line discipline (`runtime/terminal.ts`):
   `question` and `readline/promises`. create-vue's and sv's prompts
   (clack's) work at the terminal.
 
-## npm and npx (`programs/npm.ts`)
+## npm and npx (`npm.ts`)
+
+`npm` and `npx` are the nodejs package's page programs (`npm.js`,
+`npx.js`; [packages.md](packages.md#page-programs-and-shared-frames)):
+the exec frame's worker imports them the first time they run, and they
+run `node` and `sh` as other page programs do.
 
 The playground's own npm, not npm's CLI (which would need `http`, `zlib`, `crypto`
 and `child_process`, and load a thousand modules per run): `npm install`
@@ -418,21 +437,26 @@ on a web stream, `nextTick`'s order, a closed connection read to its
 end, and a connection the gateway keeps open for the next request. Codex's
 npm package is a native binary (Rust); opencode needs Bun.
 
-### Claude Code (`claude`, `programs/claude/claude.ts`)
+### Claude Code (`claude`)
 
 Claude Code's npm package is a Bun executable containing Bun's runtime
 and Claude Code's JavaScript module graph. The `claude` command extracts
 and runs that JavaScript on the playground's Node implementation. The
-site does not host Claude Code's files.
+site does not host Claude Code's files. The command and its preparer are
+the claude package's (`packages/claude`): a page program
+(`program.ts`) and a shared frame (`claude.html`, `worker.ts`)
+([packages.md](packages.md#page-programs-and-shared-frames)). The
+runtime knows nothing of Claude Code but the Bun stand-in, `node`'s
+`bun` option.
 
-- **Version:** `CLAUDE_CODE` in `programs/claude/build.ts` pins a tested
+- **Version:** `CLAUDE_CODE` in `packages/claude/src/build.ts` pins a tested
   version, including the linux-x64 tarball URL and integrity hash. Site
   releases update this version.
 - **First run:** the claude frame's worker downloads the 125 MB tarball
   from the npm registry. It computes the SHA-512 hash while streaming the
   download and checks it against the pinned integrity hash. It also
   decompresses the gzip stream and extracts the executable from the tar
-  archive. `programs/claude/bungraph.ts` parses Bun's undocumented module
+  archive. `bungraph.ts` parses Bun's undocumented module
   graph format, validates the layout, and reports an error for unsupported
   binaries. Bun's loader byte identifies JavaScript modules. The parser
   rewrites imports between modules as relative paths and maps Bun's
@@ -443,21 +467,21 @@ site does not host Claude Code's files.
   compiler, sucrase, misinterprets labels and private names in a minified
   module as imports. Preparation takes about 22 seconds in Chromium.
 - **Cache and execution:** the
-  [claude frame](frames.md#the-claude-frame) prepares and caches files on
-  a separate origin. All projects share its `playground-claude-code`
-  IndexedDB database. The cache key includes the package version and
+  [claude frame](frames.md#packages-page-programs-and-shared-frames)
+  prepares and caches files on its own origin (`claude-HASH`). All the
+  page's projects share its `playground-claude-code` IndexedDB database. The cache key includes the package version and
   `LAYOUT`, which identifies the generated file format; obsolete entries
   are removed. Subsequent projects reuse the cached files. Each run
   loads the files into `files.js` memory at `/opt/claude-code/VERSION`,
   outside the persisted `/work` directory, and runs `cli.js` with `node`.
-  `nodejs/claude/bun.ts` installs Bun globals for that process, including
+  the nodejs package's `src/claude/bun.ts` installs Bun globals for that process, including
   `Bun.stringWidth`, `wrapAnsi`, `sliceAnsi`, `which`, `hash`, `semver`,
   `YAML`, and `TOML`. Requiring a text file returns its contents.
   `XMLHttpRequest` is removed so axios uses Node's `https` implementation.
   A cached run of `claude --version` takes about 0.4 seconds.
 - **Terminal UI:** Claude Code's terminal renderer uses
   `Bun.ant.CellSegmenter`, an API in Anthropic's Bun build.
-  `nodejs/claude/cellsegmenter.ts` implements the behavior the renderer
+  The nodejs package's `src/claude/cellsegmenter.ts` implements the behavior the renderer
   requires. It uses `Intl.Segmenter` and string-width to split text,
   including SGR and OSC 8 sequences, into grapheme cells and style runs.
   It paints these into the renderer's screen, handling tabs and spacer

@@ -31,8 +31,14 @@ test('a Phoenix project’s page is the apex’s, its preview a usercontent orig
   await page.waitForURL(PROJECT);
   const id = PROJECT.exec(page.url())![1];
   await seesInPreview(page, 'Peace of mind', 180_000);
+  // An origin of the usercontent domain, its name salted: not the id.
+  const origin = await previewAt(page, 4000);
+  expect(origin).toMatch(
+    new RegExp(`^http://v-[a-z0-9]{10}-4000\\.usercontent\\.localhost:${PORT}$`),
+  );
+  expect(origin).not.toContain(id);
   expect(await page.locator('.preview iframe').getAttribute('src')).toMatch(
-    new RegExp(`^${previewAt(id, 4000).replace(/[.]/g, '\\.')}/`),
+    new RegExp(`^${origin.replace(/[.]/g, '\\.')}/`),
   );
   // /dev/dashboard redirects to /dev/dashboard/home on the port's origin.
   await page.locator('.preview-bar input').fill('/dev/dashboard');
@@ -113,12 +119,10 @@ test('the former addresses go to the apex’s; other names are not found', async
     `http://l-${session.toLowerCase()}.playground.localhost:${PORT}/live/${session}#x`,
   );
   await page.waitForURL(`${APEX}/live/${session}#x`);
-  // Any other name, under either domain.
+  // Any other name under the apex's domain.
   for (const host of [
     `random-foo.playground.localhost:${PORT}`,
     `phoenix.playground.localhost:${PORT}`,
-    `e-zzzzzzzzzz.usercontent.localhost:${PORT}`,
-    `v-zzzzzzzzzz-4000.usercontent.localhost:${PORT}`,
   ]) {
     await page.goto(`http://${host}/`);
     await expect(page.getByText('There is nothing at this address')).toBeVisible();
@@ -127,4 +131,11 @@ test('the former addresses go to the apex’s; other names are not found', async
       `${APEX}/`,
     );
   }
+  // The usercontent domain's hosts have no page of their own: only the
+  // bridge's files (docs/frames.md).
+  for (const host of [
+    `e-zzzzzzzzzz.usercontent.localhost:${PORT}`,
+    `v-zzzzzzzzzz-4000.usercontent.localhost:${PORT}`,
+  ])
+    expect((await page.request.get(`http://${host}/`)).status(), host).toBe(404);
 });

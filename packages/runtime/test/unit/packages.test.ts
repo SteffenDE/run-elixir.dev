@@ -29,7 +29,7 @@ function site(): SiteManifest {
         version: '1.2.0',
         base: '../otp-29.1.2@1.2.0/',
         files: { 'beam.mjs': file, 'beam.emu.mjs': file, 'beam.wasm': file },
-        peerDependencies: { [RUNTIME]: '^1.0.0' },
+        peerDependencies: { [RUNTIME]: '^2.0.0' },
         playground: {
           abi: { beam: 1 },
           otp: '29.1.2',
@@ -44,11 +44,11 @@ function site(): SiteManifest {
         version: '1.0.3',
         base: '../elixir-1.20.4@1.0.3/',
         files: {},
-        peerDependencies: { [RUNTIME]: '^1.0.0' },
+        peerDependencies: { [RUNTIME]: '^2.0.0' },
         playground: {
           elixir: '1.20.4',
           requires: { otp: '^29.0.0' },
-          bin: { mix: 'bin/mix' },
+          bin: { elixir: 'bin/elixir', iex: 'bin/iex', mix: 'bin/mix' },
           env: { MIX_ARCHIVES: 'mix/archives', MIX_REBAR3: 'mix/rebar3' },
           fs: layer(2, 'e1', '/opt/elixir/1.20.4'),
         },
@@ -57,7 +57,7 @@ function site(): SiteManifest {
         version: '1.0.0',
         base: '../phoenix-template@1.0.0/',
         files: {},
-        peerDependencies: { [RUNTIME]: '^1.0.0', [OTP]: '^1', [ELIXIR]: '^1' },
+        peerDependencies: { [RUNTIME]: '^2.0.0', [OTP]: '^1', [ELIXIR]: '^1' },
         playground: {
           template: {
             kind: 'phoenix',
@@ -73,7 +73,7 @@ function site(): SiteManifest {
         version: '1.0.0',
         base: '../shell@1.0.0/',
         files: { 'brush.wasm': file, 'coreutils.wasm': file },
-        peerDependencies: { [RUNTIME]: '^1.0.0' },
+        peerDependencies: { [RUNTIME]: '^2.0.0' },
         playground: {
           abi: { wasi: 1, processes: 1, crossterm: 1 },
           shell: 'brush.wasm',
@@ -87,14 +87,14 @@ function site(): SiteManifest {
         version: '1.1.0',
         base: '../git@1.1.0/',
         files: { 'git.wasm': file },
-        peerDependencies: { [RUNTIME]: '^1.0.0' },
+        peerDependencies: { [RUNTIME]: '^2.0.0' },
         playground: { abi: { wasi: 1, processes: 1 }, programs: { git: { module: 'git.wasm' } } },
       },
       '@elixir-playground/tls': {
         version: '1.0.0',
         base: '../tls@1.0.0/',
         files: { 'tls.wasm': file, 'roots.pem': file },
-        peerDependencies: { [RUNTIME]: '^1.0.0' },
+        peerDependencies: { [RUNTIME]: '^2.0.0' },
         playground: { abi: { wasi: 1, tls: 1 }, tls: { module: 'tls.wasm', roots: 'roots.pem' } },
       },
     },
@@ -182,11 +182,33 @@ describe('the site manifest', () => {
     expect(packages.template('empty')).toBeNull();
     // The commands and variables the packages declare, as paths of their
     // layers.
-    expect([...packages.bin()]).toEqual([['mix', '/opt/elixir/1.20.4/bin/mix']]);
+    expect([...packages.bin()]).toEqual([
+      ['elixir', '/opt/elixir/1.20.4/bin/elixir'],
+      ['iex', '/opt/elixir/1.20.4/bin/iex'],
+      ['mix', '/opt/elixir/1.20.4/bin/mix'],
+    ]);
     expect(packages.environment()).toEqual({
       ROOTDIR: '/opt/otp/29.1.2',
       MIX_ARCHIVES: '/opt/elixir/1.20.4/mix/archives',
       MIX_REBAR3: '/opt/elixir/1.20.4/mix/rebar3',
+    });
+  });
+
+  it('gives every node the packages’ variables, set by the first or appended to', () => {
+    const manifest = site();
+    manifest.packages['@elixir-playground/git'].playground.variables = {
+      ELIXIR_ERL_OPTIONS: { append: '-esbuild path <<"/usr/bin/esbuild">>' },
+      CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
+    };
+    manifest.packages['@elixir-playground/tls'].playground.variables = {
+      ELIXIR_ERL_OPTIONS: { append: '-tailwind path <<"/usr/bin/tailwind">>' },
+      CLAUDE_CODE_EXECUTABLE: '/elsewhere',
+    };
+    expect(at(manifest).environment()).toMatchObject({
+      ROOTDIR: '/opt/otp/29.1.2',
+      ELIXIR_ERL_OPTIONS:
+        '-esbuild path <<"/usr/bin/esbuild">> -tailwind path <<"/usr/bin/tailwind">>',
+      CLAUDE_CODE_EXECUTABLE: '/usr/bin/claude',
     });
   });
 
@@ -230,18 +252,19 @@ describe('the load-time check', () => {
 
   it('refuses a package for another host ABI (the runtime’s major)', () => {
     const manifest = site();
-    manifest.packages['@elixir-playground/git'].peerDependencies![RUNTIME] = '^2.0.0';
+    // Runtime 1 lost seams and tools that runtime 2's packages do without.
+    manifest.packages['@elixir-playground/git'].peerDependencies![RUNTIME] = '^1.0.0';
     expect(checkSite(manifest)).toEqual([
-      `@elixir-playground/git@1.1.0 needs ${RUNTIME} ^2.0.0, not ${HOST.version}`,
+      `@elixir-playground/git@1.1.0 needs ${RUNTIME} ^1.0.0, not ${HOST.version}`,
     ]);
   });
 
   it('refuses a package that needs a newer minor of the runtime', () => {
-    const host: Host = { ...HOST, version: '1.2.0' };
+    const host: Host = { ...HOST, version: '2.2.0' };
     const manifest = site();
-    manifest.packages['@elixir-playground/git'].peerDependencies![RUNTIME] = '^1.3';
+    manifest.packages['@elixir-playground/git'].peerDependencies![RUNTIME] = '^2.3';
     expect(checkSite(manifest, host)).toHaveLength(1);
-    manifest.packages['@elixir-playground/git'].peerDependencies![RUNTIME] = '^1.2';
+    manifest.packages['@elixir-playground/git'].peerDependencies![RUNTIME] = '^2.2';
     expect(checkSite(manifest, host)).toEqual([]);
   });
 
@@ -254,6 +277,15 @@ describe('the load-time check', () => {
     ]);
     const without: Host = { ...HOST, provides: { ...HOST.provides, tls: [] } };
     expect(checkSite(site(), without)[0]).toMatch(/uses the tls ABI 1; .* has none$/);
+  });
+
+  it('refuses an elixir package without Elixir’s own scripts', () => {
+    const manifest = site();
+    manifest.packages[ELIXIR].playground.bin = { mix: 'bin/mix' };
+    expect(checkSite(manifest)).toEqual([
+      `Elixir 1.20.4's package 1.0.3 has no bin/elixir: ${RUNTIME}@${HOST.version} runs ` +
+        "Elixir's own scripts (its package 2.0.0 or later)",
+    ]);
   });
 
   it('refuses a template for another OTP and Elixir pair', () => {

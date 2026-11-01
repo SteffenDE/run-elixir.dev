@@ -172,8 +172,9 @@ jobs:
       - run: python3 -I tests/nif/layer.py
 
   # A site built with @elixir-playground/vite over the site's packages, as
-  # npm installs them: its own usercontent domain, `elixir -e` in Chromium
-  # (tests/vite-site/run.sh).
+  # npm installs them: the packages its own files (below a Vite base), a
+  # shared usercontent domain's hosts the plugin's, `elixir -e` in
+  # Chromium (tests/vite-site/run.sh; docs/frames.md).
   vite-site:
     needs: site
     runs-on: ubuntu-24.04

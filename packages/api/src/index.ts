@@ -29,10 +29,12 @@ export type {
   RelayPolicy,
   RuntimeVersions,
   Service,
+  ServicesOption,
   ServiceConnection,
   SpawnOptions,
   Stat,
   TerminalOptions,
+  UsercontentOptions,
   WriteOptions,
 } from './types';
 export type { Signal } from '@elixir-playground/runtime/signals';

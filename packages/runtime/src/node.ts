@@ -25,6 +25,30 @@ import { TreeFs } from './beam/treefs';
 import { vfs } from './vfs';
 import { GIT_DASHED } from './git-remote';
 import { Processes, portProgram, wasmProgram } from './processes';
+import type { Process, ProgramContext } from './wasi/process';
+
+// The recording's stand-ins for the page's esbuild and tailwind (the
+// esbuild and tailwind packages', at their tools' versions).
+const ESBUILD_VERSION = '0.25.4';
+const TAILWIND_VERSION = '4.3.3';
+
+function esbuild(process: Process, { args }: ProgramContext): void {
+  if (args[0] === '--version') {
+    process.write(ESBUILD_VERSION + '\n');
+    return process.exit(0);
+  }
+  process.write('esbuild: not yet available in the playground\n');
+  process.exit(1);
+}
+
+function tailwind(process: Process, { args }: ProgramContext): void {
+  if (args[0] === '--help') {
+    process.write(`\u2248 tailwindcss v${TAILWIND_VERSION}\n`);
+    return process.exit(0);
+  }
+  process.write('tailwind: not yet available in the playground\n');
+  process.exit(1);
+}
 
 const [site, ...args] = process.argv.slice(2);
 // Its packages (the site manifest, build.py): the nodes' files, the BEAM,
@@ -77,7 +101,10 @@ let files = 0;
 for (const boot of boots) files += await untar(await readFile(local(packages.boot(boot))), root);
 let fetched = 0;
 const recorded: string[] = [];
-prepare(root, { bin: packages.bin() });
+// The page's esbuild and tailwind (their packages' page programs) are
+// none here: stand-ins that say their versions (the Hex packages ask at
+// boot) and fail otherwise.
+prepare(root, { bin: packages.bin(), pagePrograms: ['esbuild', 'tailwind'] });
 const t1 = performance.now();
 const input: Uint8Array = process.stdin.isTTY ? new Uint8Array(0) : new Uint8Array(readFileSync(0));
 // Mounted host files, or the site's bundles.
@@ -199,7 +226,11 @@ const beam = startBeam({
   root,
   fs: new TreeFs(root, fetchFile),
   network,
-  programs: Object.assign(programs(vfs(root, fetchFile)), { git: portProgram(processes, 'git') }),
+  programs: Object.assign(programs(vfs(root, fetchFile)), {
+    git: portProgram(processes, 'git'),
+    esbuild,
+    tailwind,
+  }),
   tty: !!process.env.TTY,
   size: [80, 24],
   onMode: process.env.TTY ? (raw) => console.error(`[tty ${raw ? 'raw' : 'cooked'}]`) : undefined,

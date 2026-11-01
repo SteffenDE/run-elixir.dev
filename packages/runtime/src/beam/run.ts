@@ -12,6 +12,7 @@ import type { Dir } from '../wasi/fs';
 import { Process, type Programs } from '../wasi/process';
 import { WASI } from '../wasi/index';
 import { vfs } from '../vfs';
+import { interpret } from '../shebang';
 import { Nifs } from '../nif';
 import type { Network } from '../wasi/net';
 import type { SharedCall } from '../wasi/shared';
@@ -321,19 +322,16 @@ function spawn(
     program = alone[1];
     args = [];
   }
-  const base = program.split('/').pop()!;
-  let run = programs[base] ?? programs[base.split('-')[0]] ?? programs['*']?.(base);
-  // An escript by its path (mix escript.install's, found on PATH): the
-  // escript program runs it, as its #! line says.
-  if (!run && program.startsWith('/') && programs.escript) {
-    const head = vfs(options.root, options.fs.fetch, options.shared ?? null)
-      .read(program)
-      ?.subarray(0, 64);
-    if (head && /^#!.*\bescript\b/.test(new TextDecoder().decode(head))) {
-      run = programs.escript;
-      args = [program, ...args];
-    }
+  // A script by its path (the elixir package's bin/mix, an escript of
+  // mix escript.install's, found on PATH): what its #! line names runs it
+  // (sh, escript), as execve would.
+  if (program.startsWith('/')) {
+    const files = vfs(options.root, options.fs.fetch, options.shared ?? null);
+    const script = interpret(program, args, (path) => files.read(path), env);
+    if (script) ({ program, args } = script);
   }
+  const base = program.split('/').pop()!;
+  const run = programs[base] ?? programs[base.split('-')[0]] ?? programs['*']?.(base);
   if (!run) return null;
   const process = new Process();
   process.notify = notify;

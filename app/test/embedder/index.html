@@ -11,6 +11,7 @@
       {
         "imports": {
           "@elixir-playground/": "/node_modules/@elixir-playground/",
+          "@elixir-playground/api": "/node_modules/@elixir-playground/api/index.js",
           "@electric-sql/pglite": "/node_modules/@electric-sql/pglite/dist/index.js",
           "@electric-sql/pglite/contrib/citext": "/node_modules/@electric-sql/pglite/dist/contrib/citext.js",
           "@electric-sql/pglite/contrib/fuzzystrmatch": "/node_modules/@electric-sql/pglite/dist/contrib/fuzzystrmatch.js",
@@ -63,12 +64,24 @@
         plugins: [otp, elixir, standard, claude],
         usercontent: `usercontent.localhost${port}`,
         runtime: `/npm/@elixir-playground/runtime@${runtime.version}/`,
+        // The backend's services: the playground's apex (serve.py answers
+        // this site, an embedder it names).
+        services: `${location.protocol}//playground.localhost${port}`,
       };
+      // Another shared usercontent domain (serve.py --bridge): every
+      // usercontent domain serves no packages; this page serves them
+      // (serve.py, at their published paths) and its worker answers the
+      // frames (docs/frames.md).
+      const bridged = () => ({
+        ...options,
+        usercontent: `bridge.localhost${port}`,
+      });
       window.embed = {
         started: performance.now(),
         progress: [],
         create,
         options,
+        bridged,
         template: template(),
         packages: { otp, elixir, standard, claude },
       };

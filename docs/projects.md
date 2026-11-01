@@ -36,8 +36,10 @@ A live guest page uses a full navigation when leaving.
 Additional routes are `/settings`, `/tailscale`, `/relay`, and
 `/live/ID#k=KEY&h=HOSTKEY` for a live-session guest.
 
-A project's kind (`src/project/lib/kinds.ts`) chooses its files and initial
-settings. Startup commands are saved on the project and remain editable:
+A project's kind chooses its files and initial settings: its template
+package names its boot recording and its preview's first port
+(`template.boot`, `template.port`), and the IDE what it shows for it
+(`src/shared/lib/kinds.ts`). Startup commands are saved on the project and remain editable:
 
 | | Phoenix | Empty, temporary IEx |
 | --- | --- | --- |

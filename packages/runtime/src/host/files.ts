@@ -2,6 +2,7 @@
 import type { SiteRef } from '../packages/manifest';
 import type { KeptRecord } from '../overlay';
 import type { Manifest } from '../wasi/fs';
+import { linkFor } from '../lib/apexLink';
 import { worker } from './worker';
 
 const CHANNEL = 1 << 20;
@@ -136,6 +137,8 @@ export class Files implements FileSystem {
         }
       };
     });
+    // Its way to the apex (lib/apexLink.ts): the services.
+    const link = linkFor();
     this.worker.postMessage(
       {
         kind: 'start',
@@ -147,8 +150,9 @@ export class Files implements FileSystem {
         store,
         storePort,
         sharedPort,
+        link,
       },
-      [storePort, sharedPort].filter((port): port is MessagePort => port !== null),
+      [storePort, sharedPort, link].filter((port): port is MessagePort => port !== null),
     );
   }
 

@@ -61,10 +61,9 @@ What it took:
 - **The flags on every node** (`beam/args.ts`): `-proto_dist inet_epmd
   -inet_epmd socket` beside `-kernel inet_backend socket`. A node without
   `-sname` or `-name` is not distributed and pays nothing.
-- **bin/elixir's options in the shell** (`worker/index.ts` launcher):
-  `--sname`, `--name`, `--cookie`, `--hidden`, `--erl "…"`, `--boot`,
-  `--erl-config`, `--logger-*-reports`, read up to the first argument that
-  is none, as bin/elixir reads them, so `iex --sname a` (and Livebook's
+- **bin/elixir's options:** Elixir's own `bin/elixir` script (the elixir
+  package's) reads `--sname`, `--name`, `--cookie`, `--hidden`,
+  `--erl "…"` and the rest, so `iex --sname a` (and Livebook's
   `elixir --erl … --hidden --cookie … --eval …`) start distributed.
 - **epmd on the page** (`packages/runtime/src/epmd.ts`), on 4369 for every
   node as `serve` gives PGlite 5432: `ALIVE2_REQ` (a name is registered

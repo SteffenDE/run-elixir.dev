@@ -186,14 +186,24 @@ defmodule PlaygroundWeb.RelaySocketTest do
     assert {:stop, :binary_only, _} = RelaySocket.handle_in({"hi", opcode: :text}, state)
   end
 
-  test "origins: the configured hosts, any while unset" do
+  test "origins: the services' origins, any while unset" do
     assert RelaySocket.origin_allowed?(URI.parse("https://example.com"))
 
-    Application.put_env(:playground, :relay_origins, ["*.run-elixir-usercontent.org"])
-    on_exit(fn -> Application.delete_env(:playground, :relay_origins) end)
+    Application.put_env(:playground, :service_origins, [
+      "https://run-elixir.dev",
+      "https://tidewave.ai"
+    ])
 
-    assert RelaySocket.origin_allowed?(URI.parse("https://p-abc.run-elixir-usercontent.org"))
-    refute RelaySocket.origin_allowed?(URI.parse("https://run-elixir.dev"))
+    on_exit(fn -> Application.delete_env(:playground, :service_origins) end)
+
+    assert RelaySocket.origin_allowed?(URI.parse("https://tidewave.ai"))
+    assert RelaySocket.origin_allowed?(URI.parse("https://run-elixir.dev:443"))
+    refute RelaySocket.origin_allowed?(URI.parse("http://tidewave.ai"))
+    refute RelaySocket.origin_allowed?(URI.parse("https://p-abc.run-elixir-usercontent.org"))
     refute RelaySocket.origin_allowed?(URI.parse("https://evil.example"))
+    # The usercontent domain runs any site's code: never its origins.
+    refute RelaySocket.origin_allowed?(
+             URI.parse("https://e-abcdefghij.run-elixir-usercontent.org")
+           )
   end
 end

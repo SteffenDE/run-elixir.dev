@@ -2,7 +2,7 @@
 // environment, the files around the installation, and its programs.
 import { File, Symlink, devnull, urandom, type Dir } from './wasi/fs';
 import type { Programs } from './wasi/process';
-import { esbuild, tailwind, make, memsup, type NifSource } from './programs';
+import { make, memsup, type NifSource } from './programs';
 import type { Vfs } from './vfs';
 import { REGISTRY } from './coreutils';
 import { UTILITIES } from './utilities';
@@ -10,11 +10,13 @@ import type { Site } from './packages/manifest';
 
 // The node presents itself as Linux (its uname, beam/host/wasm_host.c), so
 // Hex tool wrappers take their Linux paths; its architecture is its own
-// (wasm32): the esbuild and tailwind packages run /usr/bin/esbuild and
-// /usr/bin/tailwind (their :path, worker/index.ts), the programs below,
-// and with :path set look no further (esbuild from 0.10.1).
+// (wasm32): the Hex esbuild and tailwind packages run /usr/bin/esbuild and
+// /usr/bin/tailwind (their :path, which the esbuild and tailwind
+// packages' ELIXIR_ERL_OPTIONS set), the page's programs, and with :path
+// set look no further (esbuild from 0.10.1).
 // The runtime's own; the packages add theirs (environment: ROOTDIR,
-// MIX_ARCHIVES, MIX_REBAR3, each a path of a package's layer).
+// MIX_ARCHIVES, MIX_REBAR3, each a path of a package's layer; their
+// variables).
 export const ENV = {
   // Home is not the project's: Mix's, Hex's and the tools' caches and
   // escripts are kept with the project (files.ts) but are not its files.
@@ -35,8 +37,8 @@ export const ENV = {
 
 // Every node's environment on `packages`: the runtime's own under the
 // packages' (OTP's ROOTDIR; Elixir's MIX_ARCHIVES and MIX_REBAR3, the
-// rebar3 escript Mix builds rebar3 dependencies with, which the page's
-// rebar3 program runs).
+// rebar3 escript Mix builds rebar3 dependencies with, which runs by its
+// #! line).
 export const environment = (packages: Site): Record<string, string> => ({
   ...ENV,
   ...packages.environment(),
@@ -45,13 +47,19 @@ export const environment = (packages: Site): Record<string, string> => ({
 // The node's own tree around the installation (/work and /tmp may be
 // shared: files.js). dns: names other than the hosts file's are asked of
 // the page's DNS at 127.0.0.53 (UDP and TCP port 53; Tailscale's resolver,
-// docs/tailscale.md), else they do not resolve. inotifywait: the page's
-// (programs/inotifywait.ts) is on PATH, for file_system (Phoenix's live
-// reload); without it file_system only warns, where its port would fail.
-// bin: the packages' commands (Site.bin), each linked from /usr/bin.
+// docs/tailscale.md), else they do not resolve.
+// workerPrograms: the packages' worker programs (Site.workerPrograms),
+// on PATH. bin: the packages' commands (Site.bin), each linked from /usr/bin.
+// pagePrograms: the page programs (Site.pagePrograms: esbuild, tailwind,
+// inotifywait, with their packages), on PATH.
 export function prepare(
   root: Dir,
-  { dns = false, inotifywait = false, bin = new Map<string, string>() } = {},
+  {
+    dns = false,
+    workerPrograms = [] as string[],
+    bin = new Map<string, string>(),
+    pagePrograms = [] as string[],
+  } = {},
 ): void {
   root.mkdirs('work');
   root.mkdirs('tmp');
@@ -76,26 +84,18 @@ export function prepare(
         '{host, {127,0,0,1}, ["localhost"]}.\n{host, {0,0,0,0,0,0,0,1}, ["localhost"]}.\n',
     ),
   );
-  // The packages' commands (mix: Mix's script, which the mix launcher
-  // runs), and stand-ins for the programs the node finds on PATH
-  // (os:find_executable, System.cmd) that are the page's or the
-  // launchers' (worker/index.ts command).
+  // The packages' commands (Elixir's scripts: bin/elixir, bin/mix, …,
+  // which run as their #! lines say: shebang.ts), and stand-ins for the
+  // programs the node finds on PATH (os:find_executable, System.cmd) that
+  // are the page's, or OTP's (worker/index.ts command).
   for (const [name, target] of bin) root.put(`usr/bin/${name}`, new Symlink(target));
   for (const name of [
     'git',
-    'esbuild',
-    'tailwind',
     'make',
-    // Node.js, npm and npx, on the page (programs/nodejs.ts, npm.ts).
-    'node',
-    'npm',
-    'npx',
-    // Claude Code, its JavaScript on that Node (programs/claude/claude.ts).
-    'claude',
+    // The packages' worker programs (node).
+    ...workerPrograms,
     'sh',
     'bash',
-    'elixir',
-    'iex',
     'erl',
     'escript',
     // coreutils.wasm's, and the site's other WASI programs (coreutils.ts
@@ -103,7 +103,7 @@ export function prepare(
     ...REGISTRY.keys(),
     // The shell's own processes (utilities.ts UTILITIES).
     ...Object.keys(UTILITIES),
-    ...(inotifywait ? ['inotifywait'] : []),
+    ...pagePrograms,
   ])
     if (!bin.has(name)) root.put(`usr/bin/${name}`, new File());
   // What git starts by name from its exec path (on PATH when it runs sh):
@@ -117,7 +117,5 @@ export function prepare(
 // library build (make), or null.
 export const programs = (fs: Vfs, nif: NifSource = () => null): Programs => ({
   memsup,
-  esbuild,
-  tailwind,
   make: make(fs, nif),
 });

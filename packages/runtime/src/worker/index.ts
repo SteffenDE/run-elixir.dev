@@ -26,14 +26,16 @@ import { sharedClient, type Shared } from '../wasi/shared';
 import { environment, prepare, programs } from '../setup';
 import { vfs } from '../vfs';
 import { words } from '../sh';
+import { interpret } from '../shebang';
 import type { NifSource } from '../programs';
 import type { FilesChannel } from '../host/files';
 import { Channel, END, onPage } from './channel';
 import { Process } from '../wasi/process';
-import { backendNif, get } from './nif';
+import { backendNif } from './nif';
 import { brush, type BrushOptions, type Run } from './brush';
 import { REGISTRY, isProgram, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
+import { serviceUrl, siteFetch, siteGetSync, useLink } from '../lib/apexLink';
 import { UTILITIES } from '../utilities';
 import {
   HOSTED_LIMIT,
@@ -55,7 +57,7 @@ import { SCHEDULERS, runBeam, sharedMemory } from './beam';
 // (it answers with its page).
 async function loadModule(url: URL | null): Promise<WebAssembly.Module | null> {
   if (!url) return null;
-  const response = await fetch(url);
+  const response = await siteFetch(url);
   const bytes = new Uint8Array(await response.arrayBuffer());
   if (!response.ok || bytes[0] !== 0 || bytes[1] !== 0x61) return null;
   return WebAssembly.compile(bytes);
@@ -92,6 +94,8 @@ interface Start {
   brush?: WebAssembly.Module;
   coreutils?: WebAssembly.Module;
   beam?: WebAssembly.Module;
+  // A port to the exec frame's worker (lib/apexLink.ts): the services.
+  link?: MessagePort | null;
 }
 
 // files.ts's SHARED (that module is files.js's worker, not one to import).
@@ -117,94 +121,16 @@ function join(cwd: string, path: string): string {
   return '/' + out.join('/');
 }
 
-// Elixir's launchers' command lines (bin/elixir, bin/iex, bin/mix), and
-// escript's (bin/escript, with the flags of the script's %%! line), from
-// where the site's packages are (setLaunch): Elixir's root (lib/APP/ebin
-// below it), Mix's script (the elixir package's bin/mix, /usr/bin/mix) and
-// OTP's root (its boot scripts). The Hex esbuild and tailwind packages
-// run the page's programs (their :path, unless a project's config sets
-// one), so no project downloads them.
-let ELIXIR: string[] = [];
-let MIX = '/usr/bin/mix';
+// The BEAM's own commands, the native programs a real OTP has (erlexec,
+// escript): erl, and escript with the flags of the script's %%! line.
+// Elixir's commands are the elixir package's scripts (bin/elixir, bin/iex,
+// bin/mix), which run as their #! lines say (shebang.ts) and end in erl.
+// escript boots from OTP's root (setLaunch).
 let NO_DOT_ERLANG = '';
 function setLaunch(packages: Site): void {
-  const elixir = packages.elixir();
   const otp = packages.otp();
-  if (!elixir || !otp) throw new Error('this site has no OTP and Elixir packages with files');
-  ELIXIR = [
-    '-noshell',
-    '-elixir_root',
-    `${elixir.root}/lib`,
-    '-pa',
-    `${elixir.root}/lib/elixir/ebin`,
-    '-esbuild',
-    'path',
-    '<<"/usr/bin/esbuild">>',
-    '-tailwind',
-    'path',
-    '<<"/usr/bin/tailwind">>',
-  ];
-  MIX = packages.bin().get('mix') ?? '/usr/bin/mix';
+  if (!otp) throw new Error('this site has no OTP package with files');
   NO_DOT_ERLANG = `${otp.root}/bin/no_dot_erlang`;
-}
-// bin/elixir's options, up to the first argument that is none: those for
-// erl (--sname a, --cookie c, --hidden, --erl "flags", …) as erl's, and
-// the others, with what follows, for Elixir's CLI.
-const ELIXIR_TAKES: Record<string, number> = {
-  '+elixirc': 0,
-  '+iex': 0,
-  '-v': 0,
-  '--no-halt': 0,
-  '--color': 0,
-  '--no-color': 0,
-  '-e': 1,
-  '-r': 1,
-  '-pr': 1,
-  '-pa': 1,
-  '-pz': 1,
-  '--eval': 1,
-  '--remsh': 1,
-  '--dot-iex': 1,
-  '--dbg': 1,
-  '--rpc-eval': 2,
-};
-function launcher(args: string[]): { erl: string[]; cli: string[] } {
-  const erl: string[] = [];
-  const cli: string[] = [];
-  let i = 0;
-  while (i < args.length) {
-    const [arg, value] = [args[i], args[i + 1]];
-    if (arg in ELIXIR_TAKES) {
-      cli.push(...args.slice(i, i + 1 + ELIXIR_TAKES[arg]));
-      i += 1 + ELIXIR_TAKES[arg];
-    } else if (arg === '--hidden') {
-      erl.push('-hidden');
-      i += 1;
-    } else if (arg === '--erl' && value !== undefined) {
-      erl.push(...words(value));
-      i += 2;
-    } else if ((arg === '--sname' || arg === '--name') && value !== undefined) {
-      erl.push(arg.slice(1), value);
-      i += 2;
-    } else if (arg === '--cookie' && value !== undefined) {
-      erl.push('-setcookie', value);
-      i += 2;
-    } else if (arg === '--boot' && value !== undefined) {
-      erl.push('-boot', value);
-      i += 2;
-    } else if (arg === '--erl-config' && value !== undefined) {
-      erl.push('-config', value);
-      i += 2;
-    } else if (
-      (arg === '--logger-otp-reports' || arg === '--logger-sasl-reports') &&
-      value !== undefined
-    ) {
-      if (value === 'true' || value === 'false')
-        erl.push('-logger', `handle_${arg.slice(9, -8)}_reports`, value);
-      i += 2;
-    } else break;
-  }
-  return { erl, cli: [...cli, ...args.slice(i)] };
 }
 
 // The project's cookie (PLAYGROUND_COOKIE, from the page) for a node whose
@@ -233,20 +159,6 @@ function command(
   switch (name) {
     case 'erl':
       return args;
-    case 'elixir': {
-      const { erl, cli } = launcher(args);
-      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', ...cli];
-    }
-    case 'mix': {
-      const { erl, cli } = launcher(args);
-      return [...ELIXIR, ...erl, '-s', 'elixir', 'start_cli', '-extra', MIX, ...cli];
-    }
-    case 'iex': {
-      const { erl, cli } = launcher(args);
-      // iex -S mix ARGS runs Mix's script under IEx.
-      const rest = cli[0] === '-S' && cli[1] === 'mix' ? [MIX, ...cli.slice(2)] : cli;
-      return [...ELIXIR, ...erl, '-user', 'elixir', '-extra', '--no-halt', '+iex', ...rest];
-    }
     case 'escript':
       if (!args.length) return null;
       return [
@@ -299,8 +211,10 @@ onmessage = async ({
     brush: shellModule,
     coreutils: toolsModule,
     beam: beamModule,
+    link,
   },
 }: MessageEvent<Start>) => {
+  useLink(link);
   setSite(siteRef);
   const packages = artifacts();
   setLaunch(packages);
@@ -311,7 +225,9 @@ onmessage = async ({
     // The emulator (beam.mjs) loads itself as a node starts.
     const [images, manifest, brushModule] = await Promise.all([
       tars ??
-        Promise.all(boots.map((boot) => fetch(packages.boot(boot)).then((r) => r.arrayBuffer()))),
+        Promise.all(
+          boots.map((boot) => siteFetch(packages.boot(boot)).then((r) => r.arrayBuffer())),
+        ),
       listed ?? packages.tree(),
       // The shell (brush.ts), if the site has it: the terminal's, or a
       // node's sh -c.
@@ -331,8 +247,9 @@ onmessage = async ({
     }
     prepare(root, {
       dns: udpPorts.includes(53),
-      inotifywait: pagePrograms.includes('inotifywait'),
+      workerPrograms: [...packages.workerPrograms().keys()],
       bin: packages.bin(),
+      pagePrograms: [...packages.pagePrograms().keys()],
     });
     const sharedFs: Shared | null = files
       ? { prefixes: SHARED, call: sharedClient(files.doorbell, files.channel) }
@@ -352,7 +269,7 @@ onmessage = async ({
     const module = () => {
       if (compiled === undefined) {
         const url = packages.multicall();
-        const [status, bytes] = url ? get(url) : [0, null];
+        const [status, bytes] = url ? siteGetSync(url) : [0, null];
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         compiled = wasm ? new WebAssembly.Module(bytes as Uint8Array<ArrayBuffer>) : null;
       }
@@ -366,7 +283,7 @@ onmessage = async ({
       const url = REGISTRY.get(name)?.url;
       if (!url) return null;
       if (!others.has(url.href)) {
-        const [status, bytes] = get(url);
+        const [status, bytes] = siteGetSync(url);
         const wasm = status === 200 && bytes?.[0] === 0 && bytes[1] === 0x61;
         others.set(
           url.href,
@@ -582,9 +499,9 @@ onmessage = async ({
     ): Found | null => {
       const name = program.split('/').pop()!;
       const read = (path: string) => fs.read(join(at, path));
-      // A path's first bytes (a relative one's from `at`: git's hooks; a
-      // name's, a script's on PATH, as execvp finds it: ~/bin's, the
-      // stubs are empty).
+      // Its file (a relative path's from `at`: git's hooks; a name's, a
+      // script on PATH, as execvp finds it: ~/bin's, the packages' bin;
+      // the stand-ins are empty).
       const path = program.startsWith('/')
         ? program
         : program.includes('/')
@@ -594,14 +511,17 @@ onmessage = async ({
               .filter(Boolean)
               .map((dir) => join(at, `${dir}/${program}`))
               .find((candidate) => (fs.read(candidate)?.length ?? 0) > 2) ?? null);
-      const head = path ? fs.read(path)?.subarray(0, 64) : null;
-      const shebang = head ? new TextDecoder().decode(head) : '';
-      const argv =
-        command(name, given, read) ??
-        (/^#!.*\bescript\b/.test(shebang) ? command('escript', [program, ...given], read) : null);
+      // A script: what its #! line names runs it (shebang.ts), as execve
+      // would: sh (a git hook, Elixir's bin/elixir), or a program by name
+      // (bin/mix's elixir, an escript's escript, a script's node).
+      const interpreted = path ? interpret(path, given, read, vars) : null;
+      if (interpreted)
+        return isSh(interpreted.program)
+          ? { script: interpreted.args }
+          : find(interpreted.program, interpreted.args, at, vars);
+      // OTP's own commands (erl, escript): a node.
+      const argv = command(name, given, read);
       if (argv) return { node: argv };
-      // A script for sh (a git hook, #!/bin/sh or #!/usr/bin/env bash).
-      if (/^#!.*\b(sh|bash)\b/.test(shebang)) return { script: [path!, ...given] };
       // git's dashed commands (git starts them by name): its scripts from its
       // exec path (git-submodule), and git.wasm as a transport's other end
       // (git-upload-pack); another git-NAME is none (an alias's, then).
@@ -617,8 +537,6 @@ onmessage = async ({
       const own = isProgram(name) ? load(name) : null;
       if (own) return { wasm: own };
       if (pagePrograms.includes(name)) return { page: name, args: given };
-      if (/^#!.*\bnode\b/.test(shebang) && pagePrograms.includes('node'))
-        return { page: 'node', args: [program, ...given] };
       const tool = isTool(name) ? module() : null;
       return tool ? { wasm: tool } : null;
     };
@@ -646,7 +564,7 @@ onmessage = async ({
       // git's transport for a remote (git.wasm starts it): HTTPS through
       // the site's proxy.
       if (program.split('/').pop() === 'git' && /^remote-https?$/.test(given[0] ?? ''))
-        return remoteHelper(throughProxy(location.origin));
+        return remoteHelper(throughProxy(serviceUrl('git')), siteFetch);
       const found = find(program, given, at, vars);
       if (!found) return null;
       if ('page' in found) return pageProgram(found.page, found.args);

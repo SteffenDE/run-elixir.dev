@@ -1,22 +1,13 @@
 // A package's NIF library built to WebAssembly, for make (programs.ts):
-// the backend's.
+// the backend's, which the apex's worker asks (lib/apexLink.ts: the
+// backend sees the apex's Origin).
+import { serviceUrl, siteGetSync as get } from '../lib/apexLink';
 import type { Channel } from './channel';
-import { artifacts, site } from './site';
+import { artifacts } from './site';
 
-// GET url, synchronously: [status, bytes] (status 0 when it failed).
-export function get(url: string | URL): [number, Uint8Array | null];
-export function get(url: string | URL, binary: false): [number, string | null];
-export function get(url: string | URL, binary = true): [number, Uint8Array | string | null] {
-  const request = new XMLHttpRequest();
-  request.open('GET', url, false);
-  if (binary) request.responseType = 'arraybuffer';
-  try {
-    request.send();
-  } catch {
-    return [0, null];
-  }
-  return [request.status, binary ? new Uint8Array(request.response) : request.responseText];
-}
+// The backend's answer's own URL (/api/v1/nif/NAME/VERSION/library.tar)
+// as the service's.
+const nifUrl = (path: string) => serviceUrl(`nif/${path.replace(/^.*\/api\/v1\/nif\//, '')}`);
 
 // A tar (ustar), and not the page a site answers a path it lacks with.
 const isTar = (bytes: Uint8Array | null): bytes is Uint8Array =>
@@ -43,9 +34,8 @@ export function backendNif(
   // The NIF ABI the site's OTP loads (docs/nif.md): the backend builds for
   // one, and refuses a request for another.
   const abi = artifacts().find('nifAbi')?.value ?? '';
-  const api = site(
-    `/api/v1/nif/${encodeURIComponent(name)}/${encodeURIComponent(version)}` +
-      `?abi=${encodeURIComponent(abi)}`,
+  const api = nifUrl(
+    `${encodeURIComponent(name)}/${encodeURIComponent(version)}?abi=${encodeURIComponent(abi)}`,
   );
   const tell = (status: string | undefined, error: string | null = null) =>
     postMessage({ kind: 'nif', name, version, status, error });
@@ -57,7 +47,7 @@ export function backendNif(
       answer = JSON.parse(body as string);
     } catch {}
     if (code === 200 && answer?.url) {
-      const [status, tar] = get(new URL(answer.url, api));
+      const [status, tar] = get(nifUrl(answer.url));
       if (status === 200 && isTar(tar)) {
         if (last) report(`${name} ${version} is built`);
         tell('succeeded');

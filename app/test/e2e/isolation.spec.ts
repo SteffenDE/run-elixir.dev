@@ -23,13 +23,17 @@ test("the project runs in an exec frame of the usercontent domain's", async ({
 }) => {
   const id = await newProject(page, 'empty');
   await prompted(page, 1);
-  const src = await page.locator('iframe[src*="/exec.html"]').getAttribute('src');
-  // The runtime package's page (docs/packages.md).
+  // The usercontent domain's bootstrap, on the project's origin, whose
+  // name is salted (not the id): it loads the runtime package's page below
+  // its bridge (docs/frames.md, "Bridge mode").
+  const src = await page
+    .locator('iframe[src^="http://e-"][src$="/bridge.html"]')
+    .first()
+    .getAttribute('src');
   expect(src).toMatch(
-    new RegExp(
-      `^http://e-${id}\\.${USERCONTENT.replace(/\./g, '\\.')}/npm/@elixir-playground/runtime@[^/]+/exec\\.html$`,
-    ),
+    new RegExp(`^http://e-[a-z0-9]{10}\\.${USERCONTENT.replace(/\./g, '\\.')}/bridge\\.html$`),
   );
+  expect(src).not.toContain(id);
   // Playwright reaches no frame of another site in Firefox.
   if (browserName === 'firefox') return;
   const exec = page.frames().find((frame) => frame.url().includes('/exec.html'))!;
@@ -79,7 +83,11 @@ module.exports = require("tailwindcss/plugin")(function ({ addBase }) {
   await writeText(page, APP_CSS, `${css}\n@plugin "../vendor/probe.js";\n`);
   await expect
     .poll(() => readText(page, BUILT_CSS).catch(() => ''), { timeout: 120_000 })
-    .toContain(`e-${id}.${USERCONTENT}`);
+    .toMatch(
+      new RegExp(`--probe-origin: "http://e-[a-z0-9]{10}\\.${USERCONTENT.replace(/\./g, '\\.')}"`),
+    );
+  // Its origin's name is salted, not the project's id.
+  expect(await readText(page, BUILT_CSS)).not.toContain(`e-${id}.`);
   // A permitted shared update proves the forged messages reached the
   // receiver; foreign paths and traversal through its links stay out.
   await expect
