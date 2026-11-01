@@ -264,13 +264,16 @@ until the site is deployed.
 # The apex's headers, and the usercontent domain's (frames.md). No other
 # site frames the apex's pages (frames.md, Who may bridge); a former
 # project origin's storage.html is framed by the apex ({args[0]}).
+# Each header below has a matcher of its own, none overlapping: Caddy
+# runs a directive without a matcher after those with one, so a general
+# value would replace the exceptions'.
 (apex) {
 	header {
 		Cross-Origin-Opener-Policy same-origin
 		Cross-Origin-Embedder-Policy require-corp
-		Content-Security-Policy "frame-ancestors 'self'"
 	}
-	header Cross-Origin-Resource-Policy same-site
+	@page not path /storage.html
+	header @page Content-Security-Policy "frame-ancestors 'self'"
 	@storage path /storage.html
 	header @storage Content-Security-Policy "frame-ancestors 'self' https://{args[0]}"
 	# The packages and the recordings: the frames' workers on the
@@ -280,6 +283,8 @@ until the site is deployed.
 		Access-Control-Allow-Origin *
 		Cross-Origin-Resource-Policy cross-origin
 	}
+	@private not path /npm/* /boot/*
+	header @private Cross-Origin-Resource-Policy same-site
 }
 # The bridge's bootstrap is the usercontent domain's alone (frames.md,
 # Who may bridge): the apex serves neither its directory nor a package's
@@ -470,8 +475,13 @@ phoenix-playground.steffend.me {
 
 The `services` snippet and the usercontent domain's 404s were written on
 2026-10-29; `forward_auth`, the `frame-ancestors` headers and
-`nobootstrap` on 2026-10-30. None of them has been run against a live
-Caddy. `serve.py` implements the same rules and is what the tests check.
+`nobootstrap` on 2026-10-30. They went live on 2026-11-01. In that first
+version, `(apex)` set `frame-ancestors 'self'` and CORP `same-site` without
+a matcher. Caddy applied them after the `/storage.html` and `/npm/`
+exceptions, so the exceptions were lost: every project waited 5 seconds
+for its former origin's storage frame (`migrate.ts`). The snippet above
+gives each header its own matcher. `serve.py` implements the same rules
+and is what the tests check.
 
 **Which layer enforces what:**
 

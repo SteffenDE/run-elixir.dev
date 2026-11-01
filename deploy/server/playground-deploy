@@ -161,6 +161,11 @@ check() {
   done
   "${curl[@]}" -o /dev/null -D - "$base/" | grep -qi "^content-security-policy: frame-ancestors 'self'" ||
     { echo "check: / has no frame-ancestors 'self'" >&2; return 1; }
+  # The apex frames a former project origin's storage.html (frames.md):
+  # without its exception, opening a project waits for it to time out.
+  "${curl[@]}" -o /dev/null -D - "$base/storage.html" |
+    grep -qi "^content-security-policy: frame-ancestors 'self' https://$DOMAIN" ||
+    { echo "check: /storage.html does not let https://$DOMAIN frame it" >&2; return 1; }
   "${curl[@]}" -o /dev/null -D - "$base$site" | grep -qi '^cache-control:.*immutable' ||
     { echo "check: $site is not immutable" >&2; return 1; }
   # A directory's page, not the app's (Caddy's try_files names it).
