@@ -46,7 +46,14 @@ import type { WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '../lib/share';
 import { loadSite, previewOrigin, previewOrigins } from '../lib/site';
-import { countReads, reads, serviceSocket, siteRoot, useApexLink } from '../lib/apexLink';
+import {
+  countReads,
+  reads,
+  readsUnderway,
+  serviceSocket,
+  siteRoot,
+  useApexLink,
+} from '../lib/apexLink';
 
 // What create() starts the project with (api/sandbox.ts).
 export interface ExecStart {
@@ -871,7 +878,7 @@ const handlers = {
   },
   debug: () => ({
     // The site's files read so far (docs/frames.md, the measurements).
-    reads: structuredClone(reads),
+    reads: { ...structuredClone(reads), ...readsUnderway() },
     bridge: bridge?.debug(),
     nodes: Object.fromEntries([...processes].map(([id, { node }]) => [id, node.debug()])),
     commands: [...commands].map(([node, command]) => ({
