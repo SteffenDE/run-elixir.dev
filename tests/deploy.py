@@ -144,7 +144,8 @@ if "-D" in args:
     print("Cross-Origin-Embedder-Policy: require-corp")
     print("Cross-Origin-Resource-Policy: cross-origin")
     print("Access-Control-Allow-Origin: *")
-    print("Content-Security-Policy: frame-ancestors 'self'")
+    print("Content-Security-Policy: frame-ancestors 'self'" +
+          (" https://run-elixir.dev" if path == "/storage.html" else ""))
 if "-o" in args:
     output = args[args.index("-o") + 1]
     if output != "/dev/null":
