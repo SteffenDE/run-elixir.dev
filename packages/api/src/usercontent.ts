@@ -7,6 +7,7 @@ import { HOST, type Host } from '@elixir-playground/runtime/packages/check';
 import type { Boot } from '@elixir-playground/runtime/packages/types';
 import {
   domainHost,
+  domainName,
   domainOrigin,
   domainScheme,
   loadSite,
@@ -212,9 +213,9 @@ export async function useBridge(
     content,
     table: {
       sources,
-      // The frames' site: this page is their apex, and their only parent
-      // (with its scheme, which may not be theirs).
-      config: { domain: location.origin, usercontent: domainOrigin(options.domain) },
+      // The frames' site: this page is their apex, and their only parent.
+      // Each with its scheme where the frames would not take it.
+      config: { domain: domainName(location.host), usercontent: domainName(options.domain) },
       services,
       // A Node.js process reads the tls package's files from there.
       connect: [...new Set(sources.map(([, url]) => url))],

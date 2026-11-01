@@ -30,8 +30,20 @@ export function domainScheme(domain: string): 'http:' | 'https:' {
   if (written) throw new Error(`${domain}: a domain is http or https`);
   const host = domain.replace(/\/+$/, '').toLowerCase();
   if (host === location.host.toLowerCase()) return location.protocol as 'http:' | 'https:';
-  const name = host.replace(/:\d+$/, '');
-  return name === 'localhost' || name.endsWith('.localhost') || name !== host ? 'http:' : 'https:';
+  return defaultScheme(host);
+}
+// The scheme of a host written without one, anywhere but on itself.
+function defaultScheme(host: string): 'http:' | 'https:' {
+  const name = host.toLowerCase().replace(/:\d+$/, '');
+  return name === 'localhost' || name.endsWith('.localhost') || name !== host.toLowerCase()
+    ? 'http:'
+    : 'https:';
+}
+// The domain as another origin names it: its host where that has the
+// default scheme there (as runtime 2.0's frames read it), else its origin.
+export function domainName(domain: string): string {
+  const host = domainHost(domain);
+  return defaultScheme(host) === domainScheme(domain) ? host : domainOrigin(domain);
 }
 // A domain without its scheme: a host, with a port if any.
 export const domainHost = (domain: string) => domain.replace(SCHEME, '').replace(/\/+$/, '');

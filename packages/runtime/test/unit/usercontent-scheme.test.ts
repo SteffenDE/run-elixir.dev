@@ -159,3 +159,34 @@ describe("the packages' bases", () => {
     ]);
   });
 });
+
+describe("the frames' site", () => {
+  const config = async (page: string, domain: string) => {
+    on(page, { name: '@elixir-playground/runtime', version: '2.0.0' });
+    const { useBridge } = await api();
+    const { bridge } = await useBridge({ domain }, '/npm/runtime/', [], null, null);
+    return bridge.table.config;
+  };
+
+  it('names each domain by its host where the default scheme is right', async () => {
+    expect(await config('https://tidewave.example/', SHARED)).toEqual({
+      domain: 'tidewave.example',
+      usercontent: SHARED,
+    });
+    expect(await config('http://localhost:9000/', 'bridge.localhost:8081')).toEqual({
+      domain: 'localhost:9000',
+      usercontent: 'bridge.localhost:8081',
+    });
+  });
+
+  it('names a scheme where the default is wrong', async () => {
+    expect(await config('https://localhost:8443/', 'https://bridge.localhost:8444')).toEqual({
+      domain: 'https://localhost:8443',
+      usercontent: 'https://bridge.localhost:8444',
+    });
+    expect(await config('http://tidewave.test/', SHARED)).toEqual({
+      domain: 'http://tidewave.test',
+      usercontent: SHARED,
+    });
+  });
+});

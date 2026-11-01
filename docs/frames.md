@@ -194,9 +194,11 @@ So a page on `http://localhost:9000` frames
 `https://e-KEY.run-elixir-usercontent.org`. Before 2026-11-01 it framed
 the http origin, which Cloudflare answers with a 308 redirect to https.
 That redirect has no CORP header, so the cross-origin isolated page blocked
-the frame. `create()` passes the domain to the frames with its scheme, and
-passes the page's own origin as the apex (`playground.json`'s `domain`),
-so an https frame accepts messages from an http parent.
+the frame. The frames read the apex and the shared domain from their
+`playground.json` (the bridge table's `config`). `create()` writes each
+domain with its scheme when the frames would otherwise pick the wrong
+one, so an https frame accepts messages from an http parent. Otherwise
+it writes the host alone, as runtime 2.0 reads it.
 
 When the page serves its packages over http and the frames are https,
 the frames read the package files below the bridge (through the service
@@ -210,7 +212,7 @@ Chromium and Firefox allow them there.
    `v-KEY-PORT` or a shared frame's `NAME-HASH`). The bootstrap checks
    `/bridge.json`, then tells its parent that it loaded.
 2. The apex's main thread answers with the frame's page (for example,
-   `npm/@elixir-playground/runtime@2.0.0/exec.html`) and a port to the
+   `npm/@elixir-playground/runtime@2.1.0/exec.html`) and a port to the
    **apex's worker** (`packages/api/src/apexWorker.ts`), a dedicated worker
    on the apex's origin.
 3. The bootstrap registers `/sw.js`, waits for it to activate, picks a
