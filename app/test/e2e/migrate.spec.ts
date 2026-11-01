@@ -22,6 +22,13 @@ test('a project’s stores on its former origin move to the apex, and go from th
   const id = await newProject(page, 'empty');
   await prompted(page, 1);
   await page.goto(`${APEX}/`);
+  // The home page moves every listed project's former stores in the
+  // background (a new project's open does not), and marks it moved: done
+  // first, so that it does not mark it again after the reset below.
+  await page.waitForFunction(
+    (id) => (JSON.parse(localStorage.getItem('playground-moved') ?? '[]') as string[]).includes(id),
+    id,
+  );
   // As the apex never had it: its stores gone, not marked moved.
   await page.evaluate(
     async ([files, pg]) => {

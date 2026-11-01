@@ -1,4 +1,5 @@
-// Open the fixture's page and wait for its project's answer (main.js).
+// Open the fixture's page (PAGE, by default run.sh's) and wait for its
+// project's answer (main.js).
 import { chromium } from '../../node_modules/playwright/index.mjs';
 
 const port = process.env.PORT || 8099;
@@ -9,7 +10,7 @@ try {
     if (message.type() === 'error') console.log(`console: ${message.text()}`);
   });
   const started = Date.now();
-  await page.goto(`http://apex.localhost:${port}/web/`);
+  await page.goto(process.env.PAGE || `http://apex.localhost:${port}/web/`);
   const result = await page.evaluate(() => window.result);
   console.log(`${JSON.stringify(result)} in ${Date.now() - started} ms`);
   if (result.out !== '42\n/work\n' || result.exit?.code !== 0) process.exitCode = 1;

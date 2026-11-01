@@ -174,7 +174,9 @@ jobs:
   # A site built with @elixir-playground/vite over the site's packages, as
   # npm installs them: the packages its own files (below a Vite base), a
   # shared usercontent domain's hosts the plugin's, `elixir -e` in
-  # Chromium (tests/vite-site/run.sh; docs/frames.md).
+  # Chromium (tests/vite-site/run.sh; docs/frames.md). And a plain Vite
+  # app without the plugin, the packages on another origin, the apex
+  # worker where Vite put it (tests/vite-site/plain.sh).
   vite-site:
     needs: site
     runs-on: ubuntu-24.04
@@ -193,6 +195,7 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: tests/vite-site/run.sh
+      - run: tests/vite-site/plain.sh
 
   e2e:
     name: e2e (${{ matrix.browser }} ${{ matrix.shard }}/4)

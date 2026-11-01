@@ -371,7 +371,7 @@ test('a Phoenix app from an archive boots, and Tidewave answers on it', async ({
   browserName,
 }) => {
   test.skip(
-    !existsSync(new URL('../embed/archives/demo.tar.gz', import.meta.url)),
+    !existsSync(new URL('../embedder/archives/demo.tar.gz', import.meta.url)),
     'needs tests/embed-archive.sh',
   );
   const took = await embedded(page, { archive: '/archives/demo.tar.gz' });

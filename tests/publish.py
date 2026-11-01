@@ -19,8 +19,23 @@ publish = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publish)
 
 
-def package(directory, version, playground=None):
-    """A descriptor package laid out as build.py does, at `version`."""
+import build  # noqa: E402
+
+# The site's packages, when a build laid them out (runtime/build.py).
+SITE = ROOT / "target" / "site" / "npm" / "@elixir-playground"
+
+
+def described(name, version, playground):
+    """A descriptor as build.py's lay() makes it."""
+    return {"name": name, "version": version, "base": f"/npm/{name}@{version}/",
+            "files": {"git.wasm": {"size": 4}}, "peerDependencies": {"@elixir-playground/runtime": "^2.0.0"},
+            "playground": playground}
+
+
+def package(directory, version, playground=None, apex=None):
+    """A descriptor package laid out as build.py does, at `version`: with
+    an apex plugin of its own (`apex`, as the elixir package's hex.js), its
+    index.js exports it beside the descriptor."""
     os.makedirs(directory)
     manifest = {"name": "@elixir-playground/git", "version": version,
                 "playground": playground or {"programs": {"git": {"module": "git.wasm"}}}}
@@ -28,11 +43,14 @@ def package(directory, version, playground=None):
         json.dump(manifest, f)
     with open(os.path.join(directory, "git.wasm"), "wb") as f:
         f.write(b"\0asm")
-    descriptor = {"name": manifest["name"], "version": version,
-                  "base": f"/npm/@elixir-playground/git@{version}/", "playground": manifest["playground"]}
     with open(os.path.join(directory, "index.js"), "w") as f:
-        f.write(f"// The package.\nexport default {json.dumps(descriptor, indent=1)};\n")
+        f.write(build.descriptor_module(described(manifest["name"], version, manifest["playground"]), apex))
     return manifest
+
+
+def read(path):
+    with open(path) as f:
+        return f.read()
 
 
 class Publish(unittest.TestCase):
@@ -58,19 +76,66 @@ class Publish(unittest.TestCase):
             self.assertNotEqual(first, third)
 
     def test_a_descriptor_names_its_published_version(self):
+        # Each index.js build.py writes: the descriptor alone, and the
+        # descriptor beside its plugin. Only the version and base change.
+        for apex in (None, "hex.js"):
+            with self.subTest(apex=apex), tempfile.TemporaryDirectory() as top:
+                publish.STAGE = os.path.join(top, "stage")
+                manifest = package(os.path.join(top, "a"), "1.0.0", apex=apex)
+                target, staged, _ = publish.stage(manifest["name"], os.path.join(top, "a"), manifest)
+                publish.set_version(target, staged, "1.0.3")
+                with open(os.path.join(target, "package.json")) as f:
+                    self.assertEqual(json.load(f)["version"], "1.0.3")
+                text = read(os.path.join(target, "index.js"))
+                descriptor, _, _ = publish.descriptor(text)
+                self.assertEqual(descriptor["version"], "1.0.3")
+                self.assertEqual(descriptor["base"], "/npm/@elixir-playground/git@1.0.3/")
+                self.assertEqual(text, build.descriptor_module(
+                    described(manifest["name"], "1.0.3", manifest["playground"]), apex))
+
+    def test_the_digest_sets_a_plugin_descriptors_version_aside(self):
         with tempfile.TemporaryDirectory() as top:
             publish.STAGE = os.path.join(top, "stage")
-            manifest = package(os.path.join(top, "a"), "1.0.0")
-            target, staged, _ = publish.stage(manifest["name"], os.path.join(top, "a"), manifest)
-            publish.set_version(target, staged, "1.0.3")
-            with open(os.path.join(target, "package.json")) as f:
-                self.assertEqual(json.load(f)["version"], "1.0.3")
-            with open(os.path.join(target, "index.js")) as f:
-                text = f.read()
-            descriptor = json.loads(publish.DESCRIPTOR.match(text).group(2))
-            self.assertEqual(descriptor["version"], "1.0.3")
-            self.assertEqual(descriptor["base"], "/npm/@elixir-playground/git@1.0.3/")
-            self.assertTrue(text.startswith("// The package.\nexport default {"))
+            one = package(os.path.join(top, "a"), "2.0.0", apex="hex.js")
+            two = package(os.path.join(top, "b"), "2.0.1", apex="hex.js")
+            _, _, first = publish.stage(one["name"], os.path.join(top, "a"), one)
+            _, _, second = publish.stage(two["name"], os.path.join(top, "b"), two)
+            self.assertEqual(first, second)
+
+    def test_a_descriptor_it_cannot_find_stops_it(self):
+        for text in ("export const descriptor = {};\n", "export default [{\"name\": 1}];\n",
+                     "export default {\"a\": 1};\nexport default {\"b\": 2};\n", "export default {oops};\n"):
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as top:
+                manifest = package(os.path.join(top, "a"), "1.0.0")
+                with open(os.path.join(top, "a", "index.js"), "w") as f:
+                    f.write(text)
+                with self.assertRaises(SystemExit):
+                    publish.set_version(os.path.join(top, "a"), manifest, "1.0.3")
+                self.assertEqual(read(os.path.join(top, "a", "index.js")), text)
+
+    @unittest.skipUnless(SITE.is_dir(), "no site build (python3 -I runtime/build.py)")
+    def test_every_laid_descriptor(self):
+        # The index.js of each package the last build laid out that has
+        # one: the version and base change, nothing else.
+        checked = 0
+        for entry in sorted(os.listdir(SITE)):
+            directory = SITE / entry
+            manifest = json.loads(read(directory / "package.json"))
+            if "playground" not in manifest or not (directory / "index.js").exists():
+                continue
+            with self.subTest(package=entry), tempfile.TemporaryDirectory() as top:
+                (Path(top) / "index.js").write_text(read(directory / "index.js"))
+                before = read(directory / "index.js")
+                publish.set_version(top, manifest, "9.9.9")
+                after = read(Path(top) / "index.js")
+                descriptor, start, end = publish.descriptor(after)
+                self.assertEqual((descriptor["version"], descriptor["base"]),
+                                 ("9.9.9", f"/npm/{manifest['name']}@9.9.9/"))
+                old, old_start, old_end = publish.descriptor(before)
+                self.assertEqual((before[:old_start], before[old_end:]), (after[:start], after[end:]))
+                self.assertEqual({**old, "version": "9.9.9", "base": descriptor["base"]}, descriptor)
+                checked += 1
+        self.assertGreater(checked, 0)
 
     def test_registry_answers(self):
         # npm 11: an object, or the version alone; npm 12: a list of them.

@@ -58,6 +58,39 @@ describe('the apex worker', () => {
     expect(asked[1].url).toBe('https://apex.test/boot/abc/boot.tar.gz');
   });
 
+  it('types a package’s page, scripts and wasm by their extension, not the CDN’s word', async () => {
+    // jsDelivr's .html is text/plain.
+    stubFetch('<!doctype html>', { 'content-type': 'text/plain; charset=utf-8' });
+    const page = await answer(table, {
+      kind: 'get',
+      path: 'npm/@elixir-playground/git@1.0.0/exec.html',
+    });
+    expect(page.headers).toEqual([['content-type', 'text/html; charset=utf-8']]);
+    stubFetch('export {}', {});
+    const script = await answer(table, {
+      kind: 'get',
+      path: 'npm/@elixir-playground/git@1.0.0/workers/a.MJS?v=1',
+    });
+    expect(script.headers).toEqual([['content-type', 'text/javascript; charset=utf-8']]);
+    // Another extension, or none, keeps the server's type.
+    stubFetch('x', { 'content-type': 'application/x-tar' });
+    const bundle = await answer(table, {
+      kind: 'get',
+      path: 'npm/@elixir-playground/git@1.0.0/fs/bundles/1.tar',
+    });
+    expect(bundle.headers).toEqual([['content-type', 'application/x-tar']]);
+    // And an error keeps it too.
+    vi.stubGlobal(
+      'fetch',
+      async () => new Response('gone', { status: 404, headers: { 'content-type': 'text/plain' } }),
+    );
+    const missing = await answer(table, {
+      kind: 'get',
+      path: 'npm/@elixir-playground/git@1.0.0/gone.html',
+    });
+    expect(missing.headers).toEqual([['content-type', 'text/plain']]);
+  });
+
   it('answers the frame’s site configuration: this page is its apex', async () => {
     stubFetch();
     const response = await answer(table, { kind: 'get', path: 'playground.json' });

@@ -36,7 +36,10 @@ STAGE = os.path.join(ROOT, "target", "publish")
 SCOPE = "@elixir-playground"
 # Set aside while digesting: no published version is this one.
 PLACEHOLDER = "0.0.0-digest"
-DESCRIPTOR = re.compile(r"^(.*?export default )(\{.*\})(;\s*)$", re.S)
+# Where a descriptor's index.js has its descriptor, a JSON object
+# (build.py descriptor_module): after `export default `, or after
+# `const descriptor = ` when it exports the package's plugin beside it.
+DESCRIPTOR = re.compile(r"^(?:export default|const descriptor =) (?=\{)", re.M)
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build import tree_digest  # noqa: E402
@@ -72,9 +75,26 @@ def order(packages):
     return out
 
 
+def descriptor(text):
+    """The descriptor in an index.js build.py wrote, and where its JSON
+    starts and ends; None when it has none, or more than one."""
+    found = list(DESCRIPTOR.finditer(text))
+    if len(found) != 1:
+        return None
+    try:
+        value, end = json.JSONDecoder().raw_decode(text, found[0].end())
+    except ValueError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    return value, found[0].end(), end
+
+
 def set_version(directory, package, version):
     """The staged package at `version`: package.json, and a descriptor's
-    index.js (its version and base)."""
+    index.js (its version and base). A package with a `playground` field
+    and an index.js is a descriptor: one whose descriptor is not found
+    stops the publishing, as it would name another version's files."""
     with open(os.path.join(directory, "package.json"), "w") as f:
         json.dump({**package, "version": version}, f, indent=2)
         f.write("\n")
@@ -83,14 +103,14 @@ def set_version(directory, package, version):
         return
     with open(index) as f:
         text = f.read()
-    found = DESCRIPTOR.match(text)
+    found = descriptor(text)
     if not found:
-        return
-    descriptor = json.loads(found.group(2))
-    descriptor["version"] = version
-    descriptor["base"] = f"/npm/{package['name']}@{version}/"
+        sys.exit(f"{package['name']}: no descriptor in its index.js to set the version of "
+                 "(runtime/build.py descriptor_module writes it)")
+    described, start, end = found
+    described = {**described, "version": version, "base": f"/npm/{package['name']}@{version}/"}
     with open(index, "w") as f:
-        f.write(found.group(1) + json.dumps(descriptor, indent=1) + found.group(3))
+        f.write(text[:start] + json.dumps(described, indent=1) + text[end:])
 
 
 def stage(name, directory, package):

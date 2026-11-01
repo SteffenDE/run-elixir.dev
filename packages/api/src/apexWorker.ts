@@ -62,6 +62,23 @@ const text = (status: number, body: string): LinkResponse => {
 // What the frame's server would say about a file, of what its answer has.
 const KEPT = ['content-type', 'content-disposition', 'location'];
 
+// A package file's type by its extension, whatever the server that has it
+// says: jsDelivr sends .html as text/plain, which a frame would not load
+// as a page (docs/api.md). Others keep the server's.
+const TYPES: Record<string, string> = {
+  html: 'text/html; charset=utf-8',
+  js: 'text/javascript; charset=utf-8',
+  mjs: 'text/javascript; charset=utf-8',
+  wasm: 'application/wasm',
+  json: 'application/json',
+  css: 'text/css; charset=utf-8',
+};
+export function typeOf(pathname: string): string | null {
+  const name = pathname.slice(pathname.lastIndexOf('/') + 1);
+  const dot = name.lastIndexOf('.');
+  return dot > 0 ? (TYPES[name.slice(dot + 1).toLowerCase()] ?? null) : null;
+}
+
 // `rest` (a relative path, with its query) below `base`'s directory, or
 // null: a frame names the path, and nothing it names may reach another
 // path of the page's origin, or another origin. No leading or doubled
@@ -124,6 +141,12 @@ export async function answer(table: BridgeTable, request: LinkRequest): Promise<
   const response = await fetch(target, { credentials: 'omit' }).catch(() => null);
   if (!response) return text(502, `${target.href} could not be fetched.`);
   const headers = [...response.headers].filter(([name]) => KEPT.includes(name));
+  const type = response.ok ? typeOf(target.pathname) : null;
+  if (type) {
+    const at = headers.findIndex(([name]) => name === 'content-type');
+    if (at < 0) headers.push(['content-type', type]);
+    else headers[at] = ['content-type', type];
+  }
   if (table.connect?.length) headers.push(['x-playground-connect', table.connect.join(' ')]);
   return {
     status: response.status,

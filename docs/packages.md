@@ -119,6 +119,8 @@ nodejs and esbuild), elixir-X 2.0.0 (Elixir's scripts; needs the
 shell package), nodejs, esbuild, tailwind and inotify-tools 1.0.0
 (new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s
 `usercontent` changed, `EACCES` gone), vite 2.0.0 (its options changed) and pglite 1.1.0 (its peer range on api). The
+api 2.1.0 (2026-11-01) adds `usercontent.packagePath`, sets package
+files' `Content-Type` by extension, and exports `./apexWorker.js`. The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
@@ -140,6 +142,14 @@ stages them and prints what it would publish. For each package:
   newer.
 - **Staged** in `target/publish/NAME/` at that version, and published from
   there (`npm publish --access public`, with npm's credentials).
+
+A package with a `playground` field and an `index.js` is a descriptor.
+`publish.py` finds its descriptor in either form `build.py`
+(`descriptor_module`) writes: `export default {…}`, or
+`const descriptor = {…}` beside a plugin (the elixir package's Hex). When
+it finds none, publishing stops. Up to 2026-11-01 it skipped the second
+form without a word, so `elixir-1.20.4@2.0.1`'s `index.js` names 2.0.0's
+`version` and `base`.
 
 Dependencies name ranges of majors (`^1.0.0`), so a patch of one package
 needs no new version of another. The 13 packages were published at

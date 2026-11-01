@@ -985,15 +985,7 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
                      "base": f"/{NPM}/{name}@{version}/", "files": listed,
                      **({"peerDependencies": peers} if peers else {}), "playground": playground}
         with open(os.path.join(scratch, "index.js"), "w") as f:
-            if apex:
-                f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
-                        "// with its plugin.\n"
-                        f"import plugin from './{apex}';\n\n"
-                        f"const descriptor = {json.dumps(described, indent=1)};\n\n"
-                        "export default [descriptor, plugin()];\n")
-            else:
-                f.write("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
-                        f"export default {json.dumps(described, indent=1)};\n")
+            f.write(descriptor_module(described, apex))
         with open(os.path.join(scratch, "index.d.ts"), "w") as f:
             f.write(PLUGIN_TYPES if apex else DESCRIPTOR_TYPES)
         added = [*added, "index.js", "index.d.ts"]
@@ -1026,6 +1018,22 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
     if peers:
         entry["peerDependencies"] = peers
     return directory, entry
+
+
+def descriptor_module(described, apex=None):
+    """A descriptor package's index.js: its descriptor (`described`), with
+    the plugin its `apex` module makes beside it. runtime/publish.py sets
+    the descriptor's version and base where it follows `export default `
+    or `const descriptor = `: a shape of its own needs publish.py's too
+    (tests/publish.py checks each)."""
+    if apex:
+        return ("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
+                "// with its plugin.\n"
+                f"import plugin from './{apex}';\n\n"
+                f"const descriptor = {json.dumps(described, indent=1)};\n\n"
+                "export default [descriptor, plugin()];\n")
+    return ("// The package as create() takes it (@elixir-playground/api, docs/api.md).\n"
+            f"export default {json.dumps(described, indent=1)};\n")
 
 
 # Where every package is built from: npm's provenance (publish.py
@@ -1136,8 +1144,12 @@ def lay_runtime(out, runtime):
     built = lambda key, more=(): {name: os.path.join(ROOT, "packages", key, "dist", name)
                                   for name in ("index.js", "index.d.ts", "types", *more)}
     api_version = source("api")["version"]
+    # Its apex worker, for a site whose bundler does not follow index.js's
+    # `new Worker(new URL("./apexWorker.js", import.meta.url))`: create()'s
+    # usercontent.worker (docs/api.md).
+    api_fields = {**module, "exports": {**module["exports"], "./apexWorker.js": "./apexWorker.js"}}
     api, _ = lay(out, "api", api_version, built("api", ("apexWorker.js",)), {},
-                 {host["name"]: major(host["version"])}, fields=module,
+                 {host["name"]: major(host["version"])}, fields=api_fields,
                  licensed=(notices.own().extend(notices.npm("api")), {}))
     # PGlite itself is the embedder's install, which its bundler lays out.
     pglite_source = source("pglite")
