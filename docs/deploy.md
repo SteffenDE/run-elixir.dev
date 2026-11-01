@@ -519,7 +519,9 @@ production does (`/bridge.html` and `/sw.js` from `target/site/_usercontent/`,
 `/bridge.json` naming the domain, nothing else): browsers resolve
 `*.localhost` to this machine, and with two labels each is a site of its
 own (Chromium takes `localhost` for a top-level domain). `--bridge DOMAIN`
-serves a second usercontent domain the same way. `--embedders "ORIGIN
+serves a second usercontent domain the same way. `--https-bridge DOMAIN`
+serves a third one over https on DOMAIN's port, with a self-signed
+certificate that openssl makes in `target/serve-tls/`. `--embedders "ORIGIN
 …"` names the origins the services answer besides the apex (the
 backend's allowlist's stand-in), and `--embedder-host HOST
 --embedder-root DIR` serves a test embedder's page there, cross-origin

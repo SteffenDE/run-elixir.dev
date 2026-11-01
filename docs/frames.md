@@ -176,6 +176,34 @@ The shared domain serves three files on every subdomain: `/bridge.html`
 --usercontent DOMAIN` serves such a domain locally, and so does the Vite
 plugin in `vite` and `vite preview` for a `*.localhost` name.
 
+### Schemes
+
+The usercontent origins do not take the page's scheme. `site.ts`
+`domainScheme` picks one rule for every origin the api and the runtime
+build or check: the exec frame (`e-KEY`), the previews (`v-KEY-PORT`),
+the shared frames (`NAME-HASH`) and the apex.
+
+| Domain as written | Scheme |
+| --- | --- |
+| With a scheme: `https://run-elixir-usercontent.org` | That scheme (http or https only) |
+| `localhost`, `*.localhost`, or a host with a port: `bridge.localhost:8081` | http |
+| Any other host: `run-elixir-usercontent.org` | https |
+| The page's own host | The page's scheme |
+
+So a page on `http://localhost:9000` frames
+`https://e-KEY.run-elixir-usercontent.org`. Before 2026-11-01 it framed
+the http origin, which Cloudflare answers with a 308 redirect to https.
+That redirect has no CORP header, so the cross-origin isolated page blocked
+the frame. `create()` passes the domain to the frames with its scheme, and
+passes the page's own origin as the apex (`playground.json`'s `domain`),
+so an https frame accepts messages from an http parent.
+
+When the page serves its packages over http and the frames are https,
+the frames read the package files below the bridge (through the service
+worker and the apex's worker), not directly ([below](#the-data-path)).
+WebKit blocks the direct reads as mixed content, even on `*.localhost`.
+Chromium and Firefox allow them there.
+
 ### How a frame starts
 
 1. The apex frames `https://ORIGIN.SHARED/bridge.html` (`e-KEY`,
@@ -220,6 +248,10 @@ them where the page serves them, as absolute URLs, and the frame's
 workers read them there with CORS, through the HTTP cache. The page
 therefore sends `Access-Control-Allow-Origin: *` and CORP `cross-origin`
 on its package files ([api.md](api.md#what-the-page-serves)).
+
+One exception: a page that serves its packages over http to https
+frames ([Schemes](#schemes)). Its site manifest names the packages below
+the bridge, so those reads go through the service worker.
 
 A Node.js process reads the tls package's files the same way, so its
 worker's `connect-src` names those URLs. The apex's worker hints them on
