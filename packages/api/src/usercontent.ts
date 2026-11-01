@@ -8,6 +8,7 @@ import type { Boot } from '@elixir-playground/runtime/packages/types';
 import {
   domainHost,
   domainOrigin,
+  domainScheme,
   loadSite,
   siteDomain,
   usercontentDomain,
@@ -186,19 +187,24 @@ export async function useBridge(
   // with CORS: past the service worker and this page's worker, which are
   // slower and, in Firefox and WebKit, held up by a busy page
   // (docs/bridge-report.md). A package's pages (claude.html) and scripts
-  // are below the bridge.
+  // are below the bridge. Files served over http to https frames are
+  // read below the bridge too: WebKit blocks them as mixed content, even
+  // on *.localhost (docs/frames.md, "Schemes").
+  const direct = !(
+    new URL(content).protocol === 'http:' && domainScheme(options.domain) === 'https:'
+  );
   const bridged = packages.map((descriptor) => {
     const path = below(descriptor.name, descriptor.version);
     const url = belowContent(content, packagePath(options.packagePath, descriptor)).href;
     paths.set(descriptor.name, path);
     sources.push([path, url]);
-    return { ...descriptor, base: url };
+    return { ...descriptor, base: direct ? url : path };
   });
   let recordings = boot;
   if (boot) {
     const url = belowContent(content, boot.base).href;
     sources.push(['boot/', url]);
-    recordings = { ...boot, base: url };
+    recordings = { ...boot, base: direct ? url : 'boot/' };
   }
   sources.sort(([a], [b]) => b.length - a.length);
   const bridge: Bridge = {

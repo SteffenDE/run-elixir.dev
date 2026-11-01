@@ -122,3 +122,40 @@ describe("the apex's own pages", () => {
     expect(apexUrl('/x/')).toBe('https://playground.example:8443/x/');
   });
 });
+
+describe("the packages' bases", () => {
+  const descriptor = {
+    name: '@elixir-playground/otp',
+    version: '1.0.0',
+    base: '/npm/otp/',
+    files: {},
+  };
+  const bases = async (page: string, domain: string) => {
+    on(page, { name: '@elixir-playground/runtime', version: '2.0.0' });
+    const { useBridge } = await api();
+    const { packages, boot } = await useBridge(
+      { domain },
+      '/npm/runtime/',
+      [descriptor] as never,
+      { base: '/boot/' } as never,
+      null,
+    );
+    return [packages[0].base, boot!.base];
+  };
+
+  it('are where the page serves them, but below the bridge for http files in https frames', async () => {
+    expect(await bases('https://tidewave.example/', `https://${SHARED}`)).toEqual([
+      'https://tidewave.example/npm/otp/',
+      'https://tidewave.example/boot/',
+    ]);
+    expect(await bases('http://localhost:9000/', 'http://bridge.localhost:8081')).toEqual([
+      'http://localhost:9000/npm/otp/',
+      'http://localhost:9000/boot/',
+    ]);
+    // WebKit blocks an http read from an https frame (mixed content).
+    expect(await bases('http://localhost:9000/', `https://${SHARED}`)).toEqual([
+      'npm/@elixir-playground/otp@1.0.0/',
+      'boot/',
+    ]);
+  });
+});
