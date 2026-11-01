@@ -40,7 +40,7 @@ const sandbox = await create({
   relay: ['github.com', 'api.anthropic.com'],      // hosts through the site's TCP relay (relay.md); none by default
   usercontent: 'run-elixir-usercontent.org',       // the shared domain that runs project code (the default)
   // or { domain, content, worker, packagePath } (below)
-  runtime: '/npm/@elixir-playground/runtime@2.0.0/', // where this page serves the runtime package
+  runtime: '/npm/@elixir-playground/runtime@2.1.0/', // where this page serves the runtime package
   services: 'https://run-elixir.dev',              // the backend: NIF builds, git's proxy, the TCP relay
   container: document.body,                        // where the 1px exec frame goes
   onProgress: ({ phase, text }) => {},
@@ -185,7 +185,7 @@ const sandbox = await create({
     content: '/web/elixir-playground/',   // the directory the packages are below: / by default
     worker: '/assets/apexWorker.js',      // only if the bundler leaves the api's worker out
   },
-  runtime: '/npm/@elixir-playground/runtime@2.0.0/', // where this page serves it
+  runtime: '/npm/@elixir-playground/runtime@2.1.0/', // where this page serves it
   services: 'https://run-elixir.dev',
 });
 ```
