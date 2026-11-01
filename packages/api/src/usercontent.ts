@@ -41,8 +41,10 @@ export interface Bridge {
   table: BridgeTable;
   // The runtime's path below the bridge, and each package's.
   runtime: string;
-  // Where this page serves the runtime package (its package.json there).
+  // Where this page serves the runtime package (its package.json there),
+  // and what that package.json says.
   runtimeUrl: string;
+  host: Host;
   packages: Map<string, string>;
 }
 
@@ -129,14 +131,6 @@ export function contentDirectory(content: string): string {
 export const belowContent = (content: string, path: string): URL =>
   new URL(path.replace(/^\/+/, ''), content);
 
-// The runtime's path below the bridge: its own name if its path has one
-// (/npm/@elixir-playground/runtime@VERSION/), so that the service worker
-// knows a Node.js process's worker by it.
-function runtimeBelow(url: URL): string {
-  const named = url.pathname.match(/\/npm\/@elixir-playground\/(runtime@[^/]+)\/$/);
-  return `npm/@elixir-playground/${named ? named[1] : 'runtime@0.0.0'}/`;
-}
-
 // Bridge mode for these packages: the manifest's packages and recordings
 // with their bases where this page serves them, and the bridge: the table
 // of its paths (the frames' pages, worker scripts and imports, which load
@@ -151,7 +145,15 @@ export async function useBridge(
 ): Promise<{ packages: PackageDescriptor[]; boot: Boot | null; bridge: Bridge }> {
   const content = contentDirectory(options.content ?? contentPath());
   const runtimeUrl = belowContent(content, runtimePath);
-  const runtime = runtimeBelow(runtimeUrl);
+  // The runtime's path below the bridge names the runtime the page serves
+  // (its package.json), wherever the page serves it: the service worker
+  // knows a Node.js process's worker by it.
+  const host = await runtimeHost(runtimeUrl.href).catch((error: Error) => {
+    throw Object.assign(new Error(`the runtime did not load: ${error.message}`), {
+      code: 'ERUNTIME',
+    });
+  });
+  const runtime = below(host.name, host.version);
   const sources: [string, string][] = [[runtime, runtimeUrl.href]];
   const paths = new Map<string, string>();
   // The exec frame's workers read the files where this page serves them,
@@ -187,6 +189,7 @@ export async function useBridge(
     },
     runtime,
     runtimeUrl: runtimeUrl.href,
+    host,
     packages: paths,
   };
   return { packages: bridged, boot: recordings, bridge };

@@ -13,6 +13,15 @@ beforeAll(async () => {
     querySelector: (selector: string) =>
       selector.includes('playground-content') && meta !== null ? { content: meta } : null,
   });
+  // The runtime's package.json, wherever the page serves it: its version
+  // is the one its path names (latest: 2.1.3).
+  vi.stubGlobal('fetch', async (url: URL) => {
+    const path = new URL(url).pathname;
+    const named = path.match(/\/runtime@([^/+]+)[^/]*\/package\.json$/);
+    if (!named) return new Response('', { status: 404 });
+    const version = named[1] === 'latest' ? '2.1.3' : named[1];
+    return new Response(JSON.stringify({ name: '@elixir-playground/runtime', version }));
+  });
   api = await import('../../../api/src/usercontent');
 });
 afterEach(() => {
@@ -82,4 +91,40 @@ it('keeps a base that is a URL of its own', async () => {
     { relay: null, nif: null, git: null },
   );
   expect(packages[0].base).toBe('https://cdn.test/otp/');
+});
+
+it('names the runtime below the bridge by its package.json, wherever the page serves it', async () => {
+  // unpkg's layout, the package at the CDN's root (no /npm/).
+  const { bridge } = await api.useBridge(
+    { domain: 'bridge.test', content: 'https://unpkg.test/' },
+    '/@elixir-playground/runtime@latest/',
+    [otp],
+    null,
+    { relay: null, nif: null, git: null },
+  );
+  expect(bridge.runtime).toBe('npm/@elixir-playground/runtime@2.1.3/');
+  expect(bridge.host.version).toBe('2.1.3');
+  expect(bridge.table.sources).toContainEqual([
+    'npm/@elixir-playground/runtime@2.1.3/',
+    'https://unpkg.test/@elixir-playground/runtime@latest/',
+  ]);
+  // A site build's directory (NAME@VERSION+ID): the version alone.
+  const built = await api.useBridge(
+    { domain: 'bridge.test', content: 'https://apex.test/' },
+    '/npm/@elixir-playground/runtime@2.0.0+e5a3e7140012/',
+    [],
+    null,
+    { relay: null, nif: null, git: null },
+  );
+  expect(built.bridge.runtime).toBe('npm/@elixir-playground/runtime@2.0.0/');
+});
+
+it('fails with ERUNTIME when the page serves no runtime there', async () => {
+  await expect(
+    api.useBridge({ domain: 'bridge.test' }, '/nothing/', [otp], null, {
+      relay: null,
+      nif: null,
+      git: null,
+    }),
+  ).rejects.toMatchObject({ code: 'ERUNTIME' });
 });

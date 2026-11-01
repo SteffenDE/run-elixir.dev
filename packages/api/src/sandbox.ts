@@ -32,7 +32,6 @@ import {
   frameTable,
   nameOf,
   servicesOf,
-  runtimeHost,
   useBridge,
   usercontentOf,
 } from './usercontent';
@@ -655,12 +654,9 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
   );
   const place: RelayMode = { usercontent: domain, bridge };
   const manifest = siteOf(packages, boot);
-  // Against the runtime the page serves (its own package.json), as the
-  // exec frame checks it again.
-  const runtimeFound = await runtimeHost(bridge.runtimeUrl).catch((error: Error) => {
-    throw failure('ERUNTIME', `the runtime did not load: ${error.message}`);
-  });
-  assertSite(manifest, runtimeFound);
+  // Against the runtime the page serves (its own package.json, which
+  // useBridge read), as the exec frame checks it again.
+  assertSite(manifest, bridge.host);
   const site = new Site({ url: location.href, manifest });
   const runtime = site.versions();
   if (!site.beam()) throw failure('ERUNTIME', 'no OTP package among the plugins');
