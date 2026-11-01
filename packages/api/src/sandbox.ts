@@ -646,6 +646,7 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       domain,
       content: usercontent.content,
       worker: usercontent.worker ? String(usercontent.worker) : undefined,
+      packagePath: usercontent.packagePath,
     },
     runtimeAt,
     given,

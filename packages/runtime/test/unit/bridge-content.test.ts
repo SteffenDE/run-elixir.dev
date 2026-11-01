@@ -128,3 +128,20 @@ it('fails with ERUNTIME when the page serves no runtime there', async () => {
     }),
   ).rejects.toMatchObject({ code: 'ERUNTIME' });
 });
+
+it('lays the packages out below content as packagePath says', async () => {
+  const { packages, bridge } = await api.useBridge(
+    { domain: 'bridge.test', content: 'https://unpkg.test/', packagePath: '{name}@{version}' },
+    '/@elixir-playground/runtime@2.0.0/',
+    [otp, { ...otp, name: '@elixir-playground/git', base: 'https://cdn.test/git/' }],
+    null,
+    { relay: null, nif: null, git: null },
+  );
+  expect(packages[0].base).toBe('https://unpkg.test/@elixir-playground/otp-29.1.2@1.0.1/');
+  // A base that is a URL of its own stays as it is.
+  expect(packages[1].base).toBe('https://cdn.test/git/');
+  expect(bridge.table.sources).toContainEqual([
+    'npm/@elixir-playground/otp-29.1.2@1.0.1/',
+    'https://unpkg.test/@elixir-playground/otp-29.1.2@1.0.1/',
+  ]);
+});

@@ -106,6 +106,10 @@ export interface UsercontentOptions {
   domain: string;
   content?: string;
   worker?: string | URL;
+  // Each package's directory below `content`, `{name}` and `{version}` in
+  // it: '{name}@{version}/' for unpkg's layout. By default each
+  // descriptor's `base` (/npm/NAME@VERSION/, jsDelivr's layout).
+  packagePath?: string;
 }
 
 // Where the backend's services are (docs/backend.md): a backend's origin,

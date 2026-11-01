@@ -131,13 +131,24 @@ export function contentDirectory(content: string): string {
 export const belowContent = (content: string, path: string): URL =>
   new URL(path.replace(/^\/+/, ''), content);
 
+// A package's directory below `content`: its descriptor's base, or where
+// usercontent.packagePath says ('{name}@{version}/' for unpkg's layout).
+// A base that is a URL of its own stays as it is.
+function packagePath(template: string | undefined, descriptor: PackageDescriptor): string {
+  if (!template || /^[a-z][a-z0-9+.-]*:/i.test(descriptor.base)) return descriptor.base;
+  const path = template
+    .replaceAll('{name}', descriptor.name)
+    .replaceAll('{version}', descriptor.version);
+  return path.endsWith('/') ? path : `${path}/`;
+}
+
 // Bridge mode for these packages: the manifest's packages and recordings
 // with their bases where this page serves them, and the bridge: the table
 // of its paths (the frames' pages, worker scripts and imports, which load
 // by URL from their own origin) and where each comes from. A sandbox's
 // own: another create() on the page has another.
 export async function useBridge(
-  options: { domain: string; content?: string; worker?: string },
+  options: { domain: string; content?: string; worker?: string; packagePath?: string },
   runtimePath: string,
   packages: PackageDescriptor[],
   boot: Boot | null,
@@ -163,7 +174,7 @@ export async function useBridge(
   // are below the bridge.
   const bridged = packages.map((descriptor) => {
     const path = below(descriptor.name, descriptor.version);
-    const url = belowContent(content, descriptor.base).href;
+    const url = belowContent(content, packagePath(options.packagePath, descriptor)).href;
     paths.set(descriptor.name, path);
     sources.push([path, url]);
     return { ...descriptor, base: url };
