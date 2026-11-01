@@ -5,7 +5,13 @@
 // services are, which this page's worker reaches.
 import { HOST, type Host } from '@elixir-playground/runtime/packages/check';
 import type { Boot } from '@elixir-playground/runtime/packages/types';
-import { loadSite, siteDomain, usercontentDomain } from '@elixir-playground/runtime/lib/site';
+import {
+  domainHost,
+  domainOrigin,
+  loadSite,
+  siteDomain,
+  usercontentDomain,
+} from '@elixir-playground/runtime/lib/site';
 import type { BridgeTable } from './apexWorker';
 import { contentPath, usercontentMeta } from './runtimePath';
 import type { PackageDescriptor, ServicesOption, UsercontentOptions } from './types';
@@ -19,20 +25,29 @@ export const DEFAULT_USERCONTENT = 'run-elixir-usercontent.org';
 // create()'s `usercontent`: the domain, and where this page serves the
 // packages. By default the domain this page names
 // (<meta name="playground-usercontent">), or its site
-// (/playground.json), else run-elixir.dev's.
+// (/playground.json), else run-elixir.dev's. Its domain with the scheme
+// its origins have (site.ts domainScheme), so the frames, on another
+// scheme than this page's perhaps, name the same origins.
 export async function usercontentOf(
   option: string | UsercontentOptions | undefined,
 ): Promise<UsercontentOptions> {
-  if (typeof option === 'string') return { domain: option };
-  if (option) return option;
-  const named = usercontentMeta();
-  if (named) return { domain: named };
-  await loadSite();
-  return { domain: usercontentDomain() ?? DEFAULT_USERCONTENT };
+  const given: UsercontentOptions = await (async () => {
+    if (typeof option === 'string') return { domain: option };
+    if (option) return option;
+    const named = usercontentMeta();
+    if (named) return { domain: named };
+    await loadSite();
+    return { domain: usercontentDomain() ?? DEFAULT_USERCONTENT };
+  })();
+  const { scheme, ...rest } = given;
+  if (scheme !== undefined && scheme !== 'http' && scheme !== 'https')
+    throw new Error(`usercontent.scheme: ${String(scheme)} is not http or https`);
+  const domain = scheme ? `${scheme}://${domainHost(given.domain)}` : given.domain;
+  return { ...rest, domain: domainOrigin(domain) };
 }
 
 export interface Bridge {
-  // The shared usercontent domain.
+  // The shared usercontent domain, with its scheme.
   domain: string;
   // The directory the packages' bases resolve below: on the page's
   // origin, or a CDN's.
@@ -191,8 +206,9 @@ export async function useBridge(
     content,
     table: {
       sources,
-      // The frames' site: this page is their apex, and their only parent.
-      config: { domain: location.host, usercontent: options.domain },
+      // The frames' site: this page is their apex, and their only parent
+      // (with its scheme, which may not be theirs).
+      config: { domain: location.origin, usercontent: domainOrigin(options.domain) },
       services,
       // A Node.js process reads the tls package's files from there.
       connect: [...new Set(sources.map(([, url]) => url))],

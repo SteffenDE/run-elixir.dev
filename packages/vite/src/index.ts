@@ -27,7 +27,9 @@ export interface Options {
   // The shared usercontent domain, with a port if any: its subdomains run
   // project code. Named in the pages' /playground.json; without, create()
   // takes run-elixir.dev's. A `*.localhost` one
-  // ('usercontent.localhost:5173') `vite` and `vite preview` answer.
+  // ('usercontent.localhost:5173', http) `vite` and `vite preview` answer.
+  // With a scheme ('https://usercontent.example'), its origins have it;
+  // without, they are https but for a local one (docs/frames.md, "Schemes").
   usercontent?: string;
   // Packages that are not installed, by directory (a template package of
   // the site's own, say): laid out as the installed ones are.
@@ -35,6 +37,9 @@ export interface Options {
 }
 
 const SCOPE = '@elixir-playground';
+
+// The shared domain's host, without the scheme it may be written with.
+const hostOf = (domain: string) => domain.replace(/^[a-z][a-z0-9+.-]*:\/\//i, '').toLowerCase();
 
 interface Found {
   name: string;
@@ -145,8 +150,8 @@ function serveBridge(
   response: ServerResponse,
 ): boolean {
   const host = (request.headers.host ?? '').toLowerCase();
-  const domain = options.usercontent;
-  if (!domain || !host.endsWith(`.${domain.toLowerCase()}`)) return false;
+  const domain = options.usercontent && hostOf(options.usercontent);
+  if (!domain || !host.endsWith(`.${domain}`)) return false;
   const path = new URL(request.url ?? '/', 'http://x').pathname;
   if (path === '/bridge.json') {
     response.setHeader('Content-Type', 'application/json');
@@ -220,14 +225,15 @@ export function elixirPlayground(options: Options = {}): Plugin {
     ...(options.usercontent ? [tag('playground-usercontent', options.usercontent)] : []),
   ];
   // The shared domain's hosts, which dev and preview answer, locally.
-  const local = options.usercontent?.split(':')[0].endsWith('localhost') ?? false;
+  const name = options.usercontent && hostOf(options.usercontent).split(':')[0];
+  const local = name ? name.endsWith('localhost') : false;
   return {
     name: 'elixir-playground',
     config: () => ({
       ...(local
         ? {
-            server: { allowedHosts: [`.${options.usercontent!.split(':')[0]}`] },
-            preview: { allowedHosts: [`.${options.usercontent!.split(':')[0]}`] },
+            server: { allowedHosts: [`.${name}`] },
+            preview: { allowedHosts: [`.${name}`] },
           }
         : {}),
       // The api starts its apex worker from its own directory
