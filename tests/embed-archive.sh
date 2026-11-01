@@ -10,12 +10,20 @@
 # app/test/embedder/archives/demo.tar.gz, which the test embedder serves.
 #
 #   tests/embed-archive.sh
+#   tests/embed-archive.sh --native
 #
-# Needs Docker (DOCKER, default `sudo -n docker`) and the network.
+# Needs Docker (DOCKER, default `sudo -n docker`) and the network. With
+# --native, no Docker: the host's OTP and Elixir, which must be exactly
+# the runtime's (checked), and its git. It builds in WORK (default /work,
+# which must exist and be writable): below another path, the app's own
+# sources compile again in the playground. Mix's and Hex's homes are
+# scratch directories, so the host's own archives stay as they are.
 set -e
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(dirname "$here")
-image=hexpm/elixir:1.20.4-erlang-29.1.2-debian-bookworm-20261020
+otp=29.1.2
+elixir=1.20.4
+image=hexpm/elixir:$elixir-erlang-$otp-debian-bookworm-20261020
 work=$root/target/embed-archive
 out=$root/app/test/embedder/archives
 rm -rf "$work"
@@ -25,7 +33,7 @@ set -e
 mix local.hex --force
 mix local.rebar --force
 mix archive.install hex phx_new 1.8.15 --force
-cd /work
+cd "${WORK:-/work}"
 printf 'n\n' | mix phx.new demo --no-install
 cd demo
 # Tidewave, and its plug in the endpoint (as its README says).
@@ -52,10 +60,29 @@ for git in deps/*/.git; do
   mkdir -p "$git/objects/info"
   : > "$git/objects/info/packs"
 done
-cd /work
+cd "${WORK:-/work}"
 tar czf demo.tar.gz --exclude='demo/_build/esbuild-*' --exclude='demo/_build/tailwind-*' \
   --exclude='demo/assets/node_modules' demo
 SCRIPT
+if [ "$1" = --native ]; then
+  host_otp=$(erl -noshell -eval 'io:format("~s", [string:trim(element(2, file:read_file(filename:join([code:root_dir(), "releases", erlang:system_info(otp_release), "OTP_VERSION"]))))]), halt().')
+  host_elixir=$(elixir -e 'IO.write(System.version())')
+  if [ "$host_otp" != $otp ] || [ "$host_elixir" != $elixir ]; then
+    echo "--native needs OTP $otp and Elixir $elixir; the host has OTP $host_otp and Elixir $host_elixir" >&2
+    exit 1
+  fi
+  native=${WORK:-/work}
+  if [ ! -w "$native" ]; then
+    echo "--native builds in $native (the app's path in the playground): create it, writable, or set WORK" >&2
+    exit 1
+  fi
+  rm -rf "$native/demo" "$native/demo.tar.gz"
+  mkdir -p "$work/home"
+  HOME=$work/home MIX_HOME=$work/home/mix HEX_HOME=$work/home/hex WORK=$native sh "$work/build.sh"
+  mv "$native/demo.tar.gz" "$out/demo.tar.gz"
+  ls -la "$out/demo.tar.gz"
+  exit 0
+fi
 # git for Mix's git dependencies (the image has none), then the build as
 # this user.
 ${DOCKER:-sudo -n docker} run --rm --network host -e HOME=/tmp/home -v "$work:/work" -w /work "$image" \
