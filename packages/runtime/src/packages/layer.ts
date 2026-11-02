@@ -9,7 +9,7 @@ export async function withLayer<T extends PackageEntry>(
   entry: T,
   load: (path: string) => Promise<FsLayer>,
 ): Promise<T> {
-  const path = entry.playground.layer;
+  const path = entry.playground?.layer;
   if (!path || entry.playground.fs) return entry;
   const layer = await load(path);
   const directory = path.slice(0, path.lastIndexOf('/') + 1);
