@@ -4,7 +4,8 @@
 // file from this page's worker (bridge mode). And where the backend's
 // services are, which this page's worker reaches.
 import { HOST, type Host } from '@elixir-playground/runtime/packages/check';
-import type { Boot } from '@elixir-playground/runtime/packages/types';
+import type { Boot, FsLayer } from '@elixir-playground/runtime/packages/types';
+import { withLayer } from '@elixir-playground/runtime/packages/layer';
 import {
   domainHost,
   domainName,
@@ -194,13 +195,17 @@ export async function useBridge(
   const direct = !(
     new URL(content).protocol === 'http:' && domainScheme(options.domain) === 'https:'
   );
-  const bridged = packages.map((descriptor) => {
-    const path = below(descriptor.name, descriptor.version);
-    const url = belowContent(content, packagePath(options.packagePath, descriptor)).href;
-    paths.set(descriptor.name, path);
-    sources.push([path, url]);
-    return { ...descriptor, base: direct ? url : path };
-  });
+  const bridged = await Promise.all(
+    packages.map(async (descriptor) => {
+      const path = below(descriptor.name, descriptor.version);
+      const url = belowContent(content, packagePath(options.packagePath, descriptor)).href;
+      paths.set(descriptor.name, path);
+      sources.push([path, url]);
+      // A layer the site's build made (the elixir package's Elixir).
+      const laid = await withLayer(descriptor, (file) => layerAt(descriptor.name, url, file));
+      return { ...laid, base: direct ? url : path };
+    }),
+  );
   let recordings = boot;
   if (boot) {
     const url = belowContent(content, boot.base).href;
@@ -227,6 +232,21 @@ export async function useBridge(
     packages: paths,
   };
   return { packages: bridged, boot: recordings, bridge };
+}
+
+// A package's layer (types.ts Playground.layer), where this page serves
+// it: missing when the site's build did not make it.
+async function layerAt(name: string, url: string, file: string): Promise<FsLayer> {
+  const response = await fetch(new URL(file, url)).catch(() => null);
+  const json = response?.ok && (await response.json().catch(() => null));
+  if (!json)
+    throw Object.assign(
+      new Error(
+        `${name}: ${file} is not on this site: its build prepares it (docs/api.md, "Elixir")`,
+      ),
+      { code: 'ERUNTIME' },
+    );
+  return json as FsLayer;
 }
 
 // The runtime the page serves, as the load-time check needs it: its
