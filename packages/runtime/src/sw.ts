@@ -47,6 +47,8 @@ interface FetchEvent extends ExtendableEvent {
 }
 declare const self: {
   location: Location;
+  // The build's stamp, set by sw.js's last line (swScript.ts).
+  playgroundScript?: string;
   skipWaiting(): Promise<void>;
   clients: {
     matchAll(options?: { includeUncontrolled?: boolean; type?: 'window' }): Promise<Client[]>;
@@ -68,6 +70,7 @@ self.addEventListener('install', () => self.skipWaiting());
 const bridges = bridgeRouter({
   origin: self.location.origin,
   clients: () => self.clients.matchAll({ includeUncontrolled: true, type: 'window' }),
+  script: () => self.playgroundScript,
 });
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
 

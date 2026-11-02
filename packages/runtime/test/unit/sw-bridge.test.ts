@@ -73,6 +73,22 @@ describe('the bridge paths', () => {
 });
 
 describe('the bridge router', () => {
+  it('reports the hash its script names when it answers a bridge', async () => {
+    const bridges = bridgeRouter({
+      origin: ORIGIN,
+      clients: async () => [],
+      bridgeable: async () => true,
+      script: () => 'a'.repeat(64),
+    });
+    const bootstrap = page('/bridge.html');
+    await bridges.accept({ kind: 'bridge', protocol: 1, bridge: KEY }, bootstrap, [
+      new MessageChannel().port1,
+    ]);
+    expect(bootstrap.said).toEqual([
+      { kind: 'bridged', bridge: KEY, protocol: 1, protocols: [1], script: 'a'.repeat(64) },
+    ]);
+  });
+
   it('takes a new key from the bootstrap, and answers below it from its port', async () => {
     const bridges = router();
     const bootstrap = page('/bridge.html');

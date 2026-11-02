@@ -172,8 +172,12 @@ and preview host has its own cached URLs.
   project's `/ID/` are all `index.html`: a path that is no file gets it.
 - **The usercontent domain's service worker.** `/sw.js` on each
   usercontent origin controls the scope `/`. Serve it with
-  `Cache-Control: no-cache`, so that an update reaches browsers. The apex
-  has no service worker.
+  `Cache-Control: no-cache`, so that an update reaches browsers. Serve
+  the file as built: it ends with a stamp line that names its own hash.
+  A changed file still works, but each frame's boot then waits for the
+  browser's update check, which takes about 1 s in Firefox
+  ([frames.md](frames.md#service-worker-updates)). The apex has no
+  service worker.
 - **Compression.** `beam.wasm`, the JavaScript and the bundles (`.tar`,
   uncompressed on purpose: the node reads them synchronously) should be
   compressed in transit. The boot images (`boot/ID/*.tar.gz`) are gzipped already. Caddy does not

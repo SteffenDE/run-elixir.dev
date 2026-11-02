@@ -38,6 +38,8 @@ export interface BridgeOptions {
   // apex's answer.
   reconnect?: number;
   answer?: number;
+  // The hash the worker's script names (swScript.ts), if any.
+  script?: () => string | undefined;
 }
 
 // What every answer carries: the frames are cross-origin isolated
@@ -135,6 +137,7 @@ export function bridgeRouter({
   bridgeable = bridgeConfig(origin),
   reconnect = 5000,
   answer = 120_000,
+  script = () => undefined,
 }: BridgeOptions) {
   const ports = new Map<string, MessagePort>();
   // A key's wait for a port: one for all its requests, gone when a port
@@ -172,6 +175,7 @@ export function bridgeRouter({
       bridge: isBridgeKey(key) ? key : '',
       protocol: ok ? protocol : null,
       protocols: [...BRIDGE_PROTOCOLS],
+      ...(script() ? { script: script() } : {}),
     } satisfies Bridged);
     if (!ok) {
       port?.close();

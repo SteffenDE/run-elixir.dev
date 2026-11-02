@@ -267,6 +267,95 @@ test('nodes that start at once all start, bridged', async ({ page }) => {
   expect(results).toEqual(Array(8).fill({ stdout: 'ok\n', stderr: '', code: 0 }));
 });
 
+// A deploy changes the shared domain's /sw.js. Its new service worker
+// installs while the next load of the page boots, and takes over the
+// frames (skipWaiting, clients.claim). In Safari, the exec frame's workers
+// that started under the old worker kept it, now redundant: their loads
+// below /_bridge/KEY/ went to the network, which answers 404. In WebKit the
+// project did not start (503). The bootstrap now bridges only with the
+// newest worker (root/bridge.html). serve.py --test-hooks changes one
+// host's /sw.js.
+test('nodes start after the shared domain’s service worker changed', async ({ page, request }) => {
+  const project = { id: 'sw-update', template: 'empty' };
+  const echo = () =>
+    page.evaluate(() =>
+      Promise.all(
+        Array.from({ length: 6 }, async () => {
+          const process = window.sandbox.sh("sh -c 'echo ok'");
+          let out = '';
+          process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
+          const { code } = await process.exited;
+          return { stdout: out, code };
+        }),
+      ),
+    );
+  const started = Array(6).fill({ stdout: 'ok\n', code: 0 });
+  await embedded(page, project, { bridged: true });
+  expect(await echo()).toEqual(started);
+  const host = await page.evaluate(
+    () => new URL(document.querySelector<HTMLIFrameElement>('#frames iframe')!.src).host,
+  );
+  const revised = await request.post(`http://playground.localhost:${PORT}/_test/sw-revision`, {
+    data: { host },
+  });
+  expect(revised.ok()).toBe(true);
+  // The next load of the page, which the frame's old worker answers while
+  // the new one installs. (Playwright's Firefox does not leave a page with
+  // cross-site frames: they go first.)
+  await page.evaluate(() => document.querySelectorAll('iframe').forEach((frame) => frame.remove()));
+  await embedded(page, project, { bridged: true });
+  expect(await echo()).toEqual(started);
+});
+
+// A newer service worker can still take over a frame that runs: a deploy
+// changed sw.js, and another tab loads the same project. The running
+// page's nodes then start under the new worker, which asks the bridged
+// page for a new port (bridge-lost). Where a frame's workers kept the old
+// worker (Safari), the host worker warns that the page needs a reload
+// (exec/host.ts); none of the tested browsers does.
+test('a running page’s nodes start after another tab installed a new service worker', async ({
+  page,
+  context,
+  request,
+}) => {
+  const project = { id: 'sw-takeover', template: 'empty' };
+  await embedded(page, project, { bridged: true });
+  await page.evaluate(() => {
+    window.embed.warnings = [];
+    window.sandbox.on('warning', (message: string) => window.embed.warnings.push(message));
+  });
+  expect(await run(page, 'echo before')).toMatchObject({ stdout: 'before\n', code: 0 });
+  const host = await page.evaluate(
+    () => new URL(document.querySelector<HTMLIFrameElement>('#frames iframe')!.src).host,
+  );
+  const revised = await request.post(`http://playground.localhost:${PORT}/_test/sw-revision`, {
+    data: { host },
+  });
+  expect(revised.ok()).toBe(true);
+  // The other tab's bootstrap installs the new worker, which takes over
+  // this page's frame too.
+  const other = await context.newPage();
+  await embedded(other, project, { bridged: true });
+  const results = await page.evaluate(() =>
+    Promise.all(
+      Array.from({ length: 6 }, async () => {
+        const process = window.sandbox.sh("sh -c 'echo ok'");
+        let out = '';
+        process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
+        const { code } = await process.exited;
+        return { stdout: out, code };
+      }),
+    ),
+  );
+  expect(results).toEqual(Array(6).fill({ stdout: 'ok\n', code: 0 }));
+  expect(await page.evaluate(() => window.embed.warnings)).toEqual([]);
+  // (Playwright's Firefox does not close a page with cross-site frames.)
+  await other.evaluate(() =>
+    document.querySelectorAll('iframe').forEach((frame) => frame.remove()),
+  );
+  await other.close();
+});
+
 test('two sandboxes on one page keep their own usercontent domains and bridges', async ({
   page,
 }) => {

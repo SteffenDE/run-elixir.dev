@@ -14,7 +14,7 @@ const domains = (on: number) =>
 const embedder = (on: number) =>
   `--embedders http://embedder.localhost:${on} --embedder-host embedder.localhost:${on} ` +
   `--embedder-root test/embedder --bridge bridge.localhost:${on} ` +
-  `--https-bridge bridge.localhost:${on + 3}`;
+  `--https-bridge bridge.localhost:${on + 3} --test-hooks`;
 // The NIF libraries the servers answer /api/v1/nif/ with.
 const NIF = '--nif ../target/test-nif';
 const DEVICES: Record<string, string> = {

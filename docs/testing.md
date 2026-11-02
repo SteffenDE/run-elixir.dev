@@ -67,7 +67,7 @@ local server. `app/playwright.config.ts` starts two servers:
 
 | Port | Configuration |
 | --- | --- |
-| `PORT` | Apex and usercontent domains, plus the test embedder host and files. |
+| `PORT` | Apex and usercontent domains, plus the test embedder host and files. With `--test-hooks`, a POST of `{"host": HOST}` to the apex's `/_test/sw-revision` changes the `/sw.js` that usercontent host `HOST` serves. |
 | `PORT + 2` | Apex and usercontent domains, with the backend at `http://localhost:4000`. |
 
 Playwright reuses a server already listening on either port. It must have

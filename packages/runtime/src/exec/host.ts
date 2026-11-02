@@ -46,7 +46,9 @@ import type { WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '../lib/share';
 import { loadSite, previewOrigin, previewOrigins } from '../lib/site';
+import { UPDATED, reachesServiceWorker } from '../lib/controller';
 import {
+  bridgeKey,
   countReads,
   reads,
   readsUnderway,
@@ -908,7 +910,19 @@ const handlers = {
 
 countReads();
 
+// A newer service worker took over the exec frame (frames/exec.ts): warn
+// if this worker's requests no longer reach one (lib/controller.ts).
+async function controllerChanged(): Promise<void> {
+  if (await reachesServiceWorker(self.location.href)) return;
+  console.error(`exec: ${UPDATED}`);
+  rpc?.emit('warning', UPDATED);
+}
+
 self.onmessage = ({ data, ports }: MessageEvent) => {
+  if (data?.kind === 'playground-exec-controller') {
+    if (bridgeKey()) void controllerChanged();
+    return;
+  }
   if (data?.kind !== 'playground-exec' || rpc || !ports[0]) return;
   rpc = new Rpc(ports[0]).handle(handlers);
 };

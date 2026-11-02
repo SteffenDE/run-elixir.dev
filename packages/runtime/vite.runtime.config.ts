@@ -1,5 +1,6 @@
 import { defineConfig, type UserConfig } from 'vite';
 import { licenses } from '../../vite-licenses.ts';
+import { stamp } from './src/swScript.ts';
 
 // The runtime's scripts that load by URL, bundled: the node's worker, the
 // shared files' worker and the IDE's git (git.ts), which go into the
@@ -44,7 +45,18 @@ export default defineConfig(({ mode }): UserConfig =>
         // serves at /bridge.html.
         publicDir: 'public',
         // The runtime package's scripts (docs/licenses.md).
-        plugins: [licenses('runtime').plugin],
+        // sw.js names its own hash (src/swScript.ts).
+        plugins: [
+          licenses('runtime').plugin,
+          {
+            name: 'stamp-sw',
+            async generateBundle(_, bundle) {
+              const sw = bundle['root/sw.js'];
+              if (sw?.type !== 'chunk') throw new Error('no root/sw.js to stamp');
+              sw.code = await stamp(sw.code);
+            },
+          },
+        ],
         build: {
           outDir: 'dist',
           emptyOutDir: true,

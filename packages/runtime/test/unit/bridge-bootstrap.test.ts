@@ -4,6 +4,7 @@
 // bridge it made.
 import { readFileSync } from 'node:fs';
 import { expect, it, vi } from 'vitest';
+import { sha256, stamp } from '../../src/swScript';
 
 const html = readFileSync(new URL('../../public/root/bridge.html', import.meta.url), 'utf8');
 const source = html.match(/<script type="module">([\s\S]*?)<\/script>/)![1];
@@ -22,11 +23,17 @@ const ENTRY = 'npm/@elixir-playground/runtime@1.1.0/exec.html';
 // `refusals`: how many announces the active worker refuses (an older
 // sw.js) before the updated one takes them.
 // `config`: what the origin answers for /bridge.json (null: no file).
+// `served`: the code of the /sw.js the origin sends now, stamped
+// (src/swScript.ts; null: none); `runs`: the code the active worker runs,
+// whose hash it reports.
+const CODE = 'self.addEventListener("fetch", () => {});';
 function frame({
   top = false,
   opener = null as unknown,
   refusals = 0,
   config = { bridge: 'bridge.test' } as unknown,
+  served = CODE as string | null,
+  runs = CODE,
 } = {}) {
   const parent = { postMessage: vi.fn() };
   const self: Record<string, unknown> = { parent, opener };
@@ -38,26 +45,29 @@ function frame({
   });
   // The keys whose port was closed at the bootstrap's end.
   const closed: string[] = [];
-  const worker = {
-    state: 'activated',
-    postMessage: vi.fn((message: { bridge: string }, ports: MessagePort[] = []) => {
-      ports[0]?.addEventListener('close', () => closed.push(message.bridge));
-      ports[0]?.start();
-      queueMicrotask(() =>
-        container.dispatchEvent(
-          Object.assign(new Event('message'), {
-            data: {
-              kind: 'bridged',
-              bridge: message.bridge,
-              protocol: refusals-- > 0 ? null : 1,
-              protocols: [1],
-            },
-          }),
-        ),
-      );
-    }),
-  };
-  const registration = { update: vi.fn(async () => {}), active: worker };
+  // A worker that answers announces as the bridge does.
+  const makeWorker = (state = 'activated') =>
+    Object.assign(new EventTarget(), {
+      state,
+      postMessage: vi.fn((message: { bridge: string }, ports: MessagePort[] = []) => {
+        ports[0]?.addEventListener('close', () => closed.push(message.bridge));
+        ports[0]?.start();
+        const protocol = refusals-- > 0 ? null : 1;
+        void sha256(runs).then((script) =>
+          container.dispatchEvent(
+            Object.assign(new Event('message'), {
+              data: { kind: 'bridged', bridge: message.bridge, protocol, protocols: [1], script },
+            }),
+          ),
+        );
+      }),
+    });
+  const worker = makeWorker();
+  const registration: {
+    update: () => Promise<unknown>;
+    active: typeof worker | null;
+    installing: typeof worker | null;
+  } = { update: vi.fn(async () => {}), active: worker, installing: null };
   const location = {
     href: 'https://e-abcdefghij.bridge.test/bridge.html',
     host: 'e-abcdefghij.bridge.test',
@@ -66,7 +76,9 @@ function frame({
   const fetch = vi.fn(async (url: string) =>
     url === '/bridge.json' && config !== null
       ? Response.json(config)
-      : new Response('<!doctype html>', { status: url === '/bridge.json' ? 404 : 200 }),
+      : url === '/sw.js' && served !== null
+        ? new Response(await stamp(served))
+        : new Response('<!doctype html>', { status: url === '/sw.js' ? 404 : 200 }),
   );
   const loading = run(
     self,
@@ -78,7 +90,19 @@ function frame({
     fetch,
   );
   const send = (event: object) => Promise.all(handlers.map((handler) => handler(event)));
-  return { parent, self, container, worker, location, loading, send, closed };
+  return {
+    parent,
+    self,
+    container,
+    worker,
+    makeWorker,
+    registration,
+    location,
+    loading,
+    send,
+    closed,
+    fetch,
+  };
 }
 
 const control = () => new MessageChannel().port1;
@@ -209,22 +233,133 @@ it.each(['npm/@acme/tool@1.0.0/tool.html', 'npm/tool@1.0.0/pages/tool.html'])(
   },
 );
 
-it('bridges with the active worker without waiting for its update', async () => {
-  const { loading, send, self, location, container } = frame();
-  await loading;
-  const registration = await (container.register as () => Promise<{ update: () => unknown }>)();
-  // An update that never ends: the bridge does not wait for it.
-  registration.update = () => new Promise(() => {});
-  await send({
-    source: self.parent,
-    origin: 'https://apex.test',
-    data: { kind: 'playground-bridge', protocol: 1, entry: ENTRY },
-    ports: [control()],
-  });
-  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+const start = (self: Record<string, unknown>) => ({
+  source: self.parent,
+  origin: 'https://apex.test',
+  data: { kind: 'playground-bridge', protocol: 1, entry: ENTRY },
+  ports: [control()],
 });
 
-it('waits for the newest worker when the active one does not speak the bridge', async () => {
+it('bridges with the active worker at once when it runs the served sw.js', async () => {
+  const { loading, send, self, location, worker, registration, fetch } = frame();
+  await loading;
+  // An update check that never ends: not waited for.
+  registration.update = () => new Promise(() => {});
+  await send(start(self));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  expect(fetch).toHaveBeenCalledWith('/sw.js', { cache: 'no-cache' });
+});
+
+it('waits for the update check when the served sw.js is another', async () => {
+  for (const served of [`${CODE} // changed`, CODE.replace('fetch', 'message')]) {
+    const { loading, send, self, location, worker, makeWorker, registration, closed } = frame({
+      served,
+    });
+    await loading;
+    const updated = makeWorker('activated');
+    let checked = () => {};
+    registration.update = () =>
+      new Promise<void>((resolve) => {
+        checked = () => {
+          registration.installing = updated;
+          resolve();
+        };
+      });
+    void send(start(self));
+    // The active worker reported its own script: refused, its port closed.
+    await vi.waitFor(() => expect(closed).toHaveLength(1));
+    expect(location.replace).not.toHaveBeenCalled();
+    checked();
+    await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+    expect(worker.postMessage).toHaveBeenCalledTimes(1);
+    const [[announce]] = updated.postMessage.mock.calls as unknown as [{ bridge: string }][];
+    expect(location.replace).toHaveBeenCalledWith(`/_bridge/${announce.bridge}/${ENTRY}`);
+  }
+});
+
+it('waits for the update check when sw.js has a stamp line appended after it', async () => {
+  // A stamp is the hash of what is before it: anything after it is a change.
+  const { loading, send, self, location, registration, fetch } = frame();
+  fetch.mockImplementation(async (url: string) =>
+    url === '/bridge.json'
+      ? Response.json({ bridge: 'bridge.test' })
+      : new Response(`${await stamp(CODE)}// revision 1\n`),
+  );
+  await loading;
+  const update = vi.fn(async () => {});
+  registration.update = update;
+  await send(start(self));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(update).toHaveBeenCalled();
+});
+
+it('bridges only once the update check is done', async () => {
+  const { loading, send, self, location, worker, registration } = frame({ served: null });
+  await loading;
+  let checked = () => {};
+  registration.update = () => new Promise<void>((resolve) => (checked = resolve));
+  void send(start(self));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  expect(worker.postMessage).not.toHaveBeenCalled();
+  checked();
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  const [[announce]] = worker.postMessage.mock.calls as unknown as [{ bridge: string }][];
+  expect(location.replace).toHaveBeenCalledWith(`/_bridge/${announce.bridge}/${ENTRY}`);
+});
+
+it('bridges with the worker an update installs, once it is active', async () => {
+  const { loading, send, self, location, worker, makeWorker, registration } = frame({
+    served: null,
+  });
+  await loading;
+  const updated = makeWorker('installing');
+  registration.update = async () => {
+    registration.installing = updated;
+  };
+  void send(start(self));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // Installed, not yet active: no announce to either worker.
+  expect(updated.postMessage).not.toHaveBeenCalled();
+  updated.state = 'activated';
+  updated.dispatchEvent(new Event('statechange'));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(worker.postMessage).not.toHaveBeenCalled();
+  const [[announce]] = updated.postMessage.mock.calls as unknown as [{ bridge: string }][];
+  expect(location.replace).toHaveBeenCalledWith(`/_bridge/${announce.bridge}/${ENTRY}`);
+});
+
+it('bridges with the worker there when the update check fails', async () => {
+  const { loading, send, self, location, worker, registration } = frame({ served: null });
+  await loading;
+  registration.update = async () => {
+    throw new TypeError('offline');
+  };
+  await send(start(self));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+});
+
+it('asks for the newest worker again when the one it waited for became redundant', async () => {
+  const { loading, send, self, location, worker, makeWorker, registration } = frame({
+    served: null,
+  });
+  await loading;
+  const replaced = makeWorker('installing');
+  let updates = 0;
+  registration.update = async () => {
+    registration.installing = updates++ === 0 ? replaced : null;
+  };
+  void send(start(self));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  replaced.state = 'redundant';
+  replaced.dispatchEvent(new Event('statechange'));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(replaced.postMessage).not.toHaveBeenCalled();
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+});
+
+it('asks again when the worker does not speak the bridge', async () => {
   const { loading, send, self, location, worker, container } = frame({ refusals: 1 });
   await loading;
   await send({
