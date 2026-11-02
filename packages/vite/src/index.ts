@@ -13,6 +13,13 @@
 // output and `vite` serves. The pages get <meta name="playground-runtime">
 // and <meta name="playground-content">, which create() reads by default.
 //
+// With the elixir package installed, the plugin prepares the Elixir builds
+// the site runs (`elixir.builds`, by default the package's default), each
+// on the installed otp package of its OTP major (the elixir package's
+// prepare: docs/api.md, "Elixir"), keeps them below node_modules/.cache,
+// and serves and writes them where the package's elixir(BUILD) looks:
+// versions/BUILD/ below the package.
+//
 // `usercontent` names the shared domain: in the pages' /playground.json,
 // which create() reads by default (run-elixir.dev's without). A
 // `*.localhost` one is the plugin's to answer in `vite` and `vite
@@ -21,6 +28,7 @@
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { dirname, extname, join, normalize, relative, resolve, sep } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { Plugin } from 'vite';
 
 export interface Options {
@@ -34,6 +42,10 @@ export interface Options {
   // Packages that are not installed, by directory (a template package of
   // the site's own, say): laid out as the installed ones are.
   packages?: string[];
+  // The Elixir builds the site runs (elixir('1.20.4-otp-29')), as
+  // builds.hex.pm names them: by default the elixir package's default.
+  // `untested`: builds the package was not tested with too.
+  elixir?: { builds?: string[]; untested?: boolean };
 }
 
 const SCOPE = '@elixir-playground';
@@ -83,6 +95,63 @@ export function findPackages(root: string, extra: string[] = []): Found[] {
 // A package's path on the usercontent domain (its descriptor's `base`).
 const base = ({ name, version }: Found) => `/npm/${name}@${version}/`;
 
+const ELIXIR = `${SCOPE}/elixir`;
+
+// The elixir package's prepare (its prepare.js), as the plugin calls it.
+type Prepare = (options: {
+  build?: string;
+  otp: string;
+  into: string;
+  cache?: string;
+  untested?: boolean;
+  log?: (line: string) => void;
+}) => Promise<unknown>;
+
+// The Elixir builds the site runs, each prepared on the installed otp
+// package of its OTP major into the plugin's cache below `root`: the
+// directory below which their versions/BUILD/ are, or null without the
+// elixir package.
+async function prepareElixir(
+  root: string,
+  packages: Found[],
+  options: Options,
+  log: (line: string) => void,
+): Promise<string | null> {
+  const elixir = packages.find(({ name }) => name === ELIXIR);
+  if (!elixir || !existsSync(join(elixir.directory, 'prepare.js'))) return null;
+  const { prepare } = (await import(pathToFileURL(join(elixir.directory, 'prepare.js')).href)) as {
+    prepare: Prepare;
+  };
+  const { DEFAULT } = (await import(pathToFileURL(join(elixir.directory, 'builds.js')).href)) as {
+    DEFAULT: string;
+  };
+  const cache = join(root, 'node_modules', '.cache', 'elixir-playground');
+  const into = join(cache, `elixir@${elixir.version}`);
+  const otps = packages.flatMap((found) => {
+    const { playground } = JSON.parse(readFileSync(join(found.directory, 'package.json'), 'utf8'));
+    return typeof playground?.otp === 'string'
+      ? [{ found, major: playground.otp.split('.')[0] }]
+      : [];
+  });
+  for (const build of options.elixir?.builds ?? [DEFAULT]) {
+    const major = /-otp-(\d+)$/.exec(build)?.[1];
+    const otp = otps.find((each) => each.major === major);
+    if (!otp)
+      throw new Error(
+        `${SCOPE}/vite: Elixir ${build} needs an otp package of OTP ${major} (npm install ${SCOPE}/otp-${major}.…)`,
+      );
+    await prepare({
+      build,
+      otp: otp.found.directory,
+      into,
+      cache: join(cache, 'downloads'),
+      untested: options.elixir?.untested,
+      log,
+    });
+  }
+  return into;
+}
+
 // A shared usercontent domain's bootstrap (bridge mode), as the runtime
 // package has it: served only on that domain's hosts (docs/frames.md, "Who
 // may bridge"), never among the packages' files.
@@ -103,11 +172,26 @@ function copyPackages(out: string, packages: Found[]): void {
 }
 
 // The packages in the apex's output (`out`, Vite's outDir), below npm/
-// (emptied first); the runtime's path.
-export function writeApexPackages(out: string, root: string, options: Options): string {
+// (emptied first), the Elixir builds prepared below the elixir package's;
+// the runtime's path.
+export async function writeApexPackages(
+  out: string,
+  root: string,
+  options: Options,
+  log: (line: string) => void = console.error,
+): Promise<string> {
   const packages = findPackages(root, options.packages);
   rmSync(join(out, 'npm'), { recursive: true, force: true });
   copyPackages(out, packages);
+  const prepared = await prepareElixir(root, packages, options, log);
+  if (prepared)
+    cpSync(
+      join(prepared, 'versions'),
+      join(out, base(packages.find(({ name }) => name === ELIXIR)!), 'versions'),
+      {
+        recursive: true,
+      },
+    );
   return base(packages.find(({ name }) => name === `${SCOPE}/runtime`)!);
 }
 
@@ -181,10 +265,12 @@ const PUBLIC = {
 };
 
 // In dev: the apex's npm/NAME@VERSION/
-// below Vite's base (`prefix`), from the installed packages. False for
-// another path.
+// below Vite's base (`prefix`), from the installed packages, and the
+// elixir package's versions/ from where the plugin prepared them
+// (`prepared`). False for another path.
 function serveApexPackage(
   packages: () => Found[],
+  prepared: string | null,
   prefix: string,
   request: IncomingMessage,
   response: ServerResponse,
@@ -193,9 +279,14 @@ function serveApexPackage(
   if (!pathname.startsWith(`${prefix}npm/`)) return false;
   const path = pathname.slice(prefix.length - 1);
   const found = packages().find((each) => path.startsWith(base(each)));
-  const file = found ? normalize(join(found.directory, path.slice(base(found).length))) : null;
-  const served = file && found && file.startsWith(found.directory) ? file : null;
-  sendFile(response, served && relative(found!.directory, served) !== BOOTSTRAP ? served : null, {
+  const below = found ? path.slice(base(found).length) : '';
+  const directory =
+    found?.name === ELIXIR && prepared && below.startsWith('versions/')
+      ? prepared
+      : found?.directory;
+  const file = directory ? normalize(join(directory, below)) : null;
+  const served = file && directory && file.startsWith(directory) ? file : null;
+  sendFile(response, served && relative(directory!, served) !== BOOTSTRAP ? served : null, {
     ...PUBLIC,
     'Cache-Control': 'no-cache',
   });
@@ -209,6 +300,8 @@ export function elixirPlayground(options: Options = {}): Plugin {
   const packages = () => (found ??= findPackages(root, options.packages));
   let apexOut = '';
   let runtime = '';
+  // Where the Elixir builds are prepared (dev).
+  let prepared: string | null = null;
   // Vite's base, which the packages are below (create()'s
   // usercontent.content by default), and its path, which dev and preview
   // answer them at.
@@ -251,13 +344,16 @@ export function elixirPlayground(options: Options = {}): Plugin {
         findPackages(root, options.packages).find(({ name }) => name === `${SCOPE}/runtime`)!,
       );
     },
-    configureServer(server) {
+    async configureServer(server) {
+      prepared = await prepareElixir(root, packages(), options, (line) =>
+        server.config.logger.info(line),
+      );
       server.middlewares.use((request, response, next) => {
         if (local && serveBridge(packages, options, request, response)) return;
         // The apex: cross-origin isolated, as create() needs.
         response.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
         response.setHeader('Cross-Origin-Embedder-Policy', 'require-corp');
-        if (serveApexPackage(packages, prefix, request, response)) return;
+        if (serveApexPackage(packages, prepared, prefix, request, response)) return;
         next();
       });
     },
@@ -273,8 +369,8 @@ export function elixirPlayground(options: Options = {}): Plugin {
       });
     },
     transformIndexHtml: () => meta(),
-    closeBundle() {
-      writeApexPackages(apexOut, root, options);
+    async closeBundle() {
+      await writeApexPackages(apexOut, root, options);
     },
   };
 }

@@ -1,7 +1,14 @@
 // The plugin over a fixture site: a page, and node_modules with a runtime
 // package and a descriptor package as npm installs them (plus one that is
 // no playground package, and a template of the site's own).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { build } from 'vite';
@@ -149,4 +156,79 @@ test('a *.localhost usercontent domain written with its scheme is answered local
     >
   )();
   expect(shared.server).toBeUndefined();
+});
+
+// An elixir package whose prepare writes a stand-in layer (and says what
+// it was asked), and the otp packages it may run on.
+function withElixir(root: string): void {
+  const scope = join(root, 'node_modules', '@elixir-playground');
+  write(
+    join(scope, 'elixir', 'package.json'),
+    JSON.stringify({
+      name: '@elixir-playground/elixir',
+      version: '3.0.0',
+      playground: { bin: {} },
+    }),
+  );
+  write(join(scope, 'elixir', 'builds.js'), "export const DEFAULT = '1.20.4-otp-29';\n");
+  write(
+    join(scope, 'elixir', 'prepare.js'),
+    `import { mkdirSync, writeFileSync } from 'node:fs';
+     import { join } from 'node:path';
+     export async function prepare({ build, otp, into }) {
+       const at = join(into, 'versions', build);
+       mkdirSync(at, { recursive: true });
+       writeFileSync(join(at, 'fs.json'), JSON.stringify({ otp }));
+     }\n`,
+  );
+  for (const otp of ['28.3', '29.1.2'])
+    write(
+      join(scope, `otp-${otp}`, 'package.json'),
+      JSON.stringify({
+        name: `@elixir-playground/otp-${otp}`,
+        version: '1.1.0',
+        playground: { otp },
+      }),
+    );
+}
+
+test('vite build prepares the Elixir builds below the elixir package, each on its OTP', async () => {
+  const root = fixture();
+  withElixir(root);
+  await build({
+    root,
+    logLevel: 'silent',
+    plugins: [elixirPlayground({ elixir: { builds: ['1.20.4-otp-29', '1.19.5-otp-28'] } })],
+  });
+  const elixir = join(root, 'dist', 'npm/@elixir-playground/elixir@3.0.0');
+  expect(existsSync(join(elixir, 'prepare.js'))).toBe(true);
+  for (const [build, otp] of [
+    ['1.20.4-otp-29', 'otp-29.1.2'],
+    ['1.19.5-otp-28', 'otp-28.3'],
+  ])
+    expect(JSON.parse(readFileSync(join(elixir, 'versions', build, 'fs.json'), 'utf8')).otp).toBe(
+      join(root, 'node_modules', '@elixir-playground', otp),
+    );
+  // Kept for the next build, below node_modules/.cache.
+  expect(
+    existsSync(
+      join(root, 'node_modules/.cache/elixir-playground/elixir@3.0.0/versions/1.20.4-otp-29'),
+    ),
+  ).toBe(true);
+});
+
+test("by default the elixir package's default build; one without its OTP fails", async () => {
+  const root = fixture();
+  withElixir(root);
+  await build({ root, logLevel: 'silent', plugins: [elixirPlayground()] });
+  expect(readdirSync(join(root, 'dist', 'npm/@elixir-playground/elixir@3.0.0/versions'))).toEqual([
+    '1.20.4-otp-29',
+  ]);
+  await expect(
+    build({
+      root,
+      logLevel: 'silent',
+      plugins: [elixirPlayground({ elixir: { builds: ['1.18.4-otp-27'] } })],
+    }),
+  ).rejects.toThrow(/needs an otp package of OTP 27/);
 });
