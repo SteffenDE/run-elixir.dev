@@ -39,8 +39,10 @@ export const test = base.extend<{ page: Page }>({
     const errors: string[] = [];
     page.on('pageerror', (error) => {
       // WebKit also reports a fetch() that CORS blocks as an uncaught error
-      // (no stack), though the page catches its rejection (https.ts).
-      if (`${error.name}:${error.message}`.includes('due to access control checks')) return;
+      // (no stack), though the page catches its rejection (https.ts). Only
+      // fetch()'s: a script or worker that fails its access control
+      // ("Cannot load … due to access control checks") fails the test.
+      if (/^Fetch API cannot load .* due to access control checks\.?$/.test(error.message)) return;
       errors.push(error.stack || `${error.name}: ${error.message}`);
     });
     const start = Date.now();
@@ -52,6 +54,10 @@ export const test = base.extend<{ page: Page }>({
     // The page's and its frames' console, kept for a failure's report.
     const console: string[] = [];
     page.on('console', (message) => {
+      // A worker the runtime gave up loading (host/worker.ts), which no
+      // page error reports: it fails in the exec frame's worker.
+      if (message.type() === 'error' && message.text().includes('the worker did not load after'))
+        errors.push(message.text());
       console.push(`${message.type()}: ${message.text()}`.slice(0, 500));
       if (console.length > 200) console.shift();
     });
