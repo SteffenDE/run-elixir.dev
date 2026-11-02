@@ -13,7 +13,7 @@ target/test-nif), and no other is built.
 
     python3 -I runtime/serve.py [PORT] [--domain DOMAIN] [--usercontent DOMAIN] [--api URL]
         [--nif DIR] [--embedders "ORIGIN ..."] [--embedder-host HOST --embedder-root DIR]
-        [--bridge DOMAIN] [--https-bridge DOMAIN] [--immutable]
+        [--bridge DOMAIN] [--https-bridge DOMAIN] [--immutable] [--test-hooks]
 
 With --domain and --usercontent (for example playground.localhost:8082
 and usercontent.localhost:8082: browsers resolve *.localhost to this
@@ -43,6 +43,11 @@ DOMAIN (bridge.localhost:8084, say) another, over https on DOMAIN's port,
 with a self-signed certificate (made with openssl into
 target/serve-tls/): an http page's frames on an https shared domain, as
 an embedder on http://localhost frames run-elixir-usercontent.org's.
+
+With --test-hooks, a POST of {"host": HOST} to the apex's
+/_test/sw-revision changes the /sw.js that usercontent host HOST serves
+(a comment with a new number at its end), as a deploy of a new runtime
+would: the e2e tests' service worker updates (bridge.spec.ts).
 
 The backend's services (the NIF builds, the git proxy, the TCP relay) are
 the apex's (docs/frames.md): the apex's worker asks for them, so they
@@ -302,8 +307,24 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return True
 
     def do_POST(self):
-        if not self.proxy_git("POST"):
+        if TEST_HOOKS and not self.bridge() and self.path == "/_test/sw-revision":
+            length = int(self.headers.get("Content-Length") or 0)
+            host = json.loads(self.rfile.read(length) or b"{}").get("host", "").lower()
+            SW_REVISIONS[host] = SW_REVISIONS.get(host, 0) + 1
+            self.json(200, {"host": host, "revision": SW_REVISIONS[host]})
+        elif not self.proxy_git("POST"):
             self.send_error(405)
+
+    def sw_revised(self):
+        """/sw.js with this host's revision (--test-hooks) at its end."""
+        host = (self.headers.get("Host") or "").lower()
+        with open(os.path.join(BRIDGE_DIRECTORY, "sw.js"), "rb") as f:
+            data = f.read() + f"\n// revision {SW_REVISIONS[host]}\n".encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/javascript")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     # Bridge mode's bootstrap, as a package has it: only the shared
     # domain's hosts serve one (docs/frames.md, "Who may bridge").
@@ -319,6 +340,8 @@ class Handler(http.server.SimpleHTTPRequestHandler):
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
                 self.wfile.write(data)
+            elif path == "/sw.js" and SW_REVISIONS.get((self.headers.get("Host") or "").lower()):
+                self.sw_revised()
             elif path in ("/bridge.html", "/sw.js"):
                 super().do_GET()
             else:
@@ -500,13 +523,16 @@ EMBEDDER_HOST = option("--embedder-host")
 BRIDGE = option("--bridge")
 HTTPS_BRIDGE = option("--https-bridge")
 IMMUTABLE = "--immutable" in args
+TEST_HOOKS = "--test-hooks" in args
+# --test-hooks: each usercontent host's /sw.js revision, 0 for the file as built.
+SW_REVISIONS = {}
 EMBEDDER_ROOT = os.path.abspath(option("--embedder-root") or ".")
 NIF = option("--nif") and os.path.abspath(option("--nif"))
 OVERRIDES = {key: value for key, value in (("domain", DOMAIN), ("usercontent", USERCONTENT))
              if value is not None}
 API = (args[args.index("--api") + 1] if "--api" in args else "https://run-elixir.dev").rstrip("/")
 args = [arg for i, arg in enumerate(args)
-        if arg not in OPTIONS and arg != "--immutable" and (i == 0 or args[i - 1] not in OPTIONS)]
+        if arg not in OPTIONS and arg not in ("--immutable", "--test-hooks") and (i == 0 or args[i - 1] not in OPTIONS)]
 port = int(args[0]) if args else 8080
 print(f"http://localhost:{port}/ serving {directory}, NIF builds from {NIF or API}, "
       f"live sessions from {API}")
