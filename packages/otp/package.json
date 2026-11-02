@@ -1,0 +1,20 @@
+{
+  "name": "@elixir-playground/otp",
+  "version": "1.1.0",
+  "private": true,
+  "type": "module",
+  "description": "An otp package's Node.js modules: erl() and the erl command, OTP under Node through the runtime's harness (docs/packages.md). runtime/build.py lays them into each otp-X package.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src",
+    "format": "oxfmt src",
+    "format:check": "oxfmt --check src"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*"
+  }
+}

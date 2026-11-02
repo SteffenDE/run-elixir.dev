@@ -6,6 +6,7 @@
   "description": "The playground's runtime: its workers and the usercontent domain's frames (docs/runtime.md). Its published package.json is runtime/build.py's, from src/packages/host.json.",
   "exports": {
     "./harness": {
+      "types": "./harness.d.ts",
       "node": "./dist-node/harness.mjs",
       "default": "./src/harness.ts"
     },

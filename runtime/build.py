@@ -667,9 +667,12 @@ multicall = lambda module: {"module": module, "multicall": True}
 # (relative to the root; "." the root).
 PACKAGES = {
     "otp-{otp}": {
-        "version": "1.0.0",
+        # 1.1: node.js and erl.js (packages/otp), OTP under Node through the
+        # runtime's harness (2.2).
+        "version": "1.1.0",
         "root": "/opt/otp/{otp}",
-        "files": ["beam.mjs", "beam.emu.mjs", "beam.wasm"],
+        "files": ["beam.mjs", "beam.emu.mjs", "beam.wasm", "node.js", "node.d.ts", "erl.js"],
+        "runtime": "^2.2.0",
         # beam.wasm's imports are its Emscripten glue's (beam.mjs); the
         # runtime meets that glue at the beam seam (beam/run.ts).
         "own": ("env", "wasi_snapshot_preview1"),
@@ -1107,7 +1110,10 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
     }
     # Their own package.json fields: the claude package's tested Claude Code
     # range, whose newest version is the upper bound (docs/packages.md).
-    fields = {"claude": {"claudeCode": f">={claude_code()} <={claude_code()}"}}
+    fields = {"claude": {"claudeCode": f">={claude_code()} <={claude_code()}"},
+              # erl() for Node.js, and npx's erl.
+              "otp-{otp}": {"bin": {"erl": "erl.js"},
+                            "exports": {**MODULE["exports"], "./node": {"types": "./node.d.ts", "default": "./node.js"}}}}
     entries = {}
     for key, package in PACKAGES.items():
         # The runtime it needs: its major, or the minor that brought a seam it uses.
@@ -1279,7 +1285,9 @@ def sources(wasm):
             "hex.js": os.path.join(ROOT, "packages", "hex", "dist", "hex.js"),
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
-            **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")}}
+            **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")},
+            # An otp package's Node.js modules (packages/otp's build).
+            **{name: os.path.join(ROOT, "packages", "otp", "dist", name) for name in ("node.js", "node.d.ts", "erl.js")}}
 
 
 def page_meta(out, name):
@@ -1344,7 +1352,8 @@ def full_notices(versions):
     hex_version = next(name.split("-", 1)[1] for name in os.listdir(archives) if name.startswith("hex-"))
     licensed = os.path.join(CACHE, "licenses")
     return {
-        "otp-{otp}": lambda: (notices.otp(versions["otp"]), {}),
+        # With node.js and erl.js, the playground's own (packages/otp).
+        "otp-{otp}": lambda: (notices.otp(versions["otp"]).extend(notices.own()), {}),
         # With hex.js, the playground's own (packages/hex).
         "elixir-{elixir}": lambda: (notices.elixir({**versions, "hex": hex_version, "phx_new": PHX_NEW},
                                                    rebar3, licensed).extend(notices.own()), {}),
