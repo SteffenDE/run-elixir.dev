@@ -8,9 +8,10 @@ It reads the packages a build laid out (target/site/npm/@elixir-playground/
 NAME@VERSION+ID/, runtime/build.py) and leaves out the playground's own
 ("private": phoenix-template, tailscale). For each, in dependency order:
 
-- its digest: the package's files with its version set aside (package.json
-  and a descriptor's index.js name it), so the same files make the same
-  digest whatever version they are published at;
+- its digest: the package's files that npm publishes (its `files`) with
+  its version set aside (package.json and a descriptor's index.js name it),
+  so the same files make the same digest whatever version they are
+  published at;
 - the registry's latest version, and the digest that version recorded
   (package.json's playgroundDigest);
 - unpublished: its own version (the repository's, 1.0.0); the same digest:
@@ -114,10 +115,17 @@ def set_version(directory, package, version):
 
 
 def stage(name, directory, package):
-    """A copy of the package to publish from, and its digest."""
+    """A copy of the package to publish from, and its digest: what npm
+    publishes of it, package.json and what its `files` names (not the
+    elixir package's versions/, the layer the site's build made)."""
     target = os.path.join(STAGE, name.split("/")[1])
     shutil.rmtree(target, ignore_errors=True)
     shutil.copytree(directory, target)
+    if "files" in package:
+        for entry in os.listdir(target):
+            if entry != "package.json" and entry not in package["files"]:
+                path = os.path.join(target, entry)
+                shutil.rmtree(path) if os.path.isdir(path) else os.remove(path)
     package = {key: value for key, value in package.items() if key != "playgroundDigest"}
     set_version(target, package, PLACEHOLDER)
     return target, package, tree_digest(target)

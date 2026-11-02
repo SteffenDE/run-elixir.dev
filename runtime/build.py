@@ -12,8 +12,10 @@ in it), with its package.json and its files:
 - otp-X: OTP's own emulator built with Emscripten (beam/build.sh:
   beam.mjs, beam.emu.mjs and beam.wasm), and OTP's applications (the
   installation, target/otp) as an fs layer at /opt/otp/X in the node;
-- elixir-X: the host's Elixir, Hex, phx_new and rebar3, an fs layer at
-  /opt/elixir/X, with Elixir's scripts (bin/elixir, bin/iex, bin/mix, …)
+- elixir: Elixir's precompiled release (ELIXIR_BUILD) with the Hex and
+  rebar3 Mix installs for it, which packages/elixir's prepare makes on the
+  otp package under Node; an fs layer at /opt/elixir/X below
+  versions/BUILD/, with Elixir's scripts (bin/elixir, bin/iex, bin/mix, …)
   as its commands;
 - phoenix-template: a phx.new app, an fs layer at /work/playground;
 - shell, git, ripgrep, gnu-tools, tls, tailscale: the WebAssembly tools,
@@ -66,8 +68,9 @@ loaded before a deploy keeps loading its own build's files while the
 server still has them.
 
 The template is generated once into target/cache-otp with the host's
-Mix (the same OTP and Elixir): phx_new (PHX_NEW below), the playground's
-configuration, deps fetched and compiled, assets built.
+Mix (the same OTP, and the Elixir of ELIXIR_BUILD): phx_new (PHX_NEW
+below), the playground's configuration, deps fetched and compiled, assets
+built. Only the template needs an Elixir on the host.
 """
 import gzip
 import hashlib
@@ -114,12 +117,16 @@ USERCONTENT_DIR = "_usercontent"
 APPS = ("erts-", "kernel-", "stdlib-", "compiler-", "crypto-", "asn1-", "public_key-", "ssl-",
         "inets-", "runtime_tools-", "syntax_tools-", "parsetools-", "sasl-", "tools-", "xmerl-",
         "os_mon-", "mnesia-")
-# Elixir's applications, the host installation's (the elixir-X package's
-# fs layer, elixir_files).
-ELIXIR_APPS = ("elixir", "eex", "ex_unit", "iex", "logger", "mix")
 # Elixir's commands: its scripts as it installs them (sh scripts that end
 # in erl; mix's #! line runs it with elixir).
 ELIXIR_BIN = ("elixir", "elixirc", "iex", "mix")
+# packages/elixir's build (prepare, cli.js), and where its prepare keeps
+# the layers it made and the releases it downloaded.
+ELIXIR_DIST = os.path.join(ROOT, "packages", "elixir", "dist")
+ELIXIR_CACHE = os.path.join(ROOT, "target", "cache-elixir")
+# Its modules in the elixir package, with their declarations.
+ELIXIR_MODULES = ("elixir.js", "elixir.d.ts", "builds.js", "builds.d.ts", "prepare.js", "prepare.d.ts",
+                  "layer.js", "layer.d.ts", "zip.js", "zip.d.ts", "cli.js")
 # The mtime of every file in an fs layer and a boot image (2000-01-01),
 # and of nothing a node writes (now). The same files then make the same
 # bundles and images, byte for byte, and a package keeps its directory's
@@ -151,7 +158,7 @@ def record_args(boot, versions):
     bin/iex ends in, with setup.ts's ELIXIR_ERL_OPTIONS: the page's esbuild
     and tailwind, from where the packages are), the working directory, the
     node harness's environment, and standard input."""
-    elixir = root_of("elixir-{elixir}", versions)
+    elixir = root_of("elixir", versions)
     iex = ["-noshell", "-elixir_root", f"{elixir}/lib", "-pa", f"{elixir}/lib/elixir/ebin",
            "-esbuild", "path", '<<"/usr/bin/esbuild">>', "-tailwind", "path", '<<"/usr/bin/tailwind">>',
            "-user", "elixir", "-extra", "--no-halt", "+iex"]
@@ -211,10 +218,10 @@ def host_elixir():
 
 
 def host_mix():
-    """Where the host's Mix keeps its archives and its rebar3 (as it says:
-    MIX_HOME, MIX_ARCHIVES, ~/.mix), with Hex, phx_new (PHX_NEW) and rebar3
-    there: what is missing is installed (a fresh machine, such as the
-    deploy's runner, has none of them)."""
+    """The host's Mix with what the template is made with: Hex, phx_new
+    (PHX_NEW) and rebar3, where it keeps them (as it says: MIX_HOME,
+    MIX_ARCHIVES, ~/.mix). What is missing is installed (a fresh machine,
+    such as the deploy's runner, has none of them)."""
     env = mix_env()
     where = subprocess.run(["elixir", "-e", "IO.puts(Mix.path_for(:archives)); "
                             "IO.puts(Mix.Rebar.local_rebar_path(:rebar3))"],
@@ -228,14 +235,13 @@ def host_mix():
         run("archive.install", "hex", "phx_new", PHX_NEW)
     if not os.path.isfile(rebar3):
         run("local.rebar")
-    return archives, rebar3
 
 
 def otp_install():
     """The Emscripten BEAM (beam/build.sh, release) and its
     installation in INSTALL: lib/APP/{ebin,priv,
-    include}, bin/*.boot and releases/. OTP's alone: Elixir's
-    applications and Mix's archives are the host's (elixir_files)."""
+    include}, bin/*.boot and releases/. OTP's alone: Elixir is the
+    elixir package's (elixir_files)."""
     subprocess.run([os.path.join(ROOT, "beam", "build.sh"), "release"], check=True,
                    env=dict(os.environ, OPT="-O2", DIST=BEAM_DIST))
     shutil.rmtree(INSTALL, ignore_errors=True)
@@ -270,27 +276,41 @@ def otp_files():
     return [(relative, here) for relative, here in walk(INSTALL) if installed(relative)]
 
 
-def elixir_files():
-    """The elixir-X package's fs layer, below its root: the host's Elixir
-    applications (ELIXIR_APPS: ebin, priv, include) at lib/, Mix's archives
-    (Hex, phx_new) and rebar3 as the host's Mix installs them (the same OTP
-    runs them) at mix/, and Elixir's scripts at bin/ (ELIXIR_BIN: the
-    commands, which the runtime runs as their #! lines say)."""
-    elixir = host_elixir()
-    out = []
-    for app in ELIXIR_APPS:
-        for part in ("ebin", "priv", "include"):
-            here = os.path.join(elixir, "lib", app, part)
-            if os.path.isdir(here):
-                out += [(f"lib/{app}/{part}/{relative}", path) for relative, path in walk(here)]
-    archives, rebar3 = host_mix()
-    for name in sorted(os.listdir(archives)):
-        if name.startswith(("hex-", f"phx_new-{PHX_NEW}")):
-            out += [(f"mix/archives/{name}/{relative}", path)
-                    for relative, path in walk(os.path.join(archives, name))]
-    out.append(("mix/rebar3", rebar3))
-    out += [(f"bin/{name}", os.path.join(elixir, "bin", name)) for name in ELIXIR_BIN]
-    return out
+def elixir_build():
+    """The Elixir build the site runs, as builds.hex.pm names it
+    (1.20.4-otp-29): packages/elixir's default (builds.ts)."""
+    with open(os.path.join(ROOT, "packages", "elixir", "src", "builds.ts")) as f:
+        return re.search(r"BUILDS: Record<string, string> = \{\s*'([^']+)'", f.read()).group(1)
+
+
+def elixir_files(otp_package):
+    """The elixir package's fs layer, below its root, and what made it
+    (prepared.json: the Hex and rebar3 Mix installed): packages/elixir's
+    prepare of the build (elixir_build) on the otp package laid in
+    `otp_package`, under Node in Docker (Elixir's release from
+    builds.hex.pm, checked; Hex and rebar3 from Mix on that OTP), its
+    bundles unpacked into ELIXIR_CACHE/files/BUILD. The same build on the
+    same OTP package is made once (prepare keeps it)."""
+    build = elixir_build()
+    inside = lambda path: "/p/" + os.path.relpath(path, ROOT)
+    subprocess.run(DOCKER + ["run", "--rm", "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/tmp",
+                             "-v", f"{ROOT}:/p", "-w", "/p", NODE_IMAGE,
+                             "node", inside(os.path.join(ELIXIR_DIST, "cli.js")), "prepare", build,
+                             "--otp", inside(otp_package), "--into", inside(os.path.join(ELIXIR_CACHE, "prepared")),
+                             "--cache", inside(os.path.join(ELIXIR_CACHE, "downloads"))], check=True)
+    prepared_dir = os.path.join(ELIXIR_CACHE, "prepared", "versions", build)
+    with open(os.path.join(prepared_dir, "prepared.json")) as f:
+        prepared = json.load(f)
+    with open(os.path.join(prepared_dir, "fs", "manifest.json")) as f:
+        manifest = json.load(f)
+    files = os.path.join(ELIXIR_CACHE, "files", build)
+    shutil.rmtree(files, ignore_errors=True)
+    os.makedirs(files)
+    for number in range(prepared["layer"]["count"]):
+        with tarfile.open(os.path.join(prepared_dir, "fs", "bundles", f"{number}.tar")) as tar:
+            tar.extractall(files, filter="data")
+    below = os.path.join(files, prepared["layer"]["root"].strip("/"))
+    return [(path, os.path.join(below, path)) for path, *_ in manifest], prepared
 
 
 # The playground's settings for a phx.new app's config/dev.exs: one
@@ -371,6 +391,7 @@ def phoenix_app():
     compiled it."""
     app = os.path.join(CACHE, "playground")
     env = mix_env()
+    host_mix()
     stamp = os.path.join(CACHE, "playground.compiler")
     if os.path.exists(os.path.join(app, "priv", "static", "assets", "css", "app.css")):
         os.remove(os.path.join(app, "mix.lock"))
@@ -469,10 +490,10 @@ def app_files(app):
 def fs_layers(app):
     """Each package's files in the nodes' tree, by key (PACKAGES'), as its
     own build or installation has them: [(path below the package's root,
-    path here)]. `app`: the template (phoenix_app)."""
+    path here)]. `app`: the template (phoenix_app). Not Elixir's, which
+    is made on the otp package once it is laid (elixir_files)."""
     return {
         "otp-{otp}": otp_files(),
-        "elixir-{elixir}": elixir_files(),
         "phoenix-template": app_files(app),
         # git's commands that are shell scripts (tools/git/build.py), at
         # git.wasm's exec path.
@@ -625,13 +646,21 @@ def page(out):
 
 
 def runtime_versions():
-    """The installation's OTP version and the host's Elixir's: {otp, elixir}."""
+    """The installation's OTP version, and Elixir's (elixir_build's):
+    {otp, elixir, build}. The host's Elixir, which makes the template, must
+    be that version."""
     releases = os.path.join(INSTALL, "releases")
     with open(os.path.join(releases, os.listdir(releases)[0], "OTP_VERSION")) as f:
         otp = f.read().strip()
+    build = elixir_build()
+    elixir, major = re.fullmatch(r"(.+)-otp-(\d+)", build).groups()
+    if major != otp.split(".")[0]:
+        sys.exit(f"Elixir {build} is for OTP {major}, not OTP {otp} (packages/elixir/src/builds.ts)")
     with open(os.path.join(host_elixir(), "lib", "elixir", "ebin", "elixir.app")) as f:
-        elixir = re.search(r'\{vsn,\s*"([^"]+)"\}', f.read()).group(1)
-    return {"otp": otp, "elixir": elixir}
+        host = re.search(r'\{vsn,\s*"([^"]+)"\}', f.read()).group(1)
+    if host != elixir:
+        sys.exit(f"the host's Elixir is {host}: the template is made with Elixir {elixir} ({build})")
+    return {"otp": otp, "elixir": elixir, "build": build}
 
 
 # The npm packages (docs/packages.md). The upstream version is in a name
@@ -681,15 +710,21 @@ PACKAGES = {
         "playground": {"abi": {"beam": 1}, "beam": {"loader": "beam.mjs", "wasm": "beam.wasm"},
                        "env": {"ROOTDIR": "."}},
     },
-    "elixir-{elixir}": {
-        # 2: its commands are Elixir's own scripts, which need the shell
-        # and a runtime that runs them by their #! lines.
-        "version": "2.0.0",
+    # 3: one package for every Elixir: elixir(BUILD) names the build, whose
+    # layer the site's build prepares (packages/elixir, with the runtime's
+    # harness: 2.2) below versions/BUILD/; its package.json and descriptor
+    # have no layer, the site manifest has the site's. 2: its commands are
+    # Elixir's own scripts, which need the shell and a runtime that runs
+    # them by their #! lines.
+    "elixir": {
+        "version": "3.0.0",
         "root": "/opt/elixir/{elixir}",
-        # Its Hex cache, an apex plugin (packages/hex), which its index.js adds.
-        "files": ["hex.js"],
+        # Its Hex cache, an apex plugin (packages/hex), which its index.js
+        # adds; elixir.js (elixir(BUILD)), and prepare with its command.
+        "files": ["hex.js", *ELIXIR_MODULES],
         "apex": "hex.js",
-        "runtime": "^2.0.0",
+        "prepared": "versions/{build}/",
+        "runtime": "^2.2.0",
         "peers": ["shell"],
         # Elixir's scripts, and the archives and rebar3 Mix finds by them.
         "playground": {"bin": {name: f"bin/{name}" for name in ELIXIR_BIN},
@@ -697,7 +732,7 @@ PACKAGES = {
     },
     # The playground's own: a site brings its own templates (docs/api.md).
     "phoenix-template": {"version": "1.0.0", "root": "/work/playground", "files": [],
-                         "peers": ["otp-{otp}", "elixir-{elixir}"], "playground": {}, "publish": False},
+                         "peers": ["otp-{otp}", "elixir"], "playground": {}, "publish": False},
     "shell": {
         "version": "1.0.0",
         # The terminfo entry.
@@ -946,7 +981,7 @@ def write_layer(fs, files, root):
 
 
 def lay(out, name, version, files, playground, peers, layer=None, own=(), licensed=None, root=None,
-        publish=True, descriptor=False, fields=None, apex=None):
+        publish=True, descriptor=False, fields=None, apex=None, prepared=None, site=None):
     """A package's directory, npm/@elixir-playground/NAME@VERSION+ID/: its
     `files` ({name: path here}, a directory too), its fs layer (`layer`: the
     files below `root` in the nodes' tree, [(path there, path here)], or a
@@ -958,7 +993,12 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
     package. Each module's imports must belong to a seam `playground`
     names (`own`: what its own glue answers). `apex`: one of its files, an
     apex plugin's module whose default export makes the plugin, which its
-    index.js exports beside the descriptor. Its site manifest entry."""
+    index.js exports beside the descriptor. `prepared`: where its layer
+    goes instead (versions/BUILD/, with fs.json: the elixir package's, which
+    a site's build makes), named by the site manifest alone, not by the
+    package (its package.json, its descriptor) nor among its published
+    files; `site`: more of the site manifest's `playground`. Its site
+    manifest entry."""
     for file, here in files.items():
         if file.endswith(".wasm"):
             imports, _ = wasm_interface(here)
@@ -974,7 +1014,20 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
         else:
             link_or_copy(here, os.path.join(scratch, file))
     playground = dict(playground)
-    if isinstance(layer, list):
+    site = dict(site or {})
+    if prepared:
+        made = os.path.join(scratch, prepared)
+        if isinstance(layer, list):
+            fs = write_layer(os.path.join(made, "fs"), layer, root)
+            with open(os.path.join(made, "fs.json"), "w") as f:
+                json.dump(fs, f, indent=1)
+                f.write("\n")
+        else:
+            shutil.copytree(layer[0], made, copy_function=link_or_copy)
+            with open(os.path.join(made, "fs.json")) as f:
+                fs = json.load(f)
+        site["fs"] = {**fs, "manifest": prepared + fs["manifest"], "bundles": prepared + fs["bundles"]}
+    elif isinstance(layer, list):
         playground["fs"] = write_layer(os.path.join(scratch, "fs"), layer, root)
     elif layer:
         path, playground["fs"] = layer
@@ -988,9 +1041,9 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
                      "base": f"/{NPM}/{name}@{version}/", "files": listed,
                      **({"peerDependencies": peers} if peers else {}), "playground": playground}
         with open(os.path.join(scratch, "index.js"), "w") as f:
-            f.write(descriptor_module(described, apex))
+            f.write(descriptor_module(described, apex, bool(prepared)))
         with open(os.path.join(scratch, "index.d.ts"), "w") as f:
-            f.write(PLUGIN_TYPES if apex else DESCRIPTOR_TYPES)
+            f.write(ELIXIR_TYPES if prepared else PLUGIN_TYPES if apex else DESCRIPTOR_TYPES)
         added = [*added, "index.js", "index.d.ts"]
         fields = {**MODULE, **(fields or {})}
         if apex:
@@ -1003,7 +1056,7 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
             fields["exports"] = {**fields["exports"], f"./{apex}": {"types": f"./{types}", "default": f"./{apex}"}}
     package = {"name": f"{SCOPE}/{name}", "version": version, "license": expression,
                "repository": REPOSITORY,
-               "files": sorted([*files, *(["fs"] if layer else []), *added]),
+               "files": sorted([*files, *(["fs"] if layer and not prepared else []), *added]),
                **(fields or {}),
                **({"peerDependencies": peers} if peers else {}),
                **({"playground": playground} if playground else {}),
@@ -1017,18 +1070,30 @@ def lay(out, name, version, files, playground, peers, layer=None, own=(), licens
         shutil.rmtree(scratch)
     else:
         os.rename(scratch, os.path.join(out, directory))
-    entry = {"version": version, "base": f"../{directory}/", "files": listed, "playground": playground}
+    entry = {"version": version, "base": f"../{directory}/", "files": listed,
+             "playground": {**playground, **site}}
     if peers:
         entry["peerDependencies"] = peers
     return directory, entry
 
 
-def descriptor_module(described, apex=None):
+def descriptor_module(described, apex=None, builds=False):
     """A descriptor package's index.js: its descriptor (`described`), with
-    the plugin its `apex` module makes beside it. runtime/publish.py sets
-    the descriptor's version and base where it follows `export default `
-    or `const descriptor = `: a shape of its own needs publish.py's too
-    (tests/publish.py checks each)."""
+    the plugin its `apex` module makes beside it; `builds`: the elixir
+    package's, whose elixir(BUILD) is the descriptor of a build (its
+    elixir.js). runtime/publish.py sets the descriptor's version and base
+    where it follows `export default ` or `const descriptor = `: a shape of
+    its own needs publish.py's too (tests/publish.py checks each)."""
+    if builds:
+        return ("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
+                "// with its plugin: elixir(BUILD) for an Elixir build as builds.hex.pm\n"
+                "// names it ('1.20.4-otp-29'), whose layer the site's build prepares\n"
+                "// (prepare.js); the default export is the package's default build.\n"
+                f"import plugin from './{apex}';\n"
+                "import { described } from './elixir.js';\n\n"
+                f"const descriptor = {json.dumps(described, indent=1)};\n\n"
+                "export const elixir = (build) => [described(descriptor, build), plugin()];\n"
+                "export default elixir();\n")
     if apex:
         return ("// The package as create() takes it (@elixir-playground/api, docs/api.md),\n"
                 "// with its plugin.\n"
@@ -1066,6 +1131,16 @@ declare const plugins: Plugin[];
 export default plugins;
 """
 
+# The elixir package's: elixir(BUILD), and its default build.
+ELIXIR_TYPES = """import type { Plugin } from '@elixir-playground/api';
+
+// An Elixir build as builds.hex.pm names it ('1.20.4-otp-29'): by default
+// the package's default.
+export declare const elixir: (build?: string) => Plugin[];
+declare const plugins: Plugin[];
+export default plugins;
+"""
+
 # Its plugin's module (`./hex.js`): the function that makes the plugin.
 APEX_TYPES = """import type { ApexPlugin } from '@elixir-playground/api';
 
@@ -1090,18 +1165,20 @@ def write_site(out, packages, boot, name=None):
     return "/" + path
 
 
-def lay_packages(out, versions, facts, sources, layers, licensed):
-    """Every package of PACKAGES: `sources` names each file's path here,
-    `layers` each package's fs layer (lay's `layer`), `licensed` its
-    licenses (lay's), by key; `facts` what a full build found (beamAbi, the
-    template's id). Their site manifest entries, by name."""
+def lay_packages(out, versions, facts, sources, layers, licensed, only=None):
+    """Every package of PACKAGES (`only`: these keys): `sources` names each
+    file's path here, `layers` each package's fs layer (lay's `layer`),
+    `licensed` its licenses (lay's), by key; `facts` what a full build
+    found (beamAbi, the template's id). Their site manifest entries, by
+    name, and their directories."""
     with open(HOST) as f:
         host = json.load(f)
     otp, elixir = versions["otp"], versions["elixir"]
     named = lambda key: key.format(otp=otp, elixir=elixir)
     filled = {
         "otp-{otp}": {"otp": otp, "beamAbi": facts["beamAbi"], "nifAbi": facts["nifAbi"]},
-        "elixir-{elixir}": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
+        # Its build's (the site's), as elixir(BUILD) names them (elixir.js).
+        "elixir": {"elixir": elixir, "requires": {"otp": "^%s.0.0" % otp.split(".")[0]}},
         # Its recording (RECORD's boot-phoenix: what its server reads first)
         # and its server's port, which its project's preview shows first.
         "phoenix-template": {"template": {"kind": "phoenix", "id": facts["template"],
@@ -1113,23 +1190,33 @@ def lay_packages(out, versions, facts, sources, layers, licensed):
     fields = {"claude": {"claudeCode": f">={claude_code()} <={claude_code()}"},
               # erl() for Node.js, and npx's erl.
               "otp-{otp}": {"bin": {"erl": "erl.js"},
-                            "exports": {**MODULE["exports"], "./node": {"types": "./node.d.ts", "default": "./node.js"}}}}
-    entries = {}
+                            "exports": {**MODULE["exports"], "./node": {"types": "./node.d.ts", "default": "./node.js"}}},
+              # prepare() for a site's build (the vite package's), and its command.
+              "elixir": {"bin": {"elixir-playground-elixir": "cli.js"},
+                         "exports": {**MODULE["exports"],
+                                     "./prepare": {"types": "./prepare.d.ts", "default": "./prepare.js"}}}}
+    entries, directories = {}, {}
     for key, package in PACKAGES.items():
+        if only and key not in only:
+            continue
         # The runtime it needs: its major, or the minor that brought a seam it uses.
         peers = {host["name"]: package.get("runtime", "^%s.0.0" % host["version"].split(".")[0])}
         for peer in package.get("peers", ()):
             peers[f"{SCOPE}/{named(peer)}"] = "^%s" % PACKAGES[peer]["version"].split(".")[0]
-        _, entries[f"{SCOPE}/{named(key)}"] = lay(
+        prepared = package.get("prepared", "").format(**versions) or None
+        # A prepared layer's facts are the site's, not the package's.
+        playground, site = ({**package["playground"]}, filled.get(key, {})) if prepared else (
+            {**package["playground"], **filled.get(key, {})}, {})
+        directories[key], entries[f"{SCOPE}/{named(key)}"] = lay(
             out, named(key), package["version"],
             # A workspace package's files are its build's (`dist`), the others' by name.
             {file: os.path.join(ROOT, package["dist"], file) if "dist" in package else sources[file]
              for file in package["files"]},
-            {**package["playground"], **filled.get(key, {})}, peers, layers.get(key), package.get("own", ()),
+            playground, peers, layers.get(key), package.get("own", ()),
             licensed[key], package.get("root", "").format(**versions) or None,
             publish=package.get("publish", True), descriptor=package.get("publish", True),
-            fields=fields.get(key), apex=package.get("apex"))
-    return entries
+            fields=fields.get(key), apex=package.get("apex"), prepared=prepared, site=site)
+    return entries, directories
 
 
 def lay_runtime(out, runtime):
@@ -1281,8 +1368,10 @@ def sources(wasm):
             # Mozilla's roots (the nodes' /etc/ssl/certs), for a Node.js
             # process's tls.rootCertificates (packages/runtime/src/nodejs/tls.ts).
             "roots.pem": cacerts(),
-            # The elixir package's Hex plugin (packages/hex's build).
+            # The elixir package's Hex plugin (packages/hex's build), and its
+            # modules (packages/elixir's).
             "hex.js": os.path.join(ROOT, "packages", "hex", "dist", "hex.js"),
+            **{name: os.path.join(ELIXIR_DIST, name) for name in ELIXIR_MODULES},
             # tailscale/build.py's, the Go it built with has it.
             "wasm_exec.js": os.path.join(ROOT, "target", "tailscale", "wasm_exec.js"),
             **{name: os.path.join(BEAM_DIST, name) for name in ("beam.mjs", "beam.emu.mjs", "beam.wasm")},
@@ -1309,9 +1398,13 @@ def app(out, wasm):
     runtime = page(out)
     by = {name: entry for name, entry in before["packages"].items()}
     otp_entry = next(entry for entry in by.values() if "beamAbi" in entry["playground"])
-    versions = {"otp": otp_entry["playground"]["otp"],
-                "elixir": next(entry["playground"]["elixir"] for entry in by.values()
-                               if "elixir" in entry["playground"])}
+    elixir_entry = by.get(f"{SCOPE}/elixir")
+    if not elixir_entry:
+        sys.exit(f"{out}: a site from before the elixir package: python3 -I runtime/build.py")
+    # Its build, which names the directory its layer is in (versions/BUILD/).
+    prepared = elixir_entry["playground"]["fs"]["manifest"].removesuffix("fs/manifest.json")
+    versions = {"otp": otp_entry["playground"]["otp"], "elixir": elixir_entry["playground"]["elixir"],
+                "build": prepared.strip("/").split("/")[-1]}
     template = next(entry for entry in by.values() if "template" in entry["playground"])
     # The emulator's, as a full build found them.
     facts = {"beamAbi": otp_entry["playground"]["beamAbi"], "nifAbi": otp_entry["playground"]["nifAbi"],
@@ -1328,15 +1421,17 @@ def app(out, wasm):
             if entry["playground"]["fs"].get("format") != 3:
                 sys.exit(f"{out}: {key.format(**versions)}'s layer is fs format "
                          f"{entry['playground']['fs'].get('format')}, not 3: python3 -I runtime/build.py")
-            layers[key] = (os.path.join(here(entry), "fs"), entry["playground"]["fs"])
+            layers[key] = ((os.path.join(here(entry), prepared), None) if PACKAGES[key].get("prepared")
+                           else (os.path.join(here(entry), "fs"), entry["playground"]["fs"]))
     # The full build's packages' licenses, as their fs layers: theirs, or
     # (a site from before licenses/) worked out again.
     licensed = tool_notices()
-    for key, compute in full_notices(versions).items():
+    made = os.path.join(ELIXIR_CACHE, "prepared", prepared, "prepared.json")
+    for key, compute in full_notices(versions, json.load(open(made)) if os.path.exists(made) else None).items():
         directory = os.path.join(here(by[f"{SCOPE}/{key.format(**versions)}"]), "licenses")
         licensed[key] = ((notices.licenses.Inventory.read(directory), {}) if os.path.isdir(directory)
                          else compute())
-    entries = lay_packages(out, versions, facts, found, layers, licensed)
+    entries, _ = lay_packages(out, versions, facts, found, layers, licensed)
     site = write_site(out, entries, before["boot"])
     laid = lay_runtime(out, runtime)
     name_pages(out, laid[0], site)
@@ -1345,18 +1440,17 @@ def app(out, wasm):
     print(f"{out}: runtime {laid[0]}, site {site}")
 
 
-def full_notices(versions):
+def full_notices(versions, prepared):
     """The licenses of the packages a full build makes (lay's `licensed`,
-    by key, each a function): OTP's, Elixir's and the template's."""
-    archives, rebar3 = host_mix()
-    hex_version = next(name.split("-", 1)[1] for name in os.listdir(archives) if name.startswith("hex-"))
+    by key, each a function): OTP's, Elixir's (`prepared`: what its
+    prepare recorded, prepared.json) and the template's."""
     licensed = os.path.join(CACHE, "licenses")
     return {
         # With node.js and erl.js, the playground's own (packages/otp).
         "otp-{otp}": lambda: (notices.otp(versions["otp"]).extend(notices.own()), {}),
         # With hex.js, the playground's own (packages/hex).
-        "elixir-{elixir}": lambda: (notices.elixir({**versions, "hex": hex_version, "phx_new": PHX_NEW},
-                                                   rebar3, licensed).extend(notices.own()), {}),
+        "elixir": lambda: (notices.elixir({**versions, "hex": prepared["hex"], "rebar3": prepared["rebar3"]},
+                                          licensed).extend(notices.own()), {}),
         "phoenix-template": lambda: (notices.template(os.path.join(CACHE, "playground"), PHX_NEW, licensed), {}),
     }
 
@@ -1376,14 +1470,20 @@ def main():
     # Each package's files in the nodes' tree, from its own build or
     # installation.
     layers = fs_layers(phoenix_app())
+    found = sources(wasm)
+    facts = {"beamAbi": beam_abi(found["beam.wasm"]), "nifAbi": nif_abi(), "template": ""}
+    # Elixir's, made on the otp package, laid first.
+    otp_licensed = full_notices(versions, None)["otp-{otp}"]()
+    _, directories = lay_packages(out, versions, facts, found, layers, {"otp-{otp}": otp_licensed},
+                                  only=("otp-{otp}",))
+    layers["elixir"], prepared = elixir_files(os.path.join(out, directories["otp-{otp}"]))
 
     # Every package laid out, its files lazy, to record what each boot
     # image's command fetches; only the Phoenix run's writes (the template,
     # built at its root) are kept, and the template laid again.
-    licensed = {**tool_notices(), **{key: compute() for key, compute in full_notices(versions).items()}}
-    found = sources(wasm)
-    facts = {"beamAbi": beam_abi(found["beam.wasm"]), "nifAbi": nif_abi(), "template": ""}
-    entries = lay_packages(out, versions, facts, found, layers, licensed)
+    licensed = {**tool_notices(), **{key: compute() for key, compute in full_notices(versions, prepared).items()
+                                     if key != "otp-{otp}"}, "otp-{otp}": otp_licensed}
+    entries, _ = lay_packages(out, versions, facts, found, layers, licensed)
     recording = write_site(out, entries, None, name="recording")
     fetched = {}
     for boot in RECORD:
@@ -1409,7 +1509,7 @@ def main():
             with open(here, "rb") as f:
                 template.update(f.read())
     facts["template"] = template.hexdigest()[:12]
-    entries = lay_packages(out, versions, facts, found, layers, licensed)
+    entries, _ = lay_packages(out, versions, facts, found, layers, licensed)
     # Every file by its path in the node (below its package's root, as the
     # node's tree and the recordings name it), with its package.
     files = [(f"{root_of(key, versions).lstrip('/')}/{path}", here, key)
@@ -1420,7 +1520,7 @@ def main():
     # template's files go only in the Phoenix image; an empty project has
     # none of them.
     otp_root = root_of("otp-{otp}", versions).lstrip("/")
-    elixir_root = root_of("elixir-{elixir}", versions).lstrip("/")
+    elixir_root = root_of("elixir", versions).lstrip("/")
     # (Elixir's scripts too: the shell reads them before the node starts.)
     needed = lambda path: path.endswith((".app", ".boot")) or path.startswith(
         (f"{otp_root}/releases/", f"{otp_root}/lib/erts/", f"{elixir_root}/bin/"))
