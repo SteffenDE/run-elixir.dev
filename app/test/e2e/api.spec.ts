@@ -451,7 +451,7 @@ test('any site runs projects on the shared usercontent domain, with packages tha
   await page.waitForFunction(() => window.embed);
   const refused = await page.evaluate(async () => {
     const { otp, elixir, standard } = window.embed.packages;
-    // The elixir package's module: the package and its Hex plugin.
+    // elixir(BUILD): the package and its Hex plugin.
     const [descriptor, hex] = elixir;
     const older = {
       ...descriptor,
