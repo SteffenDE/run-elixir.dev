@@ -13,6 +13,8 @@
 // worker answers { kind: 'out', fd, bytes } as it writes, a thread's
 // messages and its uncaught error, and { kind: 'exit', code } at its end,
 // then waits to be stopped.
+// First: the modules below and Claude Code's need Symbol.dispose.
+import './dispose';
 import { Buffer } from './buffer';
 import { createBuiltins, BUILTINS } from './builtins';
 import { installBun } from './claude/bun';
