@@ -4,6 +4,7 @@
 // its own line editing, history and Ctrl+C / Ctrl+D as Node's readline has
 // them; otherwise lines as they come. readline/promises' question answers
 // a promise.
+import './dispose';
 import { EventEmitter } from 'events';
 
 type Stream = EventEmitter & {
