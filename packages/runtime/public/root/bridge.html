@@ -44,14 +44,14 @@
 
       // The origin's newest worker, once active. register() leaves a
       // registration's workers as they are; update() fetches /sw.js again
-      // and settles once it knows whether it changed. The bootstrap waits
-      // for that before it bridges: a new worker that installed during the
-      // boot would take over the frame (skipWaiting, clients.claim) before
-      // its page could answer `bridge-lost`, and in Safari the dedicated
-      // workers started before the takeover kept the old worker
-      // (docs/frames.md, "Service worker updates"). update() took 1–3 ms
-      // with an unchanged sw.js in Chromium and WebKit (2026-11-02); it
-      // only waits for a new worker when it found one.
+      // and settles once it knows whether it changed. A new worker that
+      // installed during the boot would take over the frame (skipWaiting,
+      // clients.claim) before its page could answer `bridge-lost`
+      // (docs/frames.md, "Service worker updates"), so the bootstrap bridges
+      // only after the check. In Firefox, update() takes 1 s even when
+      // sw.js is current, so the bootstrap waits for it only when the
+      // active worker's script is not the one the server sends now
+      // (servedScript).
       async function newestWorker() {
         const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
         // Offline, or the server failed: the worker there is.
@@ -68,11 +68,29 @@
         return worker;
       }
 
+      // The stamp line sw.js ends with (src/swScript.ts STAMP).
+      const STAMP = /\nself\.playgroundScript="([0-9a-f]{64})";\n/;
+      // The SHA-256 of the /sw.js the server sends now, without its stamp
+      // line (src/swScript.ts scriptHash), as the active worker reports
+      // its own; null if unknown.
+      async function servedScript() {
+        try {
+          const response = await fetch('/sw.js', { cache: 'no-cache' });
+          if (!response.ok) return null;
+          const text = (await response.text()).replace(STAMP, '');
+          const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+          return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+        } catch {
+          return null;
+        }
+      }
+
       // The worker takes a new key and a port to the apex's worker; the
-      // key. The apex's worker gets its end of the port only once the
-      // worker took the other: a refused or silent worker's is closed, and
-      // the apex never answers it.
-      function bridged(worker, control, wait) {
+      // key. `script`: the hash the worker must report (servedScript), or
+      // it is refused. The apex's worker gets its end of the port only
+      // once the worker took the other: a refused or silent worker's is
+      // closed, and the apex never answers it.
+      function bridged(worker, control, wait, script = null) {
         return new Promise((resolve, reject) => {
           const key = newKey();
           const channel = new MessageChannel();
@@ -95,9 +113,11 @@
             const answer = event.data;
             if (answer?.kind !== 'bridged' || answer.bridge !== key) return;
             settle(
-              answer.protocol === PROTOCOL
-                ? null
-                : new Error(`the service worker speaks bridge protocols ${answer.protocols}`),
+              answer.protocol !== PROTOCOL
+                ? new Error(`the service worker speaks bridge protocols ${answer.protocols}`)
+                : script !== null && answer.script !== script
+                  ? new Error('the service worker is not the newest')
+                  : null,
             );
           };
           navigator.serviceWorker.addEventListener('message', heard);
@@ -116,9 +136,19 @@
         if (data.entry.split('/').some((part) => part === '..' || part === '.')) return;
         started = true;
         try {
-          // Once more if it failed: another update replaced the worker.
+          // The active worker, if it runs the sw.js the server sends now:
+          // no update can replace it.
+          const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+          const active = registration.active;
+          const current =
+            active?.state === 'activated' && !registration.installing && !registration.waiting
+              ? await servedScript()
+              : null;
+          let key = current ? await bridged(active, control, 3000, current).catch(() => null) : null;
+          // Else the newest worker, after the update check; once more if
+          // that failed: another update replaced the worker.
           const attempt = async () => bridged(await newestWorker(), control, 10000);
-          const key = await attempt().catch(attempt);
+          key ??= await attempt().catch(attempt);
           location.replace(`/_bridge/${key}/${data.entry}`);
         } catch (error) {
           // Why, to the parent that asked.

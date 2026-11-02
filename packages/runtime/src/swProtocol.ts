@@ -133,6 +133,8 @@ export interface Bridged {
   bridge: string;
   protocol: number | null;
   protocols: number[];
+  // The SHA-256 its sw.js names (swScript.ts), if it names one.
+  script?: string;
 }
 // Worker → the bridge's pages, when it has no port for their key (it was
 // stopped): one of them sends `bridge` again with a new port.
