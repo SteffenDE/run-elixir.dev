@@ -1044,6 +1044,10 @@ REPOSITORY = {"type": "git", "url": "git+https://github.com/SteffenDE/run-elixir
 MODULE = {"type": "module", "types": "./index.d.ts",
           "exports": {".": {"types": "./index.d.ts", "default": "./index.js"},
                       "./package.json": "./package.json"}}
+# The runtime package's: the Node harness as a module, every other file
+# by its path (the vite package reads them from the package's directory).
+RUNTIME_EXPORTS = {"./harness": {"types": "./node/harness.d.ts", "default": "./node/harness.mjs"},
+                   "./package.json": "./package.json", "./*": "./*"}
 # A descriptor's declarations: what create() takes (the api package's
 # types, which a site that runs them has installed).
 DESCRIPTOR_TYPES = """import type { PackageDescriptor } from '@elixir-playground/api';
@@ -1136,8 +1140,14 @@ def lay_runtime(out, runtime):
     # The runtime's scripts and frames: the playground's own, with what
     # their Vite builds bundled (app/vite-licenses.ts).
     runtime_licensed = notices.own().extend(notices.npm("runtime")).extend(notices.npm("frames"))
-    directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {},
-                       licensed=(runtime_licensed, {}))
+    with tempfile.TemporaryDirectory() as scratch:
+        # The Node harness (dist-node, its declarations beside it), which
+        # an otp package's erl and the elixir package's prepare run.
+        files["node"] = os.path.join(scratch, "node")
+        shutil.copytree(os.path.join(os.path.dirname(runtime), "dist-node"), files["node"])
+        shutil.copy(os.path.join(os.path.dirname(runtime), "harness.d.ts"), files["node"])
+        directory, _ = lay(out, name, host["version"], files, {"provides": host["provides"]}, {},
+                           licensed=(runtime_licensed, {}), fields={"exports": RUNTIME_EXPORTS})
     module = MODULE
     source = lambda key: json.load(open(os.path.join(ROOT, "packages", key, "package.json")))
     # Each one's module and its declarations (packages/types.mjs).
