@@ -421,6 +421,33 @@ detect that.
   worker starts.** Its imports then go to the network. So the exec
   frame's workers (`host/worker.ts`) and a Node.js process's threads
   (the nodejs package's `threads.ts`) start from their script's URL when bridged.
+- **WebKit sends some concurrent worker loads of one URL past the service
+  worker.** When several nodes start at once, each node's module worker
+  loads `worker.js` and its static imports (`chunks/fs-*.js` and others)
+  below `/_bridge/KEY/`. In WebKit, one of the loads of a URL reaches the
+  service worker; others go to the network, where the shared domain's
+  server answers 404. The console shows `Refused to load … because of
+  Cross-Origin-Embedder-Policy` and `Importing a module script failed`,
+  and the worker fires `error`. A load of the same URL on its own reaches
+  the service worker. The runtime therefore loads its own workers one at
+  a time in bridge mode, and starts a worker again when it fails to load
+  (`host/worker.ts`, [runtime.md](runtime.md#page-and-node-host-worker)).
+  The cause inside WebKit is not confirmed. Tidewave reported it with
+  Playwright's WebKit 27.2 and in desktop Safari, where caching made it
+  more frequent and `worker.js` itself also failed. `bridge.spec.ts`
+  reproduces it by starting eight `sh` processes at once. Measured on
+  2026-11-02 with Playwright 1.64's WebKit, against the local test
+  embedder:
+
+  | Runtime | Result |
+  | --- | --- |
+  | Before the fix | 6 or 7 of 8 nodes failed, in each of 3 runs |
+  | Retries only | All started; 9–14 retries for 8 nodes, 21–31 for 16 |
+  | One load at a time, and retries | All started; no retries in 12 runs of 8 and 16 nodes |
+
+  Node.js processes are worker programs, which are not gated. Six
+  `node -e` processes started at once needed one retry in two of four
+  runs.
 - **Firefox checks a synthesized response against `worker-src`,
   `script-src` (a dynamic import) and `connect-src` by the service
   worker's script URL (`/sw.js`), not by the request's.** So the Node.js
