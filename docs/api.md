@@ -40,7 +40,7 @@ const sandbox = await create({
   relay: ['github.com', 'api.anthropic.com'],      // hosts through the site's TCP relay (relay.md); none by default
   usercontent: 'run-elixir-usercontent.org',       // the shared domain that runs project code (the default)
   // or { domain, content, worker, packagePath } (below)
-  runtime: '/npm/@elixir-playground/runtime@2.0.0/', // where this page serves the runtime package
+  runtime: '/npm/@elixir-playground/runtime@2.1.0/', // where this page serves the runtime package
   services: 'https://run-elixir.dev',              // the backend: NIF builds, git's proxy, the TCP relay
   container: document.body,                        // where the 1px exec frame goes
   onProgress: ({ phase, text }) => {},
@@ -185,7 +185,7 @@ const sandbox = await create({
     content: '/web/elixir-playground/',   // the directory the packages are below: / by default
     worker: '/assets/apexWorker.js',      // only if the bundler leaves the api's worker out
   },
-  runtime: '/npm/@elixir-playground/runtime@2.0.0/', // where this page serves it
+  runtime: '/npm/@elixir-playground/runtime@2.1.0/', // where this page serves it
   services: 'https://run-elixir.dev',
 });
 ```
@@ -193,7 +193,8 @@ const sandbox = await create({
 | Option | Meaning |
 | --- | --- |
 | `usercontent` | The shared domain, with a port if any, or the object below. Defaults as [above](#using-it). |
-| `usercontent.domain` | The shared domain. |
+| `usercontent.domain` | The shared domain: a host (`run-elixir-usercontent.org`), or a host with its scheme (`https://bridge.localhost:8443`). |
+| `usercontent.scheme` | `'http'` or `'https'`, overriding the scheme in `domain`. By default the scheme in `domain`; otherwise https, or http for `*.localhost` or a host with a port. Never the page's scheme ([frames.md](frames.md#schemes)). |
 | `usercontent.content` | The directory the packages are below, on the page's origin or another (a CDN). The descriptors' `base`s, the boot recordings' `base` and `runtime` resolve below it, even with a leading slash. By default what `<meta name="playground-content">` names, else the page's origin root (`/`). |
 | `usercontent.worker` | The apex worker's script, if the bundler leaves the api's own out, or the page's scripts are on another origin ([below](#the-apex-worker)). |
 | `usercontent.packagePath` | Each package's directory below `content`, with `{name}` and `{version}` in it: `'{name}@{version}/'` for unpkg's layout. By default each descriptor's `base` (`/npm/NAME@VERSION/`, jsDelivr's layout). A `base` that is a URL of its own stays as it is. |
@@ -335,7 +336,7 @@ export default defineConfig({
 
 | Option | Meaning |
 | --- | --- |
-| `usercontent` | The shared usercontent domain, with a port if any. Named in each page's `<meta name="playground-usercontent">`; without it, `create()` takes run-elixir.dev's. A `*.localhost` name (`usercontent.localhost:5173`) is answered by `vite` and `vite preview` themselves, for local work. |
+| `usercontent` | The shared usercontent domain, with a port if any, and with a scheme if the default is wrong ([frames.md](frames.md#schemes)). Named in each page's `<meta name="playground-usercontent">`; without it, `create()` takes run-elixir.dev's. A `*.localhost` name (`usercontent.localhost:5173`) is answered by `vite` and `vite preview` themselves, for local work. |
 | `packages` | Package directories that are not installed, such as a template of the site's own. |
 
 **`vite build`** lays the runtime package and every installed package
@@ -570,7 +571,10 @@ preview, git through the apex's worker with the embedder's `Origin`, a
 NIF build (skipped without `tests/nif/build.py`'s fixtures), the Node.js
 worker's policy, the shared domain hosting nothing top-level, the
 services' allowlist, Claude Code, two sandboxes on one page, and a kept
-project's files after a lost salt. `bridge-guard.spec.ts` checks that no
+project's files after a lost salt. `https-bridge.spec.ts` runs the http
+embedder on an https shared domain (`serve.py --https-bridge
+bridge.localhost:PORT+3`, self-signed): the exec frame and a preview on
+https origins. `bridge-guard.spec.ts` checks that no
 other site can bridge the apex. `embedder.ts` holds the helpers the
 specs use.
 

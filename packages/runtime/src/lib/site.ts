@@ -15,10 +15,48 @@
 import { bridgeKey, siteRoot } from './apexLink';
 import { isId } from './ids';
 
+// A domain's scheme (docs/frames.md, "Schemes"): the one a domain is
+// written with (https://run-elixir-usercontent.org), else https, but http
+// for a local one: localhost, *.localhost, or a host with a port
+// (serve.py's and the Vite plugin's playground.localhost:8081). This
+// page's own host keeps this page's scheme. Never the page's scheme for
+// another domain: a page on http://localhost:9000 frames the shared
+// domain's https origins (an http one answers with a redirect, which a
+// cross-origin isolated page refuses to frame).
+const SCHEME = /^([a-z][a-z0-9+.-]*):\/\//i;
+export function domainScheme(domain: string): 'http:' | 'https:' {
+  const written = domain.match(SCHEME)?.[1].toLowerCase();
+  if (written === 'http' || written === 'https') return `${written}:`;
+  if (written) throw new Error(`${domain}: a domain is http or https`);
+  const host = domain.replace(/\/+$/, '').toLowerCase();
+  if (host === location.host.toLowerCase()) return location.protocol as 'http:' | 'https:';
+  return defaultScheme(host);
+}
+// The scheme of a host written without one, anywhere but on itself.
+function defaultScheme(host: string): 'http:' | 'https:' {
+  const name = host.toLowerCase().replace(/:\d+$/, '');
+  return name === 'localhost' || name.endsWith('.localhost') || name !== host.toLowerCase()
+    ? 'http:'
+    : 'https:';
+}
+// The domain as another origin names it: its host where that has the
+// default scheme there (as runtime 2.0's frames read it), else its origin.
+export function domainName(domain: string): string {
+  const host = domainHost(domain);
+  return defaultScheme(host) === domainScheme(domain) ? host : domainOrigin(domain);
+}
+// A domain without its scheme: a host, with a port if any.
+export const domainHost = (domain: string) => domain.replace(SCHEME, '').replace(/\/+$/, '');
+// The origin of the domain itself, or of `name` below it.
+export const domainOrigin = (domain: string, name?: string) =>
+  `${domainScheme(domain)}//${name ? `${name}.` : ''}${domainHost(domain)}`;
+
 interface Site {
-  // The apex (with a port, if any), or null: this origin is the apex.
+  // The apex (with a port, if any; with its scheme, if playground.json
+  // names one), or null: this origin is the apex.
   domain: string | null;
-  // The usercontent domain (with a port, if any), or null.
+  // The usercontent domain (with a port, if any; with its scheme, if
+  // named), or null.
   usercontent: string | null;
   // Which project's preview, and of which port, this origin is
   // (v-ID-PORT.USERCONTENT).
@@ -73,11 +111,13 @@ export async function loadSite(): Promise<void> {
     typeof config.usercontent === 'string' && config.usercontent ? config.usercontent : null;
   site = { domain, usercontent, preview: null, moved: null, stray: false };
   const host = location.host;
-  if (usercontent && host.endsWith(`.${usercontent}`)) {
-    site.preview = previewName(host.slice(0, -usercontent.length - 1));
+  const shared = usercontent && domainHost(usercontent);
+  const apex = domain && domainHost(domain);
+  if (shared && host.endsWith(`.${shared}`)) {
+    site.preview = previewName(host.slice(0, -shared.length - 1));
     site.stray = !site.preview;
-  } else if (domain && host.endsWith(`.${domain}`)) {
-    site.moved = movedFrom(host.slice(0, -domain.length - 1));
+  } else if (apex && host.endsWith(`.${apex}`)) {
+    site.moved = movedFrom(host.slice(0, -apex.length - 1));
     site.stray = !site.moved;
   }
 }
@@ -88,10 +128,10 @@ export async function loadSite(): Promise<void> {
 // from it alone.
 export const parentOrigins = () => [apexOrigin()];
 
-// The usercontent domain, if the site has one.
+// The usercontent domain, if the site has one (with its scheme, if named).
 export const usercontentDomain = () => site.usercontent;
-// The apex the site names (with a port, if any), or null.
-export const siteDomain = () => site.domain;
+// The apex's host the site names (with a port, if any), or null.
+export const siteDomain = () => site.domain && domainHost(site.domain);
 // This page is on a name that is no address.
 export const strayOrigin = () => site.stray;
 // This page is on a preview origin: which project and port.
@@ -104,13 +144,13 @@ export const formerProject = () => site.moved?.match(/^\/([a-z0-9]{10})\/$/)?.[1
 // Where project `id`'s former origin keeps its stores' frame (storage.html):
 // its stores move to the apex through it (migrate.ts).
 export const formerStorage = (id: string) =>
-  site.domain && isId(id) ? `${location.protocol}//p-${id}.${site.domain}/storage.html` : null;
+  site.domain && isId(id) ? `${domainOrigin(site.domain, `p-${id}`)}/storage.html` : null;
 
 // Where project `id`'s preview shows a port of its app, with {port} for
 // it (v-ID-{port}.USERCONTENT); null without a usercontent domain.
 // `usercontent`: a sandbox's own (the api's create()), not the page's.
 export function previewOrigins(id: string, usercontent = site.usercontent): string | null {
-  return usercontent && isId(id) ? `${location.protocol}//v-${id}-{port}.${usercontent}` : null;
+  return usercontent && isId(id) ? domainOrigin(usercontent, `v-${id}-{port}`) : null;
 }
 export const previewOrigin = (id: string, port: number, usercontent = site.usercontent) =>
   previewOrigins(id, usercontent)?.replace('{port}', String(port)) ?? null;
@@ -118,13 +158,13 @@ export const previewOrigin = (id: string, port: number, usercontent = site.userc
 // Where the worker that runs project `key` lives (e-KEY.USERCONTENT); null
 // without a usercontent domain.
 export const execOrigin = (key: string, usercontent = site.usercontent) =>
-  usercontent && isId(key) ? `${location.protocol}//e-${key}.${usercontent}` : null;
+  usercontent && isId(key) ? domainOrigin(usercontent, `e-${key}`) : null;
 
 export const projectUrl = (id: string) => apexUrl(`/${id}/`);
 
 // A path on the apex, from anywhere.
 export function apexUrl(path: string): string {
-  return site.domain ? `${location.protocol}//${site.domain}${path}` : path;
+  return site.domain ? `${domainOrigin(site.domain)}${path}` : path;
 }
 
 export const apexOrigin = () => new URL(apexUrl('/'), location.href).origin;

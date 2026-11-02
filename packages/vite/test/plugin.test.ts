@@ -136,3 +136,17 @@ test("the packages follow Vite's base", async () => {
   // dist/ is served at /web/: the packages at /web/npm/….
   expect(existsSync(join(dist, 'npm/@elixir-playground/git@1.0.3/git.wasm'))).toBe(true);
 });
+
+test('a *.localhost usercontent domain written with its scheme is answered locally', () => {
+  for (const usercontent of ['usercontent.localhost:5173', 'https://usercontent.localhost:5173']) {
+    const config = (elixirPlayground({ usercontent }).config as () => Record<string, any>)();
+    expect(config.server.allowedHosts).toEqual(['.usercontent.localhost']);
+  }
+  const shared = (
+    elixirPlayground({ usercontent: 'https://run-elixir-usercontent.org' }).config as () => Record<
+      string,
+      any
+    >
+  )();
+  expect(shared.server).toBeUndefined();
+});

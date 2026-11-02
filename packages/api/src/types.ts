@@ -103,7 +103,13 @@ export type RelayPolicy = readonly string[] | ((host: unknown) => Way | Promise<
 // `worker`: the apex worker's script, if the page's bundler does not emit
 // it beside the api.
 export interface UsercontentOptions {
+  // A host, with a port if any ('run-elixir-usercontent.org'), or it with
+  // its scheme ('https://run-elixir-usercontent.org').
   domain: string;
+  // The scheme of the domain's origins. By default the one `domain` is
+  // written with, else https, but http for a local domain: *.localhost,
+  // or a host with a port (docs/frames.md, "Schemes"). Never the page's.
+  scheme?: 'http' | 'https';
   content?: string;
   worker?: string | URL;
   // Each package's directory below `content`, `{name}` and `{version}` in
@@ -133,7 +139,8 @@ export interface CreateOptions {
   // None by default: the project reaches only hosts that send CORS headers.
   relay?: RelayPolicy;
   // The shared usercontent domain that runs project code (with a port, if
-  // any), or it with where this page serves the packages. By default the
+  // any, and a scheme, if not the default: UsercontentOptions), or it with
+  // where this page serves the packages. By default the
   // one the page's site names (/playground.json), else run-elixir.dev's
   // (run-elixir-usercontent.org).
   usercontent?: string | UsercontentOptions;

@@ -120,7 +120,12 @@ shell package), nodejs, esbuild, tailwind and inotify-tools 1.0.0
 (new), standard 1.1.0 (adds them), api 2.0.0 (`create()`'s
 `usercontent` changed, `EACCES` gone), vite 2.0.0 (its options changed) and pglite 1.1.0 (its peer range on api). The
 api 2.1.0 (2026-11-01) adds `usercontent.packagePath`, sets package
-files' `Content-Type` by extension, and exports `./apexWorker.js`. The
+files' `Content-Type` by extension, and exports `./apexWorker.js`.
+Also on 2026-11-01: runtime 2.1.0, api 2.2.0 and vite 2.1.0 give the
+usercontent origins a scheme of their own, never the page's
+([frames.md](frames.md#schemes)), and add `usercontent.scheme`. An http
+page with https frames needs runtime 2.1.0 (runtime 2.0's frames refuse
+its messages); other pages still work with runtime 2.0. The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be

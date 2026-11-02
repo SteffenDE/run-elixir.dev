@@ -8,6 +8,7 @@
 // none of its code, and runs none of it.
 import { transfer, type Transfer } from '@elixir-playground/runtime/lib/rpc';
 import { FRAME_LOADED, FRAME_PORT } from '@elixir-playground/runtime/lib/sharedFrame';
+import { domainOrigin } from '@elixir-playground/runtime/lib/site';
 import { bridgeFrame } from './bridge';
 import { unseen } from './execFrame';
 import { bridgeSalt, frameTable, nameOf, type Bridge } from './usercontent';
@@ -26,7 +27,7 @@ const loading = new Map<string, Promise<Framed>>();
 export async function frameOrigin(bridge: Bridge, name: string, frame: string): Promise<string> {
   if (!NAME.test(frame)) throw new Error(`${name}: ${frame} is not a frame's name (${NAME})`);
   const hash = await nameOf(`frame:${bridgeSalt()}:${name}:${frame}`);
-  return `${location.protocol}//${frame}-${hash}.${bridge.domain}`;
+  return domainOrigin(bridge.domain, `${frame}-${hash}`);
 }
 
 // The frame, framed once: its page below the bridge (`page`, the
