@@ -22,7 +22,7 @@ export interface Playground {
   // (The loader's Emscripten glue loads its threads' script, beam.emu.mjs,
   // from beside itself: the package's own layout.)
   beam?: { loader: string; wasm: string };
-  // elixir-X: its version, and the OTP it runs on (a semver range).
+  // elixir: its version, and the OTP it runs on (a semver range).
   elixir?: string;
   requires?: { otp?: string };
   // A template: its kind, id (a digest of its files, without its build),
@@ -75,6 +75,12 @@ export interface Playground {
   frames?: Record<string, string>;
   // The package's files in the nodes' tree: a layer of the fs image.
   fs?: FsLayer;
+  // A layer that the site's build makes, not the package (the elixir
+  // package's Elixir, docs/packages.md): the path of its JSON file below
+  // the package's base, an FsLayer whose `manifest` and `bundles` are
+  // relative to that file. create() and the Node harness read it into
+  // `fs` (layer.ts); a site manifest has `fs` only.
+  layer?: string;
 }
 
 // A package's files in the nodes' tree (fs format 3), below `root` (an
