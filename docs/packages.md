@@ -776,7 +776,7 @@ bridge has its own numbers, `BRIDGE_PROTOCOLS` (`[1]`), in
 
 | Message | Meaning |
 | --- | --- |
-| `{ kind: 'bridged', bridge, protocol, protocols }` | The answer to `bridge`: the protocol it speaks, or `null` (refused: another key's page, a key taken, a protocol it does not speak, no port, an origin outside the shared domain), with the protocols it does speak. |
+| `{ kind: 'bridged', bridge, protocol, protocols, script? }` | The answer to `bridge`: the protocol it speaks, or `null` (refused: another key's page, a key taken, a protocol it does not speak, no port, an origin outside the shared domain), with the protocols it does speak. `script` (added 2026-11-02): the SHA-256 that its `sw.js` stamp names, if it has one. The bootstrap compares it with the served `sw.js` ([frames.md](frames.md#service-worker-updates)). |
 | `{ kind: 'bridge-lost', protocol, bridge }` | The worker has no port for the key (it was stopped). Sent to the window clients below `/_bridge/KEY/` only; one answers with `bridge`. |
 
 **Worker → the apex's worker**, on that port, with a reply port: a

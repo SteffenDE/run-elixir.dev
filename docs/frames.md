@@ -215,9 +215,10 @@ Chromium and Firefox allow them there.
    `npm/@elixir-playground/runtime@2.1.0/exec.html`) and a port to the
    **apex's worker** (`packages/api/src/apexWorker.ts`), a dedicated worker
    on the apex's origin.
-3. The bootstrap registers `/sw.js`, waits for it to activate, picks a
-   random key, and gives the service worker a port to the apex's worker
-   under that key (`bridge`).
+3. The bootstrap registers `/sw.js` and makes sure it bridges with the
+   newest worker ([below](#service-worker-updates)). It picks a random
+   key and gives the service worker a port to the apex's worker under
+   that key (`bridge`).
 4. The bootstrap navigates to `/_bridge/KEY/` followed by the page's path.
    The navigation is a new document, so the active worker controls it
    without a reload.
@@ -239,6 +240,86 @@ for all of the page's projects. The service worker adds COEP
 `require-corp`, CORP `cross-origin`, the Node.js worker's
 `Content-Security-Policy`, and a `sandbox` policy on documents
 (`swBridge.ts`).
+
+### Service worker updates
+
+A deploy that changes the runtime changes `/sw.js` on every origin of
+the shared domain. The browser installs the new worker on its next update
+check. `sw.js` calls `skipWaiting()` and `clients.claim()`, so the new
+worker takes over the frames that the old one controlled. It has none of
+the old worker's ports, so it asks each bridged page for a new one
+(`bridge-lost`).
+
+**A takeover during the boot broke the frame.** The bootstrap used to
+bridge with the active worker and leave `registration.update()` running
+in the background. When `sw.js` had changed, the new worker installed
+while the frame booted:
+
+- Tidewave reported it in desktop Safari after the runtime went from
+  2.1.1 to 2.1.3. The first reload failed with `worker.js: the worker did
+  not load after 5 tries`, and each load of `worker.js` below
+  `/_bridge/KEY/` got 404 from the shared domain's server. A 404 means
+  the request skipped the service worker. A later reload worked. The
+  likely cause is that Safari kept the dedicated workers that started
+  before the takeover with the old, now redundant worker. This is not
+  reproduced; no Safari was available for testing.
+- Playwright's WebKit (1.64, WebKit 2370) failed in another way. The
+  project did not start, and a request below `/_bridge/KEY/` got 503
+  from the service worker. The new worker had taken over before the
+  bridged page had its port from its parent, so no page answered its
+  `bridge-lost`. `bridge.spec.ts` changes `sw.js` between two loads
+  (`serve.py --test-hooks`). With the old bootstrap, the second load
+  failed in 3 of 4 and then 4 of 4 runs. Chromium and Firefox passed.
+
+**The bootstrap now bridges only with the newest worker**
+(`root/bridge.html`):
+
+1. The build appends a stamp line to `sw.js`:
+   `self.playgroundScript="HASH";`, the SHA-256 of the script before it
+   (`src/swScript.ts`, `vite.runtime.config.ts`). The worker reports
+   the hash in its `bridged` answer.
+2. The bootstrap fetches `/sw.js` (`cache: 'no-cache'`) and hashes it
+   without the stamp line. If the active worker reports the same hash,
+   the browser's update check cannot find a new worker. The bootstrap
+   then bridges with the active worker at once.
+3. Otherwise it awaits `registration.update()`, waits until the worker
+   that the check found is active, and bridges with that worker. This
+   path also covers a missing stamp, an older worker that reports no
+   hash, any other change to `sw.js` (such as `serve.py`'s appended
+   revision comment), and a failed fetch.
+
+Waiting for `update()` on every boot was simpler, but Firefox's
+`update()` takes a fixed ~1 s even when `sw.js` is unchanged. A plain
+fetch of `/sw.js` took 1–3 ms there. `create()` of a project whose worker
+is current, median of 8 runs, local test server, Playwright 1.64,
+2026-11-02:
+
+| Bootstrap | Chromium | Firefox | WebKit |
+| --- | --- | --- | --- |
+| Before (update in the background) | 43 ms | 88 ms | 51 ms |
+| Always waits for `update()` | 43 ms | 1119 ms | 53 ms |
+| Waits only when the hash differs | 40 ms | 86 ms | 45 ms |
+
+Against a real server, the fetch adds one round trip to `/sw.js`. With
+the fix, the `bridge.spec.ts` update test passed 12 of 12 runs across
+the three browsers.
+
+**A takeover after the boot** can still happen. For example, a deploy
+changes `sw.js` while a page runs, and another tab then opens the same
+project. Its bootstrap installs the new worker, which also takes over the
+running page's exec frame. In Chromium, Firefox and WebKit the running
+page's nodes still started afterwards (`bridge.spec.ts`). A one-off
+check during development confirmed that the running frame saw
+`controllerchange` in Chromium and WebKit. As a guard
+for browsers whose workers keep the old worker, the exec frame passes
+`controllerchange` to its host worker. The host worker then requests its
+own script below the bridge with `HEAD` (`lib/controller.ts`). Only a
+service worker answers it. A 404 from the shared domain's server means
+the worker's requests skip the service worker. The sandbox then sends
+the warning `The playground was updated while this page was open, and
+new processes cannot start. Reload the page.` (the IDE shows it in its
+status line). Unit tests cover this path. No tested browser takes it, and
+whether it catches Safari's case has not been checked.
 
 ### The data path
 
