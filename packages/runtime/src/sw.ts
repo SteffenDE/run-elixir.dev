@@ -221,9 +221,17 @@ function sibling(url: URL): number | null {
 // is: Firefox answers clients.get() for a worker on that worker's thread,
 // which a node's worker blocks in a synchronous request for a bundle of
 // its files (that comes here) — neither went on for minutes.
+// The fs bundles' requests it saw, told to the exec frame's worker for its
+// `debug` (lib/apexLink.ts countReads): whether a node's read that never
+// ended got here.
+let seen: BroadcastChannel | null = null;
 self.addEventListener('fetch', (event) => {
   const { request } = event;
   const url = new URL(request.url);
+  if (url.pathname.includes('/fs/bundles/') && typeof BroadcastChannel !== 'undefined') {
+    seen ??= new BroadcastChannel('playground-reads');
+    seen.postMessage({ sw: url.pathname.slice(-60) });
+  }
   if (bridges.handles(url)) {
     event.respondWith(bridges.respond(request));
     return;

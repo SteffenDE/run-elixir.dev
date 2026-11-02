@@ -102,21 +102,54 @@ function ask(port: MessagePort, request: LinkRequest): Promise<LinkResponse> {
 // BroadcastChannel (its origin's: the project's), and the exec frame's
 // worker adds them up (`countReads`) for its `debug`: the fs layers'
 // bundles apart from the other files.
+// Each read is also told as it starts, so `debug` shows a read that never
+// ends (where a node stopped: WebKit in CI), and the service worker tells
+// the bundle requests it saw (sw.ts).
 const tally = () => ({ count: 0, bytes: 0, millis: [] as number[] });
 export const reads = { bundles: tally(), other: tally() };
+const underway = new Map<string, { url: string; since: number }>();
+const swSaw: { url: string; at: number }[] = [];
 let told: BroadcastChannel | null = null;
-function note(started: number, bytes: number, url: string): void {
+function tell(message: unknown): void {
   if (typeof BroadcastChannel === 'undefined') return;
   told ??= new BroadcastChannel('playground-reads');
-  told.postMessage([performance.now() - started, bytes, url.includes('/fs/bundles/')]);
+  told.postMessage(message);
+}
+function begin(url: string): string {
+  const id = Math.random().toString(36).slice(2);
+  tell({ start: id, url });
+  return id;
+}
+function note(id: string, started: number, bytes: number, url: string): void {
+  tell([performance.now() - started, bytes, url.includes('/fs/bundles/'), id]);
 }
 export function countReads(): void {
   if (typeof BroadcastChannel === 'undefined') return;
-  new BroadcastChannel('playground-reads').onmessage = ({ data: [millis, bytes, bundle] }) => {
+  new BroadcastChannel('playground-reads').onmessage = ({ data }) => {
+    if (!Array.isArray(data)) {
+      if (data?.start) underway.set(data.start, { url: data.url, since: Date.now() });
+      if (data?.sw) {
+        swSaw.push({ url: data.sw, at: Date.now() });
+        if (swSaw.length > 20) swSaw.shift();
+      }
+      return;
+    }
+    const [millis, bytes, bundle, id] = data;
+    if (id) underway.delete(id);
     const kind = bundle ? reads.bundles : reads.other;
     kind.count++;
     kind.bytes += bytes;
     if (kind.millis.length < 100_000) kind.millis.push(millis);
+  };
+}
+// The reads under way and what the service worker saw last, for `debug`.
+export function readsUnderway() {
+  const ago = (time: number) => `${((Date.now() - time) / 1000).toFixed(1)} s ago`;
+  return {
+    underway: [...underway.values()].map(
+      ({ url, since }) => `${url.slice(-80)} (since ${ago(since)})`,
+    ),
+    serviceWorkerSaw: swSaw.map(({ url, at }) => `${url} (${ago(at)})`),
   };
 }
 
@@ -130,10 +163,11 @@ export async function siteFetch(input: string | URL, init?: RequestInit): Promis
   const url = new URL(String(input), siteRoot()).href;
   if (!linked(url)) {
     const started = performance.now();
+    const id = isService(url) ? '' : begin(url);
     const response = await fetch(url, init);
     if (!isService(url)) {
       const bytes = await response.arrayBuffer();
-      note(started, bytes.byteLength, url);
+      note(id, started, bytes.byteLength, url);
       return new Response(bytes, { status: response.status, headers: response.headers });
     }
     return response;
@@ -147,8 +181,9 @@ export async function siteFetch(input: string | URL, init?: RequestInit): Promis
     headers: [...new Headers(init?.headers)],
     body: await bodyOf(init),
   };
+  const id = isService(url) ? '' : begin(url);
   const answer = 'async' in link ? await ask(link.async, request) : link.sync.request(request);
-  if (!isService(url)) note(started, answer.body?.byteLength ?? 0, url);
+  if (!isService(url)) note(id, started, answer.body?.byteLength ?? 0, url);
   const empty = [101, 204, 205, 304].includes(answer.status) || answer.status < 200;
   return new Response(empty ? null : answer.body, {
     status: answer.status || 502,
@@ -166,6 +201,7 @@ export function siteGetSync(
 ): [number, Uint8Array | string | null] {
   const url = new URL(String(input), siteRoot()).href;
   const started = performance.now();
+  const id = isService(url) ? '' : begin(url);
   let status = 0;
   let bytes: Uint8Array | null = null;
   if (linked(url) && link && 'sync' in link) {
@@ -186,7 +222,7 @@ export function siteGetSync(
       return [0, null];
     }
   }
-  if (!isService(url)) note(started, bytes?.length ?? 0, url);
+  if (!isService(url)) note(id, started, bytes?.length ?? 0, url);
   return [status, binary ? bytes : bytes && new TextDecoder().decode(bytes)];
 }
 

@@ -30,12 +30,13 @@ const createEditor: EditorFactory<undefined, CaretInfo> = (type, options, key) =
 
 // The caret on `line`, in view (the editor would show its caret wherever
 // it was, the end for a new session). Focus stays in the file tree when
-// the user is there (selecting, renaming). The file of someone followed
+// the user is there (selecting, renaming), and in a dialog opened while
+// the file loaded (quick open again, in WebKit). The file of someone followed
 // shows their caret instead (live/lib/follow.ts): focus would move this
 // page's caret, which the editor keeps in view on each of their edits.
 function goTo(editor: FileEditor, path: string, line: number) {
   if (followed(path)) showFollowed(line);
-  else if (!document.activeElement?.closest('.file-tree'))
+  else if (!document.activeElement?.closest('.file-tree, dialog'))
     editor.focus({ lineNumber: line, offset: 80 });
   if (line === 1) {
     requestAnimationFrame(() =>

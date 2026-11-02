@@ -42,8 +42,11 @@ test('the search finds text in the files and opens a hit at its line', async ({ 
   await expect(hit.locator('mark')).toHaveText('NEEDLE');
   await hit.click();
   await expect(page.locator('.tab', { hasText: 'needles.ex' })).toBeVisible();
-  // The caret is on the hit's line.
-  await page.waitForTimeout(300);
+  // The caret is on the hit's line, once the file has loaded and the
+  // editor took the focus (slower in WebKit in CI than any fixed wait).
+  await expect
+    .poll(() => page.evaluate(() => !!document.activeElement?.closest('.tab-panel:not([hidden])')))
+    .toBe(true);
   await page.keyboard.type('X');
   await page.keyboard.press('ControlOrMeta+s');
   await expect

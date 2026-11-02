@@ -340,8 +340,13 @@ export class Bridge {
 
   // What is under way, for a bug hunt: window.playground.debug().
   debug() {
-    return [...this.flights.values()].map(({ started, ...flight }) => ({
-      ...flight,
+    // Its fields alone (a flight also has its `done`, which the page
+    // that asks could not be sent).
+    return [...this.flights.values()].map(({ kind, what, bytes, state, started }) => ({
+      kind,
+      what,
+      bytes,
+      state,
       age: `${((Date.now() - started) / 1000).toFixed(1)} s`,
     }));
   }
