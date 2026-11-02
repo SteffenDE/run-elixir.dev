@@ -4,6 +4,7 @@
 // the worker that runs the project (exec/host.ts) and hands it the port
 // that page gave, then does nothing else. Its own page's timers would be
 // slowed while the frame is hidden; the worker's are not.
+import { bridgeKey } from '../lib/apexLink';
 import { bridgeClient } from '../lib/bridgeClient';
 import { loadSite, parentOrigins } from '../lib/site';
 
@@ -13,6 +14,16 @@ bridgeClient();
 await loadSite();
 const parents = new Set(parentOrigins());
 let started = false;
+let worker: Worker | null = null;
+
+// In bridge mode, a newer service worker can take over this frame after
+// it started: a deploy changed the shared domain's sw.js, and another
+// frame of this origin loaded since. The host worker checks that its
+// requests still reach a service worker (exec/host.ts).
+if (bridgeKey())
+  navigator.serviceWorker.addEventListener('controllerchange', () =>
+    worker?.postMessage({ kind: 'playground-exec-controller' }),
+  );
 
 addEventListener('message', (event) => {
   if (event.source !== window.parent || started) return;
@@ -23,7 +34,7 @@ addEventListener('message', (event) => {
     return;
   }
   started = true;
-  const worker = new Worker(new URL('../exec/host.ts', import.meta.url), {
+  worker = new Worker(new URL('../exec/host.ts', import.meta.url), {
     type: 'module',
     name: 'playground-exec',
   });

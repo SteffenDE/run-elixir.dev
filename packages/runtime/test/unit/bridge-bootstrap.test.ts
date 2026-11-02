@@ -309,7 +309,9 @@ it('bridges only once the update check is done', async () => {
 });
 
 it('bridges with the worker an update installs, once it is active', async () => {
-  const { loading, send, self, location, worker, makeWorker, registration } = frame({ served: null });
+  const { loading, send, self, location, worker, makeWorker, registration } = frame({
+    served: null,
+  });
   await loading;
   const updated = makeWorker('installing');
   registration.update = async () => {
@@ -339,7 +341,9 @@ it('bridges with the worker there when the update check fails', async () => {
 });
 
 it('asks for the newest worker again when the one it waited for became redundant', async () => {
-  const { loading, send, self, location, worker, makeWorker, registration } = frame({ served: null });
+  const { loading, send, self, location, worker, makeWorker, registration } = frame({
+    served: null,
+  });
   await loading;
   const replaced = makeWorker('installing');
   let updates = 0;
