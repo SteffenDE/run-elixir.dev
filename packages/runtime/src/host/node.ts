@@ -11,7 +11,7 @@ import { spawn, type PageProcess, type PageProgram } from './programs';
 import { trace } from '../trace';
 import { local } from '../wasi/net';
 import { linkFor, siteFetch } from '../lib/apexLink';
-import { worker } from './worker';
+import { worker, type RetryingWorker } from './worker';
 
 export const FRAME = {
   INPUT: 0,
@@ -276,7 +276,7 @@ export class Node {
   // A connection the node opened to a port another node listens on: taken
   // there (project/lib/playground.ts), or false.
   peer: (connection: Connection, port: number) => boolean;
-  worker: Worker;
+  worker: RetryingWorker;
   site: SiteRef;
   channel: FilesChannel | null = null;
   retry: ReturnType<typeof setTimeout> | null = null;

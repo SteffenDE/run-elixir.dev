@@ -4,7 +4,7 @@ import { Site, type SiteRef } from '../packages/manifest';
 import type { GitResult } from '../git';
 import type { Files, FilesChannel } from './files';
 import { linkFor, siteFetch } from '../lib/apexLink';
-import { worker } from './worker';
+import { worker, type RetryingWorker } from './worker';
 
 const encoder = new TextEncoder();
 
@@ -42,7 +42,7 @@ function gitModule(url: string): Promise<WebAssembly.Module | null> {
 const IDLE = 1000;
 
 export class Git {
-  worker: Worker;
+  worker: RetryingWorker;
   files: Files;
   channel: FilesChannel;
   pending = new Map<number, (result: GitResult) => void>();
@@ -74,7 +74,7 @@ export class Git {
   // 900 boots (both in one run with six test workers). So the worker goes
   // once it has had nothing to run for IDLE ms, and the next command starts
   // another.
-  private start(): [Worker, Promise<boolean>] {
+  private start(): [RetryingWorker, Promise<boolean>] {
     const started = worker('git.js', this.base);
     started.onmessage = ({ data }: MessageEvent<GitResult>) => {
       this.pending.get(data.id)?.(data);

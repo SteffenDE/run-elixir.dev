@@ -3,7 +3,7 @@ import type { SiteRef } from '../packages/manifest';
 import type { KeptRecord } from '../overlay';
 import type { Manifest } from '../wasi/fs';
 import { linkFor } from '../lib/apexLink';
-import { worker } from './worker';
+import { worker, type RetryingWorker } from './worker';
 
 const CHANNEL = 1 << 20;
 
@@ -86,7 +86,7 @@ export class Files implements FileSystem {
   doorbell: SharedArrayBuffer;
   requests: Map<number, { resolve: (reply: Reply) => void; reject: (error: Error) => void }>;
   next: number;
-  worker: Worker;
+  worker: RetryingWorker;
   ready: Promise<void>;
   // Once ready.
   boot: Boot | null = null;

@@ -116,8 +116,13 @@ WebKit were not run in that validation.
 
 The servers and service worker use COEP `require-corp` for cross-origin
 isolation. Do not substitute `credentialless` without checking every
-supported browser. The fixture filters the known WebKit page error for
-a fetch blocked by CORS, which the HTTPS gateway handles itself.
+supported browser. The fixture filters one known WebKit page error:
+`Fetch API cannot load … due to access control checks`, a fetch blocked
+by CORS, which the HTTPS gateway handles itself. Other access-control
+errors, such as a script or worker that fails to load, fail the test.
+A worker that fails to load inside the exec frame raises no page error,
+so the fixture also fails a test when the console shows the runtime's
+`the worker did not load after 5 tries` (`host/worker.ts`).
 
 WebKit's page crashes (a segfault in its web process) when many workers
 fetch their module script at once, as a node's threads start together.

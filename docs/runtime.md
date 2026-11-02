@@ -360,9 +360,35 @@ as 1 though the tree has hard links (`find -links`).
 ## Page and node (`host/`, `worker/`)
 
 `new Node({ base, files, serve, programs, onoutput, onstatus, onexit,
-onlistening })` starts a worker. It is a blob module that imports
-`worker.js`: Firefox does not start a module worker from a page its service
-worker controls, and a blob worker takes the page's cross-origin isolation.
+onlistening })` starts a worker (`host/worker.ts`). It is a blob module
+that imports `worker.js`: Firefox does not start a module worker from a
+page its service worker controls, and a blob worker takes the page's
+cross-origin isolation. In bridge mode the worker starts from
+`worker.js`'s URL instead ([frames.md](frames.md#browser-behavior-found-while-building-it)).
+`files.js` and `git.js` start the same way.
+
+Each of these scripts posts a first message once it and its imports have
+loaded. The page holds what it sends the worker until then. Two measures
+work around WebKit's failed loads in bridge mode
+([frames.md](frames.md#browser-behavior-found-while-building-it)):
+
+- **One load at a time.** In bridge mode, the exec frame's worker starts
+  the next of these workers only when the one before it has loaded,
+  failed or been stopped, or after 2 s.
+- **Retries.** A worker that fails to load before its first message
+  starts again, up to four times. It waits about 0.1, 0.2, 0.4 and 0.8 s
+  before each try, each wait scattered by ±50%. Each retry logs a warning
+  to the console. After the last failure, the runtime logs
+  `NAME: the worker did not load after 5 tries`, and the node reports
+  `failed: the worker did not start`. A worker that reports an error
+  with a message, or fails after its first message, is not started
+  again.
+
+A package's worker program (`programs/workerProgram.ts`) is retried the
+same way but not gated: its script posts nothing until it runs, so the
+page cannot tell when it has loaded. What the page sends it goes to it at
+once, and again to the next worker, until its first message.
+
 `node.start({ shell, initial, cwd, args, command, env, boots })` boots it:
 the shell with `initial` commands typed first, or one command (erl's
 `args`, or a `command` by name as the shell runs it, such as `['mix',

@@ -243,6 +243,30 @@ test('Claude Code runs in bridge mode', async ({ page }) => {
   );
 });
 
+// Each node is a module worker of its own, started from worker.js below
+// /_bridge/KEY/, which only the service worker answers. In WebKit, some of
+// the loads of one URL that several workers make at once skip the service
+// worker and fail: the runtime loads its workers one at a time, and starts
+// a worker that failed to load again (host/worker.ts). Before that, 6 or 7
+// of these 8 failed in WebKit.
+test('nodes that start at once all start, bridged', async ({ page }) => {
+  await embedded(page, { template: 'empty' }, { bridged: true });
+  const results = await page.evaluate(() =>
+    Promise.all(
+      Array.from({ length: 8 }, async () => {
+        const process = window.sandbox.sh("sh -c 'echo ok'");
+        let out = '';
+        let err = '';
+        process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
+        process.onStderr((bytes: Uint8Array) => (err += new TextDecoder().decode(bytes)));
+        const { code } = await process.exited;
+        return { stdout: out, stderr: err, code };
+      }),
+    ),
+  );
+  expect(results).toEqual(Array(8).fill({ stdout: 'ok\n', stderr: '', code: 0 }));
+});
+
 test('two sandboxes on one page keep their own usercontent domains and bridges', async ({
   page,
 }) => {

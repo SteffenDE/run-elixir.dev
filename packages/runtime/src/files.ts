@@ -14,6 +14,7 @@
 // start again.
 import { Site, type SiteRef } from './packages/manifest';
 import { siteFetch, useLink } from './lib/apexLink';
+import { loaded } from './host/worker';
 import {
   Dir,
   File,
@@ -916,3 +917,7 @@ async function serve(): Promise<void> {
     await new Promise((wake) => setTimeout(wake, 0));
   }
 }
+
+// Its script and imports have loaded. The page holds its messages until
+// then (host/worker.ts).
+loaded();
