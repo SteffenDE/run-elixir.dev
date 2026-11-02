@@ -202,9 +202,10 @@ jobs:
     needs: [site, test-nif]
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # WebKit's shards report but do not fail the run: there, a node's worker
-    # sometimes stops for good inside WebKit as it instantiates git.wasm
-    # (git.spec.ts, mix deps.get).
+    # WebKit's shards report but do not fail the run until they pass in CI
+    # reliably: a worker there can hang for good making a WebAssembly memory
+    # (packages/runtime/src/host/git.ts avoids the case that hung Phoenix
+    # boots).
     continue-on-error: ${{ matrix.browser == 'webkit' }}
     strategy:
       fail-fast: false

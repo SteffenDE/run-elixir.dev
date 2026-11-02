@@ -28,10 +28,17 @@ reads `.forgejo/workflows` only, so the deploy remote runs none of them):
   suite in each browser, in four shards, with the backend
   at `localhost:4000`. Run by hand, it can also run the `@slow` tests.
   Each shard's `target/tests` is an artifact. A failed test runs once
-  more; WebKit runs on two workers, and its shards do not fail the run:
-  there, a node's worker sometimes stops for good inside WebKit as it
-  instantiates `git.wasm` (`mix deps.get` in `git.spec.ts`). A test whose page crashes fails at once ("the page crashed"),
-  not when its wait times out.
+  more; WebKit runs on two workers, and its shards do not fail the run
+  until they pass in CI reliably. In WebKit a worker can hang for good
+  making a WebAssembly memory: while the IDE's git worker waited idle
+  after running `git.wasm`, a node's `git` (Mix's dependency check)
+  hung about one Phoenix boot in 20, and the BEAM with it. The git worker
+  now ends once idle (`packages/runtime/src/host/git.ts`).
+  A test whose page crashes fails at once ("the page crashed"), not when
+  its wait times out. A test whose server or shell output stops for 90 s
+  (120 s for a shell) fails then, and every failed test prints and
+  attaches the runtime's state (`runtime-debug.json`): each node's
+  programs and messages, and WebKit's threads from `/proc`.
 
 ## In browsers: Playwright (`app/test/e2e`)
 
