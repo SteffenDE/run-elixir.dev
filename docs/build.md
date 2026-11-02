@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-28
+last_updated: 2026-11-02
 ---
 
 # Building the site (`runtime/build.py`)
@@ -20,10 +20,12 @@ existing site, without the recording runs (seconds instead of a minute).
 
 The site runs OTP's own emulator built with Emscripten
 ([`../beam/README.md`](../beam/README.md#in-the-playground)): `build.py`
-builds it (`beam/build.sh release`), lays out OTP's installation from
-that build in `target/otp`, takes Elixir, Hex, phx_new and rebar3 from
-the host's installation, and builds the template with the host's Mix in
-`target/cache-otp`. Each package's fs layer comes from its own source
+builds it (`beam/build.sh release`) and lays out OTP's installation from
+that build in `target/otp`. It prepares Elixir with the elixir package's
+`prepare` on that OTP, under Node in Docker: Elixir's precompiled release
+from builds.hex.pm, and the Hex and rebar3 that Mix installs for it
+([packages.md](packages.md#elixir-builds)). It builds the template with
+the host's Mix in `target/cache-otp`. Each package's fs layer comes from its own source
 (`fs_layers` in `build.py`), with every mtime fixed (`MTIME`), so the same
 files make the same package directory across builds.
 
@@ -31,13 +33,17 @@ files make the same package directory across builds.
 
 - **emsdk 6.0.2** at `~/emsdk`, autoconf, and the host's Erlang 29.1.2
   and Elixir 1.20.4, which build the BEAM and the template
-  ([`../beam/README.md`](../beam/README.md#build)). The host's `~/.mix`
-  must hold Hex and phx_new 1.8.16 (`mix archive.install hex phx_new
-  1.8.16`) and rebar3 (`mix local.rebar`).
+  ([`../beam/README.md`](../beam/README.md#build)). The host's Elixir
+  must be the version of the site's Elixir build (`ELIXIR_BUILD`,
+  `packages/elixir/src/builds.ts`'s default: `1.20.4-otp-29`), and its
+  OTP major the build's. Missing Hex, phx_new 1.8.16 and rebar3 in the
+  host's `~/.mix` are installed (`host_mix`); they make only the
+  template.
 - **Docker,** through `DOCKER` (default `sudo -n docker`). Node 24 runs the
-  recording runs and the Vite build.
-- **Network access the first time,** for the template's Hex packages, two
-  git dependencies and the native tailwind and esbuild binaries.
+  Vite build, the Elixir build's preparation and the recording runs.
+- **Network access the first time,** for Elixir's release, Hex and
+  rebar3 (builds.hex.pm), the template's Hex packages, two git
+  dependencies and the native tailwind and esbuild binaries.
 - **brush:** `python3 -I brush/build.py` first (the
   `brush/src/` submodules, `git submodule update --init brush/src`: brush,
   crossterm and fd-lock, each with `brush/patches/NAME/`, in Docker, about
@@ -106,9 +112,11 @@ target/site/
                                  and the bridge's bootstrap, bridge.html, which only
                                  _usercontent/ serves: frames.md)
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
-                                 threads'), beam.wasm (5.2 MB); fs/ (OTP's applications)
-    elixir-1.20.4@…/           fs/ (Elixir, IEx, Mix, ExUnit; Hex, phx_new, rebar3;
-                                 Elixir's scripts)
+                                 threads'), beam.wasm (5.2 MB); fs/ (OTP's applications);
+                                 node.js and erl.js (erl under Node.js)
+    elixir@…/                  index.js (elixir(BUILD)), hex.js, prepare.js, cli.js;
+                                 versions/1.20.4-otp-29/ (fs.json and fs/: Elixir, IEx,
+                                 Mix, ExUnit; Hex, rebar3; Elixir's scripts), not published
     nodejs@…/                  workers/ (nodejs.js and chunks/: the worker program
                                  node); npm.js, npx.js (its page programs)
     phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
@@ -171,11 +179,11 @@ The filesystem holds:
 - `/opt/otp/29.1.2`: the `otp-X` package's layer, `target/otp`'s
   `bin/*.boot`, `releases/` and the applications a playground needs
   (`APPS` in `build.py`);
-- `/opt/elixir/1.20.4`: the `elixir-X` package's layer, the host's Elixir
-  applications (`ELIXIR_APPS`) under `lib/`, Mix's archives at
-  `mix/archives/`, `mix/rebar3`, and Elixir's scripts `bin/elixir`,
-  `bin/elixirc`, `bin/iex` and `bin/mix` (its commands, linked from
-  `/usr/bin`);
+- `/opt/elixir/1.20.4`: the elixir package's prepared layer: the
+  release's applications (`elixir`, `eex`, `ex_unit`, `iex`, `logger`,
+  `mix`) under `lib/`, Mix's Hex archive at `mix/archives/`,
+  `mix/rebar3`, and Elixir's scripts `bin/elixir`, `bin/elixirc`,
+  `bin/iex` and `bin/mix` (its commands, linked from `/usr/bin`);
 - `/work/playground`: the Phoenix template's app, which only a Phoenix
   project mounts;
 - `/usr/libexec/git-core`, `/etc/ssl`, `/usr/share/terminfo`: the git,
@@ -198,9 +206,9 @@ OTP's and Elixir's from the site manifest.
      the usercontent
      domain's frames (`vite.frames.config.ts`: `exec.html`, `relay.html`,
      with a relative base) into `dist/`, the runtime
-     package; with `--mode node`, the Node harness (`node.ts` and
-     `beam-node.ts`, as `.mjs`) into `dist-node/`, which goes to
-     `target/node`;
+     package; with `--mode node`, the Node harness (`harness.ts`,
+     `node.ts` and `beam-node.ts`, as `.mjs`) into `dist-node/`, which
+     goes to `target/node` and into the runtime package as `node/`;
    - `packages/api` and `packages/pglite`: one ES module each into
      `dist/index.js` (their `vite.config.ts`), with their declarations;
    - `packages/claude`: the claude frame (`claude.html`) and its worker
@@ -209,6 +217,9 @@ OTP's and Elixir's from the site manifest.
      and `workers/chunks/`) and the page programs `npm.js` and `npx.js`
      into `dist/` (`vite.config.ts`);
    - `packages/vite`: the Vite plugin, with `tsc`, into `dist/`;
+   - `packages/otp` and `packages/elixir`: an otp package's `node.js` and
+     `erl.js`, and the elixir package's modules (`elixir.js`,
+     `prepare.js`, `cli.js`, …), with `tsc`, into `dist/`;
    - `app`: `tsc --noEmit`; the apex's pages (`vite.config.ts`) into
      `dist/`, which goes to the site's root. NIF libraries
    are the backend's ([nif.md](nif.md)): the site has none.
@@ -237,8 +248,12 @@ OTP's and Elixir's from the site manifest.
      node's and the editor's changes), and Phoenix reloads the preview and
      swaps its CSS. A cache from before gets the block back.
 4. **Files.** Each package's layer from its source: OTP's installation,
-   the host's Elixir and Mix archives, git's scripts, the CA bundle, the
-   terminfo entry, and the app:
+   git's scripts, the CA bundle, the terminfo entry, and the app. Then
+   Elixir's: `build.py` lays the otp package first and runs the elixir
+   package's `cli.js prepare` on it in Docker, which keeps what it made in
+   `target/cache-elixir/` (made again only for another build or otp
+   package); its bundles are unpacked there and laid out again with the
+   other packages, below `versions/BUILD/`. The app's files:
    - `_build_otp` becomes `_build`;
    - links in the build (each dependency's `priv`, some `src`) are copied in
      place;
@@ -277,10 +292,13 @@ OTP's and Elixir's from the site manifest.
 ## The Node harness (`packages/runtime/src/node.ts`)
 
 `node node.mjs SITE ERL-ARGS…` runs the site's node under Node as the
-browser's worker does (`beam/run.ts`), without a browser. It runs bundled
-(`node.mjs`), from `target/node` (the
-Vite build's, step 1). Standard input is read whole, then ends. The
-environment controls the rest:
+browser's worker does (`beam/run.ts`), without a browser. It is the
+command line of `harness.ts`, the library the runtime package exports as
+`./harness` ([packages.md](packages.md#the-node-harness)), which an otp
+package's `erl` and the elixir package's `prepare` use too. It runs
+bundled (`node.mjs`), from `target/node` (the Vite build's, step 1).
+Standard input is read whole, then ends. The environment controls the
+rest:
 
 | Variable | Effect |
 | --- | --- |
@@ -306,8 +324,8 @@ docker run --rm -i -e CWD=/work/playground -e HTTP=4000/ -e STOP_AFTER=20000 -e 
   -user elixir -extra --no-halt +iex /opt/elixir/1.20.4/bin/mix phx.server </dev/null
 ```
 
-The paths are the Elixir package's root (`record_args` in `build.py`
-takes them from `PACKAGES`).
+The paths are the elixir package's layer root (`record_args` in
+`build.py` takes them from `PACKAGES`).
 
 The harness runs the node with its whole filesystem local: no `files.js`, no
 page programs. It is the recording run's environment.

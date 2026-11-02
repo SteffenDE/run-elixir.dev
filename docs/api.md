@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-11-01
+last_updated: 2026-11-02
 ---
 
 # The API: running a project from a page
@@ -27,12 +27,12 @@ deployed.
 ```js
 import { create } from '@elixir-playground/api';
 import otp from '@elixir-playground/otp-29.1.2';
-import elixir from '@elixir-playground/elixir-1.20.4';
+import { elixir } from '@elixir-playground/elixir';
 import standard from '@elixir-playground/standard';
 import claude from '@elixir-playground/claude';
 
 const sandbox = await create({
-  plugins: [otp, elixir, standard, claude],
+  plugins: [otp, elixir('1.20.4-otp-29'), standard, claude],  // the site's build prepares Elixir (below)
   project: { id: 'my-project', template: 'empty', persist: true },  // or a template package, or { archive: url }
   // id: the caller's own name for it; the same name is the same project.
   // persist: keep /work, /home (~/.claude, ~/.npm) and Postgres; needs an id.
@@ -119,12 +119,12 @@ them). A name given twice counts once, the first time.
   2026-10-31).
 - **A preset** is a list. `@elixir-playground/standard` is `[shell, git,
   gnuTools, ripgrep, tls, nodejs, esbuild, tailwind, inotifyTools,
-  pglite()]`. The elixir package's module exports a list too: the package
-  and its Hex plugin.
+  pglite()]`. The elixir package's `elixir(BUILD)` returns a list too:
+  the package and its Hex plugin.
 
 | Package | What it adds | Published |
 | --- | --- | --- |
-| `otp-X`, `elixir-X` | The BEAM and OTP, Elixir and Mix, and the elixir package's Hex cache (its `hex.js`, an apex plugin). Required. | Yes |
+| `otp-X`, `elixir` | The BEAM and OTP; Elixir and Mix, as a build the site prepares ([below](#elixir)), and the elixir package's Hex cache (its `hex.js`, an apex plugin). Required. | Yes |
 | `shell` | brush and coreutils. Required: every process runs through brush. | Yes |
 | `git`, `gnu-tools`, `ripgrep`, `tls` | Their programs; `tls` is a Node.js process's TLS client. | Yes |
 | `pglite` | Postgres on port 5432 for the nodes, PGlite on the page | Yes |
@@ -134,13 +134,13 @@ them). A name given twice counts once, the first time.
 | `tailscale` | The apex's Tailscale node | No: the playground's own |
 
 Hex's cache comes with the elixir package (since 2026-10-31; before, it
-was the api's own): its `index.js` exports the package and the plugin,
+was the api's own): `elixir(BUILD)` returns the package and the plugin,
 which answers Hex on a port of the project's and sets `HEX_MIRROR` and
 `HEX_API_URL`. A site that takes the package from a site manifest
 instead of its `index.js` adds the plugin itself:
 
 ```js
-import hex from '@elixir-playground/elixir-1.20.4/hex.js';
+import hex from '@elixir-playground/elixir/hex.js';
 
 create({ plugins: [hex()], /* … */ });
 ```
@@ -152,6 +152,36 @@ which is not published.
 from the packages and the `boot` recordings, if any. It checks them
 before any frame starts (`check.ts`, `ERUNTIME`) and hands the manifest
 to the exec frame, which checks it again.
+
+### Elixir
+
+The elixir package has no Elixir of its own. `elixir(BUILD)` names a
+precompiled release from builds.hex.pm (`'1.20.4-otp-29'`: Elixir 1.20.4
+for OTP 29), and `elixir()` (or the default export) the package's
+default. The site's build prepares each build it runs: it downloads the
+release and installs Hex and rebar3 for it with Mix on the installed otp
+package, under Node.js. The result goes below the elixir package's
+directory, as `versions/BUILD/` ([packages.md](packages.md#elixir-builds)).
+`create()` reads `versions/BUILD/fs.json` there; without it, it fails
+with `ERUNTIME` and names the file.
+
+- **With the Vite plugin**, name the builds: `elixirPlayground({ elixir:
+  { builds: ['1.20.4-otp-29'] } })`. By default it prepares the
+  package's default build.
+- **Without it**, run the package's command after laying out the
+  packages, with `--into` the elixir package's directory as the site
+  serves it:
+
+  ```sh
+  npx @elixir-playground/elixir prepare 1.20.4-otp-29 \
+    --otp node_modules/@elixir-playground/otp-29.1.2 \
+    --into public/npm/@elixir-playground/elixir@3.0.0
+  ```
+
+A build the package was not tested with (`npx @elixir-playground/elixir
+builds` lists those it was) needs `untested: true` in the plugin's
+`elixir` option, or `--untested`. Its SHA-256 is then checked against
+builds.hex.pm's `builds.txt`.
 
 ### Templates
 
@@ -269,7 +299,9 @@ the packages' files do.
 ### From a public npm CDN
 
 A page can take the packages from a public npm CDN as `content`, without
-serving about 85 MB itself. On 2026-11-01 both of these ran `elixir -e`
+serving about 85 MB itself. This works with `elixir-1.20.4`, the last
+package with its Elixir inside. The elixir package's builds are prepared
+by the site, so a CDN has none ([packages.md](packages.md#open-questions)). On 2026-11-01 both of these ran `elixir -e`
 in Chromium with the published packages (`tests/vite-site/cdn.sh`;
 results in [bridge-report.md](bridge-report.md#a-public-npm-cdn)):
 
@@ -338,6 +370,7 @@ export default defineConfig({
 | --- | --- |
 | `usercontent` | The shared usercontent domain, with a port if any, and with a scheme if the default is wrong ([frames.md](frames.md#schemes)). Named in each page's `<meta name="playground-usercontent">`; without it, `create()` takes run-elixir.dev's. A `*.localhost` name (`usercontent.localhost:5173`) is answered by `vite` and `vite preview` themselves, for local work. |
 | `packages` | Package directories that are not installed, such as a template of the site's own. |
+| `elixir` | `{ builds, untested }`: the Elixir builds the site runs, each prepared on the installed otp package of its OTP major ([above](#elixir)). By default the elixir package's default build. |
 
 **`vite build`** lays the runtime package and every installed package
 with a `playground` object, of any npm scope or none (since 2026-10-31),
@@ -346,7 +379,11 @@ scope: `dist/npm/@elixir-playground/git@1.0.3/`, `dist/npm/ruby-shell@3.0.0/`;
 served below Vite's `base`; the bootstrap, `root/bridge.html`, left out). Each page gets `<meta
 name="playground-runtime">`, `<meta name="playground-content">` (Vite's
 `base`) and, with `usercontent`, `<meta name="playground-usercontent">`,
-which `create()` reads by default.
+which `create()` reads by default. With the elixir package installed,
+it prepares the site's Elixir builds, keeps them in
+`node_modules/.cache/elixir-playground/`, and writes them below the elixir
+package's directory; **`vite`** (dev) prepares them as it starts and
+serves them from there.
 
 The site's server sends the pages COOP `same-origin` and COEP
 `require-corp`, and the packages the headers [above](#what-the-page-serves).
@@ -586,7 +623,9 @@ Outside Playwright's suite, each over a built site:
   packages on another origin, the apex worker as Vite emits it; after
   `vite build` and on the dev server (CI).
 - `tests/vite-site/cdn.sh jsdelivr|unpkg`: the published packages from a
-  public npm CDN. It needs the network, so it is not in CI.
+  public npm CDN. It needs the network, so it is not in CI. It runs the
+  published `elixir-1.20.4` package: a CDN has no prepared build of the
+  elixir package ([packages.md](packages.md#open-questions)).
 
 ## Not yet
 

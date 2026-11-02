@@ -1,19 +1,19 @@
 ---
 kind: design
 status: proposal
-last_updated: 2026-10-29
+last_updated: 2026-11-02
 ---
 
 # Distributing the playground as npm packages
 
 This document proposes publishing the playground as a set of npm packages
-under `@elixir-playground/`. An embedder installs the OTP and Elixir it
-wants plus the tools it needs, and npm's version ranges choose the newest
-builds that fit together:
+under `@elixir-playground/`. An embedder installs the OTP it wants, the
+elixir package, and the tools it needs. npm's version ranges choose the
+newest builds that fit together:
 
 ```sh
 npm install @elixir-playground/api @elixir-playground/otp-29.1.2 \
-  @elixir-playground/elixir-1.20.4 @elixir-playground/standard \
+  @elixir-playground/elixir @elixir-playground/standard \
   @elixir-playground/claude
 ```
 
@@ -23,15 +23,20 @@ and the embedder's page runs projects with them:
 ```js
 import { create } from '@elixir-playground/api';
 import otp from '@elixir-playground/otp-29.1.2';
-import elixir from '@elixir-playground/elixir-1.20.4';
+import { elixir } from '@elixir-playground/elixir';
 import standard from '@elixir-playground/standard';
 import claude from '@elixir-playground/claude';
 
 const sandbox = await create({
-  plugins: [otp, elixir, standard, claude],
+  plugins: [otp, elixir('1.20.4-otp-29'), standard, claude],
   project: { id: 'my-project', template: 'empty', persist: true },
 });
 ```
+
+The elixir package holds no Elixir. `elixir(BUILD)` names a precompiled
+Elixir release from builds.hex.pm. The site's build downloads it and
+installs Hex and rebar3 for it on the site's own OTP ([Elixir
+builds](#elixir-builds)).
 
 The playground's IDE runs its projects through the same `create()`.
 Tidewave's `/web` is the first other site this is for.
@@ -55,13 +60,13 @@ peer-depends on `@elixir-playground/runtime`. Sizes are of the
 
 | Package | Contents | Peer dependencies | Size |
 | --- | --- | --- | --- |
-| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the bridge's bootstrap `bridge.html`) | none | 0.4 MB |
+| `runtime` | The runtime's workers (`worker.js`, `files.js`, `git.js`, `chunks/`); the usercontent domain's frames (`exec.html`, `relay.html`, `frames/`, the exec frame's worker among them); `root/` (`sw.js`, the bridge's bootstrap `bridge.html`); `node/`, the Node harness, which it exports as `./harness` ([below](#the-node-harness)) | none | 0.6 MB |
 | `api` | `index.js`: `create()` and its sandbox, one ES module | `runtime` | 93 KB |
 | `pglite` | `index.js`: the pglite plugin (Postgres on port 5432); depends on `@electric-sql/pglite` | `api` | 7 KB |
 | `standard` | `index.js`: the preset `[shell, git, gnu-tools, ripgrep, tls, nodejs, esbuild, tailwind, inotify-tools, pglite()]`, which it depends on | none | 1 KB |
-| `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (the Emscripten build and its glue); OTP's applications (an fs layer, 831 files) | `runtime` | 39 MB |
-| `elixir-X` | Elixir, IEx, Mix, ExUnit, Logger, EEx; Hex, phx_new, rebar3; Elixir's scripts `bin/elixir`, `bin/elixirc`, `bin/iex`, `bin/mix` (an fs layer) | `runtime ^2`, `shell` | 14 MB |
-| `phoenix-template` (not published) | The phx.new app at `/work/playground`, with `deps/` and its `_build`, compiled for one OTP and Elixir pair (an fs layer, 4,640 files) | `runtime`, `otp-X ^N`, `elixir-Y ^N` | 47 MB |
+| `otp-X` | `beam.mjs`, `beam.emu.mjs`, `beam.wasm` (the Emscripten build and its glue); OTP's applications (an fs layer, 831 files); `node.js` (`erl()` for Node.js, as `./node`) and `erl.js`, its `erl` command | `runtime ^2.2` | 39 MB |
+| `elixir` | `index.js`: `elixir(BUILD)`, and the Hex cache (`hex.js`); `prepare.js`, which makes a build's fs layer, and `cli.js`, its command. No Elixir: the site's build prepares the layer below `versions/BUILD/` ([Elixir builds](#elixir-builds)) | `runtime ^2.2`, `shell` | 0.3 MB (a prepared build: 14 MB) |
+| `phoenix-template` (not published) | The phx.new app at `/work/playground`, with `deps/` and its `_build`, compiled for one OTP and Elixir pair (an fs layer, 4,640 files) | `runtime`, `otp-X ^N`, `elixir ^N` | 47 MB |
 | `shell` | `brush.wasm` (the shell), `coreutils.wasm` (78 tools); the terminfo entry (an fs layer) | `runtime` | 11 MB |
 | `git` | `git.wasm`; its shell-script commands (an fs layer, 13 files) | `runtime` | 3.8 MB |
 | `ripgrep` | `rg.wasm` | `runtime` | 2.9 MB |
@@ -85,9 +90,17 @@ a plugin of its own (`tailscale/plugin.ts`).
 
 ## Versioning
 
-- **The upstream version is in the package name.** The package's own
-  semver is our build of it: `@elixir-playground/otp-29.1.2@3.1.4`,
-  `@elixir-playground/elixir-1.20.4@3.0.2`.
+- **OTP's version is in the package name.** The package's own semver is
+  our build of it: `@elixir-playground/otp-29.1.2@3.1.4`. We compile OTP
+  to WebAssembly with our patches, so each OTP release is a package of
+  its own.
+- **Elixir's version is an argument.** One `elixir` package serves every
+  Elixir: `elixir('1.20.4-otp-29')` names a build from builds.hex.pm, and
+  the package's semver is only our code's. `builds.ts` lists the builds
+  the package was tested with. Up to elixir-X 2.0.0 the Elixir version
+  was in the name (`@elixir-playground/elixir-1.20.4`): a runtime ABI
+  break then needed a new version of every Elixir package, and each new
+  Elixir release a new package.
 - **Major:** an ABI break. **Minor:** a new capability. **Patch:** a
   rebuild or a fix.
 - **An embedder pins OTP and Elixir and lets the build float.** Prereleases
@@ -95,14 +108,16 @@ a plugin of its own (`tailscale/plugin.ts`).
   ranges don't match them unless they name the prerelease.
 - **`runtime`'s major is the host ABI.** Every artifact peer-depends on it
   with the minimum minor it needs: git `"@elixir-playground/runtime": "^3.2"`.
-- **The template peer-depends on its own OTP and Elixir packages** (`^N`
-  of each). Because the upstream version is in the name, npm installs it
-  only next to that exact pair.
-- **Elixir does not peer-depend on OTP.** Elixir 1.20.4 runs on any OTP 29,
-  but `otp-29.1.2` and `otp-29.1.3` are different packages, and a peer
-  dependency names one. `elixir-X` says `"requires": { "otp": "^29.0.0" }`
-  in its `playground` field instead, and only the load-time check enforces
-  it.
+- **The template peer-depends on its own OTP package and the elixir
+  package** (`^N` of each). Because OTP's version is in the name, npm
+  installs it only next to that OTP. Its Elixir version is in its
+  `template` field, which the load-time check compares with the
+  installed build's.
+- **Elixir does not peer-depend on OTP.** A build such as `1.20.4-otp-29`
+  runs on any OTP 29, but `otp-29.1.2` and `otp-29.1.3` are different
+  packages, and a peer dependency names one. `elixir(BUILD)` gives its
+  descriptor `"requires": { "otp": "^29.0.0" }` instead, and only the
+  load-time check enforces it.
 
 The packages' versions are in `PACKAGES` in `build.py`, each JavaScript
 package's `package.json`, and `packages/runtime/src/packages/host.json`
@@ -125,7 +140,14 @@ Also on 2026-11-01: runtime 2.1.0, api 2.2.0 and vite 2.1.0 give the
 usercontent origins a scheme of their own, never the page's
 ([frames.md](frames.md#schemes)), and add `usercontent.scheme`. An http
 page with https frames needs runtime 2.1.0 (runtime 2.0's frames refuse
-its messages); other pages still work with runtime 2.0. The
+its messages); other pages still work with runtime 2.0. On 2026-11-02
+(unpublished, branch `sd-elixir-package`): runtime 2.2.0 exports the Node
+harness (`./harness`); otp-X 1.1.0 adds `node.js` and `erl.js` (it needs
+runtime 2.2); the elixir package 3.0.0 replaces elixir-X ([Elixir
+builds](#elixir-builds)); api 2.3.0's `create()` reads a package's
+`layer`; vite 2.2.0 prepares the site's Elixir builds. phx_new is no
+longer in any package: the playground's build makes the template with
+the host's. The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
@@ -137,7 +159,9 @@ and the path must still be immutable. A published package would be
 own (`"private"`), in dependency order. Without `--publish` it only
 stages them and prints what it would publish. For each package:
 
-- **Its digest** is of its files with its version set aside (in
+- **Its digest** is of what npm publishes of it (`package.json` and what
+  its `files` names: not the elixir package's `versions/`, the site's
+  prepared builds), with its version set aside (in
   `package.json`, and in a descriptor's `index.js`, whose `base` names it
   too), so the same files make the same digest at any version. A
   published version records it in `package.json`'s `playgroundDigest`.
@@ -145,13 +169,15 @@ stages them and prints what it would publish. For each package:
   digest as the registry's latest, nothing; another, the next patch after
   the latest, or the repository's version when its major or minor is
   newer.
-- **Staged** in `target/publish/NAME/` at that version, and published from
-  there (`npm publish --access public`, with npm's credentials).
+- **Staged** in `target/publish/NAME/` at that version, the same files,
+  and published from there (`npm publish --access public`, with npm's
+  credentials).
 
 A package with a `playground` field and an `index.js` is a descriptor.
 `publish.py` finds its descriptor in either form `build.py`
 (`descriptor_module`) writes: `export default {…}`, or
-`const descriptor = {…}` beside a plugin (the elixir package's Hex). When
+`const descriptor = {…}` beside a plugin (the elixir package's Hex, and
+its `elixir(BUILD)`). When
 it finds none, publishing stops. Up to 2026-11-01 it skipped the second
 form without a word, so `elixir-1.20.4@2.0.1`'s `index.js` names 2.0.0's
 `version` and `base`.
@@ -173,7 +199,8 @@ sets to this repository (`REPOSITORY`).
 ## The site's layout
 
 ```
-npm/@elixir-playground/NAME@VERSION+ID/   a package: package.json, its files, its fs layer (fs/)
+npm/@elixir-playground/NAME@VERSION+ID/   a package: package.json, its files, its fs layer (fs/);
+                                          the elixir package's prepared build in versions/BUILD/
 boot/ID/                                  the boot recordings: boot.tar.gz, boot-phoenix.tar.gz
 site/ID.json                              the site manifest
 ```
@@ -240,7 +267,7 @@ manifest's order (`Site.tree`, `Site.bundle`), so a lazy file is
   paths, so `build.py` compiles the template again at `/work/playground`
   in the node, under the Node harness, and lays out the template package
   with that build. A template package can only be built by running the
-  `runtime`, `otp-X` and `elixir-Y` it is for.
+  `runtime`, `otp-X` and Elixir build it is for.
 
 ## The `playground` field
 
@@ -252,11 +279,12 @@ Every key is optional. A package sets the keys that describe it.
 | `programs` | `shell`, `git`, `ripgrep`, `gnu-tools` | `{ name: { module, multicall? } }`: programs the shell and nodes find by name, run with `name` as `argv[0]`. A `multicall` module (`coreutils.wasm`) serves several names; the exec frame compiles it once for every node, and it runs on its caller's thread. Others run as processes of the worker's table. |
 | `shell` | `shell` | The shell's module (`brush.wasm`). |
 | `otp`, `beamAbi`, `nifAbi`, `beam` | `otp-X` | OTP's version, the build's id, the NIF ABI it loads, and `{ loader, wasm }`. |
-| `elixir`, `requires.otp` | `elixir-X` | Elixir's version, and the OTP range it runs on. |
+| `elixir`, `requires.otp` | `elixir` (its descriptor) | Elixir's version, and the OTP range it runs on. `elixir(BUILD)` sets them; the package's `package.json` has neither. |
 | `template` | `phoenix-template` | `{ kind, id, label, otp, elixir, boot?, port? }`: the id is a digest of its files without its build; `boot` the recording its project unpacks beside the site's first (`boot-phoenix`), `port` the one its preview shows first (4000); `otp` and `elixir` are the pair it was compiled with. Its files are its fs layer's, at the layer's root. |
 | `fs` | packages with files in the nodes' tree | `{ format, root, manifest, bundles, count, version }`: its fs layer, and where it goes ([above](#fs-layers-fs-format-3)). |
-| `bin` | `elixir-X` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`, each run as its `#!` line says ([below](#scripts-and-direct-programs)). |
-| `env` | `otp-X`, `elixir-X` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |
+| `layer` | `elixir` (its descriptor) | The path of a layer's JSON below the package (`versions/1.20.4-otp-29/fs.json`): an `fs` field whose `manifest` and `bundles` are relative to that file. The site's build makes the layer. `create()` and the Node harness read it into `fs` (`packages/layer.ts`); a site manifest has `fs` only. |
+| `bin` | `elixir` | `{ name: file }`: its commands, files of its layer (relative to the root), linked from `/usr/bin/NAME`, each run as its `#!` line says ([below](#scripts-and-direct-programs)). |
+| `env` | `otp-X`, `elixir` | `{ NAME: file }`: variables every node gets, each a path of its layer (`"."` the root). |
 | `variables` | any | `{ NAME: value }`: variables every node gets with a value of their own: a string (the first package's), or `{ append }` (every package's, space-separated in the packages' order). |
 | `workerPrograms` | any (`nodejs`) | `{ NAME: script }`: commands that each run in a worker of their own, from a script below the package's `workers/` ([below](#worker-programs)). |
 | `tls` | `tls` | `{ module, roots }`. |
@@ -407,16 +435,101 @@ The embedder's own bundler takes the JavaScript (`api`, `pglite`, the
 descriptors) like any npm dependency. The `vite` package's plugin writes
 what a bundler does not ([api.md](api.md#a-site-of-your-own-the-vite-plugin)):
 the runtime and every installed package in the site's own output, under
-`npm/@elixir-playground/NAME@VERSION/` below Vite's `base`, and the
-pages' `<meta name="playground-runtime">`, `playground-content` and
+`npm/@elixir-playground/NAME@VERSION/` below Vite's `base`; the Elixir
+builds the site runs, below the elixir package's directory
+([Elixir builds](#elixir-builds)); and the pages'
+`<meta name="playground-runtime">`, `playground-content` and
 `playground-usercontent`.
 
 Proposed beyond it:
 
 - **Boot recordings,** recorded with the Node harness for the installed
   set. They are optional.
-- **A CLI** for sites that don't use Vite, and header configurations for
-  Caddy, nginx, Netlify and Cloudflare Pages.
+- **A CLI** that lays out every package for sites that don't use Vite
+  (the elixir package's `cli.js` prepares Elixir builds only), and header
+  configurations for Caddy, nginx, Netlify and Cloudflare Pages.
+
+## Elixir builds
+
+The elixir package holds no Elixir. Its descriptor names a precompiled
+release from builds.hex.pm by its build name (`1.20.4-otp-29`: Elixir
+1.20.4, compiled for OTP 29), and the site's build makes its fs layer.
+Elixir has no native code, so the release that runs on any OTP 29 runs
+on the playground's.
+
+```js
+import { elixir } from '@elixir-playground/elixir';
+create({ plugins: [otp, elixir('1.20.4-otp-29'), standard], … });
+```
+
+`elixir(BUILD)` returns the descriptor and the Hex cache's plugin. The
+descriptor has `elixir`, `requires.otp` and `layer`
+(`versions/BUILD/fs.json`). Its default export is `elixir()`, the
+package's default build (the first in `builds.ts`).
+
+**Preparing a build** (`packages/elixir/src/prepare.ts`) needs Node.js,
+an installed otp package of the build's OTP major, and the network. No
+OTP or Elixir on the machine. It:
+
+1. downloads `v{BUILD}.zip` from builds.hex.pm and checks its SHA-256:
+   against `builds.ts` for a build the package was tested with, or
+   against builds.hex.pm's `builds.txt` for another, which it prepares
+   only when asked to (`untested`);
+2. runs Mix's `local.hex` and `local.rebar` on the otp package, under
+   Node through the runtime's harness ([below](#the-node-harness)), with
+   `HEX_BUILDS_URL` on a port of the harness that Node's `fetch` answers
+   from builds.hex.pm. Mix picks the Hex and rebar3 for that Elixir and
+   OTP, and checks their SHA-512 itself;
+3. writes `versions/BUILD/` below the directory it is given: `fs.json`,
+   `fs/` (Elixir's applications, its scripts, `mix/archives/hex-…/`,
+   `mix/rebar3`), `licenses/`, and `prepared.json`, what it was made of.
+   The same build on the same otp package is not made again.
+
+On 2026-11-02 it made `1.20.4-otp-29` (599 files, Hex 2.6.0, rebar3
+3.28.0) in about 4 s, with the release already downloaded. Three places run it:
+
+- **The vite package's plugin**, for the builds the site names
+  (`elixirPlayground({ elixir: { builds } })`, by default the package's
+  default), on the installed otp package of each one's OTP major. It
+  keeps them in `node_modules/.cache/elixir-playground/`, serves them in
+  dev, and writes them below the elixir package in the output.
+- **The package's command**, for a site without the plugin:
+  `npx @elixir-playground/elixir prepare BUILD --otp DIR --into DIR`,
+  `--into` the elixir package's directory as the site serves it.
+- **`build.py`**, for the playground's site: `ELIXIR_BUILD`,
+  `builds.ts`'s default, on the otp package it laid, in Docker. The host's
+  Elixir only makes the template, and must be that version.
+
+A prepared build is the site's, not the package's: `publish.py`
+publishes only what the package's `files` names. A site that serves the
+packages from a public npm CDN therefore has no Elixir layer there; it
+needs the package below its own `content` (not solved yet).
+
+phx_new is in no package. The playground's build makes the template with
+the host's phx_new; a project that wants `mix phx.new` installs it
+(`mix archive.install hex phx_new`).
+
+## The Node harness
+
+The runtime package exports `start()` as
+`@elixir-playground/runtime/harness` (`src/harness.ts`, the bundle in
+`node/`, its declarations `harness.d.ts`): one node of the Emscripten BEAM
+under Node, as the browser's worker runs it. It takes installed package
+directories (or descriptors, or a site manifest), erl's arguments,
+`mounts` (host directories, read lazily; writes stay in memory and
+`snapshot` copies them out), the boot images, a terminal, and `http`:
+plain HTTP on the node's ports that Node's `fetch` answers. OTP finds
+Node's root certificates when no package gives any. `node.mjs` (the
+recording runs, `tests/nif/layer.py`) is its command line.
+
+Each otp package builds on it (`packages/otp`):
+
+- `node.js` exports `erl(args, options)`: erl on that OTP, with more
+  packages after it.
+- `erl.js` is its `bin`: `npx @elixir-playground/otp-29.1.2 -noshell
+  -eval '…'`, or an Erlang shell in the terminal (raw mode as the shell
+  asks; Ctrl+C is the node's SIGINT). `MOUNT=VFSDIR:HOSTDIR` puts host
+  directories in its tree.
 
 `runtime/build.py` does the same for run-elixir.dev from the repository's
 own builds ([build.md](build.md)).
@@ -878,6 +991,10 @@ the apex side, in every mode ([frames.md](frames.md#the-exec-frame)), and
   own.
 - **Recordings for embedders:** the plugin could record for the
   installed set; without one, every file comes lazily.
+- **Elixir from a public npm CDN.** The elixir package's prepared builds
+  are the site's, so a site that takes every package from a CDN has no
+  Elixir layer. It could serve the elixir package itself, or `layer`
+  could name a URL of its own.
 - **The process API's version.** It is not numbered. `api` peer-depends
   on `runtime`'s major, so a break between them is a `runtime` major.
 - **Support window length** for `sw.js` protocols, and whether a major also
@@ -999,6 +1116,22 @@ As of 2026-10-28:
   out (a Phoenix server start, `System.cmd("mix", …)`); both passed in
   two runs on their own and in a full WebKit rerun. `@slow` specs
   (Livebook among them) were not run.
+
+- **The elixir package, prepared on the site's OTP** (2026-11-02, branch
+  `sd-elixir-package`, unpublished): the runtime's harness as a library
+  (`./harness`), `erl` in each otp package, the elixir package (3.0.0)
+  with `prepare` and its command, `create()` reading `layer`, the Vite
+  plugin's `elixir` option, and `build.py` preparing the site's build in
+  Docker; phx_new out of the packages. Tested 2026-11-02: the unit tests
+  of the runtime, api, elixir and vite packages; `tests/build.py`,
+  `tests/publish.py`, `tests/deploy.py`; a full `build.py` and `build.py
+  app`; `tests/vite-site/run.sh` (the plugin prepared the build) and
+  `plain.sh` (built and in dev); `erl` from an installed layout, over a
+  pipe and in a pseudo-terminal; in Chromium the api, bridge,
+  https-bridge, create, hex, rebar3, template, bundles and terminal
+  specs (one api test skipped: no `tests/embed-archive.sh` archive).
+  Not run: Firefox, WebKit, `@slow`, the other Chromium specs, and
+  `cdn.sh`, which runs the published packages.
 
 Not built: a CLI beside the Vite plugin, the npm-backed mirror (superseded
 by bridge mode), the deployed shared domain, the `.r4.` host level, the

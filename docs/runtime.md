@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-10-27
+last_updated: 2026-11-02
 ---
 
 # The runtime (`packages/runtime/src`)
@@ -49,7 +49,7 @@ per-call allocation.
 | `postgres.ts` | page | Postgres wire protocol to PGlite. |
 | `fetcher.ts` | page | Plain HTTP from the node, answered with the page's `fetch()` (Hex). |
 | `beam/`, `worker/beam.ts` | worker, Node | The node: OTP's own emulator built with Emscripten ([`../beam/README.md`](../beam/README.md#in-the-playground)): `run.ts` starts a node (the tree and the shared files through PROXYFS: `treefs.ts`, `sharedfs.ts`; TCP, ports, NIFs, the terminal); `args.ts` turns erl's arguments into the emulator's; `worker/beam.ts` runs it in the node's worker, which serves its threads and takes the page's frames as they come. |
-| `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser ([build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `runtime/`. |
+| `harness.ts`, `node.ts` (`node.mjs`) | Node | The Node harness: the node without a browser, as a library (`harness.ts`, the runtime package's `./harness`: [packages.md](packages.md#the-node-harness)) and its command line (`node.ts`: [build.md](build.md#the-node-harness-srcruntimenodets)). `build.py` and `serve.py`, on the build machine, are in `runtime/`. |
 
 ## The node's tree and WASI (`wasi/`)
 

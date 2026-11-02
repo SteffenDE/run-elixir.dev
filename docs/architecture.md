@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-23
+last_updated: 2026-11-02
 ---
 
 # Architecture
@@ -59,7 +59,7 @@ child processes, a clock, random bytes and a terminal.
 ## Files
 
 - **`/opt/otp/VERSION` and `/opt/elixir/VERSION`** are the installation
-  (OTP; Elixir, Mix, Hex, phx_new), each at the root its package names
+  (OTP; Elixir, Mix, Hex, rebar3), each at the root its package names
   ([packages.md](packages.md#fs-layers-fs-format-3)).
   Every worker has its own copy: its project kind's boot images unpacked
   (IEx's; a Phoenix project adds the server's), the rest fetched in bundles
