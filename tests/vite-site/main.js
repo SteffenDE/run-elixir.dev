@@ -3,7 +3,7 @@
 // page (vite.config.js), as create() reads it by default.
 import { create } from '@elixir-playground/api';
 import otp from '@elixir-playground/otp-29.1.2';
-import elixir from '@elixir-playground/elixir-1.20.4';
+import elixir from '@elixir-playground/elixir';
 import standard from '@elixir-playground/standard';
 
 window.result = (async () => {

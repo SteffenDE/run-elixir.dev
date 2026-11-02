@@ -3,7 +3,7 @@
 // the api's apex worker where its bundler put it: no usercontent.worker.
 import { create } from '@elixir-playground/api';
 import otp from '@elixir-playground/otp-29.1.2';
-import elixir from '@elixir-playground/elixir-1.20.4';
+import elixir from '@elixir-playground/elixir';
 import shell from '@elixir-playground/shell';
 
 const { content, usercontent, runtime } = Object.fromEntries(new URLSearchParams(location.search));

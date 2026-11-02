@@ -36,7 +36,7 @@
     <script type="module">
       import { create } from '@elixir-playground/api';
       import otp from '@elixir-playground/otp-29.1.2';
-      import elixir from '@elixir-playground/elixir-1.20.4';
+      import { elixir } from '@elixir-playground/elixir';
       import standard from '@elixir-playground/standard';
       import claude from '@elixir-playground/claude';
 
@@ -61,7 +61,7 @@
         (response) => response.json(),
       );
       const options = {
-        plugins: [otp, elixir, standard, claude],
+        plugins: [otp, elixir('1.20.4-otp-29'), standard, claude],
         usercontent: `usercontent.localhost${port}`,
         runtime: `/npm/@elixir-playground/runtime@${runtime.version}/`,
         // The backend's services: the playground's apex (serve.py answers

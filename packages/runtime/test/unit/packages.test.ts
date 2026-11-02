@@ -5,7 +5,7 @@ import type { Manifest } from '../../src/wasi/fs';
 
 const RUNTIME = '@elixir-playground/runtime';
 const OTP = '@elixir-playground/otp-29.1.2';
-const ELIXIR = '@elixir-playground/elixir-1.20.4';
+const ELIXIR = '@elixir-playground/elixir';
 const TEMPLATE = '@elixir-playground/phoenix-template';
 const file = { size: 1, sha256: '00' };
 
@@ -42,7 +42,7 @@ function site(): SiteManifest {
       },
       [ELIXIR]: {
         version: '1.0.3',
-        base: '../elixir-1.20.4@1.0.3/',
+        base: '../elixir@1.0.3/',
         files: {},
         peerDependencies: { [RUNTIME]: '^2.0.0' },
         playground: {
@@ -152,7 +152,7 @@ describe('the site manifest', () => {
         ['lib/kernel/ebin/kernel.app', 10, 1, 0],
         ['lib/stdlib/ebin/lists.beam', 20, 1, 2],
       ],
-      'elixir-1.20.4@1.0.3': [['lib/elixir/ebin/elixir.app', 30, 1, 1]],
+      'elixir@1.0.3': [['lib/elixir/ebin/elixir.app', 30, 1, 1]],
     };
     const tree = await packages.tree(async (url) => listed[url.pathname.split('/').at(-3)!] ?? []);
     // Each layer's files below its root.
@@ -165,7 +165,7 @@ describe('the site manifest', () => {
       '/npm/@elixir-playground/otp-29.1.2@1.2.0/fs/bundles/2.tar',
     );
     expect(packages.bundle(4).pathname).toBe(
-      '/npm/@elixir-playground/elixir-1.20.4@1.0.3/fs/bundles/1.tar',
+      '/npm/@elixir-playground/elixir@1.0.3/fs/bundles/1.tar',
     );
     expect(() => packages.bundle(6)).toThrow('no bundle 6');
   });
