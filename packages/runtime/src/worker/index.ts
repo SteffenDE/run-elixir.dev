@@ -36,6 +36,7 @@ import { brush, type BrushOptions, type Run } from './brush';
 import { REGISTRY, isProgram, isTool, withCoreutils, type CoreutilsOptions } from '../coreutils';
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from '../git-remote';
 import { serviceUrl, siteFetch, siteGetSync, useLink } from '../lib/apexLink';
+import { loaded } from '../host/worker';
 import { UTILITIES } from '../utilities';
 import {
   HOSTED_LIMIT,
@@ -755,3 +756,7 @@ onmessage = async ({
     say('status', `failed: ${(error as Error).stack || error}`);
   }
 };
+
+// Its script and imports have loaded. The page holds its messages until
+// then (host/worker.ts).
+loaded();

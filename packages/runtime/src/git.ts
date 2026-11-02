@@ -5,6 +5,7 @@
 // own to race.
 import { GIT_CONFIG, GIT_DASHED, remoteHelper, throughProxy } from './git-remote';
 import { serviceUrl, siteFetch, useLink } from './lib/apexLink';
+import { loaded } from './host/worker';
 import type { FilesChannel } from './host/files';
 import { Processes, inputPipe, release, wasmProgram } from './processes';
 import { ENV } from './setup';
@@ -130,3 +131,7 @@ onmessage = ({ data }: MessageEvent<GitStart | GitRun>) => {
   queue.push(data);
   void drain();
 };
+
+// Its script and imports have loaded. The page holds its messages until
+// then (host/worker.ts).
+loaded();

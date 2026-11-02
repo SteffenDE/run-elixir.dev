@@ -24,6 +24,7 @@
 // no network but this one's messages, whatever browser API it calls
 // (docs/nodejs.md, The worker's policy).
 import type { Files } from '../host/files';
+import { RetryingWorker } from '../host/worker';
 import type { CloseReason, Link, Served } from '../host/node';
 import type { Context, Process } from '../pageProgram';
 import { watchers, type Watcher } from './watch';
@@ -76,7 +77,7 @@ class ScriptConnection implements Served {
   closed = false;
 
   constructor(
-    private thread: Worker,
+    private thread: RetryingWorker,
     public id: number,
     private forget: (id: number) => void,
     public node: object,
@@ -145,9 +146,9 @@ export const workerProgram =
       return process.exit(1);
     }
     const channel = shared.connect();
-    const thread = new Worker(script, {
-      type: 'module',
-    });
+    // It starts again if its script does not load (host/worker.ts); what
+    // it was sent goes to the new one.
+    const thread = new RetryingWorker(name, () => new Worker(script, { type: 'module' }), false);
     const connections = new Map<number, ScriptConnection>();
     const forget = (id: number) => connections.delete(id);
     let next = 1;
