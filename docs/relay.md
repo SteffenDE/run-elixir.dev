@@ -47,7 +47,7 @@ frontend:
 
 | Hosts | Default route without Tailscale |
 | --- | --- |
-| `github.com`, `*.github.com`, `*.githubusercontent.com`, `gitlab.com`, `codeberg.org`, `pushin.eu`, `api.anthropic.com`, `platform.claude.com` | Relay, after consent. |
+| `github.com`, `*.github.com`, `*.githubusercontent.com`, `gitlab.com`, `codeberg.org`, `pushin.eu`, `api.anthropic.com`, `platform.claude.com`, `mcp-proxy.anthropic.com` | Relay, after consent. |
 | `api.github.com`, `raw.githubusercontent.com` | Browser fetch. These hosts are also permitted by the relay. |
 
 Routing is per host, not per HTTP path. The relay cannot see paths inside
