@@ -44,8 +44,10 @@ export interface Options {
   packages?: string[];
   // The Elixir builds the site runs (elixir('1.20.4-otp-29')), as
   // builds.hex.pm names them: by default the elixir package's default.
-  // `untested`: builds the package was not tested with too.
-  elixir?: { builds?: string[]; untested?: boolean };
+  // `archives`: Mix archives from Hex besides Hex, for each build
+  // (elixir(build, { archives }): { phx_new: '1.8.16' }). `untested`:
+  // builds the package was not tested with too.
+  elixir?: { builds?: string[]; archives?: Record<string, string>; untested?: boolean };
 }
 
 const SCOPE = '@elixir-playground';
@@ -100,6 +102,7 @@ const ELIXIR = `${SCOPE}/elixir`;
 // The elixir package's prepare (its prepare.js), as the plugin calls it.
 type Prepare = (options: {
   build?: string;
+  archives?: Record<string, string>;
   otp: string;
   into: string;
   cache?: string;
@@ -142,6 +145,7 @@ async function prepareElixir(
       );
     await prepare({
       build,
+      archives: options.elixir?.archives,
       otp: otp.found.directory,
       into,
       cache: join(cache, 'downloads'),

@@ -175,10 +175,10 @@ function withElixir(root: string): void {
     join(scope, 'elixir', 'prepare.js'),
     `import { mkdirSync, writeFileSync } from 'node:fs';
      import { join } from 'node:path';
-     export async function prepare({ build, otp, into }) {
+     export async function prepare({ build, archives, otp, into }) {
        const at = join(into, 'versions', build);
        mkdirSync(at, { recursive: true });
-       writeFileSync(join(at, 'fs.json'), JSON.stringify({ otp }));
+       writeFileSync(join(at, 'fs.json'), JSON.stringify({ otp, archives }));
      }\n`,
   );
   for (const otp of ['28.3', '29.1.2'])
@@ -198,7 +198,11 @@ test('vite build prepares the Elixir builds below the elixir package, each on it
   await build({
     root,
     logLevel: 'silent',
-    plugins: [elixirPlayground({ elixir: { builds: ['1.20.4-otp-29', '1.19.5-otp-28'] } })],
+    plugins: [
+      elixirPlayground({
+        elixir: { builds: ['1.20.4-otp-29', '1.19.5-otp-28'], archives: { phx_new: '1.8.16' } },
+      }),
+    ],
   });
   const elixir = join(root, 'dist', 'npm/@elixir-playground/elixir@3.0.0');
   expect(existsSync(join(elixir, 'prepare.js'))).toBe(true);
@@ -206,9 +210,10 @@ test('vite build prepares the Elixir builds below the elixir package, each on it
     ['1.20.4-otp-29', 'otp-29.1.2'],
     ['1.19.5-otp-28', 'otp-28.3'],
   ])
-    expect(JSON.parse(readFileSync(join(elixir, 'versions', build, 'fs.json'), 'utf8')).otp).toBe(
-      join(root, 'node_modules', '@elixir-playground', otp),
-    );
+    expect(JSON.parse(readFileSync(join(elixir, 'versions', build, 'fs.json'), 'utf8'))).toEqual({
+      otp: join(root, 'node_modules', '@elixir-playground', otp),
+      archives: { phx_new: '1.8.16' },
+    });
   // Kept for the next build, below node_modules/.cache.
   expect(
     existsSync(
