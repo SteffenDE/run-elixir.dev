@@ -1,6 +1,6 @@
 {
   "name": "@elixir-playground/vite",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "private": true,
   "type": "module",
   "description": "The Vite plugin that lays out a site's usercontent domain, or in bridge mode its packages, for create() (docs/api.md). Its published package.json is runtime/build.py's.",

@@ -3,11 +3,11 @@
 //
 //   import { create } from '@elixir-playground/api';
 //   import otp from '@elixir-playground/otp-29.1.2';
-//   import elixir from '@elixir-playground/elixir-1.20.4';
+//   import { elixir } from '@elixir-playground/elixir';
 //   import standard from '@elixir-playground/standard';
 //
 //   const sandbox = await create({
-//     plugins: [otp, elixir, standard],
+//     plugins: [otp, elixir('1.20.4-otp-29'), standard],
 //     project: { id: 'my-project', template: 'empty', persist: true },
 //   });
 //   const p = sandbox.sh('mix new hello && cd hello && mix test');

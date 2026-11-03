@@ -1,0 +1,24 @@
+{
+  "name": "@elixir-playground/elixir",
+  "version": "3.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The elixir package's modules: elixir(version), and prepare, which makes a precompiled Elixir's fs layer with Hex and rebar3 on the site's OTP (docs/packages.md). Its published package.json is runtime/build.py's.",
+  "exports": {
+    "./*": "./src/*.ts"
+  },
+  "bin": {
+    "elixir-playground-elixir": "./dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "lint": "oxlint src test",
+    "format": "oxfmt src test",
+    "format:check": "oxfmt --check src test"
+  },
+  "dependencies": {
+    "@elixir-playground/runtime": "*"
+  }
+}

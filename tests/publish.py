@@ -32,10 +32,11 @@ def described(name, version, playground):
             "playground": playground}
 
 
-def package(directory, version, playground=None, apex=None):
+def package(directory, version, playground=None, apex=None, builds=False):
     """A descriptor package laid out as build.py does, at `version`: with
     an apex plugin of its own (`apex`, as the elixir package's hex.js), its
-    index.js exports it beside the descriptor."""
+    index.js exports it beside the descriptor; `builds`, the elixir
+    package's elixir(BUILD) too."""
     os.makedirs(directory)
     manifest = {"name": "@elixir-playground/git", "version": version,
                 "playground": playground or {"programs": {"git": {"module": "git.wasm"}}}}
@@ -44,7 +45,8 @@ def package(directory, version, playground=None, apex=None):
     with open(os.path.join(directory, "git.wasm"), "wb") as f:
         f.write(b"\0asm")
     with open(os.path.join(directory, "index.js"), "w") as f:
-        f.write(build.descriptor_module(described(manifest["name"], version, manifest["playground"]), apex))
+        f.write(build.descriptor_module(described(manifest["name"], version, manifest["playground"]), apex,
+                                        builds))
     return manifest
 
 
@@ -78,10 +80,10 @@ class Publish(unittest.TestCase):
     def test_a_descriptor_names_its_published_version(self):
         # Each index.js build.py writes: the descriptor alone, and the
         # descriptor beside its plugin. Only the version and base change.
-        for apex in (None, "hex.js"):
-            with self.subTest(apex=apex), tempfile.TemporaryDirectory() as top:
+        for apex, builds in ((None, False), ("hex.js", False), ("hex.js", True)):
+            with self.subTest(apex=apex, builds=builds), tempfile.TemporaryDirectory() as top:
                 publish.STAGE = os.path.join(top, "stage")
-                manifest = package(os.path.join(top, "a"), "1.0.0", apex=apex)
+                manifest = package(os.path.join(top, "a"), "1.0.0", apex=apex, builds=builds)
                 target, staged, _ = publish.stage(manifest["name"], os.path.join(top, "a"), manifest)
                 publish.set_version(target, staged, "1.0.3")
                 with open(os.path.join(target, "package.json")) as f:
@@ -91,7 +93,7 @@ class Publish(unittest.TestCase):
                 self.assertEqual(descriptor["version"], "1.0.3")
                 self.assertEqual(descriptor["base"], "/npm/@elixir-playground/git@1.0.3/")
                 self.assertEqual(text, build.descriptor_module(
-                    described(manifest["name"], "1.0.3", manifest["playground"]), apex))
+                    described(manifest["name"], "1.0.3", manifest["playground"]), apex, builds))
 
     def test_the_digest_sets_a_plugin_descriptors_version_aside(self):
         with tempfile.TemporaryDirectory() as top:
@@ -101,6 +103,20 @@ class Publish(unittest.TestCase):
             _, _, first = publish.stage(one["name"], os.path.join(top, "a"), one)
             _, _, second = publish.stage(two["name"], os.path.join(top, "b"), two)
             self.assertEqual(first, second)
+
+    def test_staging_keeps_what_npm_publishes(self):
+        # The elixir package's site directory has the layer the site's
+        # build made (versions/): not published, and not in the digest.
+        with tempfile.TemporaryDirectory() as top:
+            publish.STAGE = os.path.join(top, "stage")
+            manifest = {**package(os.path.join(top, "a"), "3.0.0", apex="hex.js", builds=True),
+                        "files": ["git.wasm", "index.js"]}
+            _, _, first = publish.stage(manifest["name"], os.path.join(top, "a"), manifest)
+            os.makedirs(os.path.join(top, "a", "versions", "1.20.4-otp-29", "fs"))
+            Path(top, "a", "versions", "1.20.4-otp-29", "fs.json").write_text("{}")
+            target, _, second = publish.stage(manifest["name"], os.path.join(top, "a"), manifest)
+            self.assertEqual(first, second)
+            self.assertEqual(sorted(os.listdir(target)), ["git.wasm", "index.js", "package.json"])
 
     def test_a_descriptor_it_cannot_find_stops_it(self):
         for text in ("export const descriptor = {};\n", "export default [{\"name\": 1}];\n",

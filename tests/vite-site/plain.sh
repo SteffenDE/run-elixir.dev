@@ -21,7 +21,7 @@ site=$root/target/site/npm/@elixir-playground
 work=$root/target/vite-site-plain
 rm -rf "$work"
 mkdir -p "$work/node_modules/@elixir-playground"
-for name in api runtime otp-29.1.2 elixir-1.20.4 shell; do
+for name in api runtime otp-29.1.2 elixir shell; do
   ln -s "$(ls -d "$site/$name"@* | head -1)" "$work/node_modules/@elixir-playground/$name"
 done
 ln -s "$root/node_modules/vite" "$work/node_modules/vite"

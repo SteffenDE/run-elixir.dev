@@ -816,8 +816,12 @@ onmessage = async ({ data }) => {
         : [];
       const template = [...given, ...tops.map((name) => `/work/${name}`)];
       root = new Dir();
+      // The packages' files this worker serves: below /tmp and /home (the
+      // home's base, such as the elixir package's Mix archives, which the
+      // project's changes are kept over), and the template's.
       const shared = (path: string) =>
         `/${path}`.startsWith('/tmp/') ||
+        `/${path}`.startsWith('/home/') ||
         template.some((prefix) => `/${path}/`.startsWith(`${prefix}/`));
       mount(
         manifest.filter(([path]) => shared(path)),

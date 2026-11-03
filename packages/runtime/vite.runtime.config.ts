@@ -13,8 +13,9 @@ import { stamp } from './src/swScript.ts';
 // package).
 //
 // `vite build -c vite.runtime.config.ts --mode node` bundles the Node
-// harness instead: node.mjs, and beam-node.mjs (beam/), into dist-node/
-// as .mjs.
+// harness instead: harness.mjs (the library, which the runtime package
+// publishes as ./harness), node.mjs (its command line) and beam-node.mjs
+// (beam/), into dist-node/ as .mjs.
 const runtime = (name: string) => new URL(`./src/${name}`, import.meta.url).pathname;
 
 export default defineConfig(({ mode }): UserConfig =>
@@ -29,6 +30,7 @@ export default defineConfig(({ mode }): UserConfig =>
           minify: false,
           rollupOptions: {
             input: {
+              harness: runtime('harness.ts'),
               node: runtime('node.ts'),
               'beam-node': runtime('beam-node.ts'),
             },

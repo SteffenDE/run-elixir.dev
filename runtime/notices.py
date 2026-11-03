@@ -4,7 +4,7 @@ the site's licenses page, for runtime/build.py.
 Each package's inventory is put together here from what built its files:
 the tools' (target/NAME/licenses, tools/licenses.py), the Vite builds'
 (dist-licenses/NAME.json, vite-licenses.ts), OTP's sources and
-build (out/beam-wasm), the releases of Elixir, Hex, phx_new and rebar3,
+build (out/beam-wasm), the releases of Elixir, Hex, rebar3 and phx_new,
 and the template's dependencies. lay() writes it into the package:
 licenses/ (index.json and the texts), NOTICE.md, LICENSE when the
 playground's own code is in it, and source/ when a component's license
@@ -163,9 +163,11 @@ def hex_name(name):
     return names.get(name, name)
 
 
-def elixir(versions, rebar3, cache):
-    """The elixir package: Elixir, and Mix's Hex, phx_new and rebar3 (with
-    the applications rebar3 vendors)."""
+def elixir(versions, cache):
+    """The elixir package's layers: Elixir, the Hex and rebar3 Mix
+    installed for it (with the applications rebar3 vendors), and the other
+    Mix archives (`archives`, {name: version}: phx_new), at the versions
+    packages/elixir's prepare recorded."""
     version = versions["elixir"]
     inventory = licenses.Inventory()
     texts = release(f"https://github.com/elixir-lang/elixir/archive/refs/tags/v{version}.tar.gz", cache)
@@ -176,15 +178,13 @@ def elixir(versions, rebar3, cache):
     hex_version = versions["hex"]
     inventory.add("hex", hex_version, "Apache-2.0", "https://hex.pm", {},
                   note="Mix's Hex archive (with hex_core, Apache-2.0). Its repository ships no license file.")
-    phx = versions["phx_new"]
-    package = licenses.fetch_text(f"https://repo.hex.pm/tarballs/phx_new-{phx}.tar", cache)
-    with tarfile.open(fileobj=io.BytesIO(package)) as outer:
-        metadata = licenses.hex_metadata(outer.extractfile("metadata.config").read().decode())
-    inventory.add("phx_new", phx, " AND ".join(map(hex_name, metadata["licenses"])),
-                  "https://www.phoenixframework.org", {}, note="Mix's phx_new archive.")
-    with open(rebar3, "rb") as f:
-        head = f.read(200).decode(errors="replace")
-    rebar_version = re.search(r"Rebar3 (\S+)", head).group(1)
+    for name, version in sorted(versions.get("archives", {}).items()):
+        package = licenses.fetch_text(f"https://repo.hex.pm/tarballs/{name}-{version}.tar", cache)
+        with tarfile.open(fileobj=io.BytesIO(package)) as outer:
+            metadata = licenses.hex_metadata(outer.extractfile("metadata.config").read().decode())
+        inventory.add(name, version, " AND ".join(map(hex_name, metadata["licenses"])),
+                      f"https://hex.pm/packages/{name}", {}, note="A Mix archive, as Mix installed it.")
+    rebar_version = versions["rebar3"]
     texts = release(f"https://github.com/erlang/rebar3/archive/refs/tags/{rebar_version}.tar.gz", cache)
     inventory.add("rebar3", rebar_version, "Apache-2.0", "https://rebar3.org", {"LICENSE": texts["LICENSE"]})
     for app in sorted({name.split("/")[1] for name in texts if name.startswith("vendor/")}):

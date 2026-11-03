@@ -434,7 +434,7 @@ test('any site runs projects on the shared usercontent domain, with packages tha
       const load = async (name: string) => (await import(at(name))).default;
       const { create } = await import(at('api'));
       return create({
-        plugins: [await load('otp-29.1.2'), await load('elixir-1.20.4'), await load('shell')],
+        plugins: [await load('otp-29.1.2'), await load('elixir'), await load('shell')],
         project: { template: 'empty' },
         usercontent,
         runtime: `/npm/@elixir-playground/runtime@${versions.runtime}/`,
@@ -451,7 +451,7 @@ test('any site runs projects on the shared usercontent domain, with packages tha
   await page.waitForFunction(() => window.embed);
   const refused = await page.evaluate(async () => {
     const { otp, elixir, standard } = window.embed.packages;
-    // The elixir package's module: the package and its Hex plugin.
+    // elixir(BUILD): the package and its Hex plugin.
     const [descriptor, hex] = elixir;
     const older = {
       ...descriptor,
