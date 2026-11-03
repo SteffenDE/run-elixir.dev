@@ -15,7 +15,7 @@ import type { Site } from './packages/manifest';
 // packages' ELIXIR_ERL_OPTIONS set), the page's programs, and with :path
 // set look no further (esbuild from 0.10.1).
 // The runtime's own; the packages add theirs (environment: ROOTDIR,
-// MIX_ARCHIVES, MIX_REBAR3, each a path of a package's layer; their
+// MIX_REBAR3, each a path of a package's layer; their
 // variables).
 export const ENV = {
   // Home is not the project's: Mix's, Hex's and the tools' caches and
@@ -36,7 +36,7 @@ export const ENV = {
 };
 
 // Every node's environment on `packages`: the runtime's own under the
-// packages' (OTP's ROOTDIR; Elixir's MIX_ARCHIVES and MIX_REBAR3, the
+// packages' (OTP's ROOTDIR; Elixir's MIX_REBAR3, the
 // rebar3 escript Mix builds rebar3 dependencies with, which runs by its
 // #! line).
 export const environment = (packages: Site): Record<string, string> => ({

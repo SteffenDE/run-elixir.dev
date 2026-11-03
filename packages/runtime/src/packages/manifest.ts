@@ -190,7 +190,7 @@ export class Site {
   }
 
   // The variables the packages give every node: their `env` (ROOTDIR,
-  // MIX_ARCHIVES, …), each an absolute path in the tree, then their
+  // MIX_REBAR3, …), each an absolute path in the tree, then their
   // `variables`, set or appended to.
   environment(): Record<string, string> {
     const out: Record<string, string> = {};
