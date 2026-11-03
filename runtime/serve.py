@@ -46,8 +46,10 @@ an embedder on http://localhost frames run-elixir-usercontent.org's.
 
 With --test-hooks, a POST of {"host": HOST} to the apex's
 /_test/sw-revision changes the /sw.js that usercontent host HOST serves
-(a comment with a new number at its end), as a deploy of a new runtime
-would: the e2e tests' service worker updates (bridge.spec.ts).
+(a comment with a new number, stamped again as the build stamps it), as a
+deploy of a new runtime would: the e2e tests' service worker updates
+(bridge.spec.ts). With "stamp": false, the new /sw.js has no stamp line,
+as before runtime 2.1.4.
 
 The backend's services (the NIF builds, the git proxy, the TCP relay) are
 the apex's (docs/frames.md): the apex's worker asks for them, so they
@@ -57,6 +59,7 @@ which here are the apex and --embedders (docs/backend.md): with CORS, and
 a WebSocket's Origin checked.
 """
 import functools
+import hashlib
 import http.server
 import json
 import os
@@ -309,17 +312,27 @@ class Handler(http.server.SimpleHTTPRequestHandler):
     def do_POST(self):
         if TEST_HOOKS and not self.bridge() and self.path == "/_test/sw-revision":
             length = int(self.headers.get("Content-Length") or 0)
-            host = json.loads(self.rfile.read(length) or b"{}").get("host", "").lower()
-            SW_REVISIONS[host] = SW_REVISIONS.get(host, 0) + 1
-            self.json(200, {"host": host, "revision": SW_REVISIONS[host]})
+            body = json.loads(self.rfile.read(length) or b"{}")
+            host = body.get("host", "").lower()
+            revision = SW_REVISIONS.get(host, (0, True))[0] + 1
+            SW_REVISIONS[host] = (revision, body.get("stamp", True) is not False)
+            self.json(200, {"host": host, "revision": revision})
         elif not self.proxy_git("POST"):
             self.send_error(405)
 
+    # The stamp line the build appends to sw.js (src/swScript.ts STAMP).
+    SW_STAMP = re.compile(rb'\nself\.playgroundScript="[0-9a-f]{64}";\n')
+
     def sw_revised(self):
-        """/sw.js with this host's revision (--test-hooks) at its end."""
+        """/sw.js with this host's revision (--test-hooks) at the end of
+        its code, stamped again (src/swScript.ts stamp) unless the
+        revision asked for none."""
         host = (self.headers.get("Host") or "").lower()
+        revision, stamped = SW_REVISIONS[host]
         with open(os.path.join(BRIDGE_DIRECTORY, "sw.js"), "rb") as f:
-            data = f.read() + f"\n// revision {SW_REVISIONS[host]}\n".encode()
+            code = self.SW_STAMP.sub(b"", f.read()) + f"\n// revision {revision}\n".encode()
+        digest = hashlib.sha256(code).hexdigest()
+        data = code + (f'\nself.playgroundScript="{digest}";\n'.encode() if stamped else b"")
         self.send_response(200)
         self.send_header("Content-Type", "text/javascript")
         self.send_header("Content-Length", str(len(data)))
@@ -524,7 +537,8 @@ BRIDGE = option("--bridge")
 HTTPS_BRIDGE = option("--https-bridge")
 IMMUTABLE = "--immutable" in args
 TEST_HOOKS = "--test-hooks" in args
-# --test-hooks: each usercontent host's /sw.js revision, 0 for the file as built.
+# --test-hooks: each usercontent host's /sw.js revision (absent for the file
+# as built) and whether it is stamped.
 SW_REVISIONS = {}
 EMBEDDER_ROOT = os.path.abspath(option("--embedder-root") or ".")
 NIF = option("--nif") and os.path.abspath(option("--nif"))

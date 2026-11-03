@@ -42,30 +42,107 @@
           .replace(/=+$/, '');
       }
 
-      // The origin's newest worker, once active. register() leaves a
+      // What the bootstrap did, and when, for debugging a boot: each step
+      // goes to the frame's console, and the whole trace to the parent
+      // with the outcome (playground-bridge-trace, or with
+      // playground-bridge-failed). `served`: the hash of the /sw.js the
+      // server sends now; `script`: the hash the bridged worker reported;
+      // `path`: how it chose that worker ('current', 'updated', or
+      // 'unchecked' when the served script is unknown).
+      const began = performance.now();
+      const trace = { steps: [], served: null, script: null, path: null };
+      function note(step) {
+        const line = `+${Math.round(performance.now() - began)} ms ${step}`;
+        trace.steps.push(line);
+        console.debug(`bridge: ${line}`);
+      }
+      const short = (hash) => (typeof hash === 'string' ? hash.slice(0, 12) : 'none');
+      const states = (registration) =>
+        `active ${registration.active?.state ?? 'none'}, ` +
+        `installing ${registration.installing?.state ?? 'none'}, ` +
+        `waiting ${registration.waiting?.state ?? 'none'}`;
+      navigator.serviceWorker.addEventListener('controllerchange', () =>
+        note(`controllerchange: ${navigator.serviceWorker.controller?.state ?? 'no controller'}`),
+      );
+
+      // Waits for `worker` to be active.
+      function activated(worker) {
+        return new Promise((resolve, reject) => {
+          const check = () => {
+            if (worker.state === 'activated') resolve(worker);
+            else if (worker.state === 'redundant') reject(new Error('service worker update failed'));
+            else return false;
+            worker.removeEventListener('statechange', changed);
+            return true;
+          };
+          const changed = () => {
+            note(`new worker ${worker.state}`);
+            check();
+          };
+          if (!check()) worker.addEventListener('statechange', changed);
+        });
+      }
+
+      // The origin's newest worker, once active, when the served sw.js is
+      // unknown (offline, or the server failed). register() leaves a
       // registration's workers as they are; update() fetches /sw.js again
-      // and settles once it knows whether it changed. A new worker that
-      // installed during the boot would take over the frame (skipWaiting,
-      // clients.claim) before its page could answer `bridge-lost`
-      // (docs/frames.md, "Service worker updates"), so the bootstrap bridges
-      // only after the check. In Firefox, update() takes 1 s even when
-      // sw.js is current, so the bootstrap waits for it only when the
-      // active worker's script is not the one the server sends now
-      // (servedScript).
-      async function newestWorker() {
-        const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-        // Offline, or the server failed: the worker there is.
-        await registration.update().catch(() => {});
+      // and settles once it knows whether it changed.
+      async function newestWorker(registration) {
+        await registration.update().catch((error) => note(`update() failed: ${error?.message ?? error}`));
+        note(`update() settled: ${states(registration)}`);
         const worker = registration.installing ?? registration.waiting ?? registration.active;
         if (!worker) throw new Error('no service worker');
-        if (worker.state !== 'activated')
-          await new Promise((resolve, reject) => {
-            worker.addEventListener('statechange', () => {
-              if (worker.state === 'activated') resolve();
-              else if (worker.state === 'redundant') reject(new Error('service worker update failed'));
-            });
-          });
-        return worker;
+        return activated(worker);
+      }
+
+      // The worker that replaces `outdated` (the active worker if it runs
+      // another sw.js than the server sends now, or names none), once it
+      // is active: one installing or waiting already, or an active one
+      // that is not `outdated`, else the one the next `updatefound`
+      // brings. The bootstrap does not take what
+      // `installing` holds when update() settles: in Safari it settled
+      // before the new worker was there, and the bootstrap bridged with
+      // the old one, which the new one then replaced in the running frame
+      // (docs/frames.md, "Service worker updates").
+      function updatedWorker(registration, outdated, wait) {
+        return new Promise((resolve, reject) => {
+          let followed = null;
+          const timer = setTimeout(
+            () => done(new Error(`the service worker did not update to the served sw.js in ${wait / 1000} s`)),
+            wait,
+          );
+          const done = (error, worker) => {
+            clearTimeout(timer);
+            registration.removeEventListener('updatefound', found);
+            if (error) reject(error);
+            else resolve(worker);
+          };
+          const follow = (worker) => {
+            if (!worker || followed) return;
+            followed = worker;
+            note(`new worker ${worker.state}`);
+            activated(worker).then((worker) => done(null, worker), done);
+          };
+          const candidate = () =>
+            registration.installing ??
+            registration.waiting ??
+            (registration.active !== outdated ? registration.active : null);
+          const found = () => {
+            note(`updatefound: ${states(registration)}`);
+            follow(registration.installing);
+          };
+          registration.addEventListener('updatefound', found);
+          follow(candidate());
+          if (followed) return;
+          registration.update().then(
+            () => {
+              note(`update() settled: ${states(registration)}`);
+              follow(candidate());
+            },
+            // The navigation's own update check may still find it.
+            (error) => note(`update() failed: ${error?.message ?? error}`),
+          );
+        });
       }
 
       // The stamp line sw.js ends with (src/swScript.ts STAMP).
@@ -87,9 +164,10 @@
 
       // The worker takes a new key and a port to the apex's worker; the
       // key. `script`: the hash the worker must report (servedScript), or
-      // it is refused. The apex's worker gets its end of the port only
-      // once the worker took the other: a refused or silent worker's is
-      // closed, and the apex never answers it.
+      // it is refused; a worker that reports none is refused too. The
+      // apex's worker gets its end of the port only once the worker took
+      // the other: a refused or silent worker's is closed, and the apex
+      // never answers it.
       function bridged(worker, control, wait, script = null) {
         return new Promise((resolve, reject) => {
           const key = newKey();
@@ -101,6 +179,7 @@
             clearTimeout(timer);
             navigator.serviceWorker.removeEventListener('message', heard);
             if (error) {
+              note(`refused: ${error.message}`);
               channel.port1.close();
               reject(error);
             } else {
@@ -112,18 +191,58 @@
           const heard = (event) => {
             const answer = event.data;
             if (answer?.kind !== 'bridged' || answer.bridge !== key) return;
+            note(`worker answered: protocol ${answer.protocol}, script ${short(answer.script)}`);
+            trace.script = typeof answer.script === 'string' ? answer.script : null;
             settle(
               answer.protocol !== PROTOCOL
                 ? new Error(`the service worker speaks bridge protocols ${answer.protocols}`)
                 : script !== null && answer.script !== script
-                  ? new Error('the service worker is not the newest')
+                  ? new Error(`the service worker runs sw.js ${short(answer.script)}, not the served ${short(script)}`)
                   : null,
             );
           };
           navigator.serviceWorker.addEventListener('message', heard);
           navigator.serviceWorker.startMessages();
+          note(`bridging with the ${worker.state} worker`);
           worker.postMessage({ kind: 'bridge', protocol: PROTOCOL, bridge: key }, [channel.port2]);
         });
+      }
+
+      // The key of a bridge with the worker that runs the sw.js the server
+      // sends now. A new worker that installed during the boot would take
+      // over the frame (skipWaiting, clients.claim) before its page could
+      // answer `bridge-lost`, and Safari leaves the frame's dedicated
+      // workers on the old one (docs/frames.md, "Service worker updates").
+      // The worker reports the hash its sw.js names (src/swScript.ts).
+      async function bridge(control) {
+        const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+        note(`registered: ${states(registration)}`);
+        const served = await servedScript();
+        trace.served = served;
+        note(`served sw.js: ${short(served)}`);
+        // Unknown: the newest worker after the update check, unchecked.
+        if (served === null) {
+          trace.path = 'unchecked';
+          return bridged(await newestWorker(registration), control, 10000);
+        }
+        // The active worker, if it runs the served sw.js: no update can
+        // replace it. Firefox's update() takes 1 s even when sw.js is
+        // current, so the bootstrap asks the worker first.
+        // A worker that refused is outdated: the bootstrap waits for the
+        // one that replaces it.
+        const active = registration.active;
+        let outdated = null;
+        if (active?.state === 'activated' && !registration.installing && !registration.waiting) {
+          const key = await bridged(active, control, 3000, served).catch(() => null);
+          if (key) {
+            trace.path = 'current';
+            return key;
+          }
+          outdated = active;
+        }
+        trace.path = 'updated';
+        const worker = await updatedWorker(registration, outdated, 15000);
+        return bridged(worker, control, 10000, served);
       }
 
       let started = false;
@@ -136,24 +255,20 @@
         if (data.entry.split('/').some((part) => part === '..' || part === '.')) return;
         started = true;
         try {
-          // The active worker, if it runs the sw.js the server sends now:
-          // no update can replace it.
-          const registration = await navigator.serviceWorker.register('/sw.js', { scope: '/' });
-          const active = registration.active;
-          const current =
-            active?.state === 'activated' && !registration.installing && !registration.waiting
-              ? await servedScript()
-              : null;
-          let key = current ? await bridged(active, control, 3000, current).catch(() => null) : null;
-          // Else the newest worker, after the update check; once more if
-          // that failed: another update replaced the worker.
-          const attempt = async () => bridged(await newestWorker(), control, 10000);
-          key ??= await attempt().catch(attempt);
+          // Once more if that failed: another update replaced the worker,
+          // or the server sent another sw.js since.
+          const key = await bridge(control).catch((error) => {
+            note(`attempt failed: ${error?.message ?? error}; once more`);
+            return bridge(control);
+          });
+          note(`bridged (${trace.path})`);
+          window.parent.postMessage({ kind: 'playground-bridge-trace', trace }, event.origin);
           location.replace(`/_bridge/${key}/${data.entry}`);
         } catch (error) {
           // Why, to the parent that asked.
+          note(`failed: ${error?.message ?? error}`);
           window.parent.postMessage(
-            { kind: 'playground-bridge-failed', message: String(error?.message ?? error) },
+            { kind: 'playground-bridge-failed', message: String(error?.message ?? error), trace },
             event.origin,
           );
         }

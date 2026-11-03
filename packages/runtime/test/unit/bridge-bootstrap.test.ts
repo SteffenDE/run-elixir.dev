@@ -17,6 +17,8 @@ const run = new Function(
   `return (async () => {${source}})();`,
 );
 const ENTRY = 'npm/@elixir-playground/runtime@1.1.0/exec.html';
+// Its trace (each step, to the frame's console).
+vi.spyOn(console, 'debug').mockImplementation(() => {});
 
 // The bootstrap in a frame (or not), its parent, its service worker; the
 // handlers it added to its window, and what it said.
@@ -25,7 +27,7 @@ const ENTRY = 'npm/@elixir-playground/runtime@1.1.0/exec.html';
 // `config`: what the origin answers for /bridge.json (null: no file).
 // `served`: the code of the /sw.js the origin sends now, stamped
 // (src/swScript.ts; null: none); `runs`: the code the active worker runs,
-// whose hash it reports.
+// whose hash it reports (null: an unstamped sw.js, which reports none).
 const CODE = 'self.addEventListener("fetch", () => {});';
 function frame({
   top = false,
@@ -33,7 +35,7 @@ function frame({
   refusals = 0,
   config = { bridge: 'bridge.test' } as unknown,
   served = CODE as string | null,
-  runs = CODE,
+  runs = CODE as string | null,
 } = {}) {
   const parent = { postMessage: vi.fn() };
   const self: Record<string, unknown> = { parent, opener };
@@ -46,14 +48,14 @@ function frame({
   // The keys whose port was closed at the bootstrap's end.
   const closed: string[] = [];
   // A worker that answers announces as the bridge does.
-  const makeWorker = (state = 'activated') =>
+  const makeWorker = (state = 'activated', code = runs) =>
     Object.assign(new EventTarget(), {
       state,
       postMessage: vi.fn((message: { bridge: string }, ports: MessagePort[] = []) => {
         ports[0]?.addEventListener('close', () => closed.push(message.bridge));
         ports[0]?.start();
         const protocol = refusals-- > 0 ? null : 1;
-        void sha256(runs).then((script) =>
+        void (code === null ? Promise.resolve(undefined) : sha256(code)).then((script) =>
           container.dispatchEvent(
             Object.assign(new Event('message'), {
               data: { kind: 'bridged', bridge: message.bridge, protocol, protocols: [1], script },
@@ -63,11 +65,24 @@ function frame({
       }),
     });
   const worker = makeWorker();
-  const registration: {
-    update: () => Promise<unknown>;
-    active: typeof worker | null;
-    installing: typeof worker | null;
-  } = { update: vi.fn(async () => {}), active: worker, installing: null };
+  const registration = Object.assign(new EventTarget(), {
+    update: vi.fn(async () => {}) as () => Promise<unknown>,
+    active: worker as typeof worker | null,
+    installing: null as typeof worker | null,
+    waiting: null as typeof worker | null,
+  });
+  // A new worker installs, as the browser does: `updatefound`.
+  const install = (installed: typeof worker) => {
+    registration.installing = installed;
+    registration.dispatchEvent(new Event('updatefound'));
+  };
+  // It takes the active worker's place.
+  const activate = (installed: typeof worker) => {
+    registration.installing = null;
+    registration.active = installed;
+    installed.state = 'activated';
+    installed.dispatchEvent(new Event('statechange'));
+  };
   const location = {
     href: 'https://e-abcdefghij.bridge.test/bridge.html',
     host: 'e-abcdefghij.bridge.test',
@@ -97,6 +112,8 @@ function frame({
     worker,
     makeWorker,
     registration,
+    install,
+    activate,
     location,
     loading,
     send,
@@ -253,16 +270,15 @@ it('bridges with the active worker at once when it runs the served sw.js', async
 
 it('waits for the update check when the served sw.js is another', async () => {
   for (const served of [`${CODE} // changed`, CODE.replace('fetch', 'message')]) {
-    const { loading, send, self, location, worker, makeWorker, registration, closed } = frame({
-      served,
-    });
+    const { loading, send, self, location, worker, makeWorker, registration, install, closed } =
+      frame({ served });
     await loading;
-    const updated = makeWorker('activated');
+    const updated = makeWorker('activated', served);
     let checked = () => {};
     registration.update = () =>
       new Promise<void>((resolve) => {
         checked = () => {
-          registration.installing = updated;
+          install(updated);
           resolve();
         };
       });
@@ -280,18 +296,87 @@ it('waits for the update check when the served sw.js is another', async () => {
 
 it('waits for the update check when sw.js has a stamp line appended after it', async () => {
   // A stamp is the hash of what is before it: anything after it is a change.
-  const { loading, send, self, location, registration, fetch } = frame();
+  const { loading, send, self, location, registration, makeWorker, install, fetch } = frame();
   fetch.mockImplementation(async (url: string) =>
     url === '/bridge.json'
       ? Response.json({ bridge: 'bridge.test' })
       : new Response(`${await stamp(CODE)}// revision 1\n`),
   );
   await loading;
-  const update = vi.fn(async () => {});
+  const updated = makeWorker('activated', `${CODE}// revision 1\n`);
+  const update = vi.fn(async () => install(updated));
   registration.update = update;
   await send(start(self));
   await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
   expect(update).toHaveBeenCalled();
+  expect(updated.postMessage).toHaveBeenCalledTimes(1);
+});
+
+// Safari, a sw.js without a stamp (runtime 2.1.3) to a stamped one: update()
+// settled before the new worker was in `installing`. The bootstrap took the
+// old worker then, and the new one replaced it in the running frame.
+it('waits for updatefound when update() settles before the new worker is there', async () => {
+  const { loading, send, self, location, worker, makeWorker, registration, install, activate } =
+    frame({ runs: null, served: `${CODE} // changed` });
+  await loading;
+  let settled = false;
+  registration.update = async () => {
+    settled = true;
+  };
+  void send(start(self));
+  await vi.waitFor(() => expect(settled).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // The old worker, which names no script, was asked once and refused.
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  expect(location.replace).not.toHaveBeenCalled();
+  const updated = makeWorker('installing', `${CODE} // changed`);
+  install(updated);
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  // Installed, not yet active: not asked.
+  expect(updated.postMessage).not.toHaveBeenCalled();
+  activate(updated);
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  const [[announce]] = updated.postMessage.mock.calls as unknown as [{ bridge: string }][];
+  expect(location.replace).toHaveBeenCalledWith(`/_bridge/${announce.bridge}/${ENTRY}`);
+});
+
+it('refuses a new worker that runs another sw.js than the served one, and says why', async () => {
+  const { loading, send, self, location, parent, makeWorker, registration, install } = frame({
+    served: `${CODE} // changed`,
+  });
+  await loading;
+  const other = makeWorker('activated', `${CODE} // other`);
+  registration.update = async () => install(other);
+  await send(start(self));
+  await vi.waitFor(() =>
+    expect(parent.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: 'playground-bridge-failed' }),
+      'https://apex.test',
+    ),
+  );
+  expect(location.replace).not.toHaveBeenCalled();
+  // Twice: once more after the first attempt failed.
+  expect(other.postMessage).toHaveBeenCalledTimes(2);
+  const [failed] = parent.postMessage.mock.calls.at(-1)!;
+  expect(failed.message).toMatch(/runs sw\.js [0-9a-f]{12}, not the served [0-9a-f]{12}/);
+  expect(failed.trace).toMatchObject({ path: 'updated', served: expect.any(String) });
+  expect(failed.trace.steps.join('\n')).toMatch(/updatefound/);
+});
+
+it('tells its parent how it bridged', async () => {
+  const { loading, send, self, location, parent } = frame();
+  await loading;
+  await send(start(self));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  const served = await sha256(CODE);
+  expect(parent.postMessage).toHaveBeenCalledWith(
+    {
+      kind: 'playground-bridge-trace',
+      trace: { path: 'current', served, script: served, steps: expect.any(Array) },
+    },
+    'https://apex.test',
+  );
 });
 
 it('bridges only once the update check is done', async () => {
@@ -359,8 +444,12 @@ it('asks for the newest worker again when the one it waited for became redundant
   expect(worker.postMessage).toHaveBeenCalledTimes(1);
 });
 
+// The served sw.js unknown: the worker the update check leaves, unchecked.
 it('asks again when the worker does not speak the bridge', async () => {
-  const { loading, send, self, location, worker, container } = frame({ refusals: 1 });
+  const { loading, send, self, location, worker, container } = frame({
+    refusals: 1,
+    served: null,
+  });
   await loading;
   await send({
     source: self.parent,
@@ -379,7 +468,7 @@ it('asks again when the worker does not speak the bridge', async () => {
 });
 
 it('gives the apex one port, for the worker that took it; the refused one is closed', async () => {
-  const { loading, send, self, location, worker, closed } = frame({ refusals: 1 });
+  const { loading, send, self, location, worker, closed } = frame({ refusals: 1, served: null });
   await loading;
   const apex = new MessageChannel();
   const served: MessagePort[] = [];
