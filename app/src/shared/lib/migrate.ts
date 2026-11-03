@@ -37,9 +37,24 @@ export async function moveAllFormerStores(ids: string[]): Promise<void> {
   for (const id of ids) await moveFormerStores(id);
 }
 
+// The moves under way, by project. The home page moves every project's
+// stores in the background while the tab may already open one of them;
+// both share one storage frame, so they share one move as well: the frame
+// is closed only when that move ends.
+const moving = new Map<string, Promise<void>>();
+
 // Project `id`'s former stores, on the apex now. Never throws: a project
 // opens with what the apex has.
-export async function moveFormerStores(id: string): Promise<void> {
+export function moveFormerStores(id: string): Promise<void> {
+  let move = moving.get(id);
+  if (!move) {
+    move = moveOnce(id).finally(() => moving.delete(id));
+    moving.set(id, move);
+  }
+  return move;
+}
+
+async function moveOnce(id: string): Promise<void> {
   const url = formerStorage(id);
   if (!url || moved().has(id)) return;
   try {
