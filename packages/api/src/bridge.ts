@@ -7,6 +7,7 @@
 // it.
 import { BRIDGE_PROTOCOL, type BridgeStart } from '@elixir-playground/runtime/swProtocol';
 import type { BridgeTable } from './apexWorker';
+import type { BridgeTrace } from './types';
 
 export type { BridgeTable };
 
@@ -43,17 +44,47 @@ export function apexPort(kind: 'frame' | 'link', table: BridgeTable): MessagePor
   return channel.port2;
 }
 
+// The bootstrap's trace (BridgeTrace), as far as it is one: the frame is
+// another site's page, and the trace only goes to the console and to
+// Sandbox's 'updated' event.
+export function bridgeTrace(data: unknown): BridgeTrace | null {
+  const trace = data as Partial<BridgeTrace> | null;
+  if (!trace || !Array.isArray(trace.steps)) return null;
+  const hash = (value: unknown) => (typeof value === 'string' ? value : null);
+  return {
+    steps: trace.steps.filter((step): step is string => typeof step === 'string'),
+    served: hash(trace.served),
+    script: hash(trace.script),
+    path:
+      trace.path === 'current' || trace.path === 'updated' || trace.path === 'unchecked'
+        ? trace.path
+        : null,
+  };
+}
+
+// The trace to the console: at debug level when the active worker was
+// current, else at info level (a new worker installed while the frame
+// booted), or as a warning when the bootstrap failed.
+function logTrace(origin: string, trace: BridgeTrace, failed = false): void {
+  const text = `${origin}: bridge ${failed ? 'failed' : `chose its service worker (${trace.path})`}:\n${trace.steps.join('\n')}`;
+  if (failed) console.warn(text);
+  else if (trace.path === 'current') console.debug(text);
+  else console.info(text);
+}
+
 // Frame `element` on `origin` in bridge mode: its source is the domain's
 // bootstrap, which this page answers with `entry` (the frame's page below
 // the bridge) and a port to the apex's worker; each page it loads then
-// asks for a port of its own (bridgeClient.ts). Returns what stops
-// answering it (once the element is gone).
+// asks for a port of its own (bridgeClient.ts). `traced` hears how the
+// bootstrap chose its service worker. Returns what stops answering it
+// (once the element is gone).
 export function bridgeFrame(
   element: HTMLIFrameElement,
   origin: string,
   entry: string,
   table: BridgeTable,
   failed: (message: string) => void = () => {},
+  traced: (trace: BridgeTrace) => void = () => {},
 ): () => void {
   const heard = (event: MessageEvent) => {
     // The frame is gone (a sandbox's shutdown removes it).
@@ -69,7 +100,17 @@ export function bridgeFrame(
       element.contentWindow!.postMessage({ kind: 'playground-bridge-control' }, origin, [
         apexPort('frame', table),
       ]);
+    } else if (kind === 'playground-bridge-trace') {
+      const trace = bridgeTrace(event.data.trace);
+      if (!trace) return;
+      logTrace(origin, trace);
+      traced(trace);
     } else if (kind === 'playground-bridge-failed') {
+      const trace = bridgeTrace(event.data.trace);
+      if (trace) {
+        logTrace(origin, trace, true);
+        traced(trace);
+      }
       failed(`${origin}: ${String(event.data.message)}`);
     }
   };

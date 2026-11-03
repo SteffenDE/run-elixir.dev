@@ -282,11 +282,31 @@ while the frame booted:
    without the stamp line. If the active worker reports the same hash,
    the browser's update check cannot find a new worker. The bootstrap
    then bridges with the active worker at once.
-3. Otherwise it awaits `registration.update()`, waits until the worker
-   that the check found is active, and bridges with that worker. This
-   path also covers a missing stamp, an older worker that reports no
-   hash, any other change to `sw.js` (such as `serve.py`'s appended
-   revision comment), and a failed fetch.
+3. Otherwise the active worker is outdated. That includes an older
+   worker that reports no hash. The bootstrap waits for the worker that
+   replaces it: one already installing or waiting, or else the one that
+   the next `updatefound` brings, which `registration.update()` starts.
+   It waits until that worker is `activated` (15 s at most). It bridges
+   only if that worker reports the served hash too, and tries once more
+   otherwise. Then it fails, and `create()` rejects with why.
+4. If the served `sw.js` is unknown (the fetch failed) or has no stamp
+   line (a runtime before 2.1.4), no worker can be checked. The bootstrap
+   awaits `registration.update()` and bridges with the worker that the
+   check left in `installing`, `waiting` or `active`, once it is active.
+
+Step 3 does not take what `installing` holds when `update()` settles.
+The 2.1.3 bootstrap did, with no hash check. Tidewave then saw the same
+failure in desktop Safari after the runtime went from 2.1.3 to 2.1.4 with
+a changed `sw.js`, 2026-11-03. The first reload logged the exec frame's
+takeover warning (below), then `worker.js: the worker did not load after
+5 tries`, with 404s. A later reload worked. The likely cause, from the
+code and not yet observed: `update()` settled before the new worker was
+in `installing`, so the bootstrap bridged with the old worker, which the
+new one then replaced. In Playwright's WebKit that bootstrap bridged
+correctly in 10 of 10 runs from an unstamped to a stamped `sw.js`, so it
+does not reproduce Safari's ordering. The bootstrap's trace (below)
+shows the ordering: `update() settled: … installing none` followed by a
+later `updatefound` confirms it.
 
 Waiting for `update()` on every boot was simpler, but Firefox's
 `update()` takes a fixed ~1 s even when `sw.js` is unchanged. A plain
@@ -302,15 +322,19 @@ is current, median of 8 runs, local test server, Playwright 1.64,
 
 Against a real server, the fetch adds one round trip to `/sw.js`. With
 the fix, the `bridge.spec.ts` update test passed 12 of 12 runs across
-the three browsers.
+the three browsers (2026-11-02). With step 3 as it is now, 2026-11-03,
+local test server: the two update tests passed 20 of 20 runs in WebKit
+and 10 of 10 each in Chromium and Firefox. They check that the second
+load bridged with a worker that reports the served hash, and that no
+`controllerchange` reached its exec frame afterwards.
 
 **A takeover after the boot** can still happen. For example, a deploy
 changes `sw.js` while a page runs, and another tab then opens the same
 project. Its bootstrap installs the new worker, which also takes over the
 running page's exec frame. In Chromium, Firefox and WebKit the running
-page's nodes still started afterwards (`bridge.spec.ts`). A one-off
-check during development confirmed that the running frame saw
-`controllerchange` in Chromium and WebKit. As a guard
+page's nodes still started afterwards (`bridge.spec.ts`). The test
+checks that the running exec frame logged `controllerchange` in
+Chromium and WebKit. Firefox's logged none. As a guard
 for browsers whose workers keep the old worker, the exec frame passes
 `controllerchange` to its host worker. The host worker then requests its
 own script below the bridge with `HEAD` (`lib/controller.ts`). Only a
@@ -318,8 +342,29 @@ service worker answers it. A 404 from the shared domain's server means
 the worker's requests skip the service worker. The sandbox then sends
 the warning `The playground was updated while this page was open, and
 new processes cannot start. Reload the page.` (the IDE shows it in its
-status line). Unit tests cover this path. No tested browser takes it, and
-whether it catches Safari's case has not been checked.
+status line), and the `updated` event ([api.md](api.md)). Unit tests
+cover this path. No tested browser takes it. In Safari it fired on
+2026-11-03, during the boot described above.
+
+### Debugging a service worker update
+
+Each bootstrap records its steps with the time since it ran: the
+registration's workers, the served hash, what `update()` left,
+`updatefound`, each state of the new worker, `controllerchange`, and each
+worker's answer. It logs them to its frame's console (`bridge: …`, debug
+level) and sends the trace to its parent before it loads the frame's page
+(`playground-bridge-trace`), or with `playground-bridge-failed`.
+
+| Where | What |
+| --- | --- |
+| The page's console | Each frame's trace: debug level when the active worker was current, info when the bootstrap waited for a new worker, a warning when it failed (`api/src/bridge.ts`). |
+| The exec frame's console | `exec: a newer service worker took over this frame N ms after it loaded`, on each `controllerchange` after the boot. |
+| The page's console, after a takeover that broke the frame | An error with the exec frame's boot trace, its served hash and the hash of the worker it bridged with. |
+| `sandbox.on('updated', …)` | `{ message, after, boot }`: the warning's text, the takeover's time, and the trace. |
+| `sandbox.boot` (internal) | The exec frame's trace; the e2e tests read it. |
+
+The trace's `path` says how the bootstrap chose its worker: `current`
+(step 2), `updated` (step 3) or `unchecked` (step 4).
 
 ### The data path
 

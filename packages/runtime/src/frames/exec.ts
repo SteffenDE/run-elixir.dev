@@ -19,11 +19,18 @@ let worker: Worker | null = null;
 // In bridge mode, a newer service worker can take over this frame after
 // it started: a deploy changed the shared domain's sw.js, and another
 // frame of this origin loaded since. The host worker checks that its
-// requests still reach a service worker (exec/host.ts).
+// requests still reach a service worker (exec/host.ts). Logged, for
+// debugging: the bootstrap should have bridged with the newest worker
+// (root/bridge.html), so a takeover means sw.js changed after the boot.
 if (bridgeKey())
-  navigator.serviceWorker.addEventListener('controllerchange', () =>
-    worker?.postMessage({ kind: 'playground-exec-controller' }),
-  );
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    const after = Math.round(performance.now());
+    console.info(
+      `exec: a newer service worker took over this frame ${after} ms after it loaded ` +
+        `(${worker ? 'after' : 'before'} its host worker started)`,
+    );
+    worker?.postMessage({ kind: 'playground-exec-controller', after });
+  });
 
 addEventListener('message', (event) => {
   if (event.source !== window.parent || started) return;

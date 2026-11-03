@@ -19,6 +19,7 @@ export type {
   ApexContext,
   ApexInstance,
   ApexPlugin,
+  BridgeTrace,
   CreateOptions,
   DirEntry,
   Events,
@@ -34,6 +35,7 @@ export type {
   SpawnOptions,
   Stat,
   TerminalOptions,
+  Updated,
   UsercontentOptions,
   WriteOptions,
 } from './types';
