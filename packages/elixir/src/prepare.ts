@@ -1,13 +1,15 @@
-// The elixir package's layer for a build (docs/packages.md, "Elixir"):
-// Elixir's precompiled release from builds.hex.pm, with the Hex and rebar3
-// that Mix installs for it, as Mix does it, on the site's own OTP (an otp
-// package, under Node through the runtime's harness). No OTP or Elixir on
-// the machine is needed.
+// The elixir package's layers for a build (docs/packages.md, "Elixir
+// builds"): Elixir's precompiled release from builds.hex.pm, with the
+// rebar3 that Mix installs for it; and Mix's archives, Hex's and those
+// asked for (phx_new), as Mix installs them. All on the site's own OTP (an
+// otp package, under Node through the runtime's harness). No OTP or
+// Elixir on the machine is needed.
 //
-//   await prepare({ build: '1.20.4-otp-29', otp: 'node_modules/@elixir-playground/otp-29.1.2', into: 'public/npm/@elixir-playground/elixir@3.0.0' });
+//   await prepare({ build: '1.20.4-otp-29', archives: { phx_new: '1.8.16' }, otp: 'node_modules/@elixir-playground/otp-29.1.2', into: 'public/npm/@elixir-playground/elixir@3.0.0' });
 //
-// It writes versions/BUILD/ below `into`: fs.json (the layer's fs field,
-// which create() reads as the descriptor's `layer`), fs/, licenses/, and
+// It writes versions/BUILD/ below `into`: fs.json (Elixir's layer, which
+// create() reads as the descriptor's `layer`) and fs/, archives/NAME/
+// with each archive's (builds.ts archivePath), licenses/, and
 // prepared.json (what it was made of: the same again is not made twice).
 import { createHash } from 'node:crypto';
 import {
@@ -23,7 +25,7 @@ import {
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { start } from '@elixir-playground/runtime/harness';
-import { BUILDS, DEFAULT, buildPath, parseBuild } from './builds.js';
+import { ARCHIVES, BUILDS, DEFAULT, archivePath, buildPath, parseBuild } from './builds.js';
 import { writeLayer, type LayerFile, type WrittenLayer } from './layer.js';
 import { unzip } from './zip.js';
 
@@ -34,15 +36,21 @@ const BUILDS_URL = 'https://builds.hex.pm';
 // ELIXIR_APPS), and its scripts, the package's commands.
 const APPS = ['elixir', 'eex', 'ex_unit', 'iex', 'logger', 'mix'];
 const SCRIPTS = ['elixir', 'elixirc', 'iex', 'mix'];
-// The harness's port that answers Mix's downloads.
+// Hex's repository, which archive.install hex fetches from (HEX_MIRROR).
+const REPO_URL = 'https://repo.hex.pm';
+// The harness's ports that answer Mix's downloads and Hex's.
 const MIRROR_PORT = 4001;
+const REPO_PORT = 4002;
 // What a prepared build records (prepared.json); another number makes it
 // again.
-const FORMAT = 1;
+const FORMAT = 2;
 
 export interface PrepareOptions {
   // An Elixir build, as builds.hex.pm names it (default: builds.ts's DEFAULT).
   build?: string;
+  // Mix archives from Hex besides Hex itself, by name: their versions
+  // ({ phx_new: '1.8.16' }). Mix compiles them with the build.
+  archives?: Record<string, string>;
   // An otp package's directory, of the OTP major the build is for.
   otp: string;
   // Where versions/BUILD/ goes: the elixir package's directory as the
@@ -57,6 +65,14 @@ export interface PrepareOptions {
   log?: (line: string) => void;
 }
 
+// A Mix archive's layer: below MIX_HOME's archives (builds.ts ARCHIVES),
+// its directory there (hex-2.6.0), at its path below `into`.
+export interface PreparedArchive {
+  version: string;
+  path: string;
+  layer: WrittenLayer;
+}
+
 export interface Prepared {
   build: string;
   elixir: string;
@@ -67,6 +83,8 @@ export interface Prepared {
   rebar3: string;
   sha256: string;
   layer: WrittenLayer;
+  // Its archives by name: Hex's (`hex`), and those asked for.
+  archives: Record<string, PreparedArchive>;
 }
 
 const sha256 = (bytes: Uint8Array) => createHash('sha256').update(bytes).digest('hex');
@@ -137,11 +155,18 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
     throw new Error(`Elixir ${build} is for OTP ${major}, not ${otpPackage.name}`);
   const otp = `${otpPackage.name}@${otpPackage.version}`;
   const sha = await checksum(build, !!options.untested);
+  const asked = options.archives ?? {};
+  for (const [name, version] of Object.entries(asked))
+    if (!/^[a-z][a-z0-9_]*$/.test(name) || !/^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/.test(version))
+      throw new Error(`${name} ${version}: not a Hex package and version`);
   const directory = join(options.into, buildPath(build));
   const record = join(directory, 'prepared.json');
   if (!options.force && existsSync(record)) {
     const before = JSON.parse(readFileSync(record, 'utf8'));
-    if (before.format === FORMAT && before.sha256 === sha && before.otp === otp) {
+    const has = Object.entries(asked).every(
+      ([name, version]) => before.archives?.[name]?.version === version,
+    );
+    if (before.format === FORMAT && before.sha256 === sha && before.otp === otp && has) {
       const { format: _, ...prepared } = before;
       return prepared as Prepared;
     }
@@ -169,9 +194,19 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
 
     // Mix installs Hex and rebar3 into an empty MIX_HOME, from
     // builds.hex.pm through the harness's port: it checks Hex's and
-    // rebar3's SHA-512 itself. Below /tmp: the node's own directories
-    // are those its tree has when it starts.
-    log(`elixir: Hex and rebar3 for Elixir ${elixir} on ${otp}`);
+    // rebar3's SHA-512 itself. Then the archives asked for, from Hex's
+    // repository through another (Hex checks the registry's signature
+    // and each tarball's checksum), compiled with this Elixir. Below
+    // /tmp: the node's own directories are those its tree has when it
+    // starts.
+    const names = Object.entries(asked).map(([name, version]) => `${name} ${version}`);
+    log(
+      `elixir: Hex, rebar3${names.map((each) => `, ${each}`).join('')} for Elixir ${elixir} on ${otp}`,
+    );
+    const install = Object.entries(asked).map(
+      ([name, version]) =>
+        `Mix.Tasks.Archive.Install.run(["hex", "${name}", "${version}", "--force"]); `,
+    );
     const root = `/opt/elixir/${elixir}`;
     const output: string[] = [];
     const keep = (bytes: Uint8Array) => output.push(new TextDecoder().decode(bytes));
@@ -187,11 +222,19 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
         'elixir',
         '-extra',
         '-e',
-        'Mix.start(); Mix.Tasks.Local.Hex.run(["--force"]); Mix.Tasks.Local.Rebar.run(["--force"])',
+        'Mix.start(); Mix.Tasks.Local.Hex.run(["--force"]); Mix.Tasks.Local.Rebar.run(["--force"]); ' +
+          install.join(''),
       ],
       mounts: { [root]: unpacked },
-      env: { MIX_HOME: '/tmp/mix', HEX_BUILDS_URL: `http://localhost:${MIRROR_PORT}` },
-      http: { [MIRROR_PORT]: (path) => `${BUILDS_URL}${path}` },
+      env: {
+        MIX_HOME: '/tmp/mix',
+        HEX_BUILDS_URL: `http://localhost:${MIRROR_PORT}`,
+        HEX_MIRROR: `http://localhost:${REPO_PORT}`,
+      },
+      http: {
+        [MIRROR_PORT]: (path) => `${BUILDS_URL}${path}`,
+        [REPO_PORT]: (path) => `${REPO_URL}${path}`,
+      },
       stdout: keep,
       stderr: keep,
     });
@@ -199,17 +242,33 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
     const result = await node.done;
     if (result.status !== 0)
       throw new Error(
-        `Mix could not install Hex and rebar3 (exit ${result.status}):\n${output.join('')}`,
+        `Mix could not install Hex, rebar3 and the archives (exit ${result.status}):\n${output.join('')}`,
       );
     const mix = join(scratch, 'mix');
     result.snapshot('/tmp/mix', mix);
     const installed = walk(mix);
-    const archives = installed.filter((path) => path.startsWith('archives/'));
     const rebar = installed.find((path) => /^elixir\/[^/]+\/rebar3$/.test(path));
-    const hex = archives.map((path) => /^archives\/hex-([^/]+)\//.exec(path)?.[1]).find(Boolean);
-    if (!hex || !rebar) throw new Error(`Mix installed no Hex or no rebar3:\n${output.join('')}`);
-    for (const path of archives)
-      files.push({ path: `mix/${path}`, data: new Uint8Array(readFileSync(join(mix, path))) });
+    // Each archive's files, by its name: their paths below the archives'
+    // directory (NAME-VERSION/…), and its version.
+    const archived = new Map<string, { version: string; files: LayerFile[] }>();
+    for (const path of installed) {
+      const found = /^archives\/(([a-z][a-z0-9_]*)-([^/]+))\//.exec(path);
+      if (!found) continue;
+      const [, , name, version] = found;
+      if (!archived.has(name)) archived.set(name, { version, files: [] });
+      archived.get(name)!.files.push({
+        path: path.slice('archives/'.length),
+        data: new Uint8Array(readFileSync(join(mix, path))),
+      });
+    }
+    const hex = archived.get('hex')?.version;
+    const missing = Object.entries(asked).filter(
+      ([name, version]) => archived.get(name)?.version !== version,
+    );
+    if (!hex || !rebar || missing.length)
+      throw new Error(
+        `Mix installed no Hex, no rebar3, or not ${missing.map((each) => each.join(' ')).join(', ')}:\n${output.join('')}`,
+      );
     const rebar3 = new Uint8Array(readFileSync(join(mix, rebar)));
     files.push({ path: 'mix/rebar3', data: rebar3, executable: true });
     const rebarVersion =
@@ -219,6 +278,16 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
     mkdirSync(directory, { recursive: true });
     const layer = writeLayer(directory, files, root);
     writeFileSync(join(directory, 'fs.json'), JSON.stringify(layer, null, 1) + '\n');
+    const archives: Record<string, PreparedArchive> = {};
+    for (const [name, { version, files: archive }] of archived) {
+      // Hex's is Mix's choice; another is at the version asked for.
+      const path = archivePath(build, name, name === 'hex' ? undefined : version);
+      const at = join(options.into, path);
+      mkdirSync(at, { recursive: true });
+      const written = writeLayer(at, archive, ARCHIVES);
+      writeFileSync(join(at, 'fs.json'), JSON.stringify(written, null, 1) + '\n');
+      archives[name] = { version, path, layer: written };
+    }
     // What the layer has, and their licenses (all Apache-2.0).
     mkdirSync(join(directory, 'licenses'), { recursive: true });
     if (texts.LICENSE) writeFileSync(join(directory, 'licenses', 'elixir-LICENSE'), texts.LICENSE);
@@ -228,6 +297,12 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
         `Elixir ${build}, Apache-2.0 (elixir-LICENSE): https://elixir-lang.org, ${BUILDS_URL}/builds/elixir/v${build}.zip`,
         `Hex ${hex}, Apache-2.0: https://hex.pm, as Mix installed it`,
         `rebar3 ${rebarVersion}, Apache-2.0: https://rebar3.org, as Mix installed it`,
+        ...[...archived]
+          .filter(([name]) => name !== 'hex')
+          .map(
+            ([name, { version }]) =>
+              `${name} ${version}: https://hex.pm/packages/${name}, as Mix installed it`,
+          ),
         '',
       ].join('\n'),
     );
@@ -239,9 +314,14 @@ export async function prepare(options: PrepareOptions): Promise<Prepared> {
       rebar3: rebarVersion,
       sha256: sha,
       layer,
+      archives,
     };
     writeFileSync(record, JSON.stringify({ format: FORMAT, ...prepared }, null, 1) + '\n');
-    log(`elixir: ${directory} (${files.length} files, Hex ${hex}, rebar3 ${rebarVersion})`);
+    log(
+      `elixir: ${directory} (${files.length} files, rebar3 ${rebarVersion}; archives ` +
+        [...archived].map(([name, { version }]) => `${name} ${version}`).join(', ') +
+        ')',
+    );
     return prepared;
   } finally {
     rmSync(scratch, { recursive: true, force: true });

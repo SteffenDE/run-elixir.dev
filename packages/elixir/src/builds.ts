@@ -18,3 +18,12 @@ export function parseBuild(build: string): { elixir: string; otp: number } {
 
 // Where a build's layer is below the package's directory.
 export const buildPath = (build: string) => `versions/${build}/`;
+
+// Where a Mix archive's layer for a build is: Hex's, as Mix picked it
+// (`hex`), or an archive at its version (`phx_new-1.8.16`).
+export const archivePath = (build: string, name: string, version?: string) =>
+  `${buildPath(build)}archives/${version ? `${name}-${version}` : name}/`;
+
+// Where a node's Mix finds its archives: MIX_HOME's (setup.ts), the
+// project's home, kept with it.
+export const ARCHIVES = '/home/user/.mix/archives';

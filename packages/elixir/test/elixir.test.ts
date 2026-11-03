@@ -24,13 +24,35 @@ describe('builds', () => {
       files: {},
       playground: { bin: { mix: 'bin/mix' } },
     };
-    expect(described(descriptor, '1.19.5-otp-28').playground).toEqual({
+    const [elixir, hex] = described(descriptor, '1.19.5-otp-28');
+    expect(elixir.playground).toEqual({
       bin: { mix: 'bin/mix' },
       elixir: '1.19.5',
       requires: { otp: '^28.0.0' },
       layer: 'versions/1.19.5-otp-28/fs.json',
     });
-    expect(described(descriptor).playground.layer).toBe(`versions/${DEFAULT}/fs.json`);
+    // Hex's archive, always: a package of its own at the same base.
+    expect(hex).toEqual({
+      name: '@elixir-playground/elixir/archives/hex',
+      version: '3.0.0',
+      base: '/npm/@elixir-playground/elixir@3.0.0/',
+      files: {},
+      playground: { layer: 'versions/1.19.5-otp-28/archives/hex/fs.json' },
+    });
+    expect(described(descriptor)[0].playground.layer).toBe(`versions/${DEFAULT}/fs.json`);
+  });
+
+  it('adds the archives asked for, each at its version', () => {
+    const descriptor = { name: 'e', version: '3.0.0', base: '/e/', files: {}, playground: {} };
+    expect(
+      described(descriptor, DEFAULT, { archives: { phx_new: '1.8.16' } }).map(
+        ({ name, playground }) => [name, playground.layer],
+      ),
+    ).toEqual([
+      ['e', `versions/${DEFAULT}/fs.json`],
+      ['e/archives/hex', `versions/${DEFAULT}/archives/hex/fs.json`],
+      ['e/archives/phx_new', `versions/${DEFAULT}/archives/phx_new-1.8.16/fs.json`],
+    ]);
   });
 });
 
