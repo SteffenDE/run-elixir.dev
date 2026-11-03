@@ -1,7 +1,7 @@
 ---
 kind: design
 status: proposal
-last_updated: 2026-11-02
+last_updated: 2026-11-03
 ---
 
 # Distributing the playground as npm packages
@@ -145,9 +145,10 @@ its messages); other pages still work with runtime 2.0. On 2026-11-02
 harness (`./harness`); otp-X 1.1.0 adds `node.js` and `erl.js` (it needs
 runtime 2.2); the elixir package 3.0.0 replaces elixir-X ([Elixir
 builds](#elixir-builds)); api 2.3.0's `create()` reads a package's
-`layer`; vite 2.2.0 prepares the site's Elixir builds. phx_new is no
-longer in any package: the playground's build makes the template with
-the host's. The
+`layer`; vite 2.2.0 prepares the site's Elixir builds. Mix's archives
+(Hex's, phx_new) are layers of their own below the project's MIX_HOME,
+where the project keeps what it installs (runtime 2.2.0's `files.js`
+serves layers below `/home`). The
 site build names each package's directory `NAME@VERSION+ID`, ID a digest
 of what is in it: unpublished, the same version may be another build,
 and the path must still be immutable. A published package would be
@@ -240,8 +241,14 @@ manifest's order (`Site.tree`, `Site.bundle`), so a lazy file is
   itself runs (OTP's `erl` and `escript`; the page's `node`, `claude`, …;
   the WebAssembly programs) keep empty stand-ins there.
 - **A package's variables are its `env`:** each a path of its layer,
-  which every node gets: OTP's `ROOTDIR`, Elixir's `MIX_ARCHIVES` and
-  `MIX_REBAR3`.
+  which every node gets: OTP's `ROOTDIR`, Elixir's `MIX_REBAR3`.
+- **Layers overlap where their roots do.** The tree is the union of
+  every layer's files, so several layers can fill one directory: each
+  Mix archive is a layer rooted at `/home/user/.mix/archives`.
+  `files.js` serves the layers below `/tmp` and `/home` (and the
+  template's below `/work`), and keeps a project's changes below `/work`
+  and `/home` over them: an archive the project installs or removes
+  stays so. Two layers with the same file: the later one's.
 
 - **Every file's mtime is 2000-01-01** (`MTIME` in `build.py`), in the
   layer manifests, the bundles and the boot images, whose tar headers
@@ -479,35 +486,48 @@ OTP or Elixir on the machine. It:
    Node through the runtime's harness ([below](#the-node-harness)), with
    `HEX_BUILDS_URL` on a port of the harness that Node's `fetch` answers
    from builds.hex.pm. Mix picks the Hex and rebar3 for that Elixir and
-   OTP, and checks their SHA-512 itself;
-3. writes `versions/BUILD/` below the directory it is given: `fs.json`,
-   `fs/` (Elixir's applications, its scripts, `mix/archives/hex-…/`,
-   `mix/rebar3`), `licenses/`, and `prepared.json`, what it was made of.
-   The same build on the same otp package is not made again.
+   OTP, and checks their SHA-512 itself. Then `archive.install hex NAME
+   VERSION` for each archive asked for (`archives`: `{ phx_new: '1.8.16'
+   }`), Hex fetching from repo.hex.pm through another port
+   (`HEX_MIRROR`; it checks the registry's signature and the tarball's
+   checksum). Mix compiles each with this Elixir, so an archive belongs to
+   a build;
+3. writes `versions/BUILD/` below the directory it is given: `fs.json`
+   and `fs/` (Elixir's applications, its scripts, `mix/rebar3`);
+   `archives/hex/` and `archives/NAME-VERSION/`, a layer each, rooted at
+   `/home/user/.mix/archives`, where Mix looks by default (MIX_HOME's);
+   `licenses/`; and `prepared.json`, what it was made of. The same build
+   with the same archives on the same otp package is not made again.
 
-On 2026-11-02 it made `1.20.4-otp-29` (599 files, Hex 2.6.0, rebar3
-3.28.0) in about 4 s, with the release already downloaded. Three places run it:
+`elixir(BUILD, { archives })` returns a descriptor for Elixir and one for
+each archive, Hex's always: `@elixir-playground/elixir/archives/NAME`, at
+the elixir package's base, its `layer` the archive's.
+
+On 2026-11-02 it made `1.20.4-otp-29` with phx_new 1.8.16 (Elixir 458
+files; Hex 2.6.0, rebar3 3.28.0) in about 8 s, with the release already
+downloaded. Three places run it:
 
 - **The vite package's plugin**, for the builds the site names
-  (`elixirPlayground({ elixir: { builds } })`, by default the package's
-  default), on the installed otp package of each one's OTP major. It
+  (`elixirPlayground({ elixir: { builds, archives } })`, by default the
+  package's default), on the installed otp package of each one's OTP major. It
   keeps them in `node_modules/.cache/elixir-playground/`, serves them in
   dev, and writes them below the elixir package in the output.
 - **The package's command**, for a site without the plugin:
-  `npx @elixir-playground/elixir prepare BUILD --otp DIR --into DIR`,
-  `--into` the elixir package's directory as the site serves it.
+  `npx @elixir-playground/elixir prepare BUILD --otp DIR --into DIR
+  [--archive NAME@VERSION]`, `--into` the elixir package's directory as
+  the site serves it.
 - **`build.py`**, for the playground's site: `ELIXIR_BUILD`,
-  `builds.ts`'s default, on the otp package it laid, in Docker. The host's
-  Elixir only makes the template, and must be that version.
+  `builds.ts`'s default, with `ELIXIR_ARCHIVES` (phx_new 1.8.16), on the
+  otp package it laid, in Docker. The host's Elixir only makes the
+  template, and must be that version.
 
 A prepared build is the site's, not the package's: `publish.py`
 publishes only what the package's `files` names. A site that serves the
 packages from a public npm CDN therefore has no Elixir layer there; it
 needs the package below its own `content` (not solved yet).
 
-phx_new is in no package. The playground's build makes the template with
-the host's phx_new; a project that wants `mix phx.new` installs it
-(`mix archive.install hex phx_new`).
+The playground's projects have phx_new 1.8.16 as an archive, for `mix
+phx.new`. The template is still made with the host's phx_new.
 
 ## The Node harness
 
@@ -1132,6 +1152,15 @@ As of 2026-10-28:
   specs (one api test skipped: no `tests/embed-archive.sh` archive).
   Not run: Firefox, WebKit, `@slow`, the other Chromium specs, and
   `cdn.sh`, which runs the published packages.
+- **Mix archives as layers below the project's home** (2026-11-03, same
+  branch): `elixir(build, { archives })`, Hex and phx_new 1.8.16 in the
+  playground's site, `files.js` serving layers below `/home`. Tested
+  2026-11-03: the elixir and vite packages' unit tests; a full
+  `build.py`; under `node.mjs`, `mix archive` and `mix phx.new demo`; in
+  Chromium the hex, rebar3, terminal, template, api, bridge and persist
+  specs (33 passed, 1 skipped: no `tests/embed-archive.sh` archive),
+  among them a new persist test: the archives are listed, `mix phx.new`
+  runs, and an uninstalled phx_new stays uninstalled after a reload.
 
 Not built: a CLI beside the Vite plugin, the npm-backed mirror (superseded
 by bridge mode), the deployed shared domain, the `.r4.` host level, the

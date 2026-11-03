@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: live
-last_updated: 2026-11-02
+last_updated: 2026-11-03
 ---
 
 # Building the site (`runtime/build.py`)
@@ -114,9 +114,10 @@ target/site/
     otp-29.1.2@…/              beam.mjs, beam.emu.mjs (the emulator's loader and its
                                  threads'), beam.wasm (5.2 MB); fs/ (OTP's applications);
                                  node.js and erl.js (erl under Node.js)
-    elixir@…/                  index.js (elixir(BUILD)), hex.js, prepare.js, cli.js;
-                                 versions/1.20.4-otp-29/ (fs.json and fs/: Elixir, IEx,
-                                 Mix, ExUnit; Hex, rebar3; Elixir's scripts), not published
+    elixir@…/                  index.js (elixir(BUILD, { archives })), hex.js, prepare.js,
+                                 cli.js; versions/1.20.4-otp-29/ (fs.json and fs/: Elixir,
+                                 IEx, Mix, ExUnit, rebar3, Elixir's scripts; archives/hex/
+                                 and archives/phx_new-1.8.16/, a layer each), not published
     nodejs@…/                  workers/ (nodejs.js and chunks/: the worker program
                                  node); npm.js, npx.js (its page programs)
     phoenix-template@…/        fs/ (the template's app, at /work/playground); not published
@@ -181,9 +182,12 @@ The filesystem holds:
   (`APPS` in `build.py`);
 - `/opt/elixir/1.20.4`: the elixir package's prepared layer: the
   release's applications (`elixir`, `eex`, `ex_unit`, `iex`, `logger`,
-  `mix`) under `lib/`, Mix's Hex archive at `mix/archives/`,
-  `mix/rebar3`, and Elixir's scripts `bin/elixir`, `bin/elixirc`,
-  `bin/iex` and `bin/mix` (its commands, linked from `/usr/bin`);
+  `mix`) under `lib/`, `mix/rebar3`, and Elixir's scripts `bin/elixir`,
+  `bin/elixirc`, `bin/iex` and `bin/mix` (its commands, linked from
+  `/usr/bin`);
+- `/home/user/.mix/archives`: its Mix archives, Hex and phx_new
+  (`ELIXIR_ARCHIVES`), a layer each, the project's home's base, which
+  `files.js` keeps the project's changes over;
 - `/work/playground`: the Phoenix template's app, which only a Phoenix
   project mounts;
 - `/usr/libexec/git-core`, `/etc/ssl`, `/usr/share/terminfo`: the git,

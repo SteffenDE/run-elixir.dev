@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-11-02
+last_updated: 2026-11-03
 ---
 
 # The API: running a project from a page
@@ -177,6 +177,14 @@ with `ERUNTIME` and names the file.
     --otp node_modules/@elixir-playground/otp-29.1.2 \
     --into public/npm/@elixir-playground/elixir@3.0.0
   ```
+
+**Mix archives** come the same way: `elixir('1.20.4-otp-29', { archives:
+{ phx_new: '1.8.16' } })`, with the same `archives` in the plugin's
+`elixir` option (or `--archive phx_new@1.8.16`). Mix installs each from
+Hex with that Elixir when the site is built. Hex's archive is always
+there. They are layers below the project's home
+(`/home/user/.mix/archives`), so an archive the project installs or
+removes itself is kept with it.
 
 A build the package was not tested with (`npx @elixir-playground/elixir
 builds` lists those it was) needs `untested: true` in the plugin's
@@ -370,7 +378,7 @@ export default defineConfig({
 | --- | --- |
 | `usercontent` | The shared usercontent domain, with a port if any, and with a scheme if the default is wrong ([frames.md](frames.md#schemes)). Named in each page's `<meta name="playground-usercontent">`; without it, `create()` takes run-elixir.dev's. A `*.localhost` name (`usercontent.localhost:5173`) is answered by `vite` and `vite preview` themselves, for local work. |
 | `packages` | Package directories that are not installed, such as a template of the site's own. |
-| `elixir` | `{ builds, untested }`: the Elixir builds the site runs, each prepared on the installed otp package of its OTP major ([above](#elixir)). By default the elixir package's default build. |
+| `elixir` | `{ builds, archives, untested }`: the Elixir builds the site runs, with the Mix archives besides Hex, each prepared on the installed otp package of its OTP major ([above](#elixir)). By default the elixir package's default build. |
 
 **`vite build`** lays the runtime package and every installed package
 with a `playground` object, of any npm scope or none (since 2026-10-31),

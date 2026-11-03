@@ -1,7 +1,7 @@
 ---
 kind: reference
 status: prototype
-last_updated: 2026-11-02
+last_updated: 2026-11-03
 ---
 
 # Licenses
@@ -51,7 +51,7 @@ is its own source form.
 | --- | --- |
 | `runtime`, `api` | The playground; what their Vite builds bundled from `node_modules` (`vite-licenses.ts` → `dist-licenses/*.json`, at the root). |
 | `otp-X` | Erlang/OTP; OTP's vendored zlib, pcre2, ryu and Unicode data (its `vendor.info` files); Popcorn's patches; OpenSSL and ncurses; Emscripten, its musl and compiler-rt; the playground's patches and host code, and its `node.js` and `erl.js`. |
-| `elixir` | The playground (its modules and `hex.js`); in the playground's site, the build it prepared: Elixir (its release's `LICENSE` and `LICENSES/`), Hex, rebar3 and the 10 applications rebar3 vendors. A build that another site prepares has `versions/BUILD/licenses/`: Elixir's `LICENSE`, and the versions of Hex and rebar3. |
+| `elixir` | The playground (its modules and `hex.js`); in the playground's site, the build it prepared: Elixir (its release's `LICENSE` and `LICENSES/`), Hex, rebar3 and the 10 applications rebar3 vendors, and phx_new (its Hex metadata's license). A build that another site prepares has `versions/BUILD/licenses/`: Elixir's `LICENSE`, and the versions of Hex, rebar3 and its archives. |
 | `phoenix-template` | The phx.new app, topbar, and each dependency: Hex metadata and license files, or (git dependencies) the `LICENSE` at the locked commit. |
 | `shell`, `ripgrep`, `tls` | The crates the module links (`cargo tree` for wasm32-wasip1, normal dependencies, no proc macros), Rust's standard library and wasi-libc. `shell` also has ncurses's terminfo entry. |
 | `tailscale` | The Go modules it compiles (`go list -deps` with its tags), Go's standard library (and `wasm_exec.js`), and the playground. |
