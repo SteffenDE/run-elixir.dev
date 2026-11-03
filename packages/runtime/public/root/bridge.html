@@ -149,12 +149,15 @@
       const STAMP = /\nself\.playgroundScript="([0-9a-f]{64})";\n/;
       // The SHA-256 of the /sw.js the server sends now, without its stamp
       // line (src/swScript.ts scriptHash), as the active worker reports
-      // its own; null if unknown.
+      // its own; null if unknown, or if it has no stamp line (a runtime
+      // before 2.1.4), which no worker could report.
       async function servedScript() {
         try {
           const response = await fetch('/sw.js', { cache: 'no-cache' });
           if (!response.ok) return null;
-          const text = (await response.text()).replace(STAMP, '');
+          const served = await response.text();
+          if (!STAMP.test(served)) return null;
+          const text = served.replace(STAMP, '');
           const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
           return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
         } catch {

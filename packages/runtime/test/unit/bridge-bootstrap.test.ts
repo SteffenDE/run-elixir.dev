@@ -414,6 +414,23 @@ it('bridges with the worker an update installs, once it is active', async () => 
   expect(location.replace).toHaveBeenCalledWith(`/_bridge/${announce.bridge}/${ENTRY}`);
 });
 
+it('takes the worker the update check leaves when the served sw.js has no stamp', async () => {
+  const { loading, send, self, location, worker, parent, fetch } = frame({ runs: null });
+  fetch.mockImplementation(async (url: string) =>
+    url === '/bridge.json' ? Response.json({ bridge: 'bridge.test' }) : new Response(CODE),
+  );
+  await loading;
+  await send(start(self));
+  await vi.waitFor(() => expect(location.replace).toHaveBeenCalled());
+  expect(worker.postMessage).toHaveBeenCalledTimes(1);
+  expect(parent.postMessage).toHaveBeenCalledWith(
+    expect.objectContaining({
+      trace: expect.objectContaining({ path: 'unchecked', served: null }),
+    }),
+    'https://apex.test',
+  );
+});
+
 it('bridges with the worker there when the update check fails', async () => {
   const { loading, send, self, location, worker, registration } = frame({ served: null });
   await loading;
