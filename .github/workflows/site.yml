@@ -143,6 +143,14 @@ jobs:
           path: target/cache-otp
           key: cache-otp-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-${{ hashFiles('runtime/build.py') }}
           restore-keys: cache-otp-${{ env.OTP_VERSION }}-${{ env.ELIXIR_VERSION }}-
+      # The elixir package's prepared build and the releases it downloaded
+      # (packages/elixir's prepare): its prepared.json says what it was made
+      # of, so an older one is made again only when that changed.
+      - uses: actions/cache@v4
+        with:
+          path: target/cache-elixir
+          key: cache-elixir-${{ env.OTP_VERSION }}-${{ hashFiles('packages/elixir/src/**', 'runtime/build.py') }}
+          restore-keys: cache-elixir-${{ env.OTP_VERSION }}-
       - uses: actions/download-artifact@v5
         with:
           pattern: wasm-*
