@@ -237,3 +237,23 @@ test("by default the elixir package's default build; one without its OTP fails",
     }),
   ).rejects.toThrow(/needs an otp package of OTP 27/);
 });
+
+test("the site's package.json names its Elixir builds and archives", async () => {
+  const root = fixture();
+  withElixir(root);
+  write(
+    join(root, 'package.json'),
+    JSON.stringify({
+      private: true,
+      elixirPlayground: {
+        elixir: { builds: ['1.19.5-otp-28'], archives: { phx_new: '1.8.16' } },
+      },
+    }),
+  );
+  await build({ root, logLevel: 'silent', plugins: [elixirPlayground()] });
+  const versions = join(root, 'dist', 'npm/@elixir-playground/elixir@3.0.0/versions');
+  expect(readdirSync(versions)).toEqual(['1.19.5-otp-28']);
+  expect(
+    JSON.parse(readFileSync(join(versions, '1.19.5-otp-28', 'fs.json'), 'utf8')).archives,
+  ).toEqual({ phx_new: '1.8.16' });
+});

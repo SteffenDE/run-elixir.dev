@@ -8,6 +8,10 @@
 // default); --otp an installed otp package; --into the elixir package's
 // directory as the site serves it (/npm/@elixir-playground/elixir@VERSION/);
 // --archive a Mix archive from Hex besides Hex (phx_new@1.8.16), each.
+// Without BUILD, the builds the package.json here names
+// (`elixirPlayground.elixir`: { builds, archives, untested }, as the vite
+// package's plugin takes them), else the default.
+import { existsSync, readFileSync } from 'node:fs';
 import { parseArgs } from 'node:util';
 import { BUILDS, DEFAULT } from './builds.js';
 import { prepare } from './prepare.js';
@@ -15,7 +19,8 @@ import { prepare } from './prepare.js';
 const USAGE = `usage: elixir-playground-elixir prepare [BUILD] --otp DIR --into DIR [--archive NAME@VERSION…] [--untested] [--force]
        elixir-playground-elixir builds
 
-BUILD: an Elixir build as builds.hex.pm names it (default ${DEFAULT}).
+BUILD: an Elixir build as builds.hex.pm names it; by default those the
+  package.json here names (elixirPlayground.elixir.builds), else ${DEFAULT}.
 --otp: an installed otp package (node_modules/@elixir-playground/otp-29.1.2).
 --into: the elixir package's directory as the site serves it.
 --archive: a Mix archive from Hex besides Hex itself (phx_new@1.8.16), each.`;
@@ -41,21 +46,30 @@ if (command === 'builds') {
   for (const each of Object.keys(BUILDS))
     console.log(each === DEFAULT ? `${each} (default)` : each);
 } else if (command === 'prepare' && values.otp && values.into) {
-  try {
-    await prepare({
-      build: build ?? DEFAULT,
-      otp: values.otp,
-      into: values.into,
-      archives: Object.fromEntries(
-        (values.archive ?? []).map((each) => {
+  // The site's own: its package.json's elixirPlayground.elixir.
+  const site: { builds?: string[]; archives?: Record<string, string>; untested?: boolean } =
+    (existsSync('package.json') &&
+      JSON.parse(readFileSync('package.json', 'utf8')).elixirPlayground?.elixir) ||
+    {};
+  const archives = values.archive
+    ? Object.fromEntries(
+        values.archive.map((each) => {
           const at = each.lastIndexOf('@');
           return at > 0 ? [each.slice(0, at), each.slice(at + 1)] : [each, ''];
         }),
-      ),
-      cache: values.cache,
-      untested: values.untested,
-      force: values.force,
-    });
+      )
+    : site.archives;
+  try {
+    for (const each of build ? [build] : (site.builds ?? [DEFAULT]))
+      await prepare({
+        build: each,
+        otp: values.otp,
+        into: values.into,
+        archives,
+        cache: values.cache,
+        untested: values.untested ?? site.untested,
+        force: values.force,
+      });
   } catch (error) {
     console.error(`elixir-playground-elixir: ${(error as Error).message}`);
     process.exit(1);

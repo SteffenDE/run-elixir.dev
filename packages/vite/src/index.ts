@@ -43,7 +43,9 @@ export interface Options {
   // the site's own, say): laid out as the installed ones are.
   packages?: string[];
   // The Elixir builds the site runs (elixir('1.20.4-otp-29')), as
-  // builds.hex.pm names them: by default the elixir package's default.
+  // builds.hex.pm names them: by default the site's package.json's
+  // `elixirPlayground.elixir` (siteElixir), else the elixir package's
+  // default.
   // `archives`: Mix archives from Hex besides Hex, for each build
   // (elixir(build, { archives }): { phx_new: '1.8.16' }). `untested`:
   // builds the package was not tested with too.
@@ -110,6 +112,18 @@ type Prepare = (options: {
   log?: (line: string) => void;
 }) => Promise<unknown>;
 
+type ElixirOptions = NonNullable<Options['elixir']>;
+
+// The Elixir builds the site's package.json (below `root`) names, as the
+// plugin's `elixir` option: its `elixirPlayground.elixir` field, which the
+// elixir package's command reads too. Null without one.
+export function siteElixir(root: string): ElixirOptions | null {
+  const file = join(root, 'package.json');
+  if (!existsSync(file)) return null;
+  const field = JSON.parse(readFileSync(file, 'utf8')).elixirPlayground?.elixir;
+  return typeof field === 'object' && field !== null ? (field as ElixirOptions) : null;
+}
+
 // The Elixir builds the site runs, each prepared on the installed otp
 // package of its OTP major into the plugin's cache below `root`: the
 // directory below which their versions/BUILD/ are, or null without the
@@ -136,7 +150,9 @@ async function prepareElixir(
       ? [{ found, major: playground.otp.split('.')[0] }]
       : [];
   });
-  for (const build of options.elixir?.builds ?? [DEFAULT]) {
+  // The plugin's option, else the site's package.json.
+  const wanted = options.elixir ?? siteElixir(root) ?? {};
+  for (const build of wanted.builds ?? [DEFAULT]) {
     const major = /-otp-(\d+)$/.exec(build)?.[1];
     const otp = otps.find((each) => each.major === major);
     if (!otp)
@@ -145,11 +161,11 @@ async function prepareElixir(
       );
     await prepare({
       build,
-      archives: options.elixir?.archives,
+      archives: wanted.archives,
       otp: otp.found.directory,
       into,
       cache: join(cache, 'downloads'),
-      untested: options.elixir?.untested,
+      untested: wanted.untested,
       log,
     });
   }

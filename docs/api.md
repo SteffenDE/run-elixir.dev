@@ -186,6 +186,19 @@ there. They are layers below the project's home
 (`/home/user/.mix/archives`), so an archive the project installs or
 removes itself is kept with it.
 
+Instead of the plugin's option or the command's arguments, the site's
+`package.json` can name them. The plugin and the command read it when
+they are given none:
+
+```json
+"elixirPlayground": {
+  "elixir": { "builds": ["1.20.4-otp-29"], "archives": { "phx_new": "1.8.16" } }
+}
+```
+
+The page still names the build in `elixir(BUILD, { archives })`; it can
+import the same `package.json` to keep them in step.
+
 A build the package was not tested with (`npx @elixir-playground/elixir
 builds` lists those it was) needs `untested: true` in the plugin's
 `elixir` option, or `--untested`. Its SHA-256 is then checked against
@@ -378,7 +391,7 @@ export default defineConfig({
 | --- | --- |
 | `usercontent` | The shared usercontent domain, with a port if any, and with a scheme if the default is wrong ([frames.md](frames.md#schemes)). Named in each page's `<meta name="playground-usercontent">`; without it, `create()` takes run-elixir.dev's. A `*.localhost` name (`usercontent.localhost:5173`) is answered by `vite` and `vite preview` themselves, for local work. |
 | `packages` | Package directories that are not installed, such as a template of the site's own. |
-| `elixir` | `{ builds, archives, untested }`: the Elixir builds the site runs, with the Mix archives besides Hex, each prepared on the installed otp package of its OTP major ([above](#elixir)). By default the elixir package's default build. |
+| `elixir` | `{ builds, archives, untested }` (by default the site's `package.json`'s `elixirPlayground.elixir`): the Elixir builds the site runs, with the Mix archives besides Hex, each prepared on the installed otp package of its OTP major ([above](#elixir)). By default the elixir package's default build. |
 
 **`vite build`** lays the runtime package and every installed package
 with a `playground` object, of any npm scope or none (since 2026-10-31),
