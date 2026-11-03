@@ -6,6 +6,7 @@
 import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { APIRequestContext, ConsoleMessage, Page } from '@playwright/test';
 import { expect, test } from './fixtures';
 import { EMBEDDER, embedded, get, previewText, run } from './embedder';
 import { gitHttp, sh } from '../fake-github';
@@ -273,38 +274,100 @@ test('nodes that start at once all start, bridged', async ({ page }) => {
 // that started under the old worker kept it, now redundant: their loads
 // below /_bridge/KEY/ went to the network, which answers 404. In WebKit the
 // project did not start (503). The bootstrap now bridges only with the
-// newest worker (root/bridge.html). serve.py --test-hooks changes one
-// host's /sw.js.
-test('nodes start after the shared domain’s service worker changed', async ({ page, request }) => {
-  const project = { id: 'sw-update', template: 'empty' };
-  const echo = () =>
-    page.evaluate(() =>
-      Promise.all(
-        Array.from({ length: 6 }, async () => {
-          const process = window.sandbox.sh("sh -c 'echo ok'");
-          let out = '';
-          process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
-          const { code } = await process.exited;
-          return { stdout: out, code };
-        }),
-      ),
-    );
-  const started = Array(6).fill({ stdout: 'ok\n', code: 0 });
-  await embedded(page, project, { bridged: true });
-  expect(await echo()).toEqual(started);
-  const host = await page.evaluate(
+// worker that runs the served sw.js (root/bridge.html): the next load
+// waits for the new worker, and no takeover reaches the exec frame after
+// it booted. serve.py --test-hooks changes one host's /sw.js, stamped as
+// the build stamps it, or without a stamp (runtime 2.1.3, which Safari
+// updated from to 2.1.4 when the fallback still bridged with the old
+// worker).
+const echoes = (page: Page) =>
+  page.evaluate(() =>
+    Promise.all(
+      Array.from({ length: 6 }, async () => {
+        const process = window.sandbox.sh("sh -c 'echo ok'");
+        let out = '';
+        process.onStdout((bytes: Uint8Array) => (out += new TextDecoder().decode(bytes)));
+        const { code } = await process.exited;
+        return { stdout: out, code };
+      }),
+    ),
+  );
+const ECHOED = Array(6).fill({ stdout: 'ok\n', code: 0 });
+const execHost = (page: Page) =>
+  page.evaluate(
     () => new URL(document.querySelector<HTMLIFrameElement>('#frames iframe')!.src).host,
   );
-  const revised = await request.post(`http://playground.localhost:${PORT}/_test/sw-revision`, {
-    data: { host },
+const reviseSw = async (request: APIRequestContext, host: string, stamp = true) =>
+  expect(
+    (
+      await request.post(`http://playground.localhost:${PORT}/_test/sw-revision`, {
+        data: { host, stamp },
+      })
+    ).ok(),
+  ).toBe(true);
+
+// The next load of the page, which the frame's old worker answers while
+// the new one installs: it must bridge with the new worker, and no
+// takeover may reach the exec frame once it booted. (Playwright's Firefox
+// does not leave a page with cross-site frames: they go first.)
+async function reloadAfterUpdate(page: Page, project: object) {
+  await page.evaluate(() => document.querySelectorAll('iframe').forEach((frame) => frame.remove()));
+  const logged: string[] = [];
+  const log = (message: ConsoleMessage) => logged.push(message.text());
+  page.on('console', log);
+  await embedded(page, project, { bridged: true });
+  await page.evaluate(() => {
+    window.embed.updates = [];
+    window.sandbox.on('updated', (event: unknown) => window.embed.updates.push(event));
   });
-  expect(revised.ok()).toBe(true);
-  // The next load of the page, which the frame's old worker answers while
-  // the new one installs. (Playwright's Firefox does not leave a page with
-  // cross-site frames: they go first.)
+  expect(await echoes(page)).toEqual(ECHOED);
+  const boot = await page.evaluate(() => window.sandbox.boot);
+  // The trace of how the bootstrap chose its worker, for the report.
+  test.info().annotations.push({ type: 'bridge trace', description: boot?.steps.join('\n') });
+  // 'updated': it waited for the new worker; 'current': the browser's own
+  // update check (the bootstrap's navigation) had it active already.
+  expect(['current', 'updated']).toContain(boot?.path);
+  expect(boot!.served).toMatch(/^[0-9a-f]{64}$/);
+  expect(boot!.script).toBe(boot!.served);
+  // A takeover would come right after the boot: give it time.
+  await page.waitForTimeout(1000);
+  page.off('console', log);
+  expect(await page.evaluate(() => window.embed.updates)).toEqual([]);
+  // The frames' console reaches the test (the bootstrap's own steps), and
+  // the exec frame logged no takeover.
+  expect(logged.some((text) => text.includes('served sw.js'))).toBe(true);
+  expect(logged.filter((text) => text.includes('a newer service worker took over'))).toEqual([]);
+}
+
+test('nodes start after the shared domain’s service worker changed', async ({ page, request }) => {
+  const project = { id: 'sw-update', template: 'empty' };
+  await embedded(page, project, { bridged: true });
+  expect(await echoes(page)).toEqual(ECHOED);
+  await reviseSw(request, await execHost(page));
+  await reloadAfterUpdate(page, project);
+});
+
+test('nodes start after an unstamped service worker was replaced by a stamped one', async ({
+  page,
+  request,
+}) => {
+  const project = { id: 'sw-update-unstamped', template: 'empty' };
+  await embedded(page, project, { bridged: true });
+  const host = await execHost(page);
+  // A shared domain on a runtime before 2.1.4: the bootstrap cannot check
+  // the worker's script, and takes the newest.
+  await reviseSw(request, host, false);
   await page.evaluate(() => document.querySelectorAll('iframe').forEach((frame) => frame.remove()));
   await embedded(page, project, { bridged: true });
-  expect(await echo()).toEqual(started);
+  expect(await page.evaluate(() => window.sandbox.boot)).toMatchObject({
+    path: 'unchecked',
+    served: null,
+  });
+  expect(await echoes(page)).toEqual(ECHOED);
+  // Then a stamped one: the active worker names no script, and is
+  // outdated.
+  await reviseSw(request, host);
+  await reloadAfterUpdate(page, project);
 });
 
 // A newer service worker can still take over a frame that runs: a deploy
@@ -320,9 +383,13 @@ test('a running page’s nodes start after another tab installed a new service w
 }) => {
   const project = { id: 'sw-takeover', template: 'empty' };
   await embedded(page, project, { bridged: true });
+  const logged: string[] = [];
+  page.on('console', (message) => logged.push(message.text()));
   await page.evaluate(() => {
     window.embed.warnings = [];
+    window.embed.updates = [];
     window.sandbox.on('warning', (message: string) => window.embed.warnings.push(message));
+    window.sandbox.on('updated', (event: unknown) => window.embed.updates.push(event));
   });
   expect(await run(page, 'echo before')).toMatchObject({ stdout: 'before\n', code: 0 });
   const host = await page.evaluate(
@@ -349,6 +416,14 @@ test('a running page’s nodes start after another tab installed a new service w
   );
   expect(results).toEqual(Array(6).fill({ stdout: 'ok\n', code: 0 }));
   expect(await page.evaluate(() => window.embed.warnings)).toEqual([]);
+  expect(await page.evaluate(() => window.embed.updates)).toEqual([]);
+  // The exec frame logged the takeover (frames/exec.ts). Firefox's
+  // running frame logged none: the new worker did not take it over there,
+  // though the frames' console reaches the test (reloadAfterUpdate).
+  if (test.info().project.name !== 'firefox')
+    await expect
+      .poll(() => logged.some((text) => text.includes('a newer service worker took over')))
+      .toBe(true);
   // (Playwright's Firefox does not close a page with cross-site frames.)
   await other.evaluate(() =>
     document.querySelectorAll('iframe').forEach((frame) => frame.remove()),
