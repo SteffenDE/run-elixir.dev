@@ -73,3 +73,14 @@ export interface HarnessNode {
 }
 
 export declare function start(options: HarnessOptions): Promise<HarnessNode>;
+
+// This process's terminal, or its pipes, for a node: `options` for
+// start(), then attach(node), which feeds it standard input, Ctrl+C and
+// the terminal's size, and resolves with its status once it halts.
+export declare function processTerminal(): {
+  options: Pick<HarnessOptions, 'tty' | 'size' | 'onMode'>;
+  attach(node: HarnessNode): Promise<number>;
+};
+
+// MOUNT=VFSDIR:HOSTDIR,…: start()'s mounts, as the commands take them.
+export declare function envMounts(value?: string): Record<string, string>;

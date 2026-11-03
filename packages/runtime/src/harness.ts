@@ -322,3 +322,54 @@ export async function start(options: HarnessOptions): Promise<HarnessNode> {
     done: beam.done.then((status) => ({ status, unpacked, fetched, snapshot })),
   };
 }
+
+// This process's terminal, or its pipes, for a node (an otp package's erl,
+// the elixir package's iex): `options` for start(), then attach(node),
+// which feeds the node standard input, Ctrl+C (its SIGINT: erts' break
+// menu) and the terminal's size, and resolves with its status once it
+// halts. The node's shell edits its lines itself in raw mode; otherwise
+// the terminal does.
+export function processTerminal(): {
+  options: Pick<HarnessOptions, 'tty' | 'size' | 'onMode'>;
+  attach(node: HarnessNode): Promise<number>;
+} {
+  const tty = !!(process.stdin.isTTY && process.stdout.isTTY);
+  let raw = false;
+  return {
+    options: {
+      tty,
+      size: tty ? [process.stdout.columns, process.stdout.rows] : undefined,
+      onMode: (mode) => {
+        raw = mode;
+        if (tty) process.stdin.setRawMode(mode);
+      },
+    },
+    async attach(node) {
+      process.on('SIGINT', () => node.signal(2));
+      process.stdin.on('data', (bytes: Buffer) => {
+        if (raw && bytes.length === 1 && bytes[0] === 3) node.signal(2);
+        else node.input(new Uint8Array(bytes));
+      });
+      process.stdin.on('end', () => node.end());
+      if (tty)
+        process.stdout.on('resize', () => node.resize(process.stdout.columns, process.stdout.rows));
+      const { status } = await node.done;
+      if (tty) process.stdin.setRawMode(false);
+      process.stdin.pause();
+      return status;
+    },
+  };
+}
+
+// MOUNT=VFSDIR:HOSTDIR,…: start()'s mounts, as the commands take them.
+export function envMounts(value = process.env.MOUNT || ''): Record<string, string> {
+  return Object.fromEntries(
+    value
+      .split(',')
+      .filter(Boolean)
+      .map((pair) => {
+        const at = pair.indexOf(':');
+        return [pair.slice(0, at), pair.slice(at + 1)];
+      }),
+  );
+}
