@@ -47,6 +47,25 @@ test("an empty project keeps its home's files across reloads, out of its tree", 
   await expect(page.locator('.file-tree')).not.toContainText('note.txt');
 });
 
+// Mix's archives (Hex, phx_new) are the elixir package's layers below the
+// home's MIX_HOME: a project's own changes to them are kept over them.
+test("a project's Mix archives are its home's, and removing one is kept", async ({ page }) => {
+  await newProject(page, 'empty');
+  await prompted(page, 1);
+  const listed = await run(page, 'mix archive');
+  expect(listed).toMatch(/hex-\d+\.\d+\.\d+/);
+  expect(listed).toContain('phx_new-1.8.16');
+  expect(listed).toContain('/home/user/.mix/archives');
+  expect(await run(page, 'mix phx.new --version')).toContain('Phoenix installer v1.8.16');
+  await run(page, 'mix archive.uninstall phx_new-1.8.16 --force');
+  await page.evaluate(() => window.playground.files.flush());
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await prompted(page, 1);
+  const after = await run(page, 'mix archive');
+  expect(after).toMatch(/hex-\d+\.\d+\.\d+/);
+  expect(after).not.toContain('phx_new');
+});
+
 test('a Phoenix project keeps edits, removals and moves over its template', async ({ page }) => {
   await newProject(page, 'phoenix');
   await serverRunning(page);
