@@ -162,13 +162,13 @@ describe('writeLayer', () => {
 
 describe('the command', () => {
   it('takes a build with or without the dash before its OTP', async () => {
-    const { buildName } = await import('../src/run');
+    const { buildName } = await import('../src/commands');
     expect(buildName('1.20.5-otp29')).toBe('1.20.5-otp-29');
     expect(buildName('1.20.5-otp-29')).toBe('1.20.5-otp-29');
   });
 
   it('finds the newest installed otp package of the OTP major', async () => {
-    const { findOtp } = await import('../src/run');
+    const { findOtp } = await import('../src/commands');
     const top = mkdtempSync(join(tmpdir(), 'otp-'));
     const scope = join(top, 'app', 'node_modules', '@elixir-playground');
     for (const name of ['otp-29.1.2', 'otp-29.1.10', 'otp-28.3']) {

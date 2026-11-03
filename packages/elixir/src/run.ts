@@ -2,54 +2,16 @@
 // @elixir-playground/elixir --version 1.20.5-otp-29 iex`): a build
 // prepared into the user's cache, run on an installed otp package through
 // the runtime's harness, in this terminal or over a pipe.
-import { existsSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { envMounts, processTerminal, start } from '@elixir-playground/runtime/harness';
 import { BUILDS, DEFAULT, parseBuild } from './builds.js';
 import { PLAYGROUND, described } from './elixir.js';
 import { prepare } from './prepare.js';
+import { COMMANDS, buildName, findOtp } from './commands.js';
 
-// Elixir's commands: how each starts erl, after the root's paths (its
-// scripts' own: bin/elixir, bin/iex, bin/mix, bin/elixirc). IEx is the
-// node's user (its shell); the others run Elixir's CLI.
-const CLI = ['-s', 'elixir', 'start_cli', '-extra'];
-export const COMMANDS: Record<string, (root: string) => string[]> = {
-  elixir: () => CLI,
-  iex: () => ['-user', 'elixir', '-extra', '--no-halt', '+iex'],
-  elixirc: () => [...CLI, '+elixirc'],
-  mix: (root) => [...CLI, `${root}/bin/mix`],
-};
-
-// A build's name as builds.hex.pm has it: 1.20.5-otp-29 (or 1.20.5-otp29).
-export const buildName = (build: string) => build.replace(/-otp(\d+)$/, '-otp-$1');
-
-// The installed otp packages of OTP `major`, newest first: below
-// node_modules here and above, and above this package (npx's install).
-export function findOtp(major: number, from: string[]): string[] {
-  const found = new Map<string, string>();
-  for (const top of from)
-    for (let at = resolve(top); ; at = dirname(at)) {
-      const scope = join(at, 'node_modules', '@elixir-playground');
-      if (existsSync(scope))
-        for (const name of readdirSync(scope).filter((each) => each.startsWith(`otp-${major}.`))) {
-          const directory = join(scope, name);
-          if (!found.has(name) && existsSync(join(directory, 'package.json')))
-            found.set(name, directory);
-        }
-      if (dirname(at) === at) break;
-    }
-  const version = (name: string) => name.slice('otp-'.length).split('.').map(Number);
-  return [...found]
-    .sort(([a], [b]) => {
-      const [x, y] = [version(a), version(b)];
-      for (let i = 0; i < Math.max(x.length, y.length); i++)
-        if ((x[i] ?? 0) !== (y[i] ?? 0)) return (y[i] ?? 0) - (x[i] ?? 0);
-      return 0;
-    })
-    .map(([, directory]) => directory);
-}
+export { COMMANDS } from './commands.js';
 
 // Where builds are prepared for the command: the user's cache.
 const cacheDirectory = () =>
