@@ -21,6 +21,11 @@ for package in "$site"/*; do
   name=$(basename "$package")
   case $name in
     phoenix-template@*|tailscale@*) ;;  # the playground's own
+    # Copied, without the site's prepared builds: its prepare imports the
+    # runtime's harness from beside it, as installed (Node resolves a
+    # link's imports from its target), and the plugin prepares the build.
+    elixir@*) mkdir "$work/node_modules/@elixir-playground/elixir"
+      (cd "$package" && tar -cf - --exclude=./versions .) | tar -xf - -C "$work/node_modules/@elixir-playground/elixir" ;;
     *) ln -s "$package" "$work/node_modules/@elixir-playground/${name%%@*}" ;;
   esac
 done
