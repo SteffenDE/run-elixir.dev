@@ -73,7 +73,7 @@ stream.write(bytes); stream.end(); stream.close();
 stream.onData((bytes) => {}); stream.onEnd(() => {}); stream.onClose(() => {});
 const stop = await sandbox.serve(9832, (stream) => {});  // 127.0.0.1:9832 answered here
 const url = await sandbox.previewUrl(4000, '/tidewave?entrypoint=inner');  // relay ready: frame it
-const unsubscribe = sandbox.on('serving', ({ ports, port }) => {});  // also 'progress', 'changed', 'warning'
+const unsubscribe = sandbox.on('serving', ({ ports, port }) => {});  // also 'progress', 'changed', 'warning', 'updated'
 await sandbox.shutdown();
 ```
 
@@ -96,6 +96,15 @@ Errors carry POSIX's `code`:
 
 Output and events that come before a listener are given to the first
 one.
+
+`updated` comes when a deploy changed the shared domain's service worker
+while the page ran and new processes cannot start
+([frames.md](frames.md#service-worker-updates)). The page should ask the
+user to reload. `warning` says the same in words. The event carries
+`{ message, after, boot }`: the warning's text, how many ms after the exec
+frame loaded the new worker took over, and how the frame's bootstrap
+chose its service worker (`BridgeTrace`, or `null` from an older shared
+domain).
 
 ## Plugins
 
