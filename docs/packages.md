@@ -551,6 +551,36 @@ Each otp package builds on it (`packages/otp`):
   asks; Ctrl+C is the node's SIGINT). `MOUNT=VFSDIR:HOSTDIR` puts host
   directories in its tree.
 
+The elixir package's command runs Elixir's commands the same way
+(`packages/elixir/src/run.ts`):
+
+```sh
+npx -p @elixir-playground/otp-29.1.2 -p @elixir-playground/elixir \
+  elixir-playground-elixir --version 1.20.5-otp29 iex
+```
+
+- **The build:** `--version BUILD` (`1.20.5-otp-29` or `1.20.5-otp29`;
+  default the package's default), with `--archive NAME@VERSION` for Mix
+  archives besides Hex. It prepares the build once, into
+  `~/.cache/elixir-playground/elixir/` (`XDG_CACHE_HOME`). A build that
+  `builds.ts` does not list runs too, with a warning, checked against
+  builds.hex.pm's `builds.txt`.
+- **The commands:** `iex`, `elixir`, `mix` and `elixirc`, each started
+  as Elixir's script starts erl. Everything after the command is its own.
+  The exit status is the node's.
+- **OTP** is an installed otp package of the build's OTP major, the newest
+  below `node_modules` here or beside the package (npx's install), or
+  `--otp DIR`. The elixir package does not depend on one, so npx needs it
+  named (`-p`).
+- **The node's tree is its own:** `/work` is empty, and what the node
+  writes stays in memory. `MOUNT=VFSDIR:HOSTDIR` adds host directories.
+
+Tested 2026-11-03 from a local install that npx would make (not from the
+registry): IEx 1.20.4 and 1.20.5 in a pseudo-terminal and over a pipe,
+`elixir -e` with its exit status, and `mix phx.new --version` with
+`--archive phx_new@1.8.16`. Preparing 1.20.5 with phx_new took about
+10 s the first time.
+
 `runtime/build.py` does the same for run-elixir.dev from the repository's
 own builds ([build.md](build.md)).
 

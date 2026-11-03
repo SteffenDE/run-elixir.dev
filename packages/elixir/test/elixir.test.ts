@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { deflateRawSync } from 'node:zlib';
@@ -157,5 +157,30 @@ describe('writeLayer', () => {
       ['opt/elixir/1.20.4/lib/mix/ebin/mix.app', 10],
     ]);
     expect(read[0].mtime).toBe(BigInt(MTIME) * 1000000000n);
+  });
+});
+
+describe('the command', () => {
+  it('takes a build with or without the dash before its OTP', async () => {
+    const { buildName } = await import('../src/run');
+    expect(buildName('1.20.5-otp29')).toBe('1.20.5-otp-29');
+    expect(buildName('1.20.5-otp-29')).toBe('1.20.5-otp-29');
+  });
+
+  it('finds the newest installed otp package of the OTP major', async () => {
+    const { findOtp } = await import('../src/run');
+    const top = mkdtempSync(join(tmpdir(), 'otp-'));
+    const scope = join(top, 'app', 'node_modules', '@elixir-playground');
+    for (const name of ['otp-29.1.2', 'otp-29.1.10', 'otp-28.3']) {
+      mkdirSync(join(scope, name), { recursive: true });
+      writeFileSync(join(scope, name, 'package.json'), '{}');
+    }
+    mkdirSync(join(top, 'app', 'lib'));
+    expect(findOtp(29, [join(top, 'app', 'lib')])).toEqual([
+      join(scope, 'otp-29.1.10'),
+      join(scope, 'otp-29.1.2'),
+    ]);
+    expect(findOtp(27, [join(top, 'app')])).toEqual([]);
+    rmSync(top, { recursive: true, force: true });
   });
 });

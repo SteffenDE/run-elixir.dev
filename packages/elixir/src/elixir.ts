@@ -16,6 +16,14 @@ export interface Descriptor {
   playground: Record<string, unknown>;
 }
 
+// The package's own `playground` field (runtime/build.py's PACKAGES has
+// the same): Elixir's scripts, its commands, and the rebar3 Mix builds
+// rebar3 dependencies with.
+export const PLAYGROUND = {
+  bin: { elixir: 'bin/elixir', elixirc: 'bin/elixirc', iex: 'bin/iex', mix: 'bin/mix' },
+  env: { MIX_REBAR3: 'mix/rebar3' },
+};
+
 export interface ElixirOptions {
   // Mix archives from Hex besides Hex, by name: their versions
   // ({ phx_new: '1.8.16' }), which the site's build prepares with the build.

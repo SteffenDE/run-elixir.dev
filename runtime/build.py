@@ -134,7 +134,7 @@ ELIXIR_ARCHIVES = {"phx_new": PHX_NEW}
 ELIXIR_ARCHIVES_ROOT = "/home/user/.mix/archives"
 # Its modules in the elixir package, with their declarations.
 ELIXIR_MODULES = ("elixir.js", "elixir.d.ts", "builds.js", "builds.d.ts", "prepare.js", "prepare.d.ts",
-                  "layer.js", "layer.d.ts", "zip.js", "zip.d.ts", "cli.js")
+                  "layer.js", "layer.d.ts", "zip.js", "zip.d.ts", "run.js", "run.d.ts", "cli.js")
 # The mtime of every file in an fs layer and a boot image (2000-01-01),
 # and of nothing a node writes (now). The same files then make the same
 # bundles and images, byte for byte, and a package keeps its directory's
