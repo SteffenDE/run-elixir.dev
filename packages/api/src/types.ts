@@ -209,4 +209,35 @@ export type Events = {
   // Paths below /work the project changed (files.js, at most every 200 ms).
   changed: string[];
   warning: string;
+  // A newer service worker took over the exec frame, and new processes
+  // cannot start: the page needs a reload. 'warning' says the same in
+  // words.
+  updated: Updated;
 };
+
+// After a deploy changed the shared domain's sw.js (bridge mode,
+// docs/frames.md, "Service worker updates").
+export interface Updated {
+  // What 'warning' says.
+  message: string;
+  // When the new service worker took over: ms after the exec frame
+  // loaded.
+  after: number | null;
+  // How the exec frame's bootstrap chose its service worker (null: the
+  // shared domain's bootstrap sent nothing, an older runtime's).
+  boot: BridgeTrace | null;
+}
+
+// How a frame's bootstrap chose its service worker, for debugging (bridge
+// mode; runtime/swProtocol.ts has the message). `steps`: each with the time
+// since the bootstrap ran. `served`: the SHA-256 of the /sw.js the server
+// sent, without its stamp line (null: unknown or unstamped). `script`: the
+// hash the bridged worker reported (null: none). `path`: 'current' (the
+// active worker ran the served sw.js), 'updated' (it waited for the new
+// worker), 'unchecked' (the served sw.js unknown).
+export interface BridgeTrace {
+  steps: string[];
+  served: string | null;
+  script: string | null;
+  path: 'current' | 'updated' | 'unchecked' | null;
+}

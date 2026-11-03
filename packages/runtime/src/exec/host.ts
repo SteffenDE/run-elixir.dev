@@ -128,6 +128,9 @@ export type ExecEvents = {
   // What the files kept in /shared: the other projects open apply it.
   kept: KeptRecord[];
   warning: string;
+  // A newer service worker took over the exec frame `after` ms after it
+  // loaded, and this worker's requests no longer reach one (frames/exec.ts).
+  updated: { message: string; after: number | null };
   nif: NifBuild;
   // Something a node could not reach without Tailscale (the setup hint).
   blocked: string;
@@ -910,17 +913,22 @@ const handlers = {
 
 countReads();
 
-// A newer service worker took over the exec frame (frames/exec.ts): warn
-// if this worker's requests no longer reach one (lib/controller.ts).
-async function controllerChanged(): Promise<void> {
-  if (await reachesServiceWorker(self.location.href)) return;
-  console.error(`exec: ${UPDATED}`);
+// A newer service worker took over the exec frame `after` ms after it
+// loaded (frames/exec.ts): warn if this worker's requests no longer reach
+// one (lib/controller.ts).
+async function controllerChanged(after: number | null): Promise<void> {
+  if (await reachesServiceWorker(self.location.href)) {
+    console.info('exec: the host worker still reaches a service worker');
+    return;
+  }
+  console.error(`exec: ${UPDATED} (its requests reach the server: 404)`);
   rpc?.emit('warning', UPDATED);
+  rpc?.emit('updated', { message: UPDATED, after });
 }
 
 self.onmessage = ({ data, ports }: MessageEvent) => {
   if (data?.kind === 'playground-exec-controller') {
-    if (bridgeKey()) void controllerChanged();
+    if (bridgeKey()) void controllerChanged(typeof data.after === 'number' ? data.after : null);
     return;
   }
   if (data?.kind !== 'playground-exec' || rpc || !ports[0]) return;

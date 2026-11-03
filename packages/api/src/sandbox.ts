@@ -38,6 +38,7 @@ import {
 import type {
   ApexInstance,
   ApexPlugin,
+  BridgeTrace,
   CreateOptions,
   DirEntry,
   Events,
@@ -341,6 +342,9 @@ export class Sandbox {
   private closed = false;
   // Its preview relays' origins (previewOrigins.ts), which go with it.
   private relays = new Set<string>();
+  // How the exec frame's bootstrap chose its service worker (bridge.ts).
+  /** @internal */
+  boot: BridgeTrace | null = null;
   // The exec frame's port: the playground's own calls go over it too
   // (project/lib/playground.ts). Not a stable interface.
   /** @internal */
@@ -588,6 +592,16 @@ export class Sandbox {
     });
     on('changed', (paths) => this.emit('changed', paths));
     on('warning', (message) => this.emit('warning', message));
+    on('updated', ({ message, after }) => {
+      const boot = this.boot;
+      console.error(
+        `playground: a newer service worker took over the exec frame ${after ?? '?'} ms after it ` +
+          `loaded, and its requests no longer reach one. How the frame bridged ` +
+          `(${boot?.path ?? 'unknown'}; served sw.js ${boot?.served?.slice(0, 12) ?? 'unknown'}, ` +
+          `bridged worker's ${boot?.script?.slice(0, 12) ?? 'none'}):\n${boot?.steps.join('\n') ?? '(no trace)'}`,
+      );
+      this.emit('updated', { message, after, boot });
+    });
     on('processOutput', ({ id, fd, bytes }) => this.processes.get(id)?.output(fd, bytes));
     on('processStatus', ({ id, text }) => this.processes.get(id)?.status(text));
     on('processExit', ({ id, code, signal }) => {
@@ -679,6 +693,7 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
   let exec: Rpc | null = null;
   let element: HTMLIFrameElement | null = null;
   let made: Sandbox | null = null;
+  let bridging: BridgeTrace | null = null;
   const instances = new Map<string, ApexInstance>();
   try {
     progress('frame', 'Starting the project’s frame…');
@@ -689,7 +704,11 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       (frame) => {
         element = frame;
       },
-      { entry: `${bridge.runtime}exec.html`, table: frameTable(bridge.table) },
+      {
+        entry: `${bridge.runtime}exec.html`,
+        table: frameTable(bridge.table),
+        traced: (trace) => (bridging = trace),
+      },
     );
     options.connected?.(exec, { key, mode: place });
     for (const plugin of apex)
@@ -709,6 +728,7 @@ export async function createSandbox(options: CreateOptions & PlaygroundOptions):
       instances,
       place,
     );
+    sandbox.boot = bridging;
     made = sandbox;
     const way = wayOf(options.relay);
     sandbox.listen({

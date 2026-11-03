@@ -159,6 +159,23 @@ export interface BridgeStart {
   // runtime@VERSION/exec.html).
   entry: string;
 }
+// The bootstrap → its parent, before it loads the frame's page (or with
+// playground-bridge-failed): how it chose its worker, for debugging. Each
+// step with the time since the bootstrap ran; the hash of the /sw.js the
+// server sent (null: unknown) and the hash the bridged worker reported
+// (null: none); `path`: 'current' (the active worker ran the served
+// sw.js), 'updated' (it waited for a new worker), 'unchecked' (the served
+// sw.js unknown).
+export interface BridgeTrace {
+  steps: string[];
+  served: string | null;
+  script: string | null;
+  path: 'current' | 'updated' | 'unchecked' | null;
+}
+export interface BridgeTraced {
+  kind: 'playground-bridge-trace';
+  trace: BridgeTrace;
+}
 export interface BridgeClient {
   kind: 'playground-bridge-client';
   protocol: number;

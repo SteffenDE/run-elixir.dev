@@ -3,6 +3,7 @@
 // drives it: the IDE's, or another site's.
 import { Rpc } from '@elixir-playground/runtime/lib/rpc';
 import { bridgeFrame, type BridgeTable } from './bridge';
+import type { BridgeTrace } from './types';
 
 // A frame on the screen but unseen: a pixel, transparent, out of the way.
 // Not `hidden`: WebKit slowed a hidden frame's workers (the nodes') until
@@ -32,14 +33,15 @@ export function unseen(element: HTMLIFrameElement): HTMLIFrameElement {
 // frame put in `container`. After the page's load: a frame of another
 // site would hold its load event up (Firefox) until it started. `framed`
 // hears the element as it goes in (the page removes it at its shutdown).
-// `bridge` (bridge.ts): the frame's page below the bridge, and what the
-// frame may ask this page's worker for.
+// `bridge` (bridge.ts): the frame's page below the bridge, what the frame
+// may ask this page's worker for, and who hears how its bootstrap chose
+// its service worker.
 export async function startExecFrame(
   origin: string,
   signal: AbortSignal,
   container: HTMLElement,
   framed: (element: HTMLIFrameElement) => void,
-  bridge: { entry: string; table: BridgeTable },
+  bridge: { entry: string; table: BridgeTable; traced?: (trace: BridgeTrace) => void },
 ): Promise<Rpc> {
   if (document.readyState !== 'complete')
     await new Promise<void>((resolve, reject) => {
@@ -98,8 +100,13 @@ export async function startExecFrame(
     };
     addEventListener('message', loaded);
     signal.addEventListener('abort', cancelled, { once: true });
-    unbridge = bridgeFrame(element, origin, bridge.entry, bridge.table, (message) =>
-      fail(new Error(message)),
+    unbridge = bridgeFrame(
+      element,
+      origin,
+      bridge.entry,
+      bridge.table,
+      (message) => fail(new Error(message)),
+      bridge.traced,
     );
     framed(element);
     container.append(element);
