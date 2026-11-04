@@ -209,24 +209,31 @@ export type Events = {
   // Paths below /work the project changed (files.js, at most every 200 ms).
   changed: string[];
   warning: string;
-  // A newer service worker took over the exec frame, and new processes
-  // cannot start: the page needs a reload. 'warning' says the same in
-  // words.
+  // The exec frame lost its service worker, and new processes cannot
+  // start: the page needs a reload. 'warning' says the same in words.
+  detached: Detached;
+  // Deprecated: the same as 'detached', which replaces it.
   updated: Updated;
 };
 
-// After a deploy changed the shared domain's sw.js (bridge mode,
-// docs/frames.md, "Service worker updates").
-export interface Updated {
+// The exec frame's requests no longer reach a service worker (bridge mode,
+// docs/frames.md, "When a frame loses its service worker").
+export interface Detached {
   // What 'warning' says.
   message: string;
-  // When the new service worker took over: ms after the exec frame
-  // loaded.
+  // What the runtime noticed: the frame's controller changed, a worker did
+  // not load, or the page became visible again. Always 'controllerchange'
+  // from an older runtime, which checked only then.
+  reason: 'controllerchange' | 'load' | 'visible';
+  // When the controller changed: ms after the exec frame loaded (null for
+  // another reason).
   after: number | null;
   // How the exec frame's bootstrap chose its service worker (null: the
   // shared domain's bootstrap sent nothing, an older runtime's).
   boot: BridgeTrace | null;
 }
+
+export type Updated = Detached;
 
 // How a frame's bootstrap chose its service worker, for debugging (bridge
 // mode; runtime/swProtocol.ts has the message). `steps`: each with the time

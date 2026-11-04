@@ -21,6 +21,7 @@ export type {
   ApexPlugin,
   BridgeTrace,
   CreateOptions,
+  Detached,
   DirEntry,
   Events,
   Exit,

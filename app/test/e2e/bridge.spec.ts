@@ -318,7 +318,7 @@ async function reloadAfterUpdate(page: Page, project: object) {
   await embedded(page, project, { bridged: true });
   await page.evaluate(() => {
     window.embed.updates = [];
-    window.sandbox.on('updated', (event: unknown) => window.embed.updates.push(event));
+    window.sandbox.on('detached', (event: unknown) => window.embed.updates.push(event));
   });
   expect(await echoes(page)).toEqual(ECHOED);
   const boot = await page.evaluate(() => window.sandbox.boot);
@@ -336,7 +336,7 @@ async function reloadAfterUpdate(page: Page, project: object) {
   // The frames' console reaches the test (the bootstrap's own steps), and
   // the exec frame logged no takeover.
   expect(logged.some((text) => text.includes('served sw.js'))).toBe(true);
-  expect(logged.filter((text) => text.includes('a newer service worker took over'))).toEqual([]);
+  expect(logged.filter((text) => text.includes("this frame's controller changed"))).toEqual([]);
 }
 
 test('nodes start after the shared domain’s service worker changed', async ({ page, request }) => {
@@ -389,7 +389,7 @@ test('a running page’s nodes start after another tab installed a new service w
     window.embed.warnings = [];
     window.embed.updates = [];
     window.sandbox.on('warning', (message: string) => window.embed.warnings.push(message));
-    window.sandbox.on('updated', (event: unknown) => window.embed.updates.push(event));
+    window.sandbox.on('detached', (event: unknown) => window.embed.updates.push(event));
   });
   expect(await run(page, 'echo before')).toMatchObject({ stdout: 'before\n', code: 0 });
   const host = await page.evaluate(
@@ -422,7 +422,7 @@ test('a running page’s nodes start after another tab installed a new service w
   // though the frames' console reaches the test (reloadAfterUpdate).
   if (test.info().project.name !== 'firefox')
     await expect
-      .poll(() => logged.some((text) => text.includes('a newer service worker took over')))
+      .poll(() => logged.some((text) => text.includes("this frame's controller changed")))
       .toBe(true);
   // (Playwright's Firefox does not close a page with cross-site frames.)
   await other.evaluate(() =>

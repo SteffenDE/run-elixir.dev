@@ -592,15 +592,19 @@ export class Sandbox {
     });
     on('changed', (paths) => this.emit('changed', paths));
     on('warning', (message) => this.emit('warning', message));
-    on('updated', ({ message, after }) => {
+    // The runtime calls it 'updated', for older apis (exec/host.ts).
+    on('updated', ({ message, after, reason = 'controllerchange' }) => {
       const boot = this.boot;
+      const when = after === null ? '' : `, ${after} ms after it loaded`;
       console.error(
-        `playground: a newer service worker took over the exec frame ${after ?? '?'} ms after it ` +
-          `loaded, and its requests no longer reach one. How the frame bridged ` +
+        `playground: the exec frame lost its service worker (${reason}${when}): its requests ` +
+          `reach the shared domain's server. How the frame bridged ` +
           `(${boot?.path ?? 'unknown'}; served sw.js ${boot?.served?.slice(0, 12) ?? 'unknown'}, ` +
           `bridged worker's ${boot?.script?.slice(0, 12) ?? 'none'}):\n${boot?.steps.join('\n') ?? '(no trace)'}`,
       );
-      this.emit('updated', { message, after, boot });
+      const detached = { message, reason, after, boot };
+      this.emit('detached', detached);
+      this.emit('updated', detached);
     });
     on('processOutput', ({ id, fd, bytes }) => this.processes.get(id)?.output(fd, bytes));
     on('processStatus', ({ id, text }) => this.processes.get(id)?.status(text));

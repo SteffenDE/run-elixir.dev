@@ -1,5 +1,5 @@
 // lib/controller.ts: whether a bridged worker's requests still reach a
-// service worker after a newer one took over its frame.
+// service worker.
 import { expect, it, vi } from 'vitest';
 import { reachesServiceWorker } from '../../src/lib/controller';
 

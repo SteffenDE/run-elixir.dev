@@ -46,7 +46,8 @@ import type { WorkspaceKind } from '../kinds';
 import { Rpc, transfer } from '../lib/rpc';
 import { fileBytes, fileEntry, type Shared } from '../lib/share';
 import { loadSite, previewOrigin, previewOrigins } from '../lib/site';
-import { UPDATED, reachesServiceWorker } from '../lib/controller';
+import { DETACHED, reachesServiceWorker, type DetachedReason } from '../lib/controller';
+import { checkDetached } from '../host/worker';
 import {
   bridgeKey,
   countReads,
@@ -128,9 +129,12 @@ export type ExecEvents = {
   // What the files kept in /shared: the other projects open apply it.
   kept: KeptRecord[];
   warning: string;
-  // A newer service worker took over the exec frame `after` ms after it
-  // loaded, and this worker's requests no longer reach one (frames/exec.ts).
-  updated: { message: string; after: number | null };
+  // This worker's requests no longer reach a service worker, so new
+  // processes cannot start (lib/controller.ts). `after`: ms after the exec
+  // frame loaded, when its controller changed (null for another reason).
+  // Named for its first cause, a newer service worker; older apis ignore
+  // `reason`.
+  updated: { message: string; after: number | null; reason: DetachedReason };
   nif: NifBuild;
   // Something a node could not reach without Tailscale (the setup hint).
   blocked: string;
@@ -913,24 +917,48 @@ const handlers = {
 
 countReads();
 
-// A newer service worker took over the exec frame `after` ms after it
-// loaded (frames/exec.ts): warn if this worker's requests no longer reach
-// one (lib/controller.ts).
-async function controllerChanged(after: number | null): Promise<void> {
+// Whether this worker's requests no longer reach a service worker
+// (lib/controller.ts, docs/frames.md, "When a frame loses its service
+// worker"): checked when the frame's controller changed, when a worker did
+// not load (host/worker.ts), and when the page became visible again. Said
+// once, as soon as the page's port is here.
+let lost: ExecEvents['updated'] | null = null;
+let told = false;
+
+async function detached(reason: DetachedReason, after: number | null = null): Promise<boolean> {
+  if (lost) return true;
   if (await reachesServiceWorker(self.location.href)) {
-    console.info('exec: the host worker still reaches a service worker');
-    return;
+    if (reason === 'controllerchange')
+      console.info('exec: the host worker still reaches a service worker');
+    return false;
   }
-  console.error(`exec: ${UPDATED} (its requests reach the server: 404)`);
-  rpc?.emit('warning', UPDATED);
-  rpc?.emit('updated', { message: UPDATED, after });
+  if (lost) return true;
+  console.error(`exec: ${DETACHED} (${reason}; its requests reach the server: 404)`);
+  lost = { message: DETACHED, after, reason };
+  tell();
+  return true;
 }
+
+function tell(): void {
+  if (!lost || !rpc || told) return;
+  told = true;
+  rpc.emit('warning', lost.message);
+  rpc.emit('updated', lost);
+}
+
+if (bridgeKey()) checkDetached(() => detached('load'));
 
 self.onmessage = ({ data, ports }: MessageEvent) => {
   if (data?.kind === 'playground-exec-controller') {
-    if (bridgeKey()) void controllerChanged(typeof data.after === 'number' ? data.after : null);
+    if (bridgeKey())
+      void detached('controllerchange', typeof data.after === 'number' ? data.after : null);
+    return;
+  }
+  if (data?.kind === 'playground-exec-visible') {
+    if (bridgeKey()) void detached('visible');
     return;
   }
   if (data?.kind !== 'playground-exec' || rpc || !ports[0]) return;
   rpc = new Rpc(ports[0]).handle(handlers);
+  tell();
 };

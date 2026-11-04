@@ -21,6 +21,14 @@ const GATE_MS = 2000;
 // to load, fail or end (or for GATE_MS).
 let gate: Promise<void> = Promise.resolve();
 
+// Whether this context's requests no longer reach the service worker
+// (exec/host.ts sets it in bridge mode).
+let detached: (() => Promise<boolean>) | null = null;
+
+export function checkDetached(check: (() => Promise<boolean>) | null): void {
+  detached = check;
+}
+
 // A worker that starts again when its script or one of its imports does
 // not load. In bridge mode (docs/frames.md) the service worker answers
 // every file below /_bridge/KEY/, and the shared domain's server answers
@@ -41,6 +49,9 @@ let gate: Promise<void> = Promise.resolve();
 // runs, so it cannot be gated; it is sent no ports). The last failure goes
 // to onerror. Each retry logs a warning, and giving up an error (`name`:
 // the script's), so that the console says why a node did not start.
+// Before a retry, it asks `checkDetached`'s check, when one is set: if the
+// requests no longer reach a service worker (docs/frames.md, "When a frame
+// loses its service worker"), no retry can load, so it fails at once.
 export class RetryingWorker {
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: ErrorEvent) => void) | null = null;
@@ -101,22 +112,34 @@ export class RetryingWorker {
         return this.onerror?.(event);
       }
       event.preventDefault();
-      console.warn(`${this.name}: the worker did not load; starting it again`);
       thread.terminate();
       this.thread = null;
-      this.timer = setTimeout(
-        () => {
-          this.timer = null;
-          if (this.ended) return;
-          if (this.gated) return this.begin();
-          const next = (this.thread = this.start());
-          if (!this.hold)
-            for (const [message, transfer] of this.early) next.postMessage(message, transfer);
-        },
-        wait(this.retries++),
-      );
+      if (!detached) return this.retry();
+      void detached().then((lost) => {
+        if (this.ended) return;
+        if (!lost) return this.retry();
+        console.error(
+          `${this.name}: the worker did not load: its requests skip the service worker`,
+        );
+        this.onerror?.(event);
+      });
     };
     return thread;
+  }
+
+  private retry(): void {
+    console.warn(`${this.name}: the worker did not load; starting it again`);
+    this.timer = setTimeout(
+      () => {
+        this.timer = null;
+        if (this.ended) return;
+        if (this.gated) return this.begin();
+        const next = (this.thread = this.start());
+        if (!this.hold)
+          for (const [message, transfer] of this.early) next.postMessage(message, transfer);
+      },
+      wait(this.retries++),
+    );
   }
 
   postMessage(message: unknown, transfer: Transferable[] = []): void {

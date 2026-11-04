@@ -16,21 +16,30 @@ const parents = new Set(parentOrigins());
 let started = false;
 let worker: Worker | null = null;
 
-// In bridge mode, a newer service worker can take over this frame after
-// it started: a deploy changed the shared domain's sw.js, and another
-// frame of this origin loaded since. The host worker checks that its
-// requests still reach a service worker (exec/host.ts). Logged, for
-// debugging: the bootstrap should have bridged with the newest worker
-// (root/bridge.html), so a takeover means sw.js changed after the boot.
-if (bridgeKey())
+// In bridge mode, this frame can lose its service worker after it loaded
+// (docs/frames.md, "When a frame loses its service worker"): Safari deletes
+// the shared domain's registration (Intelligent Tracking Prevention), or a
+// newer worker takes over after a deploy changed sw.js. The host worker
+// checks whether its requests still reach a service worker (exec/host.ts)
+// when the controller changes, and when the page becomes visible again:
+// Safari deletes the registration when the page is used after a pause.
+// What comes before the host worker starts waits for it.
+const pending: unknown[] = [];
+const tell = (message: unknown) => (worker ? worker.postMessage(message) : pending.push(message));
+if (bridgeKey()) {
   navigator.serviceWorker.addEventListener('controllerchange', () => {
     const after = Math.round(performance.now());
+    const controller = navigator.serviceWorker.controller ? 'a service worker' : 'none';
     console.info(
-      `exec: a newer service worker took over this frame ${after} ms after it loaded ` +
+      `exec: this frame's controller changed ${after} ms after it loaded, to ${controller} ` +
         `(${worker ? 'after' : 'before'} its host worker started)`,
     );
-    worker?.postMessage({ kind: 'playground-exec-controller', after });
+    tell({ kind: 'playground-exec-controller', after });
   });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') tell({ kind: 'playground-exec-visible' });
+  });
+}
 
 addEventListener('message', (event) => {
   if (event.source !== window.parent || started) return;
@@ -45,7 +54,17 @@ addEventListener('message', (event) => {
     type: 'module',
     name: 'playground-exec',
   });
+  worker.onerror = (error) => {
+    // A load's failure has no message: in bridge mode, most likely its
+    // request skipped the service worker, which nothing here can report.
+    if (!error.message)
+      console.error(
+        `exec: the host worker did not load (this frame's service worker: ` +
+          `${navigator.serviceWorker?.controller ? 'present' : 'none'}). Reload the page.`,
+      );
+  };
   worker.postMessage({ kind: 'playground-exec' }, [event.ports[0]]);
+  for (const message of pending.splice(0)) worker.postMessage(message);
   window.parent.postMessage({ kind: 'playground-exec-started' }, event.origin);
 });
 // Nothing in it but that the frame loaded: any parent may hear it.
