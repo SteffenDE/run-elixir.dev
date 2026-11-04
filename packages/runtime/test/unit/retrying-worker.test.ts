@@ -3,7 +3,7 @@
 // the worker that loads, once; a worker that loaded and then fails is not
 // started again.
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { LOADED, RetryingWorker } from '../../src/host/worker';
+import { LOADED, RetryingWorker, checkDetached } from '../../src/host/worker';
 
 // A Worker that records what it was sent, and fails or answers on cue.
 class FakeWorker {
@@ -40,6 +40,7 @@ beforeEach(() => {
   vi.spyOn(console, 'error').mockImplementation(() => {});
 });
 afterEach(() => {
+  checkDetached(null);
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -137,4 +138,42 @@ it('lets the next gated worker load when one hangs, or ends', async () => {
   expect(made).toHaveLength(2);
   hung.terminate();
   last.terminate();
+});
+
+it('fails at once when its requests no longer reach the service worker', async () => {
+  const check = vi.fn(async () => true);
+  checkDetached(check);
+  const failures: string[] = [];
+  const worker = new RetryingWorker('test.js', create, true);
+  worker.onerror = (event) => failures.push(event.message || 'did not load');
+  made[0].fail();
+  await vi.runAllTimersAsync();
+  expect(check).toHaveBeenCalledOnce();
+  expect(made).toHaveLength(1);
+  expect(failures).toEqual(['did not load']);
+});
+
+it('starts again when its requests still reach the service worker', async () => {
+  checkDetached(async () => false);
+  const worker = new RetryingWorker('test.js', create, true);
+  worker.postMessage({ kind: 'start' });
+  made[0].fail();
+  await vi.runAllTimersAsync();
+  expect(made).toHaveLength(2);
+  made[1].say(LOADED);
+  expect(made[1].sent).toEqual([{ kind: 'start' }]);
+});
+
+it('neither starts again nor fails once terminated during the check', async () => {
+  let answer = (_lost: boolean) => {};
+  checkDetached(() => new Promise((resolve) => (answer = resolve)));
+  const failures: unknown[] = [];
+  const worker = new RetryingWorker('test.js', create, true);
+  worker.onerror = (event) => failures.push(event);
+  made[0].fail();
+  worker.terminate();
+  answer(false);
+  await vi.runAllTimersAsync();
+  expect(made).toHaveLength(1);
+  expect(failures).toEqual([]);
 });

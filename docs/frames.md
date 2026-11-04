@@ -1,7 +1,7 @@
 ---
 kind: design
 status: live
-last_updated: 2026-10-30
+last_updated: 2026-11-04
 ---
 
 # One trusted origin, and frames for what a project's code runs
@@ -241,6 +241,83 @@ for all of the page's projects. The service worker adds COEP
 `Content-Security-Policy`, and a `sandbox` policy on documents
 (`swBridge.ts`).
 
+### When a frame loses its service worker
+
+A bridged frame needs its service worker for every file it loads. The
+browser can remove the worker while the page runs. The frame's requests
+below `/_bridge/KEY/` then reach the shared domain's server, which answers
+404. Processes that are already running keep working, but no new worker
+loads, so no new process starts. Only a reload helps: the bootstrap
+registers the worker again.
+
+**Safari deletes the shared domain's storage from time to time.**
+Intelligent Tracking Prevention (ITP) removes all script-written storage
+of a registrable domain that had no first-party user interaction. That
+includes service worker registrations, IndexedDB and Local Storage. The
+shared domain never has first-party interaction: browsers only ever load
+it as a third-party frame. So every removal run deletes it, for every
+page's frames at once, while they run.
+
+The rules are in open-source WebKit
+(`Source/WebKit/NetworkProcess/Classifier/ResourceLoadStatisticsStore.cpp`,
+trunk of 2026-11-04):
+
+- `shouldRemoveAllButCookiesFor` selects every domain without recent user
+  interaction. The default mode is `FirstPartyWebsiteDataRemovalMode::AllButCookies`,
+  and a domain that never had interaction gets no grace period. No tracker
+  classification is needed.
+- `WebResourceLoadStatisticsStore::monitoredDataTypes()` includes
+  `ServiceWorkerRegistrations`.
+- Statistics are processed 5 s after they change, for example after a page
+  load (`minimumStatisticsProcessingInterval`). A removal runs at most once
+  an hour (`minimumTimeBetweenDataRecordsRemoval`). The time of the last
+  removal is kept in memory, so the first processing after Safari's network
+  process restarts can remove too.
+- Only the exact domain `localhost` is exempt (`shouldSkip`), not
+  `*.usercontent.localhost`.
+
+Observed in desktop Safari (macOS 27.2) with Tidewave's `/web` page on
+`localhost:9000` and the shared domain `usercontent.localhost:9000`,
+2026-11-04:
+
+- After the page was closed for a while, the exec frame booted with an
+  active, current worker. 4.9 s later its controller changed, and the host
+  worker's `HEAD` of its own script got 404 from the server. The server log
+  showed no request between the two. After the reload, the `e-`,
+  `claude-` and `v-` frames each installed a new worker: all three
+  registrations had been deleted.
+- A separate test page on `localhost` that framed
+  `e-test.usercontent.localhost` kept its registration across reloads and
+  after 14 minutes closed. About an hour later, after the deletion above,
+  it had none.
+- A quick reload usually worked. Fresh Playwright WebKit profiles did not
+  reproduce it.
+
+This also deletes the shared frames' storage, such as Claude Code's
+prepared files in the `claude-HASH` frame's IndexedDB
+([packages](#packages-page-programs-and-shared-frames)). The frame then
+prepares them again. The two Safari failures that
+[Service worker updates](#service-worker-updates) attributes to a
+takeover had the same symptoms and may have been this deletion instead.
+
+**The runtime reports the loss once, as soon as it notices.** The host
+worker sends a `HEAD` request for its own script below the bridge
+(`lib/controller.ts`). The file exists, so the service worker answers 200.
+A 404 means the request reached the server. The host worker checks:
+
+- when the exec frame's controller changes (`frames/exec.ts`);
+- when a worker does not load, before any retry (`host/worker.ts`
+  `checkDetached`). If the requests skip the service worker, it fails at
+  once instead of retrying;
+- when the exec frame's page becomes visible again. Safari deletes the
+  registration when the page is used after a pause.
+
+It then sends the warning `This page lost the playground’s service
+worker, and new processes cannot start. Reload the page.` and the
+`detached` event ([api.md](api.md)) with the check's `reason`. If the host
+worker itself does not load, the exec frame logs an error in its console.
+The page is not told: the frame has already reported that it started.
+
 ### Service worker updates
 
 A deploy that changes the runtime changes `/sw.js` on every origin of
@@ -334,17 +411,12 @@ project. Its bootstrap installs the new worker, which also takes over the
 running page's exec frame. In Chromium, Firefox and WebKit the running
 page's nodes still started afterwards (`bridge.spec.ts`). The test
 checks that the running exec frame logged `controllerchange` in
-Chromium and WebKit. Firefox's logged none. As a guard
-for browsers whose workers keep the old worker, the exec frame passes
-`controllerchange` to its host worker. The host worker then requests its
-own script below the bridge with `HEAD` (`lib/controller.ts`). Only a
-service worker answers it. A 404 from the shared domain's server means
-the worker's requests skip the service worker. The sandbox then sends
-the warning `The playground was updated while this page was open, and
-new processes cannot start. Reload the page.` (the IDE shows it in its
-status line), and the `updated` event ([api.md](api.md)). Unit tests
-cover this path. No tested browser takes it. In Safari it fired on
-2026-11-03, during the boot described above.
+Chromium and WebKit. Firefox's logged none. For browsers whose workers
+keep the old worker, the host worker checks its requests on each
+`controllerchange` ([above](#when-a-frame-loses-its-service-worker)). No
+tested browser fails that check after a takeover. In Safari it fired on
+2026-11-03, during the boot described above, and on 2026-11-04 after ITP
+deleted the registration.
 
 ### Debugging a service worker update
 
@@ -358,9 +430,9 @@ level) and sends the trace to its parent before it loads the frame's page
 | Where | What |
 | --- | --- |
 | The page's console | Each frame's trace: debug level when the active worker was current, info when the bootstrap waited for a new worker, a warning when it failed (`api/src/bridge.ts`). |
-| The exec frame's console | `exec: a newer service worker took over this frame N ms after it loaded`, on each `controllerchange` after the boot. |
-| The page's console, after a takeover that broke the frame | An error with the exec frame's boot trace, its served hash and the hash of the worker it bridged with. |
-| `sandbox.on('updated', …)` | `{ message, after, boot }`: the warning's text, the takeover's time, and the trace. |
+| The exec frame's console | `exec: this frame's controller changed N ms after it loaded, to …`, on each `controllerchange` after the boot. `exec: the host worker did not load …` when it did not. |
+| The page's console, after the frame lost its service worker | An error with the reason, the exec frame's boot trace, its served hash and the hash of the worker it bridged with. |
+| `sandbox.on('detached', …)` | `{ message, reason, after, boot }`: the warning's text, what the runtime noticed, the controller change's time, and the trace. |
 | `sandbox.boot` (internal) | The exec frame's trace; the e2e tests read it. |
 
 The trace's `path` says how the bootstrap chose its worker: `current`

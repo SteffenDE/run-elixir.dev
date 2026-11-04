@@ -1,7 +1,7 @@
 ---
 kind: design
 status: experiment
-last_updated: 2026-11-03
+last_updated: 2026-11-04
 ---
 
 # The API: running a project from a page
@@ -73,7 +73,7 @@ stream.write(bytes); stream.end(); stream.close();
 stream.onData((bytes) => {}); stream.onEnd(() => {}); stream.onClose(() => {});
 const stop = await sandbox.serve(9832, (stream) => {});  // 127.0.0.1:9832 answered here
 const url = await sandbox.previewUrl(4000, '/tidewave?entrypoint=inner');  // relay ready: frame it
-const unsubscribe = sandbox.on('serving', ({ ports, port }) => {});  // also 'progress', 'changed', 'warning', 'updated'
+const unsubscribe = sandbox.on('serving', ({ ports, port }) => {});  // also 'progress', 'changed', 'warning', 'detached'
 await sandbox.shutdown();
 ```
 
@@ -97,14 +97,24 @@ Errors carry POSIX's `code`:
 Output and events that come before a listener are given to the first
 one.
 
-`updated` comes when a deploy changed the shared domain's service worker
-while the page ran and new processes cannot start
-([frames.md](frames.md#service-worker-updates)). The page should ask the
-user to reload. `warning` says the same in words. The event carries
-`{ message, after, boot }`: the warning's text, how many ms after the exec
-frame loaded the new worker took over, and how the frame's bootstrap
-chose its service worker (`BridgeTrace`, or `null` from an older shared
-domain).
+`detached` comes when the exec frame lost its service worker and new
+processes cannot start
+([frames.md](frames.md#when-a-frame-loses-its-service-worker)). Safari
+causes this from time to time by deleting the shared domain's storage. The
+page should reload, or ask the user to. `warning` says the same in words.
+The event carries `{ message, reason, after, boot }`:
+
+- `message`: the warning's text.
+- `reason`: what the runtime noticed. `controllerchange` means the
+  frame's controller changed, `load` means a worker did not load, and
+  `visible` means the page became visible again. Older runtimes send only
+  `controllerchange`.
+- `after`: for `controllerchange`, how many ms after the exec frame loaded
+  it changed. Otherwise `null`.
+- `boot`: how the frame's bootstrap chose its service worker
+  (`BridgeTrace`, or `null` from an older shared domain).
+
+`updated` is a deprecated alias of `detached` and carries the same object.
 
 ## Plugins
 
